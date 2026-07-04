@@ -40,6 +40,7 @@
         <module>coco-parent</module>
         <module>coco-bom</module>
         <module>coco-api</module>
+        <module>coco-common</module>
         <module>coco-core</module>
         <module>coco-config</module>
         <module>coco-spring-boot-starter</module>
@@ -88,6 +89,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
