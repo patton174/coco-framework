@@ -13,14 +13,24 @@ import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoApiResponse;
+import io.github.coco.feature.web.trace.CocoTraceFilter;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import java.io.IOException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.context.request.ServletWebRequest;
 
 /**
@@ -73,7 +83,15 @@ class CocoWebAutoConfigurationTest {
         this.webContextRunner.run(context -> {
             assertTrue(context.containsBean("cocoExceptionHttpStatusResolver"));
             assertTrue(context.containsBean("cocoWebExceptionHandler"));
+            assertTrue(context.containsBean("cocoTraceFilterRegistration"));
         });
+    }
+
+    @Test
+    void disablesTraceFilterRegistrationByProperty() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.trace.enabled=false")
+                .run(context -> assertFalse(context.containsBean("cocoTraceFilterRegistration")));
     }
 
     @Test
@@ -119,5 +137,95 @@ class CocoWebAutoConfigurationTest {
 
                     assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
                 });
+    }
+
+    @Test
+    void readsTraceIdFromRequestHeaderAndClearsContext() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            request.addHeader("X-Trace-Id", " incoming-trace ");
+
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                    assertEquals("incoming-trace", CocoTraceContext.currentTraceId().orElseThrow()))));
+
+            assertEquals("incoming-trace", response.getHeader("X-Trace-Id"));
+            assertTrue(CocoTraceContext.currentTraceId().isEmpty());
+        });
+    }
+
+    @Test
+    void generatesTraceIdWhenRequestHeaderIsMissing() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            String[] traceId = new String[1];
+
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                    traceId[0] = CocoTraceContext.currentTraceId().orElseThrow())));
+
+            assertNotNull(traceId[0]);
+            assertFalse(traceId[0].isBlank());
+            assertEquals(traceId[0], response.getHeader("X-Trace-Id"));
+            assertTrue(CocoTraceContext.currentTraceId().isEmpty());
+        });
+    }
+
+    @Test
+    void usesConfiguredTraceHeaderName() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.trace.header-name=X-Request-Id")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Request-Id", "request-trace");
+
+                    filter.doFilter(request, response, new MockFilterChain());
+
+                    assertEquals("request-trace", response.getHeader("X-Request-Id"));
+                    assertTrue(CocoTraceContext.currentTraceId().isEmpty());
+                });
+    }
+
+    private static CocoTraceFilter traceFilter(FilterRegistrationBean<?> registrationBean) {
+        return (CocoTraceFilter) registrationBean.getFilter();
+    }
+
+    private static final class TraceCapturingServlet implements Servlet {
+
+        private final Runnable assertion;
+
+        private TraceCapturingServlet(Runnable assertion) {
+            this.assertion = assertion;
+        }
+
+        @Override
+        public void init(ServletConfig config) {
+        }
+
+        @Override
+        public ServletConfig getServletConfig() {
+            return null;
+        }
+
+        @Override
+        public void service(ServletRequest request, ServletResponse response) throws ServletException, IOException {
+            this.assertion.run();
+        }
+
+        @Override
+        public String getServletInfo() {
+            return "trace-capturing-servlet";
+        }
+
+        @Override
+        public void destroy() {
+        }
     }
 }
