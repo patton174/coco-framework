@@ -2,9 +2,12 @@ package io.github.coco.common.autoconfigure;
 
 import io.github.coco.common.CocoCommonProperties;
 import io.github.coco.common.i18n.CocoLocaleResolver;
+import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.i18n.DefaultCocoMessageBundleRegistry;
 import io.github.coco.common.i18n.DefaultCocoLocaleResolver;
 import io.github.coco.common.i18n.DefaultCocoMessageService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -35,9 +38,17 @@ public class CocoCommonAutoConfiguration {
 
     @Bean("cocoMessageSource")
     @ConditionalOnMissingBean(name = "cocoMessageSource")
-    public MessageSource cocoMessageSource(CocoCommonProperties properties) {
+    public MessageSource cocoMessageSource(CocoCommonProperties properties,
+            ObjectProvider<CocoMessageBundleRegistrar> registrars) {
+        DefaultCocoMessageBundleRegistry registry = new DefaultCocoMessageBundleRegistry();
+        properties.getI18n().getBasename().stream()
+                .filter(basename -> !"coco-messages".equals(basename))
+                .forEach(registry::add);
+        registrars.orderedStream().forEach(registrar -> registrar.registerBundles(registry));
+        registry.add("coco-messages");
+
         ResourceBundleMessageSource messageSource = new ResourceBundleMessageSource();
-        messageSource.setBasenames(properties.getI18n().getBasename().toArray(String[]::new));
+        messageSource.setBasenames(registry.basenames().toArray(String[]::new));
         messageSource.setDefaultEncoding("UTF-8");
         messageSource.setFallbackToSystemLocale(properties.getI18n().isFallbackToSystemLocale());
         return messageSource;

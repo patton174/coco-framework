@@ -6,17 +6,20 @@
 
     <parent>
         <groupId>io.github.patton174</groupId>
-        <artifactId>coco-framework</artifactId>
+        <artifactId>coco-api</artifactId>
         <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>coco-api</artifactId>
-    <packaging>pom</packaging>
-    <name>Coco API</name>
-    <description>Public API aggregate modules for Coco business applications.</description>
+    <artifactId>coco-api-core</artifactId>
+    <name>Coco API Core</name>
+    <description>Core public API contracts for Coco business applications.</description>
 
-    <modules>
-        <module>coco-api-core</module>
-    </modules>
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

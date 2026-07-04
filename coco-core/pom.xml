@@ -12,13 +12,11 @@
     </parent>
 
     <artifactId>coco-core</artifactId>
+    <packaging>pom</packaging>
     <name>Coco Core</name>
-    <description>Internal foundation code for Coco Framework.</description>
+    <description>Internal foundation aggregate modules for Coco Framework.</description>
 
-    <dependencies>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>coco-api</artifactId>
-        </dependency>
-    </dependencies>
+    <modules>
+        <module>coco-core-runtime</module>
+    </modules>
 </project>

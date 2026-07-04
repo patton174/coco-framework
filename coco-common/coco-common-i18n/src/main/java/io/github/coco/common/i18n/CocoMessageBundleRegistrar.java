@@ -1,0 +1,24 @@
+package io.github.coco.common.i18n;
+
+/**
+ * Coco 模块消息资源注册器。
+ * <p>
+ * 框架模块通过该接口声明自己的国际化消息资源包，由 {@code coco-common-i18n} 在自动配置阶段统一合并到 Coco
+ * 专用消息源中。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-common-i18n}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+@FunctionalInterface
+public interface CocoMessageBundleRegistrar {
+
+    void registerBundles(CocoMessageBundleRegistry registry);
+}
