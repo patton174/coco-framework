@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.trace.CocoTraceContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -33,6 +35,11 @@ class CocoAutoConfigurationTest {
                     CocoAutoConfiguration.class))
             .withPropertyValues("coco.common.i18n.basename=coco-messages");
 
+    @AfterEach
+    void clearTraceContext() {
+        CocoTraceContext.clear();
+    }
+
     @Test
     void registersStarterMessageBundle() {
         this.contextRunner.run(context -> {
@@ -42,5 +49,12 @@ class CocoAutoConfigurationTest {
             assertEquals("Coco Spring Boot Starter 消息资源已就绪。",
                     messageService.getMessage("coco.spring.boot.starter.ready"));
         });
+    }
+
+    @Test
+    void providesCommonTraceContextFromStarterDependency() {
+        String traceId = CocoTraceContext.getOrCreateTraceId();
+
+        assertEquals(traceId, CocoTraceContext.currentTraceId().orElseThrow());
     }
 }

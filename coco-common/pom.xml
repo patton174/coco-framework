@@ -17,6 +17,7 @@
     <description>Common infrastructure aggregate modules for Coco Framework.</description>
 
     <modules>
+        <module>coco-common-core</module>
         <module>coco-common-i18n</module>
     </modules>
 </project>
