@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.List;
 import java.util.Map;
 
+import io.github.coco.common.exception.type.CocoRequestException;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -116,5 +117,14 @@ class CocoAssertTest {
 
         assertEquals("coco.error.invalid-argument", exception.code());
         assertArrayEquals(new Object[] {"items"}, exception.args());
+    }
+
+    @Test
+    void rejectsNullErrorCodeWithCocoRequestException() {
+        CocoRequestException exception = assertThrows(CocoRequestException.class,
+                () -> CocoAssert.notNull(null, null));
+
+        assertEquals("coco.error.missing-error-code", exception.code());
+        assertEquals("Error code must not be null", exception.defaultMessage());
     }
 }

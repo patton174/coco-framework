@@ -70,6 +70,16 @@ class CocoCommonAutoConfigurationTest {
     }
 
     @Test
+    void resolvesInternalGuardExceptionMessageWithDefaultLocale() {
+        this.contextRunner.run(context -> {
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("异常编码不能为空",
+                    messageService.resolve(CocoCommonErrorCode.MISSING_ERROR_CODE.request()));
+        });
+    }
+
+    @Test
     void appliesDefaultLocaleFromApplicationProperties() {
         this.contextRunner
                 .withPropertyValues("coco.common.i18n.default-locale=en-US")

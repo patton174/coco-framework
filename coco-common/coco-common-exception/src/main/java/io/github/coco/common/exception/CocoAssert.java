@@ -2,7 +2,8 @@ package io.github.coco.common.exception;
 
 import java.util.Collection;
 import java.util.Map;
-import java.util.Objects;
+
+import io.github.coco.common.exception.support.CocoExceptionGuards;
 
 /**
  * Coco 静态断言工具。
@@ -138,6 +139,6 @@ public final class CocoAssert {
     }
 
     private static CocoException exception(CocoErrorCode errorCode, Object... args) {
-        return Objects.requireNonNull(errorCode, "errorCode must not be null").exception(args);
+        return CocoExceptionGuards.requireErrorCode(errorCode).exception(args);
     }
 }
