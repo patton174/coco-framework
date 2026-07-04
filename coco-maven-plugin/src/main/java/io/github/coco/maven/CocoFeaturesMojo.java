@@ -95,6 +95,15 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     @Parameter(property = "coco.features.skip", defaultValue = "false")
     private boolean skip;
 
+    /**
+     * <p>
+     * 执行 Coco 功能装配流程。
+     * </p>
+     * <p>
+     * 该流程会读取配置文件、扫描 {@code @CocoFeatures} 注解、生成构建期功能清单，并将启用的功能模块注入 Maven 模型。
+     * </p>
+     * @throws MojoExecutionException 功能装配失败时抛出
+     */
     @Override
     public void execute() throws MojoExecutionException {
         if (this.skip) {
@@ -124,6 +133,12 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         getLog().info("Coco feature manifest generated with " + plan.enabledFeatures().size() + " enabled features.");
     }
 
+    /**
+     * <p>
+     * 将最终启用的功能模块依赖注入当前 Maven 项目模型。
+     * </p>
+     * @param plan 最终功能启用计划
+     */
     void applyFeatureDependencies(CocoFeaturePlan plan) {
         Set<String> existingDependencies = this.project.getDependencies().stream()
                 .map(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
@@ -148,6 +163,13 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * <p>
+     * 尝试解析已注入的运行期功能模块 artifact。
+     * </p>
+     * @param dependency 功能模块依赖
+     * @return 解析到的 Maven artifact；解析器不可用或解析失败时返回空结果
+     */
     private Optional<Artifact> resolveRuntimeArtifact(Dependency dependency) {
         if (this.repositorySystem == null || this.repositorySystemSession == null) {
             return Optional.empty();
@@ -178,6 +200,13 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * <p>
+     * 将最终功能启用计划写入业务应用的构建输出目录。
+     * </p>
+     * @param plan 最终功能启用计划
+     * @throws MojoExecutionException 清单写入失败时抛出
+     */
     private void writeManifest(CocoFeaturePlan plan) throws MojoExecutionException {
         Path manifestPath = this.outputDirectory.toPath()
                 .resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
@@ -192,6 +221,13 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * <p>
+     * 构建用于扫描业务应用 class 的 classpath URL 集合。
+     * </p>
+     * @return classpath URL 集合
+     * @throws MojoExecutionException classpath 条目无法转换为 URL 时抛出
+     */
     private Collection<URL> classpathUrls() throws MojoExecutionException {
         LinkedHashSet<URL> urls = new LinkedHashSet<>();
         addUrl(urls, this.classesDirectory);
@@ -204,6 +240,14 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         return urls;
     }
 
+    /**
+     * <p>
+     * 向 classpath URL 集合添加一个文件或目录。
+     * </p>
+     * @param urls classpath URL 集合
+     * @param file 文件或目录
+     * @throws MojoExecutionException 文件路径无法转换为 URL 时抛出
+     */
     private void addUrl(Set<URL> urls, File file) throws MojoExecutionException {
         try {
             urls.add(file.toURI().toURL());
@@ -213,6 +257,13 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * <p>
+     * 将逗号分隔的功能标识文本解析为功能集合。
+     * </p>
+     * @param value 功能标识文本
+     * @return 功能集合
+     */
     private static Set<CocoFeature> parseFeatures(String value) {
         if (value == null || value.isBlank()) {
             return Set.of();
@@ -225,6 +276,14 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
+    /**
+     * <p>
+     * 合并两个功能集合。
+     * </p>
+     * @param left 左侧功能集合
+     * @param right 右侧功能集合
+     * @return 合并后的不可变功能集合
+     */
     private static Set<CocoFeature> union(Set<CocoFeature> left, Set<CocoFeature> right) {
         LinkedHashSet<CocoFeature> features = new LinkedHashSet<>(left);
         features.addAll(right);

@@ -33,10 +33,22 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
 
     private final Set<CocoFeature> excludedFeatures;
 
+    /**
+     * <p>
+     * 基于显式禁用功能集合创建功能管理器。
+     * </p>
+     * @param excludedFeatures 显式禁用的功能集合
+     */
     public DefaultCocoFeatureManager(Set<CocoFeature> excludedFeatures) {
         this(StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(excludedFeatures)));
     }
 
+    /**
+     * <p>
+     * 基于最终功能启用计划创建功能管理器。
+     * </p>
+     * @param featurePlan 最终功能启用计划
+     */
     public DefaultCocoFeatureManager(CocoFeaturePlan featurePlan) {
         this.featurePlan = Objects.requireNonNull(featurePlan, "featurePlan must not be null");
         this.enabledFeatures = this.featurePlan.enabledFeatures();
@@ -45,21 +57,36 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
         this.excludedFeatures = Set.copyOf(resolvedExcluded);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public boolean isEnabled(CocoFeature feature) {
         return this.enabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Set<CocoFeature> enabledFeatures() {
         return this.enabledFeatures;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Set<CocoFeature> excludedFeatures() {
         return this.excludedFeatures;
     }
 
+    /**
+     * <p>
+     * 返回当前管理器持有的完整功能计划。
+     * </p>
+     * @return 功能启用计划
+     */
     public CocoFeaturePlan featurePlan() {
         return this.featurePlan;
     }

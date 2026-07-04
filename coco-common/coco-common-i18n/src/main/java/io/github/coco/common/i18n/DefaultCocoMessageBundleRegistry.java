@@ -24,6 +24,9 @@ public final class DefaultCocoMessageBundleRegistry implements CocoMessageBundle
 
     private final Set<String> basenames = new LinkedHashSet<>();
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void add(String basename) {
         if (basename == null || basename.isBlank()) {
@@ -32,6 +35,12 @@ public final class DefaultCocoMessageBundleRegistry implements CocoMessageBundle
         this.basenames.add(basename.trim());
     }
 
+    /**
+     * <p>
+     * 返回已经注册的消息资源 basename 列表。
+     * </p>
+     * @return 消息资源 basename 列表
+     */
     public List<String> basenames() {
         return List.copyOf(this.basenames);
     }

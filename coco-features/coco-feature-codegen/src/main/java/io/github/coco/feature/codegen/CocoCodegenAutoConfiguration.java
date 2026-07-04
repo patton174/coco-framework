@@ -27,6 +27,12 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.CODEGEN)
 public class CocoCodegenAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册代码生成功能模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoCodegenMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoCodegenMessageBundleRegistrar() {

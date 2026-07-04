@@ -31,6 +31,17 @@ final class CocoFeatureSelectionCollector {
     private CocoFeatureSelectionCollector() {
     }
 
+    /**
+     * <p>
+     * 从业务方 Java 配置中收集功能启用和禁用声明。
+     * </p>
+     * <p>
+     * 收集来源包括 {@link CocoConfigurer} Bean 和标注了 {@link CocoFeatures} 的 Spring 配置类。
+     * </p>
+     * @param beanFactory Spring Bean 工厂
+     * @param configurers 业务方配置器集合
+     * @return 代码级功能选择声明
+     */
     static CocoFeatureSelection collect(ConfigurableListableBeanFactory beanFactory,
             ObjectProvider<CocoConfigurer> configurers) {
         EnumSet<CocoFeature> enabled = EnumSet.noneOf(CocoFeature.class);

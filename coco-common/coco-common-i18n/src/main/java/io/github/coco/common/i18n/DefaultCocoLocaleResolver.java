@@ -23,10 +23,19 @@ public final class DefaultCocoLocaleResolver implements CocoLocaleResolver {
 
     private final CocoI18nProperties properties;
 
+    /**
+     * <p>
+     * 创建基于 Coco 国际化配置的语言解析器。
+     * </p>
+     * @param properties Coco 国际化配置
+     */
     public DefaultCocoLocaleResolver(CocoI18nProperties properties) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Locale resolveLocale() {
         return this.properties.getDefaultLocale();

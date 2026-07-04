@@ -27,6 +27,12 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.DATA_PERMISSION)
 public class CocoDataPermissionAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册数据权限功能模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoDataPermissionMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoDataPermissionMessageBundleRegistrar() {

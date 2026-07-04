@@ -31,6 +31,14 @@ public final class DefaultCocoMessageService implements CocoMessageService {
 
     private final boolean useCodeAsDefaultMessage;
 
+    /**
+     * <p>
+     * 创建默认 Coco 消息服务。
+     * </p>
+     * @param messageSource Coco 专用消息源
+     * @param localeResolver 语言解析器
+     * @param useCodeAsDefaultMessage 消息资源缺失时是否使用编码作为默认消息
+     */
     public DefaultCocoMessageService(MessageSource messageSource, CocoLocaleResolver localeResolver,
             boolean useCodeAsDefaultMessage) {
         this.messageSource = Objects.requireNonNull(messageSource, "messageSource must not be null");
@@ -38,11 +46,17 @@ public final class DefaultCocoMessageService implements CocoMessageService {
         this.useCodeAsDefaultMessage = useCodeAsDefaultMessage;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getMessage(String code, Object... args) {
         return getMessage(code, this.localeResolver.resolveLocale(), args);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getMessage(String code, Locale locale, Object... args) {
         String checkedCode = requireCode(code);
@@ -54,11 +68,17 @@ public final class DefaultCocoMessageService implements CocoMessageService {
         return this.messageSource.getMessage(checkedCode, checkedArgs, checkedLocale);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getMessageOrDefault(String code, String defaultMessage, Object... args) {
         return getMessageOrDefault(code, defaultMessage, this.localeResolver.resolveLocale(), args);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getMessageOrDefault(String code, String defaultMessage, Locale locale, Object... args) {
         String checkedCode = requireCode(code);
@@ -67,11 +87,17 @@ public final class DefaultCocoMessageService implements CocoMessageService {
         return this.messageSource.getMessage(checkedCode, copyArgs(args), fallback, checkedLocale);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String resolve(CocoMessage message) {
         return resolve(message, this.localeResolver.resolveLocale());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String resolve(CocoMessage message, Locale locale) {
         CocoMessage checkedMessage = Objects.requireNonNull(message, "message must not be null");
@@ -79,11 +105,17 @@ public final class DefaultCocoMessageService implements CocoMessageService {
                 checkedMessage.args());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String resolve(CocoException exception) {
         return resolve(exception, this.localeResolver.resolveLocale());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String resolve(CocoException exception, Locale locale) {
         CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");

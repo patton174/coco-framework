@@ -31,6 +31,17 @@ import io.github.coco.feature.registry.CocoFeatureSelection;
  */
 public final class CocoAnnotatedFeatureScanner {
 
+    /**
+     * <p>
+     * 扫描编译输出目录中的 {@link CocoFeatures} 注解声明。
+     * </p>
+     * <p>
+     * 该方法只读取顶层 class，忽略内部类，并使用构建期 classpath 加载应用配置类。
+     * </p>
+     * @param classesDirectory 编译输出目录
+     * @param classpathUrls 构建期 classpath URL 集合
+     * @return 注解声明中的功能选择
+     */
     public CocoFeatureSelection scan(Path classesDirectory, Collection<URL> classpathUrls) {
         if (classesDirectory == null || !Files.isDirectory(classesDirectory)) {
             return CocoFeatureSelection.empty();
@@ -53,6 +64,15 @@ public final class CocoAnnotatedFeatureScanner {
         }
     }
 
+    /**
+     * <p>
+     * 从单个类中收集 {@link CocoFeatures} 声明。
+     * </p>
+     * @param classLoader 构建期类加载器
+     * @param className 待扫描类名
+     * @param enabled 启用功能收集目标
+     * @param disabled 禁用功能收集目标
+     */
     private void collect(ClassLoader classLoader, String className, Set<CocoFeature> enabled, Set<CocoFeature> disabled) {
         try {
             Class<?> type = Class.forName(className, false, classLoader);
@@ -68,6 +88,13 @@ public final class CocoAnnotatedFeatureScanner {
         }
     }
 
+    /**
+     * <p>
+     * 将 class 文件相对路径转换为 Java 类名。
+     * </p>
+     * @param path class 文件相对路径
+     * @return Java 类名
+     */
     private String toClassName(Path path) {
         String fileName = path.toString();
         return fileName.substring(0, fileName.length() - ".class".length())

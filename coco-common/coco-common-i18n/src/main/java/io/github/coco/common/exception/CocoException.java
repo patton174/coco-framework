@@ -26,14 +26,35 @@ public class CocoException extends RuntimeException {
 
     private final Object[] args;
 
+    /**
+     * <p>
+     * 使用消息编码创建 Coco 异常。
+     * </p>
+     * @param code 消息编码
+     */
     public CocoException(String code) {
         this(code, null);
     }
 
+    /**
+     * <p>
+     * 使用消息编码和默认文本创建 Coco 异常。
+     * </p>
+     * @param code 消息编码
+     * @param defaultMessage 默认消息文本
+     */
     public CocoException(String code, String defaultMessage) {
         this(code, defaultMessage, new Object[0]);
     }
 
+    /**
+     * <p>
+     * 使用消息编码、默认文本和格式化参数创建 Coco 异常。
+     * </p>
+     * @param code 消息编码
+     * @param defaultMessage 默认消息文本
+     * @param args 消息格式化参数
+     */
     public CocoException(String code, String defaultMessage, Object... args) {
         super(messageOrCode(code, defaultMessage));
         this.code = requireCode(code);
@@ -41,6 +62,14 @@ public class CocoException extends RuntimeException {
         this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
     }
 
+    /**
+     * <p>
+     * 使用消息编码、默认文本和异常原因创建 Coco 异常。
+     * </p>
+     * @param code 消息编码
+     * @param defaultMessage 默认消息文本
+     * @param cause 异常原因
+     */
     public CocoException(String code, String defaultMessage, Throwable cause) {
         super(messageOrCode(code, defaultMessage), cause);
         this.code = requireCode(code);
@@ -48,14 +77,32 @@ public class CocoException extends RuntimeException {
         this.args = new Object[0];
     }
 
+    /**
+     * <p>
+     * 返回国际化消息编码。
+     * </p>
+     * @return 消息编码
+     */
     public String code() {
         return this.code;
     }
 
+    /**
+     * <p>
+     * 返回消息格式化参数的防御性副本。
+     * </p>
+     * @return 消息格式化参数
+     */
     public Object[] args() {
         return Arrays.copyOf(this.args, this.args.length);
     }
 
+    /**
+     * <p>
+     * 返回消息资源缺失时使用的默认文本。
+     * </p>
+     * @return 默认消息文本
+     */
     public String defaultMessage() {
         return this.defaultMessage;
     }

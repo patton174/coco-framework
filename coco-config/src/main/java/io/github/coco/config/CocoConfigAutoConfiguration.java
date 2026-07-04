@@ -33,6 +33,19 @@ import org.springframework.context.annotation.Bean;
 @EnableConfigurationProperties(CocoProperties.class)
 public class CocoConfigAutoConfiguration {
 
+    /**
+     * <p>
+     * 创建 Coco 功能启用计划。
+     * </p>
+     * <p>
+     * 优先读取构建期生成的功能清单；清单不存在时，回退到配置文件、{@link CocoConfigurer} 和
+     * {@code @CocoFeatures} 声明合并后的运行期解析结果。
+     * </p>
+     * @param properties Coco 配置属性
+     * @param configurers 业务方提供的 Coco 配置器
+     * @param beanFactory Spring Bean 工厂，用于查找注解声明
+     * @return 最终功能启用计划
+     */
     @Bean
     @ConditionalOnMissingBean
     public CocoFeaturePlan cocoFeaturePlan(CocoProperties properties, ObjectProvider<CocoConfigurer> configurers,
@@ -48,12 +61,25 @@ public class CocoConfigAutoConfiguration {
                 });
     }
 
+    /**
+     * <p>
+     * 基于最终功能启用计划创建运行期功能管理器。
+     * </p>
+     * @param featurePlan 最终功能启用计划
+     * @return 功能管理器
+     */
     @Bean
     @ConditionalOnMissingBean
     public CocoFeatureManager cocoFeatureManager(CocoFeaturePlan featurePlan) {
         return new DefaultCocoFeatureManager(featurePlan);
     }
 
+    /**
+     * <p>
+     * 注册配置模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoConfigMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoConfigMessageBundleRegistrar() {

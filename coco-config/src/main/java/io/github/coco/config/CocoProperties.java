@@ -25,10 +25,22 @@ public class CocoProperties {
     @NestedConfigurationProperty
     private CocoFeatureProperties features = new CocoFeatureProperties();
 
+    /**
+     * <p>
+     * 返回 Coco 功能开关配置。
+     * </p>
+     * @return 功能开关配置
+     */
     public CocoFeatureProperties getFeatures() {
         return this.features;
     }
 
+    /**
+     * <p>
+     * 设置 Coco 功能开关配置。
+     * </p>
+     * @param features 功能开关配置
+     */
     public void setFeatures(CocoFeatureProperties features) {
         this.features = features == null ? new CocoFeatureProperties() : features;
     }

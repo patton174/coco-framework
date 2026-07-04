@@ -22,19 +22,85 @@ import io.github.coco.common.exception.CocoException;
  */
 public interface CocoMessageService {
 
+    /**
+     * <p>
+     * 使用当前语言解析消息编码。
+     * </p>
+     * @param code 消息编码
+     * @param args 消息格式化参数
+     * @return 解析后的消息文本
+     */
     String getMessage(String code, Object... args);
 
+    /**
+     * <p>
+     * 使用指定语言解析消息编码。
+     * </p>
+     * @param code 消息编码
+     * @param locale 目标语言
+     * @param args 消息格式化参数
+     * @return 解析后的消息文本
+     */
     String getMessage(String code, Locale locale, Object... args);
 
+    /**
+     * <p>
+     * 使用当前语言解析消息编码，并在资源缺失时返回默认文本。
+     * </p>
+     * @param code 消息编码
+     * @param defaultMessage 默认消息文本
+     * @param args 消息格式化参数
+     * @return 解析后的消息文本
+     */
     String getMessageOrDefault(String code, String defaultMessage, Object... args);
 
+    /**
+     * <p>
+     * 使用指定语言解析消息编码，并在资源缺失时返回默认文本。
+     * </p>
+     * @param code 消息编码
+     * @param defaultMessage 默认消息文本
+     * @param locale 目标语言
+     * @param args 消息格式化参数
+     * @return 解析后的消息文本
+     */
     String getMessageOrDefault(String code, String defaultMessage, Locale locale, Object... args);
 
+    /**
+     * <p>
+     * 使用当前语言解析 Coco 消息对象。
+     * </p>
+     * @param message Coco 消息对象
+     * @return 解析后的消息文本
+     */
     String resolve(CocoMessage message);
 
+    /**
+     * <p>
+     * 使用指定语言解析 Coco 消息对象。
+     * </p>
+     * @param message Coco 消息对象
+     * @param locale 目标语言
+     * @return 解析后的消息文本
+     */
     String resolve(CocoMessage message, Locale locale);
 
+    /**
+     * <p>
+     * 使用当前语言解析 Coco 异常中的消息信息。
+     * </p>
+     * @param exception Coco 异常
+     * @return 解析后的消息文本
+     */
     String resolve(CocoException exception);
 
+    /**
+     * <p>
+     * 使用指定语言解析 Coco 异常中的消息信息。
+     * </p>
+     * @param exception Coco 异常
+     * @param locale 目标语言
+     * @return 解析后的消息文本
+     */
     String resolve(CocoException exception, Locale locale);
 }

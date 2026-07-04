@@ -26,10 +26,22 @@ public class CocoCommonProperties {
     @NestedConfigurationProperty
     private CocoI18nProperties i18n = new CocoI18nProperties();
 
+    /**
+     * <p>
+     * 返回 Coco 国际化配置。
+     * </p>
+     * @return 国际化配置
+     */
     public CocoI18nProperties getI18n() {
         return this.i18n;
     }
 
+    /**
+     * <p>
+     * 设置 Coco 国际化配置。
+     * </p>
+     * @param i18n 国际化配置
+     */
     public void setI18n(CocoI18nProperties i18n) {
         this.i18n = i18n == null ? new CocoI18nProperties() : i18n;
     }

@@ -27,6 +27,12 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.TENANT)
 public class CocoTenantAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册租户功能模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoTenantMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoTenantMessageBundleRegistrar() {

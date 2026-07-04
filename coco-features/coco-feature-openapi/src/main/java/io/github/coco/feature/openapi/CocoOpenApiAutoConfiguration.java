@@ -27,6 +27,12 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.OPENAPI)
 public class CocoOpenApiAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册 OpenAPI 功能模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoOpenApiMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoOpenApiMessageBundleRegistrar() {

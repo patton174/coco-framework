@@ -20,5 +20,11 @@ import java.util.Locale;
  */
 public interface CocoLocaleResolver {
 
+    /**
+     * <p>
+     * 解析当前消息处理应使用的语言。
+     * </p>
+     * @return 当前语言
+     */
     Locale resolveLocale();
 }

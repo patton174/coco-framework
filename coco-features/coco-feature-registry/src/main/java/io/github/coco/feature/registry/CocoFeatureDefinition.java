@@ -28,6 +28,16 @@ public record CocoFeatureDefinition(
         boolean defaultEnabled,
         Set<CocoFeature> dependencies) {
 
+    /**
+     * <p>
+     * 创建标准功能定义，并复制依赖集合。
+     * </p>
+     * @param feature 功能枚举
+     * @param artifactId 功能模块 Maven artifactId
+     * @param autoConfigurationClassName 功能自动配置类全限定名
+     * @param defaultEnabled 是否默认启用
+     * @param dependencies 功能依赖集合
+     */
     public CocoFeatureDefinition {
         Objects.requireNonNull(feature, "feature must not be null");
         Objects.requireNonNull(artifactId, "artifactId must not be null");

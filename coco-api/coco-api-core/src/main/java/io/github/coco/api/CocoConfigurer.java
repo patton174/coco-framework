@@ -20,6 +20,15 @@ import io.github.coco.api.feature.CocoFeatureRegistry;
  */
 public interface CocoConfigurer {
 
+    /**
+     * <p>
+     * 配置 Coco 标准功能的启用或禁用声明。
+     * </p>
+     * <p>
+     * 业务项目可以通过该方法在 Java 配置类中集中声明功能开关，框架会在启动阶段与配置文件和注解声明合并。
+     * </p>
+     * @param features 功能注册器
+     */
     default void configureFeatures(CocoFeatureRegistry features) {
     }
 }

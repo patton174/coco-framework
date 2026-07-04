@@ -27,28 +27,43 @@ public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
 
     private final EnumSet<CocoFeature> excludedFeatures = EnumSet.noneOf(CocoFeature.class);
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public CocoFeatureRegistry include(CocoFeature... features) {
         addAll(this.includedFeatures, features);
         return this;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public CocoFeatureRegistry exclude(CocoFeature... features) {
         addAll(this.excludedFeatures, features);
         return this;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public boolean isIncluded(CocoFeature feature) {
         return this.includedFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public boolean isExcluded(CocoFeature feature) {
         return this.excludedFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Set<CocoFeature> includedFeatures() {
         if (this.includedFeatures.isEmpty()) {
@@ -57,6 +72,9 @@ public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
         return Collections.unmodifiableSet(EnumSet.copyOf(this.includedFeatures));
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Set<CocoFeature> excludedFeatures() {
         if (this.excludedFeatures.isEmpty()) {

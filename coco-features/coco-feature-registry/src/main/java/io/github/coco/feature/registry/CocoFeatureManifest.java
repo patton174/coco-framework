@@ -25,12 +25,26 @@ public record CocoFeatureManifest(String schemaVersion, String generatedBy, List
 
     public static final String CURRENT_SCHEMA_VERSION = "1.0";
 
+    /**
+     * <p>
+     * 创建构建期功能清单，并复制功能条目列表。
+     * </p>
+     * @param schemaVersion 清单结构版本
+     * @param generatedBy 清单生成来源
+     * @param features 功能条目列表
+     */
     public CocoFeatureManifest {
         Objects.requireNonNull(schemaVersion, "schemaVersion must not be null");
         Objects.requireNonNull(generatedBy, "generatedBy must not be null");
         features = List.copyOf(Objects.requireNonNull(features, "features must not be null"));
     }
 
+    /**
+     * <p>
+     * 返回清单中处于启用状态的功能标识集合。
+     * </p>
+     * @return 启用的功能标识集合
+     */
     public Set<String> enabledFeatureIds() {
         return this.features.stream()
                 .filter(CocoFeatureManifestEntry::enabled)

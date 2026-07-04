@@ -30,36 +30,84 @@ public class CocoI18nProperties {
 
     private boolean useCodeAsDefaultMessage = true;
 
+    /**
+     * <p>
+     * 返回消息资源 basename 列表。
+     * </p>
+     * @return 消息资源 basename 列表
+     */
     public List<String> getBasename() {
         return this.basename;
     }
 
+    /**
+     * <p>
+     * 设置消息资源 basename 列表。
+     * </p>
+     * @param basename 消息资源 basename 列表
+     */
     public void setBasename(List<String> basename) {
         this.basename = basename == null || basename.isEmpty()
                 ? new ArrayList<>(List.of("messages", "coco-messages"))
                 : new ArrayList<>(basename);
     }
 
+    /**
+     * <p>
+     * 返回默认语言。
+     * </p>
+     * @return 默认语言
+     */
     public Locale getDefaultLocale() {
         return this.defaultLocale;
     }
 
+    /**
+     * <p>
+     * 设置默认语言。
+     * </p>
+     * @param defaultLocale 默认语言
+     */
     public void setDefaultLocale(Locale defaultLocale) {
         this.defaultLocale = defaultLocale == null ? Locale.SIMPLIFIED_CHINESE : defaultLocale;
     }
 
+    /**
+     * <p>
+     * 返回是否回退到系统语言。
+     * </p>
+     * @return 启用系统语言回退时返回 {@code true}
+     */
     public boolean isFallbackToSystemLocale() {
         return this.fallbackToSystemLocale;
     }
 
+    /**
+     * <p>
+     * 设置是否回退到系统语言。
+     * </p>
+     * @param fallbackToSystemLocale 是否回退到系统语言
+     */
     public void setFallbackToSystemLocale(boolean fallbackToSystemLocale) {
         this.fallbackToSystemLocale = fallbackToSystemLocale;
     }
 
+    /**
+     * <p>
+     * 返回消息资源缺失时是否使用编码作为默认消息。
+     * </p>
+     * @return 启用编码兜底时返回 {@code true}
+     */
     public boolean isUseCodeAsDefaultMessage() {
         return this.useCodeAsDefaultMessage;
     }
 
+    /**
+     * <p>
+     * 设置消息资源缺失时是否使用编码作为默认消息。
+     * </p>
+     * @param useCodeAsDefaultMessage 是否使用编码作为默认消息
+     */
     public void setUseCodeAsDefaultMessage(boolean useCodeAsDefaultMessage) {
         this.useCodeAsDefaultMessage = useCodeAsDefaultMessage;
     }
