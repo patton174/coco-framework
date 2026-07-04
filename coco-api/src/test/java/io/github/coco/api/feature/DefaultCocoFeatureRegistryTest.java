@@ -9,14 +9,21 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * # 默认功能注册器测试
- *
- * - **作者**: [patton174](https://github.com/patton174)
- * - **仓库**: [coco-framework](https://github.com/patton174/coco-framework)
- * - **模块**: `coco-api`
- *
+ * 默认功能注册器测试。
+ * <p>
  * 验证功能排除配置的基础行为，保证后续构建期裁剪有稳定输入。
- *
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-api}</li>
+ * </ul>
+ * <p>
+ * 代码注释采用标准 JavaDoc HTML 标签，不使用 Markdown 语法。
+ * </p>
  * @author patton174
  * @since 1.0.0
  */
