@@ -18,11 +18,61 @@ package io.github.coco.common.exception;
  */
 public enum CocoCommonErrorCode implements CocoErrorCode {
 
+    /**
+     * <p>
+     * 未知错误。
+     * </p>
+     */
     UNKNOWN("coco.error.unknown", "Unknown error"),
 
+    /**
+     * <p>
+     * 请求参数不合法。
+     * </p>
+     */
     INVALID_ARGUMENT("coco.error.invalid-argument", "Invalid argument: {0}"),
 
-    MISSING_MESSAGE_CODE("coco.error.missing-message-code", "Message code must not be blank");
+    /**
+     * <p>
+     * 消息编码为空。
+     * </p>
+     */
+    MISSING_MESSAGE_CODE("coco.error.missing-message-code", "Message code must not be blank"),
+
+    /**
+     * <p>
+     * 请求未认证。
+     * </p>
+     */
+    UNAUTHORIZED("coco.error.unauthorized", "Unauthorized"),
+
+    /**
+     * <p>
+     * 请求无访问权限。
+     * </p>
+     */
+    FORBIDDEN("coco.error.forbidden", "Forbidden"),
+
+    /**
+     * <p>
+     * 请求资源不存在。
+     * </p>
+     */
+    NOT_FOUND("coco.error.not-found", "Resource not found: {0}"),
+
+    /**
+     * <p>
+     * 请求资源冲突。
+     * </p>
+     */
+    CONFLICT("coco.error.conflict", "Resource conflict: {0}"),
+
+    /**
+     * <p>
+     * 服务端内部错误。
+     * </p>
+     */
+    INTERNAL_ERROR("coco.error.internal-error", "Internal server error");
 
     private final String code;
 

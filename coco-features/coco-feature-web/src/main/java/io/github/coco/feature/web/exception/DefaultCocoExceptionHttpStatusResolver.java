@@ -2,15 +2,19 @@ package io.github.coco.feature.web.exception;
 
 import java.util.Objects;
 
+import io.github.coco.common.exception.CocoConflictException;
 import io.github.coco.common.exception.CocoException;
+import io.github.coco.common.exception.CocoForbiddenException;
+import io.github.coco.common.exception.CocoNotFoundException;
+import io.github.coco.common.exception.CocoSystemException;
+import io.github.coco.common.exception.CocoUnauthorizedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 
 /**
  * 默认 Coco 异常 HTTP 状态解析器。
  * <p>
- * 第一阶段将 {@link CocoException} 统一视为请求异常并返回 {@link HttpStatus#BAD_REQUEST}，业务项目可通过自定义
- * {@link CocoExceptionHttpStatusResolver} 覆盖该策略。
+ * 根据 Coco 类型化异常返回对应 HTTP 状态；未细分的 {@link CocoException} 默认视为请求异常。
  * </p>
  * <p>
  * 项目信息：
@@ -30,7 +34,22 @@ public final class DefaultCocoExceptionHttpStatusResolver implements CocoExcepti
      */
     @Override
     public HttpStatusCode resolve(CocoException exception) {
-        Objects.requireNonNull(exception, "exception must not be null");
+        CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");
+        if (checkedException instanceof CocoUnauthorizedException) {
+            return HttpStatus.UNAUTHORIZED;
+        }
+        if (checkedException instanceof CocoForbiddenException) {
+            return HttpStatus.FORBIDDEN;
+        }
+        if (checkedException instanceof CocoNotFoundException) {
+            return HttpStatus.NOT_FOUND;
+        }
+        if (checkedException instanceof CocoConflictException) {
+            return HttpStatus.CONFLICT;
+        }
+        if (checkedException instanceof CocoSystemException) {
+            return HttpStatus.INTERNAL_SERVER_ERROR;
+        }
         return HttpStatus.BAD_REQUEST;
     }
 }
