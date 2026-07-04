@@ -11,6 +11,8 @@ The current stage builds the repository structure only. Concrete feature behavio
 - `coco-api`: public API aggregate modules.
 - `coco-api-core`: core public API contracts under `coco-api/coco-api-core`.
 - `coco-common`: common infrastructure aggregate modules.
+- `coco-common-core`: common contracts and lightweight runtime utilities.
+- `coco-common-exception`: common exception contracts and assertion utilities.
 - `coco-common-i18n`: i18n message and framework prompt infrastructure.
 - `coco-core`: internal foundation aggregate modules.
 - `coco-core-runtime`: internal runtime foundations under `coco-core/coco-core-runtime`.
