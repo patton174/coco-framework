@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -72,6 +73,17 @@ class CocoCommonAutoConfigurationTest {
                 });
     }
 
+    @Test
+    void resolvesRegisteredModuleMessageBundle() {
+        this.contextRunner
+                .withUserConfiguration(ModuleMessageBundleConfiguration.class)
+                .run(context -> {
+                    CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+                    assertEquals("模块消息", messageService.getMessage("module.hello"));
+                });
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class UserMessageSourceConfiguration {
 
@@ -80,6 +92,15 @@ class CocoCommonAutoConfigurationTest {
             StaticMessageSource messageSource = new StaticMessageSource();
             messageSource.addMessage("app.only", java.util.Locale.getDefault(), "application");
             return messageSource;
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ModuleMessageBundleConfiguration {
+
+        @Bean
+        CocoMessageBundleRegistrar moduleMessageBundleRegistrar() {
+            return registry -> registry.add("module-messages");
         }
     }
 }

@@ -1,11 +1,14 @@
 package io.github.coco.config;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatureRegistry;
+import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -69,6 +72,21 @@ class CocoConfigAutoConfigurationTest {
                     assertFalse(manager.isEnabled(CocoFeature.TENANT));
                     assertFalse(manager.isEnabled(CocoFeature.DATA_PERMISSION));
                     assertTrue(manager.isEnabled(CocoFeature.WEB));
+                });
+    }
+
+    @Test
+    void registersConfigMessageBundle() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        CocoCommonAutoConfiguration.class,
+                        CocoConfigAutoConfiguration.class))
+                .run(context -> {
+                    CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+                    assertTrue(context.containsBean("cocoConfigMessageBundleRegistrar"));
+                    assertEquals("无效的 Coco 功能排除配置。",
+                            messageService.getMessage("coco.config.features.exclude.invalid"));
                 });
     }
 

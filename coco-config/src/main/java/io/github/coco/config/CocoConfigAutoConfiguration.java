@@ -3,6 +3,7 @@ package io.github.coco.config;
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.DefaultCocoFeatureRegistry;
+import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -37,5 +38,11 @@ public class CocoConfigAutoConfiguration {
         registry.exclude(properties.getFeatures().getExclude().toArray(CocoFeature[]::new));
         configurers.orderedStream().forEach(configurer -> configurer.configureFeatures(registry));
         return new DefaultCocoFeatureManager(registry.excludedFeatures());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "cocoConfigMessageBundleRegistrar")
+    public CocoMessageBundleRegistrar cocoConfigMessageBundleRegistrar() {
+        return registry -> registry.add("coco-config-messages");
     }
 }

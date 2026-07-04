@@ -6,17 +6,19 @@
 
     <parent>
         <groupId>io.github.patton174</groupId>
-        <artifactId>coco-framework</artifactId>
+        <artifactId>coco-core</artifactId>
         <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>coco-api</artifactId>
-    <packaging>pom</packaging>
-    <name>Coco API</name>
-    <description>Public API aggregate modules for Coco business applications.</description>
+    <artifactId>coco-core-runtime</artifactId>
+    <name>Coco Core Runtime</name>
+    <description>Internal runtime foundations for Coco Framework.</description>
 
-    <modules>
-        <module>coco-api-core</module>
-    </modules>
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-api-core</artifactId>
+        </dependency>
+    </dependencies>
 </project>

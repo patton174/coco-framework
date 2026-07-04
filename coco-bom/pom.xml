@@ -27,7 +27,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-api</artifactId>
+                <artifactId>coco-api-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -37,7 +37,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-core</artifactId>
+                <artifactId>coco-core-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
