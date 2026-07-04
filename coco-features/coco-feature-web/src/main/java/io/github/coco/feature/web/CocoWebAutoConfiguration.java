@@ -7,15 +7,20 @@ import io.github.coco.core.feature.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
+import io.github.coco.feature.web.trace.CocoTraceFilter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.Ordered;
 
 /**
  * Coco Web 功能自动配置。
  * <p>
- * 负责为 Web 功能模块注册国际化消息资源、统一异常响应处理器和异常 HTTP 状态解析器。
+ * 负责为 Web 功能模块注册国际化消息资源、统一异常响应处理器、异常 HTTP 状态解析器和 Trace 过滤器。
  * </p>
  * <p>
  * 项目信息：
@@ -30,6 +35,7 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @ConditionalOnCocoFeature(CocoFeature.WEB)
+@EnableConfigurationProperties(CocoWebProperties.class)
 public class CocoWebAutoConfiguration {
 
     /**
@@ -70,5 +76,24 @@ public class CocoWebAutoConfiguration {
     public CocoWebExceptionHandler cocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver) {
         return new CocoWebExceptionHandler(messageService, httpStatusResolver);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Trace 过滤器注册器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return Trace 过滤器注册器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnProperty(prefix = "coco.web.trace", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnMissingBean(name = "cocoTraceFilterRegistration")
+    public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties) {
+        FilterRegistrationBean<CocoTraceFilter> registration = new FilterRegistrationBean<>(
+                new CocoTraceFilter(properties.getTrace()));
+        registration.setName("cocoTraceFilter");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 }
