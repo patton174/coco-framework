@@ -10,7 +10,16 @@ import java.util.stream.Collectors;
 import io.github.coco.api.feature.CocoFeature;
 
 /**
- * Standard Coco feature metadata used by build-time assembly.
+ * # Coco 标准功能元数据
+ *
+ * - **作者**: [patton174](https://github.com/patton174)
+ * - **仓库**: [coco-framework](https://github.com/patton174/coco-framework)
+ * - **模块**: `coco-feature-registry`
+ *
+ * 维护框架标准功能清单，并根据排除项递归计算最终启用的功能集合。
+ *
+ * @author patton174
+ * @since 1.0.0
  */
 public final class StandardCocoFeatures {
 

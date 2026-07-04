@@ -12,14 +12,14 @@ Business projects should use Coco with a clean entry point:
 
 ```xml
 <parent>
-    <groupId>io.github.coco</groupId>
+    <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 </parent>
 
 <dependencies>
     <dependency>
-        <groupId>io.github.coco</groupId>
+        <groupId>io.github.patton174</groupId>
         <artifactId>coco-spring-boot-starter</artifactId>
     </dependency>
 </dependencies>

@@ -4,7 +4,16 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * Standard Coco feature identifiers.
+ * # Coco 标准功能标识
+ *
+ * - **作者**: [patton174](https://github.com/patton174)
+ * - **仓库**: [coco-framework](https://github.com/patton174/coco-framework)
+ * - **模块**: `coco-api`
+ *
+ * 定义框架内置能力的稳定枚举，避免业务配置中直接散落字符串。
+ *
+ * @author patton174
+ * @since 1.0.0
  */
 public enum CocoFeature {
 

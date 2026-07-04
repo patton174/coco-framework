@@ -12,6 +12,18 @@ import java.util.stream.Collectors;
 import io.github.coco.api.feature.CocoFeature;
 import org.junit.jupiter.api.Test;
 
+/**
+ * # 标准功能元数据测试
+ *
+ * - **作者**: [patton174](https://github.com/patton174)
+ * - **仓库**: [coco-framework](https://github.com/patton174/coco-framework)
+ * - **模块**: `coco-feature-registry`
+ *
+ * 验证标准功能清单、依赖声明和依赖排除传播规则。
+ *
+ * @author patton174
+ * @since 1.0.0
+ */
 class StandardCocoFeaturesTest {
 
     @Test

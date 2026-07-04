@@ -4,14 +4,14 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>io.github.coco</groupId>
+    <groupId>io.github.patton174</groupId>
     <artifactId>coco-framework</artifactId>
     <version>${revision}</version>
     <packaging>pom</packaging>
 
     <name>Coco Framework</name>
     <description>Spring Boot based framework skeleton for rapid web application development.</description>
-    <url>https://github.com/coco-framework/coco-framework</url>
+    <url>https://github.com/patton174/coco-framework</url>
 
     <licenses>
         <license>
@@ -24,15 +24,15 @@
     <developers>
         <developer>
             <id>coco-framework</id>
-            <name>Coco Framework Contributors</name>
-            <email>maintainers@example.com</email>
+            <name>patton174</name>
+            <email>2037475020@qq.com</email>
         </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:https://github.com/coco-framework/coco-framework.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/coco-framework/coco-framework.git</developerConnection>
-        <url>https://github.com/coco-framework/coco-framework</url>
+        <connection>scm:git:https://github.com/patton174/coco-framework.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/patton174/coco-framework.git</developerConnection>
+        <url>https://github.com/patton174/coco-framework</url>
         <tag>HEAD</tag>
     </scm>
 
