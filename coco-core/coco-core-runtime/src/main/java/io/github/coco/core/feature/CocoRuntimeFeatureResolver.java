@@ -30,6 +30,18 @@ import org.springframework.core.env.Environment;
  */
 public final class CocoRuntimeFeatureResolver {
 
+    /**
+     * <p>
+     * 解析当前应用运行期可见的最终功能启用计划。
+     * </p>
+     * <p>
+     * 方法会优先读取构建期清单；当清单不存在时，再从 Spring 环境中的
+     * {@code coco.features.enabled}、{@code coco.features.disabled} 和 {@code coco.features.exclude} 解析。
+     * </p>
+     * @param environment Spring 环境
+     * @param classLoader 用于读取构建期清单的类加载器
+     * @return 最终功能启用计划
+     */
     public CocoFeaturePlan resolve(Environment environment, ClassLoader classLoader) {
         return CocoFeatureManifestLoader.load(classLoader)
                 .map(StandardCocoFeatures::fromManifest)

@@ -27,6 +27,17 @@ public record CocoFeatureManifestEntry(
         boolean enabled,
         List<String> dependencies) {
 
+    /**
+     * <p>
+     * 创建功能清单条目，并复制依赖标识列表。
+     * </p>
+     * @param id 功能稳定标识
+     * @param artifactId 功能模块 Maven artifactId
+     * @param autoConfigurationClassName 功能自动配置类全限定名
+     * @param defaultEnabled 是否默认启用
+     * @param enabled 构建后是否最终启用
+     * @param dependencies 依赖功能标识列表
+     */
     public CocoFeatureManifestEntry {
         Objects.requireNonNull(id, "id must not be null");
         Objects.requireNonNull(artifactId, "artifactId must not be null");

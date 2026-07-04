@@ -31,5 +31,11 @@ import org.springframework.context.annotation.Conditional;
 @Conditional(OnCocoFeatureCondition.class)
 public @interface ConditionalOnCocoFeature {
 
+    /**
+     * <p>
+     * 指定当前自动配置或 Bean 方法依赖的 Coco 功能。
+     * </p>
+     * @return 需要处于启用状态的功能
+     */
     CocoFeature value();
 }

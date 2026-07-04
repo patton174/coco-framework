@@ -27,12 +27,27 @@ public record CocoFeaturePlan(
         Set<CocoFeature> disabledFeatures,
         List<CocoFeatureDefinition> definitions) {
 
+    /**
+     * <p>
+     * 创建最终功能启用计划，并复制为不可变集合。
+     * </p>
+     * @param enabledFeatures 最终启用的功能集合
+     * @param disabledFeatures 最终禁用的功能集合
+     * @param definitions 标准功能定义列表
+     */
     public CocoFeaturePlan {
         enabledFeatures = Set.copyOf(Objects.requireNonNull(enabledFeatures, "enabledFeatures must not be null"));
         disabledFeatures = Set.copyOf(Objects.requireNonNull(disabledFeatures, "disabledFeatures must not be null"));
         definitions = List.copyOf(Objects.requireNonNull(definitions, "definitions must not be null"));
     }
 
+    /**
+     * <p>
+     * 判断指定功能是否在最终计划中启用。
+     * </p>
+     * @param feature 需要判断的功能
+     * @return 功能启用时返回 {@code true}
+     */
     public boolean isEnabled(CocoFeature feature) {
         return this.enabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }

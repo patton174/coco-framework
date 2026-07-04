@@ -30,7 +30,22 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface CocoFeatures {
 
+    /**
+     * <p>
+     * 显式启用的 Coco 功能。
+     * </p>
+     * @return 需要启用的功能列表
+     */
     CocoFeature[] enabled() default {};
 
+    /**
+     * <p>
+     * 显式禁用的 Coco 功能。
+     * </p>
+     * <p>
+     * 当同一配置源同时声明启用和禁用同一功能时，禁用声明优先生效。
+     * </p>
+     * @return 需要禁用的功能列表
+     */
     CocoFeature[] disabled() default {};
 }

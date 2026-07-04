@@ -27,6 +27,12 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.SECURITY)
 public class CocoSecurityAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册安全功能模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoSecurityMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoSecurityMessageBundleRegistrar() {

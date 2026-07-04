@@ -33,6 +33,16 @@ import org.yaml.snakeyaml.Yaml;
  */
 public final class CocoBuildFeatureConfigurationLoader {
 
+    /**
+     * <p>
+     * 从业务项目资源目录加载构建期功能选择声明。
+     * </p>
+     * <p>
+     * 加载顺序为 {@code application.yml}、{@code application.yaml}、{@code application.properties}，后加载的配置优先级更高。
+     * </p>
+     * @param resourcesDirectory 业务项目资源目录
+     * @return 构建期功能选择声明
+     */
     public CocoFeatureSelection load(Path resourcesDirectory) {
         if (resourcesDirectory == null || !Files.isDirectory(resourcesDirectory)) {
             return CocoFeatureSelection.empty();
@@ -44,6 +54,13 @@ public final class CocoBuildFeatureConfigurationLoader {
         return selection;
     }
 
+    /**
+     * <p>
+     * 从 YAML 配置文件加载功能选择声明。
+     * </p>
+     * @param path YAML 配置文件路径
+     * @return 功能选择声明
+     */
     CocoFeatureSelection loadYaml(Path path) {
         if (!Files.isRegularFile(path)) {
             return CocoFeatureSelection.empty();
@@ -66,6 +83,13 @@ public final class CocoBuildFeatureConfigurationLoader {
         }
     }
 
+    /**
+     * <p>
+     * 从 properties 配置文件加载功能选择声明。
+     * </p>
+     * @param path properties 配置文件路径
+     * @return 功能选择声明
+     */
     CocoFeatureSelection loadProperties(Path path) {
         if (!Files.isRegularFile(path)) {
             return CocoFeatureSelection.empty();

@@ -56,19 +56,51 @@ public final class StandardCocoFeatures {
     private StandardCocoFeatures() {
     }
 
+    /**
+     * <p>
+     * 返回框架内置的全部标准功能定义。
+     * </p>
+     * @return 标准功能定义列表
+     */
     public static List<CocoFeatureDefinition> all() {
         return FEATURES;
     }
 
+    /**
+     * <p>
+     * 按功能枚举返回标准功能定义映射。
+     * </p>
+     * @return 以功能枚举为键的定义映射
+     */
     public static Map<CocoFeature, CocoFeatureDefinition> allByFeature() {
         return FEATURES.stream()
                 .collect(Collectors.toUnmodifiableMap(CocoFeatureDefinition::feature, Function.identity()));
     }
 
+    /**
+     * <p>
+     * 根据显式禁用集合计算最终启用的功能集合。
+     * </p>
+     * <p>
+     * 该方法保留给旧的排除式配置使用，内部会转换为 {@link CocoFeatureSelection} 后统一解析。
+     * </p>
+     * @param excluded 显式禁用的功能集合
+     * @return 经过依赖传播后的最终启用功能集合
+     */
     public static Set<CocoFeature> resolveEnabled(Set<CocoFeature> excluded) {
         return resolve(CocoFeatureSelection.ofDisabled(excluded)).enabledFeatures();
     }
 
+    /**
+     * <p>
+     * 根据功能选择声明计算最终功能启用计划。
+     * </p>
+     * <p>
+     * 解析流程会先应用默认启用功能，再合并显式启用和禁用声明，最后递归移除依赖不完整的功能。
+     * </p>
+     * @param selection 功能选择声明
+     * @return 最终功能启用计划
+     */
     public static CocoFeaturePlan resolve(CocoFeatureSelection selection) {
         CocoFeatureSelection requestedSelection = selection == null ? CocoFeatureSelection.empty() : selection;
         EnumSet<CocoFeature> enabled = EnumSet.noneOf(CocoFeature.class);
@@ -95,6 +127,14 @@ public final class StandardCocoFeatures {
         return new CocoFeaturePlan(enabled, disabled, FEATURES);
     }
 
+    /**
+     * <p>
+     * 将最终功能启用计划转换为构建期功能清单。
+     * </p>
+     * @param plan 最终功能启用计划
+     * @param generatedBy 清单生成来源
+     * @return 可写入业务应用产物的功能清单
+     */
     public static CocoFeatureManifest toManifest(CocoFeaturePlan plan, String generatedBy) {
         CocoFeaturePlan targetPlan = plan == null ? resolve(CocoFeatureSelection.empty()) : plan;
         List<CocoFeatureManifestEntry> entries = targetPlan.definitions().stream()
@@ -113,6 +153,16 @@ public final class StandardCocoFeatures {
         return new CocoFeatureManifest(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, generatedBy, entries);
     }
 
+    /**
+     * <p>
+     * 从构建期功能清单还原最终功能启用计划。
+     * </p>
+     * <p>
+     * 清单中的启用状态是构建期已经计算完成的结果，运行期不再重复合并业务配置。
+     * </p>
+     * @param manifest 构建期功能清单
+     * @return 最终功能启用计划
+     */
     public static CocoFeaturePlan fromManifest(CocoFeatureManifest manifest) {
         if (manifest == null) {
             return resolve(CocoFeatureSelection.empty());

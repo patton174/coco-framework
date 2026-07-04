@@ -36,10 +36,23 @@ public enum CocoFeature {
         this.id = id;
     }
 
+    /**
+     * <p>
+     * 返回功能在配置文件、构建清单和日志中的稳定标识。
+     * </p>
+     * @return 功能标识
+     */
     public String id() {
         return this.id;
     }
 
+    /**
+     * <p>
+     * 根据稳定标识查找 Coco 标准功能。
+     * </p>
+     * @param id 功能标识
+     * @return 匹配到的功能；未匹配时返回空结果
+     */
     public static Optional<CocoFeature> fromId(String id) {
         return Arrays.stream(values())
                 .filter(feature -> feature.id.equals(id))

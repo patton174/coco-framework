@@ -24,6 +24,12 @@ import org.springframework.context.annotation.Bean;
 @AutoConfiguration
 public class CocoFeatureRegistryAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册功能注册表模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoFeatureRegistryMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoFeatureRegistryMessageBundleRegistrar() {

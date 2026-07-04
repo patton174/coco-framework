@@ -20,6 +20,14 @@ import java.util.Arrays;
  */
 public record CocoMessage(String code, String defaultMessage, Object... args) {
 
+    /**
+     * <p>
+     * 创建 Coco 消息描述，并复制格式化参数。
+     * </p>
+     * @param code 消息编码
+     * @param defaultMessage 默认消息文本
+     * @param args 消息格式化参数
+     */
     public CocoMessage {
         if (code == null || code.isBlank()) {
             throw new IllegalArgumentException("message code must not be blank");
@@ -27,6 +35,12 @@ public record CocoMessage(String code, String defaultMessage, Object... args) {
         args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
     }
 
+    /**
+     * <p>
+     * 返回消息格式化参数的防御性副本。
+     * </p>
+     * @return 消息格式化参数
+     */
     @Override
     public Object[] args() {
         return Arrays.copyOf(this.args, this.args.length);

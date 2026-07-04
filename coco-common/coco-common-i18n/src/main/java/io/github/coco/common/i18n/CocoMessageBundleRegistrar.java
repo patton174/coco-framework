@@ -20,5 +20,11 @@ package io.github.coco.common.i18n;
 @FunctionalInterface
 public interface CocoMessageBundleRegistrar {
 
+    /**
+     * <p>
+     * 向 Coco 消息资源注册表添加当前模块的消息资源。
+     * </p>
+     * @param registry 消息资源注册表
+     */
     void registerBundles(CocoMessageBundleRegistry registry);
 }

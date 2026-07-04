@@ -27,6 +27,12 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.AUDIT)
 public class CocoAuditAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册审计功能模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoAuditMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoAuditMessageBundleRegistrar() {

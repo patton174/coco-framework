@@ -27,6 +27,14 @@ import org.springframework.core.type.AnnotatedTypeMetadata;
  */
 final class OnCocoFeatureCondition extends SpringBootCondition {
 
+    /**
+     * <p>
+     * 根据 {@link ConditionalOnCocoFeature} 声明判断当前自动配置或 Bean 是否匹配。
+     * </p>
+     * @param context Spring 条件上下文
+     * @param metadata 被判断目标的注解元数据
+     * @return Spring Boot 条件匹配结果
+     */
     @Override
     public ConditionOutcome getMatchOutcome(ConditionContext context, AnnotatedTypeMetadata metadata) {
         Map<String, Object> attributes = metadata.getAnnotationAttributes(

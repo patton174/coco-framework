@@ -18,5 +18,11 @@ package io.github.coco.common.i18n;
  */
 public interface CocoMessageBundleRegistry {
 
+    /**
+     * <p>
+     * 添加一个消息资源 basename。
+     * </p>
+     * @param basename 消息资源 basename
+     */
     void add(String basename);
 }

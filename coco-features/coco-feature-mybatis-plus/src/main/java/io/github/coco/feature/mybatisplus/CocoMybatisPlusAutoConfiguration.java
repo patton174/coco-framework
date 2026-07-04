@@ -27,6 +27,12 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.MYBATIS_PLUS)
 public class CocoMybatisPlusAutoConfiguration {
 
+    /**
+     * <p>
+     * 注册 MyBatis-Plus 功能模块内置的国际化消息资源。
+     * </p>
+     * @return 消息资源注册器
+     */
     @Bean
     @ConditionalOnMissingBean(name = "cocoMybatisPlusMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoMybatisPlusMessageBundleRegistrar() {
