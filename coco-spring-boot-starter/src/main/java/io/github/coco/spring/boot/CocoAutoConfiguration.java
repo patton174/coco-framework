@@ -1,6 +1,9 @@
 package io.github.coco.spring.boot;
 
+import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
 
 /**
  * Coco 自动配置入口。
@@ -20,4 +23,10 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
  */
 @AutoConfiguration
 public class CocoAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean(name = "cocoSpringBootStarterMessageBundleRegistrar")
+    public CocoMessageBundleRegistrar cocoSpringBootStarterMessageBundleRegistrar() {
+        return registry -> registry.add("coco-spring-boot-starter-messages");
+    }
 }

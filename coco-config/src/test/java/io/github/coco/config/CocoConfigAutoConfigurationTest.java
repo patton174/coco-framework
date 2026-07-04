@@ -81,6 +81,7 @@ class CocoConfigAutoConfigurationTest {
                 .withConfiguration(AutoConfigurations.of(
                         CocoCommonAutoConfiguration.class,
                         CocoConfigAutoConfiguration.class))
+                .withPropertyValues("coco.common.i18n.basename=coco-messages")
                 .run(context -> {
                     CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
