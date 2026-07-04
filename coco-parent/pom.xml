@@ -43,5 +43,19 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>io.github.patton174</groupId>
+                <artifactId>coco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>coco-feature-assembly</id>
+                        <goals>
+                            <goal>features</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 </project>

@@ -20,9 +20,23 @@ import java.util.Set;
  */
 public interface CocoFeatureRegistry {
 
+    CocoFeatureRegistry include(CocoFeature... features);
+
     CocoFeatureRegistry exclude(CocoFeature... features);
 
+    default CocoFeatureRegistry enable(CocoFeature... features) {
+        return include(features);
+    }
+
+    default CocoFeatureRegistry disable(CocoFeature... features) {
+        return exclude(features);
+    }
+
+    boolean isIncluded(CocoFeature feature);
+
     boolean isExcluded(CocoFeature feature);
+
+    Set<CocoFeature> includedFeatures();
 
     Set<CocoFeature> excludedFeatures();
 }

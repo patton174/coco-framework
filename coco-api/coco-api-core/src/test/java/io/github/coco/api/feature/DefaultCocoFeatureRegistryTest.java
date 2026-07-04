@@ -30,8 +30,21 @@ class DefaultCocoFeatureRegistryTest {
     void startsWithNoExcludedFeatures() {
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
 
+        assertTrue(registry.includedFeatures().isEmpty());
         assertTrue(registry.excludedFeatures().isEmpty());
+        assertFalse(registry.isIncluded(CocoFeature.WEB));
         assertFalse(registry.isExcluded(CocoFeature.TENANT));
+    }
+
+    @Test
+    void recordsIncludedFeatures() {
+        DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
+
+        registry.include(CocoFeature.WEB, CocoFeature.AUDIT);
+
+        assertTrue(registry.isIncluded(CocoFeature.WEB));
+        assertTrue(registry.isIncluded(CocoFeature.AUDIT));
+        assertEquals(Set.of(CocoFeature.WEB, CocoFeature.AUDIT), registry.includedFeatures());
     }
 
     @Test
@@ -51,6 +64,29 @@ class DefaultCocoFeatureRegistryTest {
 
         registry.exclude(CocoFeature.TENANT, CocoFeature.TENANT);
 
+        assertEquals(Set.of(CocoFeature.TENANT), registry.excludedFeatures());
+    }
+
+    @Test
+    void supportsEnableAndDisableAliases() {
+        DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
+
+        registry.enable(CocoFeature.OPENAPI).disable(CocoFeature.DATA_PERMISSION);
+
+        assertEquals(Set.of(CocoFeature.OPENAPI), registry.includedFeatures());
+        assertEquals(Set.of(CocoFeature.DATA_PERMISSION), registry.excludedFeatures());
+    }
+
+    @Test
+    void ignoresNullFeatureArraysAndValues() {
+        DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
+
+        registry.include((CocoFeature[]) null)
+                .exclude((CocoFeature[]) null)
+                .include(CocoFeature.WEB, null)
+                .exclude(null, CocoFeature.TENANT);
+
+        assertEquals(Set.of(CocoFeature.WEB), registry.includedFeatures());
         assertEquals(Set.of(CocoFeature.TENANT), registry.excludedFeatures());
     }
 }

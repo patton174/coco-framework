@@ -43,6 +43,8 @@ class StandardCocoFeaturesTest {
     void declaresPlannedFeatureDependencies() {
         Map<CocoFeature, CocoFeatureDefinition> definitions = StandardCocoFeatures.allByFeature();
 
+        assertEquals("io.github.coco.feature.web.CocoWebAutoConfiguration",
+                definitions.get(CocoFeature.WEB).autoConfigurationClassName());
         assertEquals(Set.of(CocoFeature.WEB, CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.AUDIT).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
@@ -67,5 +69,47 @@ class StandardCocoFeaturesTest {
         assertTrue(enabled.contains(CocoFeature.WEB));
         assertTrue(enabled.contains(CocoFeature.SECURITY));
         assertTrue(enabled.contains(CocoFeature.OPENAPI));
+    }
+
+    @Test
+    void resolvesSelectionWithHigherPriorityOverrides() {
+        CocoFeatureSelection applicationSelection = new CocoFeatureSelection(
+                Set.of(),
+                Set.of(CocoFeature.TENANT));
+        CocoFeatureSelection codeSelection = new CocoFeatureSelection(
+                Set.of(CocoFeature.TENANT),
+                Set.of());
+
+        CocoFeaturePlan plan = StandardCocoFeatures.resolve(applicationSelection.merge(codeSelection));
+
+        assertTrue(plan.enabledFeatures().contains(CocoFeature.TENANT));
+    }
+
+    @Test
+    void disabledFeatureWinsWithinSameSelection() {
+        CocoFeatureSelection selection = new CocoFeatureSelection(
+                Set.of(CocoFeature.OPENAPI),
+                Set.of(CocoFeature.OPENAPI));
+
+        CocoFeaturePlan plan = StandardCocoFeatures.resolve(selection);
+
+        assertFalse(plan.enabledFeatures().contains(CocoFeature.OPENAPI));
+        assertTrue(plan.disabledFeatures().contains(CocoFeature.OPENAPI));
+    }
+
+    @Test
+    void writesAndReadsFeatureManifest() {
+        CocoFeaturePlan plan = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION)));
+
+        String json = CocoFeatureManifestLoader.write(StandardCocoFeatures.toManifest(plan, "test"));
+        CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(
+                new java.io.ByteArrayInputStream(json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        CocoFeaturePlan loadedPlan = StandardCocoFeatures.fromManifest(manifest);
+
+        assertEquals(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, manifest.schemaVersion());
+        assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.TENANT));
+        assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.DATA_PERMISSION));
+        assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
     }
 }

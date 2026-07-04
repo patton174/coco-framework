@@ -1,6 +1,8 @@
 package io.github.coco.feature.openapi;
 
+import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.core.feature.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -22,6 +24,7 @@ import org.springframework.context.annotation.Bean;
  * @since 1.0.0
  */
 @AutoConfiguration
+@ConditionalOnCocoFeature(CocoFeature.OPENAPI)
 public class CocoOpenApiAutoConfiguration {
 
     @Bean
