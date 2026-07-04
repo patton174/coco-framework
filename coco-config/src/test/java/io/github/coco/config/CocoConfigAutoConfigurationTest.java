@@ -7,8 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatureRegistry;
+import io.github.coco.api.feature.CocoFeatures;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.feature.registry.CocoFeaturePlan;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -62,6 +64,32 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
+    void appliesDisabledAliasFromApplicationProperties() {
+        this.contextRunner
+                .withPropertyValues("coco.features.disabled[0]=openapi")
+                .run(context -> {
+                    CocoFeatureManager manager = context.getBean(CocoFeatureManager.class);
+
+                    assertFalse(manager.isEnabled(CocoFeature.OPENAPI));
+                    assertTrue(manager.isEnabled(CocoFeature.WEB));
+                });
+    }
+
+    @Test
+    void codeConfigurationCanOverrideApplicationProperties() {
+        this.contextRunner
+                .withUserConfiguration(AnnotatedCocoConfiguration.class)
+                .withPropertyValues("coco.features.exclude[0]=tenant")
+                .run(context -> {
+                    CocoFeatureManager manager = context.getBean(CocoFeatureManager.class);
+                    CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
+
+                    assertTrue(manager.isEnabled(CocoFeature.TENANT));
+                    assertTrue(plan.enabledFeatures().contains(CocoFeature.TENANT));
+                });
+    }
+
+    @Test
     void mergesFeatureExclusionsFromCocoConfigurerBeans() {
         this.contextRunner
                 .withUserConfiguration(UserCocoConfiguration.class)
@@ -100,9 +128,14 @@ class CocoConfigAutoConfigurationTest {
 
                 @Override
                 public void configureFeatures(CocoFeatureRegistry features) {
-                    features.exclude(CocoFeature.DATA_PERMISSION);
+                    features.disable(CocoFeature.DATA_PERMISSION);
                 }
             };
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @CocoFeatures(enabled = CocoFeature.TENANT)
+    static class AnnotatedCocoConfiguration {
     }
 }

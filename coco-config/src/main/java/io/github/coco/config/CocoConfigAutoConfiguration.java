@@ -1,10 +1,13 @@
 package io.github.coco.config;
 
 import io.github.coco.api.CocoConfigurer;
-import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.api.feature.DefaultCocoFeatureRegistry;
 import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.feature.registry.CocoFeatureManifestLoader;
+import io.github.coco.feature.registry.CocoFeaturePlan;
+import io.github.coco.feature.registry.CocoFeatureSelection;
+import io.github.coco.feature.registry.StandardCocoFeatures;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -32,12 +35,23 @@ public class CocoConfigAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public CocoFeatureManager cocoFeatureManager(CocoProperties properties,
-            ObjectProvider<CocoConfigurer> configurers) {
-        DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
-        registry.exclude(properties.getFeatures().getExclude().toArray(CocoFeature[]::new));
-        configurers.orderedStream().forEach(configurer -> configurer.configureFeatures(registry));
-        return new DefaultCocoFeatureManager(registry.excludedFeatures());
+    public CocoFeaturePlan cocoFeaturePlan(CocoProperties properties, ObjectProvider<CocoConfigurer> configurers,
+            ConfigurableListableBeanFactory beanFactory) {
+        return CocoFeatureManifestLoader.load(Thread.currentThread().getContextClassLoader())
+                .map(StandardCocoFeatures::fromManifest)
+                .orElseGet(() -> {
+                    CocoFeatureSelection propertySelection = new CocoFeatureSelection(
+                            properties.getFeatures().getEnabled(),
+                            properties.getFeatures().disabledFeatures());
+                    CocoFeatureSelection codeSelection = CocoFeatureSelectionCollector.collect(beanFactory, configurers);
+                    return StandardCocoFeatures.resolve(propertySelection.merge(codeSelection));
+                });
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoFeatureManager cocoFeatureManager(CocoFeaturePlan featurePlan) {
+        return new DefaultCocoFeatureManager(featurePlan);
     }
 
     @Bean

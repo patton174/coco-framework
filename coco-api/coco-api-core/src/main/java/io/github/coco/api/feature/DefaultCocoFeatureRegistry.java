@@ -23,19 +23,25 @@ import java.util.Set;
  */
 public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
 
+    private final EnumSet<CocoFeature> includedFeatures = EnumSet.noneOf(CocoFeature.class);
+
     private final EnumSet<CocoFeature> excludedFeatures = EnumSet.noneOf(CocoFeature.class);
 
     @Override
-    public CocoFeatureRegistry exclude(CocoFeature... features) {
-        if (features == null) {
-            return this;
-        }
-        for (CocoFeature feature : features) {
-            if (feature != null) {
-                this.excludedFeatures.add(feature);
-            }
-        }
+    public CocoFeatureRegistry include(CocoFeature... features) {
+        addAll(this.includedFeatures, features);
         return this;
+    }
+
+    @Override
+    public CocoFeatureRegistry exclude(CocoFeature... features) {
+        addAll(this.excludedFeatures, features);
+        return this;
+    }
+
+    @Override
+    public boolean isIncluded(CocoFeature feature) {
+        return this.includedFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
     @Override
@@ -44,10 +50,29 @@ public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
     }
 
     @Override
+    public Set<CocoFeature> includedFeatures() {
+        if (this.includedFeatures.isEmpty()) {
+            return Collections.emptySet();
+        }
+        return Collections.unmodifiableSet(EnumSet.copyOf(this.includedFeatures));
+    }
+
+    @Override
     public Set<CocoFeature> excludedFeatures() {
         if (this.excludedFeatures.isEmpty()) {
             return Collections.emptySet();
         }
         return Collections.unmodifiableSet(EnumSet.copyOf(this.excludedFeatures));
+    }
+
+    private static void addAll(EnumSet<CocoFeature> target, CocoFeature... features) {
+        if (features == null) {
+            return;
+        }
+        for (CocoFeature feature : features) {
+            if (feature != null) {
+                target.add(feature);
+            }
+        }
     }
 }

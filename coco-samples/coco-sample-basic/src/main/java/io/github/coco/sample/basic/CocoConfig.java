@@ -1,8 +1,7 @@
 package io.github.coco.sample.basic;
 
-import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.api.feature.CocoFeatureRegistry;
+import io.github.coco.api.feature.CocoFeatures;
 import org.springframework.context.annotation.Configuration;
 
 /**
@@ -22,10 +21,9 @@ import org.springframework.context.annotation.Configuration;
  * @since 1.0.0
  */
 @Configuration(proxyBeanMethods = false)
-public class CocoConfig implements CocoConfigurer {
-
-    @Override
-    public void configureFeatures(CocoFeatureRegistry features) {
-        features.exclude(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION);
-    }
+@CocoFeatures(disabled = {
+        CocoFeature.TENANT,
+        CocoFeature.DATA_PERMISSION
+})
+public class CocoConfig {
 }

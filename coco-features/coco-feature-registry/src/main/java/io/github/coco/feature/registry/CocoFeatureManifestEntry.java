@@ -1,14 +1,12 @@
 package io.github.coco.feature.registry;
 
+import java.util.List;
 import java.util.Objects;
-import java.util.Set;
-
-import io.github.coco.api.feature.CocoFeature;
 
 /**
- * Coco 功能定义。
+ * Coco 功能清单条目。
  * <p>
- * 描述一个标准功能的构建期元数据，包括模块坐标、默认状态和依赖关系。
+ * 描述一个标准功能在构建产物中的最终启用状态和运行期装配坐标。
  * </p>
  * <p>
  * 项目信息：
@@ -21,17 +19,18 @@ import io.github.coco.api.feature.CocoFeature;
  * @author patton174
  * @since 1.0.0
  */
-public record CocoFeatureDefinition(
-        CocoFeature feature,
+public record CocoFeatureManifestEntry(
+        String id,
         String artifactId,
         String autoConfigurationClassName,
         boolean defaultEnabled,
-        Set<CocoFeature> dependencies) {
+        boolean enabled,
+        List<String> dependencies) {
 
-    public CocoFeatureDefinition {
-        Objects.requireNonNull(feature, "feature must not be null");
+    public CocoFeatureManifestEntry {
+        Objects.requireNonNull(id, "id must not be null");
         Objects.requireNonNull(artifactId, "artifactId must not be null");
         Objects.requireNonNull(autoConfigurationClassName, "autoConfigurationClassName must not be null");
-        dependencies = Set.copyOf(Objects.requireNonNull(dependencies, "dependencies must not be null"));
+        dependencies = List.copyOf(Objects.requireNonNull(dependencies, "dependencies must not be null"));
     }
 }

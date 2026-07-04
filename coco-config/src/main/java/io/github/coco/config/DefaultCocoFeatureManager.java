@@ -5,6 +5,8 @@ import java.util.Objects;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.registry.CocoFeaturePlan;
+import io.github.coco.feature.registry.CocoFeatureSelection;
 import io.github.coco.feature.registry.StandardCocoFeatures;
 
 /**
@@ -25,15 +27,19 @@ import io.github.coco.feature.registry.StandardCocoFeatures;
  */
 public final class DefaultCocoFeatureManager implements CocoFeatureManager {
 
+    private final CocoFeaturePlan featurePlan;
+
     private final Set<CocoFeature> enabledFeatures;
 
     private final Set<CocoFeature> excludedFeatures;
 
     public DefaultCocoFeatureManager(Set<CocoFeature> excludedFeatures) {
-        Set<CocoFeature> configuredExcluded = excludedFeatures == null || excludedFeatures.isEmpty()
-                ? Set.of()
-                : Set.copyOf(excludedFeatures);
-        this.enabledFeatures = StandardCocoFeatures.resolveEnabled(configuredExcluded);
+        this(StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(excludedFeatures)));
+    }
+
+    public DefaultCocoFeatureManager(CocoFeaturePlan featurePlan) {
+        this.featurePlan = Objects.requireNonNull(featurePlan, "featurePlan must not be null");
+        this.enabledFeatures = this.featurePlan.enabledFeatures();
         EnumSet<CocoFeature> resolvedExcluded = EnumSet.allOf(CocoFeature.class);
         resolvedExcluded.removeAll(this.enabledFeatures);
         this.excludedFeatures = Set.copyOf(resolvedExcluded);
@@ -52,5 +58,9 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
     @Override
     public Set<CocoFeature> excludedFeatures() {
         return this.excludedFeatures;
+    }
+
+    public CocoFeaturePlan featurePlan() {
+        return this.featurePlan;
     }
 }

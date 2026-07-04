@@ -23,7 +23,27 @@ import io.github.coco.api.feature.CocoFeature;
  */
 public class CocoFeatureProperties {
 
+    private Set<CocoFeature> enabled = new LinkedHashSet<>();
+
+    private Set<CocoFeature> disabled = new LinkedHashSet<>();
+
     private Set<CocoFeature> exclude = new LinkedHashSet<>();
+
+    public Set<CocoFeature> getEnabled() {
+        return this.enabled;
+    }
+
+    public void setEnabled(Set<CocoFeature> enabled) {
+        this.enabled = enabled == null ? new LinkedHashSet<>() : new LinkedHashSet<>(enabled);
+    }
+
+    public Set<CocoFeature> getDisabled() {
+        return this.disabled;
+    }
+
+    public void setDisabled(Set<CocoFeature> disabled) {
+        this.disabled = disabled == null ? new LinkedHashSet<>() : new LinkedHashSet<>(disabled);
+    }
 
     public Set<CocoFeature> getExclude() {
         return this.exclude;
@@ -31,5 +51,11 @@ public class CocoFeatureProperties {
 
     public void setExclude(Set<CocoFeature> exclude) {
         this.exclude = exclude == null ? new LinkedHashSet<>() : new LinkedHashSet<>(exclude);
+    }
+
+    public Set<CocoFeature> disabledFeatures() {
+        LinkedHashSet<CocoFeature> features = new LinkedHashSet<>(this.disabled);
+        features.addAll(this.exclude);
+        return Set.copyOf(features);
     }
 }

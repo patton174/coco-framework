@@ -8,6 +8,8 @@ import java.util.EnumSet;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.registry.CocoFeatureSelection;
+import io.github.coco.feature.registry.StandardCocoFeatures;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -48,5 +50,15 @@ class CocoFeatureManagerTest {
         assertTrue(manager.isEnabled(CocoFeature.WEB));
         assertTrue(manager.isEnabled(CocoFeature.SECURITY));
         assertTrue(manager.isEnabled(CocoFeature.OPENAPI));
+    }
+
+    @Test
+    void canBeCreatedFromResolvedFeaturePlan() {
+        CocoFeatureManager manager = new DefaultCocoFeatureManager(StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.OPENAPI))));
+
+        assertFalse(manager.isEnabled(CocoFeature.OPENAPI));
+        assertTrue(manager.enabledFeatures().contains(CocoFeature.WEB));
+        assertTrue(manager.excludedFeatures().contains(CocoFeature.OPENAPI));
     }
 }
