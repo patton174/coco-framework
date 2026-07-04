@@ -6,7 +6,6 @@ import io.github.coco.common.exception.type.CocoNotFoundException;
 import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.exception.type.CocoSystemException;
 import io.github.coco.common.exception.type.CocoUnauthorizedException;
-import io.github.coco.common.exception.support.CocoExceptionGuards;
 
 /**
  * Coco 异常静态工厂。
@@ -180,6 +179,9 @@ public final class CocoExceptions {
     }
 
     private static CocoErrorCode requireErrorCode(CocoErrorCode errorCode) {
-        return CocoExceptionGuards.requireErrorCode(errorCode);
+        if (errorCode == null) {
+            throw CocoCommonErrorCode.MISSING_ERROR_CODE.request();
+        }
+        return errorCode;
     }
 }

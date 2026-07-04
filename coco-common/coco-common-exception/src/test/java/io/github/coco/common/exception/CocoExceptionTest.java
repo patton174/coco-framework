@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import io.github.coco.common.exception.type.CocoConflictException;
 import io.github.coco.common.exception.type.CocoForbiddenException;
@@ -37,7 +38,7 @@ class CocoExceptionTest {
         CocoException exception = CocoCommonErrorCode.INVALID_ARGUMENT.exception("name");
 
         assertEquals("coco.error.invalid-argument", exception.code());
-        assertEquals("Invalid argument: {0}", exception.defaultMessage());
+        assertEquals("coco.error.invalid-argument", exception.defaultMessage());
         assertArrayEquals(new Object[] {"name"}, exception.args());
     }
 
@@ -46,8 +47,8 @@ class CocoExceptionTest {
         CocoException exception = new CocoException(CocoCommonErrorCode.UNKNOWN);
 
         assertEquals("coco.error.unknown", exception.code());
-        assertEquals("Unknown error", exception.defaultMessage());
-        assertEquals("Unknown error", exception.getMessage());
+        assertEquals("coco.error.unknown", exception.defaultMessage());
+        assertEquals("coco.error.unknown", exception.getMessage());
     }
 
     @Test
@@ -93,7 +94,7 @@ class CocoExceptionTest {
 
         assertSame(cause, exception.getCause());
         assertEquals("coco.error.internal-error", exception.code());
-        assertEquals("Internal server error", exception.defaultMessage());
+        assertEquals("coco.error.internal-error", exception.defaultMessage());
         assertArrayEquals(new Object[] {"database"}, exception.args());
     }
 
@@ -102,8 +103,26 @@ class CocoExceptionTest {
         CocoRequestException exception = CocoExceptions.request(CocoCommonErrorCode.INVALID_ARGUMENT, "name");
 
         assertEquals("coco.error.invalid-argument", exception.code());
-        assertEquals("Invalid argument: {0}", exception.defaultMessage());
+        assertEquals("coco.error.invalid-argument", exception.defaultMessage());
         assertArrayEquals(new Object[] {"name"}, exception.args());
+    }
+
+    @Test
+    void commonErrorCodeDefaultMessagesUseCodeFallbackOnly() {
+        for (CocoCommonErrorCode errorCode : CocoCommonErrorCode.values()) {
+            assertEquals(errorCode.code(), errorCode.defaultMessage());
+        }
+    }
+
+    @Test
+    void exceptionModuleDoesNotExposeMessageGuardSupportPackage() {
+        try {
+            Class.forName("io.github.coco.common.exception.support.CocoExceptionGuards");
+            fail("exception module must not own i18n guard support");
+        }
+        catch (ClassNotFoundException ex) {
+            assertEquals("io.github.coco.common.exception.support.CocoExceptionGuards", ex.getMessage());
+        }
     }
 
     @Test
@@ -137,7 +156,7 @@ class CocoExceptionTest {
                 () -> new CocoException(" ", "默认消息"));
 
         assertEquals("coco.error.missing-message-code", exception.code());
-        assertEquals("Message code must not be blank", exception.defaultMessage());
+        assertEquals("coco.error.missing-message-code", exception.defaultMessage());
     }
 
     @Test
@@ -146,7 +165,7 @@ class CocoExceptionTest {
                 () -> new CocoConflictException((CocoErrorCode) null));
 
         assertEquals("coco.error.missing-error-code", exception.code());
-        assertEquals("Error code must not be null", exception.defaultMessage());
+        assertEquals("coco.error.missing-error-code", exception.defaultMessage());
     }
 
     @Test
@@ -155,7 +174,7 @@ class CocoExceptionTest {
                 () -> CocoExceptions.conflict(null));
 
         assertEquals("coco.error.missing-error-code", exception.code());
-        assertEquals("Error code must not be null", exception.defaultMessage());
+        assertEquals("coco.error.missing-error-code", exception.defaultMessage());
     }
 
     @Test

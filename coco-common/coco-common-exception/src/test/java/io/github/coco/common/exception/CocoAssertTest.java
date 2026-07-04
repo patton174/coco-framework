@@ -44,7 +44,7 @@ class CocoAssertTest {
                 () -> CocoAssert.notNull(null, CocoCommonErrorCode.INVALID_ARGUMENT, "value"));
 
         assertEquals("coco.error.invalid-argument", exception.code());
-        assertEquals("Invalid argument: {0}", exception.defaultMessage());
+        assertEquals("coco.error.invalid-argument", exception.defaultMessage());
         assertArrayEquals(new Object[] {"value"}, exception.args());
     }
 
@@ -125,6 +125,6 @@ class CocoAssertTest {
                 () -> CocoAssert.notNull(null, null));
 
         assertEquals("coco.error.missing-error-code", exception.code());
-        assertEquals("Error code must not be null", exception.defaultMessage());
+        assertEquals("coco.error.missing-error-code", exception.defaultMessage());
     }
 }

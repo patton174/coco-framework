@@ -14,9 +14,12 @@ import java.util.Objects;
  * <ul>
  *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
- *   <li>模块：{@code coco-common-core}</li>
+ *   <li>模块：{@code coco-common-i18n-api}</li>
  * </ul>
  * @author patton174
+ * @param code 消息编码
+ * @param defaultMessage 默认消息文本
+ * @param args 消息格式化参数
  * @since 1.0.0
  */
 public record CocoMessage(String code, String defaultMessage, Object... args) {

@@ -3,8 +3,6 @@ package io.github.coco.common.exception;
 import java.util.Collection;
 import java.util.Map;
 
-import io.github.coco.common.exception.support.CocoExceptionGuards;
-
 /**
  * Coco 静态断言工具。
  * <p>
@@ -139,6 +137,9 @@ public final class CocoAssert {
     }
 
     private static CocoException exception(CocoErrorCode errorCode, Object... args) {
-        return CocoExceptionGuards.requireErrorCode(errorCode).exception(args);
+        if (errorCode == null) {
+            throw CocoCommonErrorCode.MISSING_ERROR_CODE.request();
+        }
+        return errorCode.exception(args);
     }
 }

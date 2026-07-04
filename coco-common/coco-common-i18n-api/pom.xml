@@ -6,20 +6,20 @@
 
     <parent>
         <groupId>io.github.patton174</groupId>
-        <artifactId>coco-framework</artifactId>
+        <artifactId>coco-common</artifactId>
         <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>coco-common</artifactId>
-    <packaging>pom</packaging>
-    <name>Coco Common</name>
-    <description>Common infrastructure aggregate modules for Coco Framework.</description>
+    <artifactId>coco-common-i18n-api</artifactId>
+    <name>Coco Common I18n API</name>
+    <description>Internationalized message contracts for Coco Framework.</description>
 
-    <modules>
-        <module>coco-common-core</module>
-        <module>coco-common-i18n-api</module>
-        <module>coco-common-exception</module>
-        <module>coco-common-i18n</module>
-    </modules>
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>
