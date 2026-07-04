@@ -60,6 +60,16 @@ class CocoCommonAutoConfigurationTest {
     }
 
     @Test
+    void resolvesTypedExceptionMessageWithDefaultLocale() {
+        this.contextRunner.run(context -> {
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("资源不存在：user",
+                    messageService.resolve(CocoCommonErrorCode.NOT_FOUND.notFound("user")));
+        });
+    }
+
+    @Test
     void appliesDefaultLocaleFromApplicationProperties() {
         this.contextRunner
                 .withPropertyValues("coco.common.i18n.default-locale=en-US")

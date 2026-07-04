@@ -6,6 +6,9 @@ package io.github.coco.common.exception;
  * 提供 common 基础设施自身使用的稳定异常编码，具体语言文本由 {@code coco-messages} 资源包解析。
  * </p>
  * <p>
+ * 枚举中的默认文本只作为消息资源缺失时的兜底值，Web 响应和框架消息提示应通过 Coco 国际化服务解析。
+ * </p>
+ * <p>
  * 项目信息：
  * </p>
  * <ul>

@@ -1,5 +1,11 @@
 package io.github.coco.common.exception;
 
+import io.github.coco.common.exception.type.CocoConflictException;
+import io.github.coco.common.exception.type.CocoForbiddenException;
+import io.github.coco.common.exception.type.CocoNotFoundException;
+import io.github.coco.common.exception.type.CocoRequestException;
+import io.github.coco.common.exception.type.CocoSystemException;
+import io.github.coco.common.exception.type.CocoUnauthorizedException;
 import io.github.coco.common.i18n.CocoMessageCode;
 
 /**
