@@ -30,7 +30,8 @@ class CocoFeatureRegistryAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
-                    CocoFeatureRegistryAutoConfiguration.class));
+                    CocoFeatureRegistryAutoConfiguration.class))
+            .withPropertyValues("coco.common.i18n.basename=coco-messages");
 
     @Test
     void registersFeatureRegistryMessageBundle() {
