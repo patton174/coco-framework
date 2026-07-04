@@ -6,9 +6,6 @@ package io.github.coco.common.exception;
  * 提供 common 基础设施自身使用的稳定异常编码，具体语言文本由 {@code coco-messages} 资源包解析。
  * </p>
  * <p>
- * 枚举中的默认文本只作为消息资源缺失时的兜底值，Web 响应和框架消息提示应通过 Coco 国际化服务解析。
- * </p>
- * <p>
  * 项目信息：
  * </p>
  * <ul>
@@ -26,71 +23,68 @@ public enum CocoCommonErrorCode implements CocoErrorCode {
      * 未知错误。
      * </p>
      */
-    UNKNOWN("coco.error.unknown", "Unknown error"),
+    UNKNOWN("coco.error.unknown"),
 
     /**
      * <p>
      * 请求参数不合法。
      * </p>
      */
-    INVALID_ARGUMENT("coco.error.invalid-argument", "Invalid argument: {0}"),
+    INVALID_ARGUMENT("coco.error.invalid-argument"),
 
     /**
      * <p>
      * 消息编码为空。
      * </p>
      */
-    MISSING_MESSAGE_CODE("coco.error.missing-message-code", "Message code must not be blank"),
+    MISSING_MESSAGE_CODE("coco.error.missing-message-code"),
 
     /**
      * <p>
      * 异常编码为空。
      * </p>
      */
-    MISSING_ERROR_CODE("coco.error.missing-error-code", "Error code must not be null"),
+    MISSING_ERROR_CODE("coco.error.missing-error-code"),
 
     /**
      * <p>
      * 请求未认证。
      * </p>
      */
-    UNAUTHORIZED("coco.error.unauthorized", "Unauthorized"),
+    UNAUTHORIZED("coco.error.unauthorized"),
 
     /**
      * <p>
      * 请求无访问权限。
      * </p>
      */
-    FORBIDDEN("coco.error.forbidden", "Forbidden"),
+    FORBIDDEN("coco.error.forbidden"),
 
     /**
      * <p>
      * 请求资源不存在。
      * </p>
      */
-    NOT_FOUND("coco.error.not-found", "Resource not found: {0}"),
+    NOT_FOUND("coco.error.not-found"),
 
     /**
      * <p>
      * 请求资源冲突。
      * </p>
      */
-    CONFLICT("coco.error.conflict", "Resource conflict: {0}"),
+    CONFLICT("coco.error.conflict"),
 
     /**
      * <p>
      * 服务端内部错误。
      * </p>
      */
-    INTERNAL_ERROR("coco.error.internal-error", "Internal server error");
+    INTERNAL_ERROR("coco.error.internal-error");
 
     private final String code;
 
-    private final String defaultMessage;
-
-    CocoCommonErrorCode(String code, String defaultMessage) {
+    CocoCommonErrorCode(String code) {
         this.code = code;
-        this.defaultMessage = defaultMessage;
     }
 
     /**
@@ -99,13 +93,5 @@ public enum CocoCommonErrorCode implements CocoErrorCode {
     @Override
     public String code() {
         return this.code;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public String defaultMessage() {
-        return this.defaultMessage;
     }
 }

@@ -65,6 +65,6 @@ class CocoAutoConfigurationTest {
         CocoException exception = CocoCommonErrorCode.INVALID_ARGUMENT.exception("name");
 
         assertEquals("coco.error.invalid-argument", exception.code());
-        assertEquals("Invalid argument: {0}", exception.defaultMessage());
+        assertEquals("coco.error.invalid-argument", exception.defaultMessage());
     }
 }

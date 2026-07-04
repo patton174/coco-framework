@@ -2,7 +2,6 @@ package io.github.coco.common.exception.type;
 
 import io.github.coco.common.exception.CocoErrorCode;
 import io.github.coco.common.exception.CocoException;
-import io.github.coco.common.exception.support.CocoExceptionGuards;
 
 /**
  * Coco 无权限异常。
@@ -30,7 +29,7 @@ public class CocoForbiddenException extends CocoException {
      * @param args 消息格式化参数
      */
     public CocoForbiddenException(CocoErrorCode errorCode, Object... args) {
-        super(CocoExceptionGuards.requireErrorCode(errorCode), args);
+        super(errorCode, args);
     }
 
     /**
@@ -42,7 +41,7 @@ public class CocoForbiddenException extends CocoException {
      * @param args 消息格式化参数
      */
     public CocoForbiddenException(CocoErrorCode errorCode, Throwable cause, Object... args) {
-        super(CocoExceptionGuards.requireErrorCode(errorCode), cause, args);
+        super(errorCode, cause, args);
     }
 
     /**

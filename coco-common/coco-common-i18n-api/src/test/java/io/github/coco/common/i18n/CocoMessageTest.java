@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
  * <ul>
  *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
- *   <li>模块：{@code coco-common-core}</li>
+ *   <li>模块：{@code coco-common-i18n-api}</li>
  * </ul>
  * @author patton174
  * @since 1.0.0
@@ -40,6 +40,14 @@ class CocoMessageTest {
         assertEquals("sample.hello", message.code());
         assertEquals("你好，{0}", message.defaultMessage());
         assertArrayEquals(new Object[] {"Coco"}, message.args());
+    }
+
+    @Test
+    void usesCodeAsDefaultMessageWhenContractDoesNotOverrideFallback() {
+        CocoMessage message = CodeOnlyMessageCode.HELLO.message("Coco");
+
+        assertEquals("sample.code-only", message.code());
+        assertEquals("sample.code-only", message.defaultMessage());
     }
 
     @Test
@@ -87,6 +95,22 @@ class CocoMessageTest {
         @Override
         public String defaultMessage() {
             return this.defaultMessage;
+        }
+    }
+
+    private enum CodeOnlyMessageCode implements CocoMessageCode {
+
+        HELLO("sample.code-only");
+
+        private final String code;
+
+        CodeOnlyMessageCode(String code) {
+            this.code = code;
+        }
+
+        @Override
+        public String code() {
+            return this.code;
         }
     }
 }
