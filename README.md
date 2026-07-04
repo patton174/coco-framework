@@ -9,10 +9,13 @@ The current stage builds the repository structure only. Concrete feature behavio
 - `coco-parent`: recommended parent POM for business projects.
 - `coco-bom`: dependency management BOM.
 - `coco-api`: public API contracts used by business code.
+- `coco-common`: common infrastructure aggregate modules.
+- `coco-common-i18n`: i18n message and framework prompt infrastructure.
 - `coco-core`: internal framework foundations.
 - `coco-spring-boot-starter`: single starter dependency for business projects.
-- `coco-feature-registry`: standard feature metadata.
-- `coco-feature-*`: feature implementation shells.
+- `coco-features`: standard feature aggregate modules.
+- `coco-feature-registry`: standard feature metadata artifact under `coco-features/coco-feature-registry`.
+- `coco-feature-*`: feature implementation artifacts under `coco-features/coco-feature-*`.
 - `coco-maven-plugin`: build-time feature assembly plugin shell.
 - `coco-test`: shared test support shell.
 - `coco-samples`: sample applications.

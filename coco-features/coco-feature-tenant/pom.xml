@@ -3,20 +3,13 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <parent>
         <groupId>io.github.patton174</groupId>
         <artifactId>coco-framework</artifactId>
         <version>${revision}</version>
-        <relativePath>../pom.xml</relativePath>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
-
-    <artifactId>coco-common</artifactId>
-    <packaging>pom</packaging>
-    <name>Coco Common</name>
-    <description>Common infrastructure aggregate modules for Coco Framework.</description>
-
-    <modules>
-        <module>coco-common-i18n</module>
-    </modules>
+    <artifactId>coco-feature-tenant</artifactId>
+    <name>Coco Feature Tenant</name>
+    <description>Tenant feature implementation shell.</description>
 </project>

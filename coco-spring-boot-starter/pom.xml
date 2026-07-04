@@ -22,7 +22,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common</artifactId>
+            <artifactId>coco-common-i18n</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>

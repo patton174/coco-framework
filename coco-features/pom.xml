@@ -11,12 +11,20 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>coco-common</artifactId>
+    <artifactId>coco-features</artifactId>
     <packaging>pom</packaging>
-    <name>Coco Common</name>
-    <description>Common infrastructure aggregate modules for Coco Framework.</description>
+    <name>Coco Features</name>
+    <description>Feature aggregate modules for Coco Framework.</description>
 
     <modules>
-        <module>coco-common-i18n</module>
+        <module>coco-feature-registry</module>
+        <module>coco-feature-web</module>
+        <module>coco-feature-mybatis-plus</module>
+        <module>coco-feature-audit</module>
+        <module>coco-feature-security</module>
+        <module>coco-feature-tenant</module>
+        <module>coco-feature-data-permission</module>
+        <module>coco-feature-openapi</module>
+        <module>coco-feature-codegen</module>
     </modules>
 </project>

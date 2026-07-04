@@ -44,15 +44,7 @@
         <module>coco-core</module>
         <module>coco-config</module>
         <module>coco-spring-boot-starter</module>
-        <module>coco-feature-registry</module>
-        <module>coco-feature-web</module>
-        <module>coco-feature-mybatis-plus</module>
-        <module>coco-feature-audit</module>
-        <module>coco-feature-security</module>
-        <module>coco-feature-tenant</module>
-        <module>coco-feature-data-permission</module>
-        <module>coco-feature-openapi</module>
-        <module>coco-feature-codegen</module>
+        <module>coco-features</module>
         <module>coco-maven-plugin</module>
         <module>coco-test</module>
         <module>coco-samples/coco-sample-basic</module>
@@ -93,7 +85,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common</artifactId>
+                <artifactId>coco-common-i18n</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

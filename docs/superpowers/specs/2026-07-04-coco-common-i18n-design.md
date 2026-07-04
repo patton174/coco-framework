@@ -2,21 +2,21 @@
 
 ## Goal
 
-Build the first infrastructure capability under a new `coco-common` module: internationalized message resolution for Coco Framework.
+Build the first infrastructure capability under `coco-common/coco-common-i18n`: internationalized message resolution for Coco Framework.
 
-The module is a shared foundation for framework-level infrastructure. Internationalization is the first capability placed there, and future infrastructure such as common exceptions, request context, trace context, ID generation, time utilities, and common value objects can be added to the same module when they become necessary.
+`coco-common` is an aggregate module for common infrastructure. Internationalization is the first concrete child module and is published as `coco-common-i18n`. Future infrastructure such as request context, trace context, ID generation, time utilities, and common value objects can be added as common child modules when they become necessary.
 
 ## Module Boundary
 
-`coco-common` is not a business feature module. It is the framework foundation used by other Coco modules.
+`coco-common` is not a business feature module. It is the aggregate for framework foundations used by other Coco modules.
 
-It should contain stable, low-level infrastructure that can be reused by web, exception handling, response wrapping, audit logging, OpenAPI, and future feature modules. It should not contain MyBatis-Plus integration, audit business behavior, tenant logic, security decisions, or concrete web endpoint behavior.
+Its child modules should contain stable, low-level infrastructure that can be reused by web, exception handling, response wrapping, audit logging, OpenAPI, and future feature modules. They should not contain MyBatis-Plus integration, audit business behavior, tenant logic, security decisions, or concrete web endpoint behavior.
 
-`coco-config` remains responsible for binding `coco.*` properties and feature selection. `coco-common` may define nested property models for infrastructure areas, but Spring Boot auto-configuration and property metadata should still be wired cleanly through normal Boot configuration mechanisms.
+`coco-config` remains responsible for binding feature selection. `coco-common-i18n` owns the `coco.common.i18n` property model because it belongs to the i18n infrastructure itself, while Spring Boot auto-configuration and property metadata should still be wired cleanly through normal Boot configuration mechanisms.
 
 ## Public And Internal Boundaries
 
-`coco-common` has two audiences:
+`coco-common-i18n` has two audiences:
 
 1. Business projects and external Coco users.
 2. Other Coco framework modules.
@@ -39,7 +39,7 @@ Public APIs should be small and stable. Internal classes can contain factories, 
 
 ## First Capability: I18n
 
-The first `coco-common` capability provides a small message service on top of Spring's `MessageSource`.
+The first `coco-common-i18n` capability provides a small message service on top of Spring's `MessageSource`.
 
 Business code and later Coco modules should use `CocoMessageService` instead of directly depending on resource bundle mechanics. This gives the framework one stable place to define message fallback rules and locale selection.
 
@@ -94,7 +94,7 @@ String fallback = cocoMessageService.getMessageOrDefault("unknown.code", "默认
 
 ## Public API
 
-Create the following package in `coco-common`:
+Create the following package in `coco-common/coco-common-i18n`:
 
 ```text
 io.github.coco.common.i18n
@@ -138,11 +138,11 @@ Default locale resolver:
 DefaultCocoLocaleResolver
 ```
 
-For this first stage, the default resolver returns the configured default locale. Request-header based locale detection belongs to the later web layer, because `coco-common` should not depend on Servlet APIs.
+For this first stage, the default resolver returns the configured default locale. Request-header based locale detection belongs to the later web layer, because `coco-common-i18n` should not depend on Servlet APIs.
 
 ## Framework Exceptions And Prompts
 
-Create the following package in `coco-common`:
+Create the following package in `coco-common/coco-common-i18n`:
 
 ```text
 io.github.coco.common.exception
@@ -182,9 +182,9 @@ public record CocoMessage(String code, String defaultMessage, Object... args) {
 Default framework message bundle:
 
 ```text
-coco-common/src/main/resources/coco-messages.properties
-coco-common/src/main/resources/coco-messages_zh_CN.properties
-coco-common/src/main/resources/coco-messages_en_US.properties
+coco-common/coco-common-i18n/src/main/resources/coco-messages.properties
+coco-common/coco-common-i18n/src/main/resources/coco-messages_zh_CN.properties
+coco-common/coco-common-i18n/src/main/resources/coco-messages_en_US.properties
 ```
 
 Initial framework message codes:
@@ -254,16 +254,16 @@ It should not replace the application's primary Spring `messageSource` bean in t
 
 ## Maven Wiring
 
-Add `coco-common` to:
+Add `coco-common` and `coco-common-i18n` to:
 
 ```text
-root pom modules
-root dependencyManagement
-coco-bom dependencyManagement
-coco-spring-boot-starter dependencies
+root pom modules: coco-common aggregate
+root dependencyManagement: coco-common-i18n
+coco-bom dependencyManagement: coco-common-i18n
+coco-spring-boot-starter dependencies: coco-common-i18n
 ```
 
-`coco-common` dependencies:
+`coco-common-i18n` dependencies:
 
 ```text
 coco-api
@@ -276,7 +276,7 @@ spring-boot-test test
 assertj-core test
 ```
 
-`coco-common` should not depend on `coco-config` for this first stage. Keeping it independent avoids a cycle where config owns feature selection while common owns reusable infrastructure. If later we decide all nested property models must live in `coco-config`, we can move only the property model without moving the i18n service.
+`coco-common-i18n` should not depend on `coco-config` for this first stage. Keeping it independent avoids a cycle where config owns feature selection while common owns reusable infrastructure. If later we decide all nested property models must live in `coco-config`, we can move only the property model without moving the i18n service.
 
 ## Data Flow
 
@@ -352,7 +352,7 @@ These should be added only after the common service is stable and a concrete fra
 
 ## Acceptance Criteria
 
-- `coco-common` exists as a Maven module and is included through `coco-spring-boot-starter`.
+- `coco-common` exists as a Maven aggregate module, and `coco-common-i18n` is included through `coco-spring-boot-starter`.
 - Business projects can inject `CocoMessageService` after importing the starter.
 - Coco framework exceptions and prompts can carry i18n message codes without resolving text too early.
 - Default messages resolve from classpath resource bundles.
