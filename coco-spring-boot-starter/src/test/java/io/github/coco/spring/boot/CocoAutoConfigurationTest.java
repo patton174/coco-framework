@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.exception.CocoCommonErrorCode;
+import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.i18n.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -56,5 +58,13 @@ class CocoAutoConfigurationTest {
         String traceId = CocoTraceContext.getOrCreateTraceId();
 
         assertEquals(traceId, CocoTraceContext.currentTraceId().orElseThrow());
+    }
+
+    @Test
+    void providesCommonExceptionContractsFromStarterDependency() {
+        CocoException exception = CocoCommonErrorCode.INVALID_ARGUMENT.exception("name");
+
+        assertEquals("coco.error.invalid-argument", exception.code());
+        assertEquals("Invalid argument: {0}", exception.defaultMessage());
     }
 }
