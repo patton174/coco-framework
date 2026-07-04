@@ -1,6 +1,7 @@
 package io.github.coco.common.i18n;
 
 import java.util.Locale;
+import java.util.Objects;
 
 import io.github.coco.common.exception.CocoException;
 
@@ -42,6 +43,31 @@ public interface CocoMessageService {
      * @return 解析后的消息文本
      */
     String getMessage(String code, Locale locale, Object... args);
+
+    /**
+     * <p>
+     * 使用当前语言解析消息编码契约。
+     * </p>
+     * @param messageCode 消息编码契约
+     * @param args 消息格式化参数
+     * @return 解析后的消息文本
+     */
+    default String getMessage(CocoMessageCode messageCode, Object... args) {
+        return resolve(Objects.requireNonNull(messageCode, "messageCode must not be null").message(args));
+    }
+
+    /**
+     * <p>
+     * 使用指定语言解析消息编码契约。
+     * </p>
+     * @param messageCode 消息编码契约
+     * @param locale 目标语言
+     * @param args 消息格式化参数
+     * @return 解析后的消息文本
+     */
+    default String getMessage(CocoMessageCode messageCode, Locale locale, Object... args) {
+        return resolve(Objects.requireNonNull(messageCode, "messageCode must not be null").message(args), locale);
+    }
 
     /**
      * <p>

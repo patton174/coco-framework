@@ -1,6 +1,7 @@
 package io.github.coco.common.i18n;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Coco 消息描述。
@@ -19,6 +20,18 @@ import java.util.Arrays;
  * @since 1.0.0
  */
 public record CocoMessage(String code, String defaultMessage, Object... args) {
+
+    /**
+     * <p>
+     * 根据消息编码契约创建 Coco 消息描述。
+     * </p>
+     * @param messageCode 消息编码契约
+     * @param args 消息格式化参数
+     */
+    public CocoMessage(CocoMessageCode messageCode, Object... args) {
+        this(Objects.requireNonNull(messageCode, "messageCode must not be null").code(),
+                messageCode.defaultMessage(), args);
+    }
 
     /**
      * <p>

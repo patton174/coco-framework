@@ -26,6 +26,34 @@ import org.junit.jupiter.api.Test;
 class CocoExceptionTest {
 
     @Test
+    void createsExceptionFromErrorCodeContract() {
+        CocoException exception = CocoCommonErrorCode.INVALID_ARGUMENT.exception("name");
+
+        assertEquals("coco.error.invalid-argument", exception.code());
+        assertEquals("Invalid argument: {0}", exception.defaultMessage());
+        assertArrayEquals(new Object[] {"name"}, exception.args());
+    }
+
+    @Test
+    void constructorAcceptsErrorCodeContract() {
+        CocoException exception = new CocoException(CocoCommonErrorCode.UNKNOWN);
+
+        assertEquals("coco.error.unknown", exception.code());
+        assertEquals("Unknown error", exception.defaultMessage());
+        assertEquals("Unknown error", exception.getMessage());
+    }
+
+    @Test
+    void preservesCauseAndArgumentsFromErrorCodeContract() {
+        IllegalStateException cause = new IllegalStateException("boom");
+        CocoException exception = CocoCommonErrorCode.INVALID_ARGUMENT.exception(cause, "name");
+
+        assertSame(cause, exception.getCause());
+        assertEquals("coco.error.invalid-argument", exception.code());
+        assertArrayEquals(new Object[] {"name"}, exception.args());
+    }
+
+    @Test
     void preservesCodeDefaultMessageAndArguments() {
         CocoException exception = new CocoException("coco.error.invalid-argument", "参数 {0} 不合法", "name");
 

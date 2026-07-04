@@ -47,6 +47,27 @@ class DefaultCocoMessageServiceTest {
     }
 
     @Test
+    void resolvesMessageCodeWithDefaultLocale() {
+        String message = this.messageService.getMessage(SampleMessageCode.HELLO, "Coco");
+
+        assertEquals("你好，Coco", message);
+    }
+
+    @Test
+    void resolvesMessageCodeWithExplicitLocale() {
+        String message = this.messageService.getMessage(SampleMessageCode.HELLO, Locale.US, "Coco");
+
+        assertEquals("Hello, Coco", message);
+    }
+
+    @Test
+    void resolvesMessageCodeDefaultWhenResourceIsMissing() {
+        String message = this.messageService.getMessage(SampleMessageCode.MISSING, "Coco");
+
+        assertEquals("默认：Coco", message);
+    }
+
+    @Test
     void returnsCodeWhenMessageIsMissingAndCodeFallbackIsEnabled() {
         String message = this.messageService.getMessage("sample.missing");
 
@@ -78,5 +99,31 @@ class DefaultCocoMessageServiceTest {
         messageSource.setDefaultEncoding("UTF-8");
         messageSource.setFallbackToSystemLocale(false);
         return messageSource;
+    }
+
+    private enum SampleMessageCode implements CocoMessageCode {
+
+        HELLO("sample.hello", "默认：{0}"),
+
+        MISSING("sample.code-missing", "默认：{0}");
+
+        private final String code;
+
+        private final String defaultMessage;
+
+        SampleMessageCode(String code, String defaultMessage) {
+            this.code = code;
+            this.defaultMessage = defaultMessage;
+        }
+
+        @Override
+        public String code() {
+            return this.code;
+        }
+
+        @Override
+        public String defaultMessage() {
+            return this.defaultMessage;
+        }
     }
 }

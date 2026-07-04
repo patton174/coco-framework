@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
@@ -46,6 +47,15 @@ class CocoCommonAutoConfigurationTest {
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
             assertEquals("未知错误", messageService.getMessage("coco.error.unknown"));
+        });
+    }
+
+    @Test
+    void resolvesFrameworkErrorCodeWithDefaultLocale() {
+        this.contextRunner.run(context -> {
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("参数不合法：name", messageService.getMessage(CocoCommonErrorCode.INVALID_ARGUMENT, "name"));
         });
     }
 

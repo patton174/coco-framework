@@ -1,6 +1,7 @@
 package io.github.coco.common.exception;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Coco 框架异常基类。
@@ -25,6 +26,31 @@ public class CocoException extends RuntimeException {
     private final String defaultMessage;
 
     private final Object[] args;
+
+    /**
+     * <p>
+     * 使用异常编码契约创建 Coco 异常。
+     * </p>
+     * @param errorCode 异常编码契约
+     * @param args 消息格式化参数
+     */
+    public CocoException(CocoErrorCode errorCode, Object... args) {
+        this(Objects.requireNonNull(errorCode, "errorCode must not be null").code(),
+                errorCode.defaultMessage(), args);
+    }
+
+    /**
+     * <p>
+     * 使用异常编码契约和异常原因创建 Coco 异常。
+     * </p>
+     * @param errorCode 异常编码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     */
+    public CocoException(CocoErrorCode errorCode, Throwable cause, Object... args) {
+        this(Objects.requireNonNull(errorCode, "errorCode must not be null").code(),
+                errorCode.defaultMessage(), cause, args);
+    }
 
     /**
      * <p>
@@ -71,10 +97,23 @@ public class CocoException extends RuntimeException {
      * @param cause 异常原因
      */
     public CocoException(String code, String defaultMessage, Throwable cause) {
+        this(code, defaultMessage, cause, new Object[0]);
+    }
+
+    /**
+     * <p>
+     * 使用消息编码、默认文本、异常原因和格式化参数创建 Coco 异常。
+     * </p>
+     * @param code 消息编码
+     * @param defaultMessage 默认消息文本
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     */
+    public CocoException(String code, String defaultMessage, Throwable cause, Object... args) {
         super(messageOrCode(code, defaultMessage), cause);
         this.code = requireCode(code);
         this.defaultMessage = defaultMessage;
-        this.args = new Object[0];
+        this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
     }
 
     /**
