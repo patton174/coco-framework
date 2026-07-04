@@ -1,6 +1,7 @@
 package io.github.coco.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
  * Coco 根配置属性。
@@ -21,6 +22,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "coco")
 public class CocoProperties {
 
+    @NestedConfigurationProperty
     private CocoFeatureProperties features = new CocoFeatureProperties();
 
     public CocoFeatureProperties getFeatures() {
