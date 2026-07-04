@@ -25,6 +25,24 @@ import org.junit.jupiter.api.Test;
 class CocoMessageTest {
 
     @Test
+    void createsMessageFromMessageCodeContract() {
+        CocoMessage message = SampleMessageCode.HELLO.message("Coco");
+
+        assertEquals("sample.hello", message.code());
+        assertEquals("你好，{0}", message.defaultMessage());
+        assertArrayEquals(new Object[] {"Coco"}, message.args());
+    }
+
+    @Test
+    void createsMessageByConstructorFromMessageCodeContract() {
+        CocoMessage message = new CocoMessage(SampleMessageCode.HELLO, "Coco");
+
+        assertEquals("sample.hello", message.code());
+        assertEquals("你好，{0}", message.defaultMessage());
+        assertArrayEquals(new Object[] {"Coco"}, message.args());
+    }
+
+    @Test
     void preservesCodeDefaultMessageAndArguments() {
         CocoMessage message = new CocoMessage("sample.hello", "你好，{0}", "Coco");
 
@@ -46,5 +64,29 @@ class CocoMessageTest {
         args[0] = "after";
 
         assertArrayEquals(new Object[] {"before"}, message.args());
+    }
+
+    private enum SampleMessageCode implements CocoMessageCode {
+
+        HELLO("sample.hello", "你好，{0}");
+
+        private final String code;
+
+        private final String defaultMessage;
+
+        SampleMessageCode(String code, String defaultMessage) {
+            this.code = code;
+            this.defaultMessage = defaultMessage;
+        }
+
+        @Override
+        public String code() {
+            return this.code;
+        }
+
+        @Override
+        public String defaultMessage() {
+            return this.defaultMessage;
+        }
     }
 }
