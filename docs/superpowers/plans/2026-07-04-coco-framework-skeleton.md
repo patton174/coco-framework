@@ -4,7 +4,7 @@
 
 **Goal:** Build the initial Maven multi-module skeleton for Coco Framework without implementing concrete pagination, audit, security, tenant, data-permission, OpenAPI, or codegen behavior.
 
-**Architecture:** The root project is an internal Maven aggregator. `coco-parent` is the business-facing parent POM, `coco-bom` manages dependency versions, `coco-api` exposes stable user-facing contracts, `coco-core` holds internal foundations, `coco-spring-boot-starter` is the single runtime dependency, `coco-feature-registry` defines feature metadata, `coco-feature-*` modules are empty implementation shells, and `coco-maven-plugin` is a no-op build plugin placeholder.
+**Architecture:** The root project is an internal Maven aggregator. `coco-parent` is the business-facing parent POM, `coco-bom` manages dependency versions, `coco-api` exposes stable user-facing contracts, `coco-common` aggregates reusable infrastructure, `coco-core` holds internal foundations, `coco-spring-boot-starter` is the single runtime dependency, `coco-features/coco-feature-registry` defines feature metadata, `coco-features/coco-feature-*` modules are empty implementation shells with `coco-feature-*` artifact ids, and `coco-maven-plugin` is a no-op build plugin placeholder.
 
 **Tech Stack:** Java 17 target, Maven multi-module build, Spring Boot 4.1.0 dependency management, JUnit Jupiter, GitHub Actions, Maven Plugin API.
 
@@ -28,7 +28,7 @@
 - Create `coco-bom/pom.xml` for dependency management.
 - Create `coco-api` Java interfaces and tests for feature exclusion config.
 - Create `coco-core` minimal module with a marker class.
-- Create `coco-feature-registry` metadata resolver and tests.
+- Create `coco-features/coco-feature-registry` metadata resolver and tests.
 - Create `coco-spring-boot-starter` minimal auto-configuration.
 - Create empty feature shell modules with marker classes.
 - Create `coco-maven-plugin` no-op Mojo.
@@ -122,9 +122,9 @@ Expected: API tests pass.
 ### Task 3: Feature Registry Metadata
 
 **Files:**
-- Create: `coco-feature-registry/src/main/java/io/github/coco/feature/registry/CocoFeatureDefinition.java`
-- Create: `coco-feature-registry/src/main/java/io/github/coco/feature/registry/StandardCocoFeatures.java`
-- Create: `coco-feature-registry/src/test/java/io/github/coco/feature/registry/StandardCocoFeaturesTest.java`
+- Create: `coco-features/coco-feature-registry/src/main/java/io/github/coco/feature/registry/CocoFeatureDefinition.java`
+- Create: `coco-features/coco-feature-registry/src/main/java/io/github/coco/feature/registry/StandardCocoFeatures.java`
+- Create: `coco-features/coco-feature-registry/src/test/java/io/github/coco/feature/registry/StandardCocoFeaturesTest.java`
 
 **Interfaces:**
 - Consumes: `CocoFeature`.
@@ -142,7 +142,7 @@ Run:
 ```powershell
 $env:JAVA_HOME='D:\Programs\Java\jdk_21'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
-mvn -pl coco-feature-registry -am test
+mvn -pl :coco-feature-registry -am test
 ```
 
 Expected: compilation fails because registry classes do not exist yet.
@@ -158,7 +158,7 @@ Run:
 ```powershell
 $env:JAVA_HOME='D:\Programs\Java\jdk_21'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
-mvn -pl coco-feature-registry -am test
+mvn -pl :coco-feature-registry -am test
 ```
 
 Expected: registry tests pass.

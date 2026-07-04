@@ -64,17 +64,20 @@ coco-framework
 +-- coco-parent
 +-- coco-bom
 +-- coco-api
++-- coco-common
++   +-- coco-common-i18n
 +-- coco-core
 +-- coco-spring-boot-starter
-+-- coco-feature-registry
-+-- coco-feature-web
-+-- coco-feature-mybatis-plus
-+-- coco-feature-audit
-+-- coco-feature-security
-+-- coco-feature-tenant
-+-- coco-feature-data-permission
-+-- coco-feature-openapi
-+-- coco-feature-codegen
++-- coco-features
++   +-- coco-feature-registry
++   +-- coco-feature-web
++   +-- coco-feature-mybatis-plus
++   +-- coco-feature-audit
++   +-- coco-feature-security
++   +-- coco-feature-tenant
++   +-- coco-feature-data-permission
++   +-- coco-feature-openapi
++   +-- coco-feature-codegen
 +-- coco-maven-plugin
 +-- coco-test
 +-- coco-samples
@@ -103,6 +106,10 @@ Contains public APIs used directly by business code:
 
 This module must stay small, stable, and light on dependencies.
 
+### coco-common
+
+Aggregates reusable framework infrastructure modules. The first child module is `coco-common-i18n`, which owns framework message resolution, framework prompts, and common exception message codes.
+
 ### coco-core
 
 Contains internal foundation code:
@@ -120,6 +127,10 @@ It must not depend on concrete Web, MyBatis-Plus, Security, or OpenAPI implement
 ### coco-spring-boot-starter
 
 The only normal dependency business projects need to declare. It brings the public API and core runtime entry points, but it does not contain complete feature implementations.
+
+### coco-features
+
+Aggregates standard feature modules under one physical directory. Each child directory keeps its publishable `coco-feature-*` artifact id.
 
 ### coco-feature-registry
 
