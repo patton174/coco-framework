@@ -2,6 +2,13 @@ package io.github.coco.common.exception;
 
 import java.util.Objects;
 
+import io.github.coco.common.exception.type.CocoConflictException;
+import io.github.coco.common.exception.type.CocoForbiddenException;
+import io.github.coco.common.exception.type.CocoNotFoundException;
+import io.github.coco.common.exception.type.CocoRequestException;
+import io.github.coco.common.exception.type.CocoSystemException;
+import io.github.coco.common.exception.type.CocoUnauthorizedException;
+
 /**
  * Coco 异常静态工厂。
  * <p>

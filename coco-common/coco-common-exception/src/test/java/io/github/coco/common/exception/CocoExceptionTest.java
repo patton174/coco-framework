@@ -6,6 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import io.github.coco.common.exception.type.CocoConflictException;
+import io.github.coco.common.exception.type.CocoForbiddenException;
+import io.github.coco.common.exception.type.CocoNotFoundException;
+import io.github.coco.common.exception.type.CocoRequestException;
+import io.github.coco.common.exception.type.CocoSystemException;
+import io.github.coco.common.exception.type.CocoUnauthorizedException;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -68,6 +74,16 @@ class CocoExceptionTest {
                 CocoCommonErrorCode.CONFLICT.conflict("username"));
         assertInstanceOf(CocoSystemException.class,
                 CocoCommonErrorCode.INTERNAL_ERROR.system());
+    }
+
+    @Test
+    void typedExceptionsAreOrganizedInTypePackage() {
+        assertEquals("io.github.coco.common.exception.type", CocoRequestException.class.getPackageName());
+        assertEquals("io.github.coco.common.exception.type", CocoUnauthorizedException.class.getPackageName());
+        assertEquals("io.github.coco.common.exception.type", CocoForbiddenException.class.getPackageName());
+        assertEquals("io.github.coco.common.exception.type", CocoNotFoundException.class.getPackageName());
+        assertEquals("io.github.coco.common.exception.type", CocoConflictException.class.getPackageName());
+        assertEquals("io.github.coco.common.exception.type", CocoSystemException.class.getPackageName());
     }
 
     @Test

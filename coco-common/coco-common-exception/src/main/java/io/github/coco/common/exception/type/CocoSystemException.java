@@ -1,11 +1,14 @@
-package io.github.coco.common.exception;
+package io.github.coco.common.exception.type;
 
 import java.util.Objects;
 
+import io.github.coco.common.exception.CocoErrorCode;
+import io.github.coco.common.exception.CocoException;
+
 /**
- * Coco 资源不存在异常。
+ * Coco 系统异常。
  * <p>
- * 表示请求引用的业务资源、框架资源或路由目标不存在。
+ * 表示框架内部、基础设施或无法归类为调用方输入错误的服务端异常。
  * </p>
  * <p>
  * 项目信息：
@@ -18,53 +21,53 @@ import java.util.Objects;
  * @author patton174
  * @since 1.0.0
  */
-public class CocoNotFoundException extends CocoException {
+public class CocoSystemException extends CocoException {
 
     /**
      * <p>
-     * 使用异常编码契约创建资源不存在异常。
+     * 使用异常编码契约创建系统异常。
      * </p>
      * @param errorCode 异常编码契约
      * @param args 消息格式化参数
      */
-    public CocoNotFoundException(CocoErrorCode errorCode, Object... args) {
+    public CocoSystemException(CocoErrorCode errorCode, Object... args) {
         super(Objects.requireNonNull(errorCode, "errorCode must not be null"), args);
     }
 
     /**
      * <p>
-     * 使用异常编码契约和异常原因创建资源不存在异常。
+     * 使用异常编码契约和异常原因创建系统异常。
      * </p>
      * @param errorCode 异常编码契约
      * @param cause 异常原因
      * @param args 消息格式化参数
      */
-    public CocoNotFoundException(CocoErrorCode errorCode, Throwable cause, Object... args) {
+    public CocoSystemException(CocoErrorCode errorCode, Throwable cause, Object... args) {
         super(Objects.requireNonNull(errorCode, "errorCode must not be null"), cause, args);
     }
 
     /**
      * <p>
-     * 使用消息编码、默认文本和格式化参数创建资源不存在异常。
+     * 使用消息编码、默认文本和格式化参数创建系统异常。
      * </p>
      * @param code 消息编码
      * @param defaultMessage 默认消息文本
      * @param args 消息格式化参数
      */
-    public CocoNotFoundException(String code, String defaultMessage, Object... args) {
+    public CocoSystemException(String code, String defaultMessage, Object... args) {
         super(code, defaultMessage, args);
     }
 
     /**
      * <p>
-     * 使用消息编码、默认文本、异常原因和格式化参数创建资源不存在异常。
+     * 使用消息编码、默认文本、异常原因和格式化参数创建系统异常。
      * </p>
      * @param code 消息编码
      * @param defaultMessage 默认消息文本
      * @param cause 异常原因
      * @param args 消息格式化参数
      */
-    public CocoNotFoundException(String code, String defaultMessage, Throwable cause, Object... args) {
+    public CocoSystemException(String code, String defaultMessage, Throwable cause, Object... args) {
         super(code, defaultMessage, cause, args);
     }
 }

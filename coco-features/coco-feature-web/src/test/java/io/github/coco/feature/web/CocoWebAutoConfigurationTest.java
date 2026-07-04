@@ -118,6 +118,26 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void returnsLocalizedErrorResponseForTypedCocoException() {
+        this.webContextRunner.run(context -> {
+            CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users/404");
+
+            ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                    CocoCommonErrorCode.NOT_FOUND.notFound("user"),
+                    new ServletWebRequest(request));
+
+            CocoApiResponse<Void> body = response.getBody();
+            assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+            assertNotNull(body);
+            assertFalse(body.success());
+            assertEquals("coco.error.not-found", body.code());
+            assertEquals("资源不存在：user", body.message());
+            assertEquals("/api/users/404", body.path());
+        });
+    }
+
+    @Test
     void rejectsBlankResponseCode() {
         assertThrows(IllegalArgumentException.class,
                 () -> new CocoApiResponse<>(false, " ", "message", null, "trace", "/api/users"));
