@@ -133,7 +133,29 @@ class CocoExceptionTest {
 
     @Test
     void rejectsBlankCode() {
-        assertThrows(IllegalArgumentException.class, () -> new CocoException(" ", "默认消息"));
+        CocoRequestException exception = assertThrows(CocoRequestException.class,
+                () -> new CocoException(" ", "默认消息"));
+
+        assertEquals("coco.error.missing-message-code", exception.code());
+        assertEquals("Message code must not be blank", exception.defaultMessage());
+    }
+
+    @Test
+    void rejectsNullErrorCodeWithCocoRequestException() {
+        CocoRequestException exception = assertThrows(CocoRequestException.class,
+                () -> new CocoConflictException((CocoErrorCode) null));
+
+        assertEquals("coco.error.missing-error-code", exception.code());
+        assertEquals("Error code must not be null", exception.defaultMessage());
+    }
+
+    @Test
+    void staticFactoryRejectsNullErrorCodeWithCocoRequestException() {
+        CocoRequestException exception = assertThrows(CocoRequestException.class,
+                () -> CocoExceptions.conflict(null));
+
+        assertEquals("coco.error.missing-error-code", exception.code());
+        assertEquals("Error code must not be null", exception.defaultMessage());
     }
 
     @Test

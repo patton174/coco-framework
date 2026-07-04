@@ -1,7 +1,8 @@
 package io.github.coco.common.exception;
 
 import java.util.Arrays;
-import java.util.Objects;
+
+import io.github.coco.common.exception.support.CocoExceptionGuards;
 
 /**
  * Coco 框架异常基类。
@@ -44,7 +45,7 @@ public class CocoException extends RuntimeException {
      * @param args 消息格式化参数
      */
     public CocoException(CocoErrorCode errorCode, Object... args) {
-        this(Objects.requireNonNull(errorCode, "errorCode must not be null").code(),
+        this(CocoExceptionGuards.requireErrorCode(errorCode).code(),
                 errorCode.defaultMessage(), args);
     }
 
@@ -57,7 +58,7 @@ public class CocoException extends RuntimeException {
      * @param args 消息格式化参数
      */
     public CocoException(CocoErrorCode errorCode, Throwable cause, Object... args) {
-        this(Objects.requireNonNull(errorCode, "errorCode must not be null").code(),
+        this(CocoExceptionGuards.requireErrorCode(errorCode).code(),
                 errorCode.defaultMessage(), cause, args);
     }
 
@@ -92,7 +93,7 @@ public class CocoException extends RuntimeException {
      */
     public CocoException(String code, String defaultMessage, Object... args) {
         super(messageOrCode(code, defaultMessage));
-        this.code = requireCode(code);
+        this.code = CocoExceptionGuards.requireCode(code);
         this.defaultMessage = defaultMessage;
         this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
     }
@@ -120,7 +121,7 @@ public class CocoException extends RuntimeException {
      */
     public CocoException(String code, String defaultMessage, Throwable cause, Object... args) {
         super(messageOrCode(code, defaultMessage), cause);
-        this.code = requireCode(code);
+        this.code = CocoExceptionGuards.requireCode(code);
         this.defaultMessage = defaultMessage;
         this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
     }
@@ -156,14 +157,7 @@ public class CocoException extends RuntimeException {
     }
 
     private static String messageOrCode(String code, String defaultMessage) {
-        String checkedCode = requireCode(code);
+        String checkedCode = CocoExceptionGuards.requireCode(code);
         return defaultMessage == null || defaultMessage.isBlank() ? checkedCode : defaultMessage;
-    }
-
-    private static String requireCode(String code) {
-        if (code == null || code.isBlank()) {
-            throw new IllegalArgumentException("message code must not be blank");
-        }
-        return code;
     }
 }

@@ -1,13 +1,12 @@
 package io.github.coco.common.exception;
 
-import java.util.Objects;
-
 import io.github.coco.common.exception.type.CocoConflictException;
 import io.github.coco.common.exception.type.CocoForbiddenException;
 import io.github.coco.common.exception.type.CocoNotFoundException;
 import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.exception.type.CocoSystemException;
 import io.github.coco.common.exception.type.CocoUnauthorizedException;
+import io.github.coco.common.exception.support.CocoExceptionGuards;
 
 /**
  * Coco 异常静态工厂。
@@ -181,6 +180,6 @@ public final class CocoExceptions {
     }
 
     private static CocoErrorCode requireErrorCode(CocoErrorCode errorCode) {
-        return Objects.requireNonNull(errorCode, "errorCode must not be null");
+        return CocoExceptionGuards.requireErrorCode(errorCode);
     }
 }

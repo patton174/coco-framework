@@ -1,9 +1,8 @@
 package io.github.coco.common.exception.type;
 
-import java.util.Objects;
-
 import io.github.coco.common.exception.CocoErrorCode;
 import io.github.coco.common.exception.CocoException;
+import io.github.coco.common.exception.support.CocoExceptionGuards;
 
 /**
  * Coco 系统异常。
@@ -31,7 +30,7 @@ public class CocoSystemException extends CocoException {
      * @param args 消息格式化参数
      */
     public CocoSystemException(CocoErrorCode errorCode, Object... args) {
-        super(Objects.requireNonNull(errorCode, "errorCode must not be null"), args);
+        super(CocoExceptionGuards.requireErrorCode(errorCode), args);
     }
 
     /**
@@ -43,7 +42,7 @@ public class CocoSystemException extends CocoException {
      * @param args 消息格式化参数
      */
     public CocoSystemException(CocoErrorCode errorCode, Throwable cause, Object... args) {
-        super(Objects.requireNonNull(errorCode, "errorCode must not be null"), cause, args);
+        super(CocoExceptionGuards.requireErrorCode(errorCode), cause, args);
     }
 
     /**

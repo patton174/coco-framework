@@ -44,6 +44,13 @@ public enum CocoCommonErrorCode implements CocoErrorCode {
 
     /**
      * <p>
+     * 异常编码为空。
+     * </p>
+     */
+    MISSING_ERROR_CODE("coco.error.missing-error-code", "Error code must not be null"),
+
+    /**
+     * <p>
      * 请求未认证。
      * </p>
      */
