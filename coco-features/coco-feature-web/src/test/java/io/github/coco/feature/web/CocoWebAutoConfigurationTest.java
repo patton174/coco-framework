@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.exception.CocoCommonErrorCode;
+import io.github.coco.common.exception.CocoExceptions;
 import io.github.coco.common.i18n.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -137,6 +138,34 @@ class CocoWebAutoConfigurationTest {
 
                     assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
                 });
+    }
+
+    @Test
+    void mapsTypedCocoExceptionsToHttpStatuses() {
+        this.webContextRunner.run(context -> {
+            CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            ServletWebRequest webRequest = new ServletWebRequest(request);
+
+            assertEquals(HttpStatus.BAD_REQUEST,
+                    handler.handleCocoException(CocoExceptions.request(CocoCommonErrorCode.INVALID_ARGUMENT, "name"),
+                            webRequest).getStatusCode());
+            assertEquals(HttpStatus.UNAUTHORIZED,
+                    handler.handleCocoException(CocoCommonErrorCode.UNAUTHORIZED.unauthorized(),
+                            webRequest).getStatusCode());
+            assertEquals(HttpStatus.FORBIDDEN,
+                    handler.handleCocoException(CocoCommonErrorCode.FORBIDDEN.forbidden(),
+                            webRequest).getStatusCode());
+            assertEquals(HttpStatus.NOT_FOUND,
+                    handler.handleCocoException(CocoCommonErrorCode.NOT_FOUND.notFound("user"),
+                            webRequest).getStatusCode());
+            assertEquals(HttpStatus.CONFLICT,
+                    handler.handleCocoException(CocoCommonErrorCode.CONFLICT.conflict("username"),
+                            webRequest).getStatusCode());
+            assertEquals(HttpStatus.INTERNAL_SERVER_ERROR,
+                    handler.handleCocoException(CocoCommonErrorCode.INTERNAL_ERROR.system(),
+                            webRequest).getStatusCode());
+        });
     }
 
     @Test

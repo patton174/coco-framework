@@ -21,10 +21,19 @@ import java.util.Objects;
  */
 public class CocoException extends RuntimeException {
 
+    /**
+     * 国际化消息编码。
+     */
     private final String code;
 
+    /**
+     * 消息资源缺失时使用的默认文本。
+     */
     private final String defaultMessage;
 
+    /**
+     * 消息格式化参数。
+     */
     private final Object[] args;
 
     /**

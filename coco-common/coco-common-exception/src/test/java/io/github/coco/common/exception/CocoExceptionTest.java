@@ -2,6 +2,7 @@ package io.github.coco.common.exception;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -50,6 +51,42 @@ class CocoExceptionTest {
 
         assertSame(cause, exception.getCause());
         assertEquals("coco.error.invalid-argument", exception.code());
+        assertArrayEquals(new Object[] {"name"}, exception.args());
+    }
+
+    @Test
+    void createsTypedExceptionsFromErrorCodeContract() {
+        assertInstanceOf(CocoRequestException.class,
+                CocoCommonErrorCode.INVALID_ARGUMENT.request("name"));
+        assertInstanceOf(CocoUnauthorizedException.class,
+                CocoCommonErrorCode.UNAUTHORIZED.unauthorized());
+        assertInstanceOf(CocoForbiddenException.class,
+                CocoCommonErrorCode.FORBIDDEN.forbidden());
+        assertInstanceOf(CocoNotFoundException.class,
+                CocoCommonErrorCode.NOT_FOUND.notFound("user"));
+        assertInstanceOf(CocoConflictException.class,
+                CocoCommonErrorCode.CONFLICT.conflict("username"));
+        assertInstanceOf(CocoSystemException.class,
+                CocoCommonErrorCode.INTERNAL_ERROR.system());
+    }
+
+    @Test
+    void typedExceptionsPreserveCodeDefaultMessageCauseAndArguments() {
+        IllegalStateException cause = new IllegalStateException("boom");
+        CocoSystemException exception = CocoCommonErrorCode.INTERNAL_ERROR.system(cause, "database");
+
+        assertSame(cause, exception.getCause());
+        assertEquals("coco.error.internal-error", exception.code());
+        assertEquals("Internal server error", exception.defaultMessage());
+        assertArrayEquals(new Object[] {"database"}, exception.args());
+    }
+
+    @Test
+    void createsTypedExceptionsFromStaticFactory() {
+        CocoRequestException exception = CocoExceptions.request(CocoCommonErrorCode.INVALID_ARGUMENT, "name");
+
+        assertEquals("coco.error.invalid-argument", exception.code());
+        assertEquals("Invalid argument: {0}", exception.defaultMessage());
         assertArrayEquals(new Object[] {"name"}, exception.args());
     }
 
