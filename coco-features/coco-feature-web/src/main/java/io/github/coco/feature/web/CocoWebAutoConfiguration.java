@@ -2,15 +2,20 @@ package io.github.coco.feature.web;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.common.i18n.CocoMessageService;
 import io.github.coco.core.feature.ConditionalOnCocoFeature;
+import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
+import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
+import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 
 /**
  * Coco Web 功能自动配置。
  * <p>
- * 负责为 Web 功能模块注册国际化消息资源，后续统一响应、异常处理和请求上下文提示都从该资源包扩展。
+ * 负责为 Web 功能模块注册国际化消息资源、统一异常响应处理器和异常 HTTP 状态解析器。
  * </p>
  * <p>
  * 项目信息：
@@ -37,5 +42,33 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean(name = "cocoWebMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoWebMessageBundleRegistrar() {
         return registry -> registry.add("coco-feature-web-messages");
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco 异常 HTTP 状态解析器。
+     * </p>
+     * @return 异常 HTTP 状态解析器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoExceptionHttpStatusResolver cocoExceptionHttpStatusResolver() {
+        return new DefaultCocoExceptionHttpStatusResolver();
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 全局异常处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @return Coco Web 全局异常处理器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoWebExceptionHandler cocoWebExceptionHandler(CocoMessageService messageService,
+            CocoExceptionHttpStatusResolver httpStatusResolver) {
+        return new CocoWebExceptionHandler(messageService, httpStatusResolver);
     }
 }
