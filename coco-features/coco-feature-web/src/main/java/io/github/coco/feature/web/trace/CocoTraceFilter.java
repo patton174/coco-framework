@@ -10,12 +10,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import io.github.coco.common.accesslog.CocoAccessLog;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.context.CocoRequestContext;
 import io.github.coco.common.context.CocoRequestContextHolder;
+import io.github.coco.common.logging.access.CocoAccessLog;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.trace.CocoTraceContext;
-import io.github.coco.feature.web.logging.CocoAccessLogProperties;
+import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -47,7 +47,7 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
     private final List<CocoAccessLogRecorder> accessLogRecorders;
 
-    private final CocoAccessLogProperties accessLogProperties;
+    private final CocoAccessLogCaptureProperties accessLogProperties;
 
     /**
      * <p>
@@ -68,7 +68,7 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
      */
     public CocoTraceFilter(CocoTraceProperties properties,
             Collection<CocoAccessLogRecorder> accessLogRecorders) {
-        this(properties, accessLogRecorders, new CocoAccessLogProperties());
+        this(properties, accessLogRecorders, new CocoAccessLogCaptureProperties());
     }
 
     /**
@@ -81,12 +81,14 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
      */
     public CocoTraceFilter(CocoTraceProperties properties,
             Collection<CocoAccessLogRecorder> accessLogRecorders,
-            CocoAccessLogProperties accessLogProperties) {
+            CocoAccessLogCaptureProperties accessLogProperties) {
         CocoTraceProperties checkedProperties = Objects.requireNonNull(properties, "properties must not be null");
         this.headerName = checkedProperties.getHeaderName();
         this.mdcKey = checkedProperties.getMdcKey();
         this.accessLogRecorders = accessLogRecorders == null ? List.of() : List.copyOf(accessLogRecorders);
-        this.accessLogProperties = accessLogProperties == null ? new CocoAccessLogProperties() : accessLogProperties;
+        this.accessLogProperties = accessLogProperties == null
+                ? new CocoAccessLogCaptureProperties()
+                : accessLogProperties;
     }
 
     /**
@@ -162,7 +164,7 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
      */
     private void recordAccessLog(CocoRequestContext requestContext, HttpServletRequest request, int status,
             long durationMillis, Throwable failure) {
-        if (this.accessLogRecorders.isEmpty()) {
+        if (!this.accessLogProperties.isEnabled() || this.accessLogRecorders.isEmpty()) {
             return;
         }
         CocoAccessLog accessLog = CocoAccessLog.of(requestContext.traceId(),

@@ -16,15 +16,15 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
             <artifactId>coco-common-i18n</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-core-runtime</artifactId>
+            <artifactId>coco-common-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-feature-runtime</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

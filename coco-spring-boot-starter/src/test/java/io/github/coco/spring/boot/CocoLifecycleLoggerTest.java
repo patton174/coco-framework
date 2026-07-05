@@ -6,14 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 
-import io.github.coco.spring.boot.logging.CocoLifecycleLogger;
+import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.GenericApplicationContext;
 
 /**
  * Coco 生命周期日志测试。
  * <p>
- * 验证应用启动完成日志使用 Coco 自己的结构化文本，而不是 Spring Boot 原始启动摘要。
+ * 验证应用启动完成日志使用 Coco 自己的多行结构化文本，而不是 Spring Boot 原始启动摘要。
  * </p>
  * <p>
  * 项目信息：
@@ -29,31 +29,35 @@ import org.springframework.context.support.GenericApplicationContext;
 class CocoLifecycleLoggerTest {
 
     @Test
-    void formatsReadyMessageWithCocoLifecycleFields() {
+    void formatsReadyMessageAsMultilinePanel() {
         GenericApplicationContext context = new GenericApplicationContext();
         context.setId("sample");
         CocoLifecycleLogger logger = new CocoLifecycleLogger();
 
         String message = logger.readyMessage(context, Duration.ofMillis(1234));
 
-        assertEquals("event=coco.ready application=sample durationMs=1234 profiles=default", message);
+        assertEquals(String.join(System.lineSeparator(),
+                "◂ ready",
+                "  app      sample",
+                "  profiles default",
+                "  time     1234ms"), message);
         assertFalse(message.contains("Started "));
     }
 
     @Test
-    void formatsStartedMessageWithDetailedCocoFields() {
+    void formatsStartedMessageAsMultilinePanelWithRuntimeFields() {
         GenericApplicationContext context = new GenericApplicationContext();
         context.setId("sample");
         CocoLifecycleLogger logger = new CocoLifecycleLogger();
 
         String message = logger.startedMessage(context, Duration.ofMillis(1000));
 
-        assertTrue(message.contains("event=coco.started"));
-        assertTrue(message.contains("application=sample"));
-        assertTrue(message.contains("durationMs=1000"));
-        assertTrue(message.contains("java="));
-        assertTrue(message.contains("pid="));
-        assertTrue(message.contains("cwd=\""));
-        assertTrue(message.contains("profiles=default"));
+        assertTrue(message.contains("▸ startup"));
+        assertTrue(message.contains(System.lineSeparator() + "  app      sample"));
+        assertTrue(message.contains(System.lineSeparator() + "  profiles default"));
+        assertTrue(message.contains(System.lineSeparator() + "  time     1000ms"));
+        assertTrue(message.contains(System.lineSeparator() + "  java     "));
+        assertTrue(message.contains(System.lineSeparator() + "  pid      "));
+        assertTrue(message.contains(System.lineSeparator() + "  workdir  \""));
     }
 }

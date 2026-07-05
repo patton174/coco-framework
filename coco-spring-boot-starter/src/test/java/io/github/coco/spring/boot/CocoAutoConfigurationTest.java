@@ -1,25 +1,27 @@
 package io.github.coco.spring.boot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
+import io.github.coco.common.logging.core.CocoLoggingProperties;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.spring.boot.banner.CocoBannerProperties;
 import io.github.coco.spring.boot.banner.CocoStartupBanner;
-import io.github.coco.spring.boot.logging.CocoLoggingProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
- * Coco Spring Boot Starter 自动配置测试。
+ * Coco Spring Boot Starter 接入测试。
  * <p>
- * 验证单依赖入口可以通过 Coco 国际化基础设施注册自己的消息资源。
+ * 验证业务项目通过 starter 单依赖可以获得自动配置、通用上下文、异常契约和日志配置。
  * </p>
  * <p>
  * 项目信息：
@@ -37,6 +39,7 @@ class CocoAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
+                    CocoCommonLoggingAutoConfiguration.class,
                     CocoAutoConfiguration.class))
             .withPropertyValues("coco.common.i18n.basename=coco-messages");
 
@@ -76,7 +79,7 @@ class CocoAutoConfigurationTest {
         this.contextRunner.run(context -> {
             assertTrue(context.containsBean("cocoStartupBanner"));
             assertTrue(context.getBean(CocoBannerProperties.class) instanceof CocoBannerProperties);
-            assertEquals("Coco Spring", context.getBean(CocoBannerProperties.class).getTitle());
+            assertEquals("coco spring", context.getBean(CocoBannerProperties.class).getTitle());
         });
     }
 
@@ -87,7 +90,7 @@ class CocoAutoConfigurationTest {
 
             assertTrue(loggingProperties.isEnabled());
             assertTrue(loggingProperties.isQuietSpring());
-            assertTrue(loggingProperties.getConsolePattern().contains("COCO"));
+            assertTrue(loggingProperties.getConsolePattern().contains("%clr(coco){cyan}"));
         });
     }
 
@@ -98,23 +101,23 @@ class CocoAutoConfigurationTest {
                 .run(context -> {
                     assertTrue(context.containsBean("cocoStartupBanner"));
                     assertTrue(context.getBean(CocoBannerProperties.class) instanceof CocoBannerProperties);
-                    assertEquals(false, context.containsBean("cocoStartupBannerLogger"));
+                    assertFalse(context.containsBean("cocoStartupBannerLogger"));
                 });
     }
 
     @Test
-    void rendersStartupBannerWithProjectInfo() {
+    void rendersStartupBannerWithoutFrame() {
         CocoBannerProperties properties = new CocoBannerProperties();
         CocoStartupBanner banner = new CocoStartupBanner(properties);
 
         String rendered = banner.render("9.9.9");
 
-        assertTrue(rendered.contains("╭"));
-        assertTrue(rendered.contains("█"));
-        assertTrue(rendered.contains("Coco Spring"));
+        assertTrue(rendered.contains("coco spring"));
         assertTrue(rendered.contains("9.9.9"));
-        assertEquals(false, rendered.contains("Author"));
-        assertEquals(false, rendered.contains("Repository"));
-        assertEquals(false, rendered.contains(":: Spring Boot ::"));
+        assertFalse(rendered.contains("╭"));
+        assertFalse(rendered.contains("│"));
+        assertFalse(rendered.contains("Author"));
+        assertFalse(rendered.contains("Repository"));
+        assertFalse(rendered.contains(":: Spring Boot ::"));
     }
 }

@@ -16,8 +16,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.accesslog.CocoAccessLog;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
+import io.github.coco.common.logging.access.CocoAccessLog;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

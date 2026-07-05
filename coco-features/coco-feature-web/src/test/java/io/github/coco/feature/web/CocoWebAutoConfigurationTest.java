@@ -8,8 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.accesslog.CocoAccessLog;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.context.CocoRequestContext;
 import io.github.coco.common.context.CocoRequestContextHolder;
@@ -18,6 +16,12 @@ import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoExceptions;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.common.logging.access.CocoAccessLog;
+import io.github.coco.common.logging.access.CocoAccessLogFormatter;
+import io.github.coco.common.logging.access.CocoAccessLogProperties;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.common.logging.access.CocoAccessLogStyle;
+import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
@@ -27,12 +31,6 @@ import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.CocoSystemCodes;
-import io.github.coco.feature.web.logging.CocoAccessLogFormatter;
-import io.github.coco.feature.web.logging.CocoAccessLogLevel;
-import io.github.coco.feature.web.logging.CocoAccessLogProperties;
-import io.github.coco.feature.web.logging.CocoAccessLogStyle;
-import io.github.coco.feature.web.logging.DefaultCocoAccessLogFormatter;
-import io.github.coco.feature.web.logging.Slf4jCocoAccessLogRecorder;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -145,20 +143,30 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void createsAccessLogRecorderByDefault() {
+    void webModuleDoesNotCreateAccessLogPrinterByDefault() {
         this.webContextRunner.run(context -> {
-            assertTrue(context.containsBean("cocoAccessLogFormatter"));
-            assertTrue(context.containsBean("cocoSlf4jAccessLogRecorder"));
-            assertNotNull(context.getBean(CocoAccessLogFormatter.class));
-            assertNotNull(context.getBean(Slf4jCocoAccessLogRecorder.class));
+            assertFalse(context.containsBean("cocoSlf4jAccessLogRecorder"));
+            assertFalse(context.getBeansOfType(CocoAccessLogFormatter.class).containsKey("cocoAccessLogFormatter"));
         });
     }
 
     @Test
-    void disablesAccessLogRecorderByProperty() {
+    void disablesAccessLogEventPublicationByProperty() throws Exception {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
         this.webContextRunner
                 .withPropertyValues("coco.web.access-log.enabled=false")
-                .run(context -> assertFalse(context.containsBean("cocoSlf4jAccessLogRecorder")));
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "access-disabled");
+
+                    filter.doFilter(request, response, new MockFilterChain());
+
+                    assertNull(recorder.lastAccessLog());
+                });
     }
 
     @Test
@@ -283,9 +291,6 @@ class CocoWebAutoConfigurationTest {
         CocoWebProperties properties = new CocoWebProperties();
 
         assertTrue(properties.getAccessLog().isEnabled());
-        assertEquals(CocoAccessLogLevel.INFO, properties.getAccessLog().getLevel());
-        assertEquals(CocoAccessLogStyle.TEXT, properties.getAccessLog().getStyle());
-        assertEquals("io.github.coco.access", properties.getAccessLog().getLoggerName());
         assertTrue(properties.getAccessLog().isIncludeParameters());
         assertEquals(256, properties.getAccessLog().getMaxParameterValueLength());
         assertTrue(properties.getAccessLog().getMaskedParameterNames().contains("token"));
@@ -304,9 +309,9 @@ class CocoWebAutoConfigurationTest {
         CocoAccessLogProperties properties = new CocoAccessLogProperties();
         DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
 
-        assertEquals("scope=access traceId=trace-1001 clientIp=10.0.0.8 method=POST path=/sample/orders "
-                        + "query=\"sku=COCO-STARTER&token=******\" params=\"sku=COCO-STARTER&token=******\" "
-                        + "ua=\"PostmanRuntime/7.37\" status=201 durationMs=42 success=true",
+        assertEquals("▸ request  POST /sample/orders?sku=COCO-STARTER&token=****** | trace=trace-1001 "
+                        + "ip=10.0.0.8 ua=\"PostmanRuntime/7.37\" "
+                        + "params=\"sku=COCO-STARTER&token=******\" ◂ response 201 42ms success=true",
                 formatter.format(accessLog, properties));
 
         properties.setStyle(CocoAccessLogStyle.JSON);

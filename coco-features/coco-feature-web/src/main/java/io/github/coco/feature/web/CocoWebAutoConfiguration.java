@@ -3,19 +3,16 @@ package io.github.coco.feature.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.CocoCommonProperties;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoLocaleResolver;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.api.CocoMessageService;
-import io.github.coco.core.feature.ConditionalOnCocoFeature;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
-import io.github.coco.feature.web.logging.CocoAccessLogFormatter;
-import io.github.coco.feature.web.logging.DefaultCocoAccessLogFormatter;
-import io.github.coco.feature.web.logging.Slf4jCocoAccessLogRecorder;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.CocoSystemCodes;
@@ -137,36 +134,6 @@ public class CocoWebAutoConfiguration {
             CocoWebProperties properties, CocoSystemCodeProvider codeProvider, ObjectProvider<ObjectMapper> objectMapper) {
         return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(),
                 codeProvider, objectMapper.getIfAvailable(ObjectMapper::new));
-    }
-
-    /**
-     * <p>
-     * 创建默认接口访问日志格式化器。
-     * </p>
-     * @return 接口访问日志格式化器
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public CocoAccessLogFormatter cocoAccessLogFormatter() {
-        return new DefaultCocoAccessLogFormatter();
-    }
-
-    /**
-     * <p>
-     * 创建默认 SLF4J 接口访问日志记录器。
-     * </p>
-     * @param properties Coco Web 配置属性
-     * @param formatter 接口访问日志格式化器
-     * @return SLF4J 接口访问日志记录器
-     */
-    @Bean
-    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-    @ConditionalOnProperty(prefix = "coco.web.access-log", name = "enabled", havingValue = "true",
-            matchIfMissing = true)
-    @ConditionalOnMissingBean(name = "cocoSlf4jAccessLogRecorder")
-    public Slf4jCocoAccessLogRecorder cocoSlf4jAccessLogRecorder(CocoWebProperties properties,
-            CocoAccessLogFormatter formatter) {
-        return new Slf4jCocoAccessLogRecorder(properties.getAccessLog(), formatter);
     }
 
     /**
