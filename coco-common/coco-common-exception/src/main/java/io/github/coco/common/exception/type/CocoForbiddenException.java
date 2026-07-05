@@ -1,5 +1,6 @@
 package io.github.coco.common.exception.type;
 
+import io.github.coco.common.exception.CocoBusinessCode;
 import io.github.coco.common.exception.CocoErrorCode;
 import io.github.coco.common.exception.CocoException;
 
@@ -42,6 +43,29 @@ public class CocoForbiddenException extends CocoException {
      */
     public CocoForbiddenException(CocoErrorCode errorCode, Throwable cause, Object... args) {
         super(errorCode, cause, args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码契约创建无权限异常。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param args 消息格式化参数
+     */
+    public CocoForbiddenException(CocoBusinessCode businessCode, Object... args) {
+        super(businessCode, args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码契约和异常原因创建无权限异常。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     */
+    public CocoForbiddenException(CocoBusinessCode businessCode, Throwable cause, Object... args) {
+        super(businessCode, cause, args);
     }
 
     /**

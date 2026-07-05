@@ -82,7 +82,7 @@ class CocoSampleBasicApplicationTest {
         assertEquals(200, response.status());
         assertEquals("products-trace", response.header("X-Trace-Id"));
         assertTrue(response.body().path("success").booleanValue());
-        assertEquals("coco.success", response.body().path("code").textValue());
+        assertEquals(200, response.body().path("code").intValue());
         assertEquals("操作成功", response.body().path("message").textValue());
         assertEquals("products-trace", response.body().path("traceId").textValue());
         assertEquals("/sample/products", response.body().path("path").textValue());
@@ -103,6 +103,7 @@ class CocoSampleBasicApplicationTest {
 
         assertEquals(200, created.status());
         assertTrue(created.body().path("success").booleanValue());
+        assertEquals(200, created.body().path("code").intValue());
         assertEquals("ORD-1001", created.body().path("data").path("orderId").textValue());
         assertEquals("CREATED", created.body().path("data").path("status").textValue());
         assertEquals(19800, created.body().path("data").path("totalAmount").longValue());
@@ -112,6 +113,7 @@ class CocoSampleBasicApplicationTest {
 
         assertEquals(200, loaded.status());
         assertTrue(loaded.body().path("success").booleanValue());
+        assertEquals(200, loaded.body().path("code").intValue());
         assertEquals("ORD-1001", loaded.body().path("data").path("orderId").textValue());
         assertEquals("Patton", loaded.body().path("data").path("buyerName").textValue());
     }
@@ -129,7 +131,7 @@ class CocoSampleBasicApplicationTest {
 
         assertEquals(409, response.status());
         assertFalse(response.body().path("success").booleanValue());
-        assertEquals("sample.order.insufficient-stock", response.body().path("code").textValue());
+        assertEquals(1004, response.body().path("code").intValue());
         assertEquals("商品 COCO-STARTER 库存不足，当前库存 5，请求数量 99",
                 response.body().path("message").textValue());
         assertEquals("stock-error-trace", response.body().path("traceId").textValue());
@@ -140,7 +142,7 @@ class CocoSampleBasicApplicationTest {
 
         assertEquals(409, englishResponse.status());
         assertFalse(englishResponse.body().path("success").booleanValue());
-        assertEquals("sample.order.insufficient-stock", englishResponse.body().path("code").textValue());
+        assertEquals(1004, englishResponse.body().path("code").intValue());
         assertEquals("Product COCO-STARTER has insufficient stock, current stock 5, requested quantity 99",
                 englishResponse.body().path("message").textValue());
         assertEquals("stock-error-en-trace", englishResponse.body().path("traceId").textValue());

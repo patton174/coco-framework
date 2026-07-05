@@ -13,6 +13,8 @@ import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.context.CocoRequestContext;
 import io.github.coco.common.context.CocoRequestContextHolder;
+import io.github.coco.common.exception.CocoBusinessCode;
+import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoExceptions;
 import io.github.coco.common.i18n.api.CocoMessageService;
@@ -23,6 +25,8 @@ import io.github.coco.feature.web.response.CocoApiResponse;
 import io.github.coco.feature.web.response.CocoIgnoreResponseWrap;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
+import io.github.coco.feature.web.response.CocoSystemCodeProvider;
+import io.github.coco.feature.web.response.CocoSystemCodes;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -192,7 +196,7 @@ class CocoWebAutoConfigurationTest {
             assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
             assertNotNull(body);
             assertFalse(body.success());
-            assertEquals("coco.error.invalid-argument", body.code());
+            assertEquals(400, body.code());
             assertEquals("参数不合法：name", body.message());
             assertEquals("trace-test", body.traceId());
             assertEquals("/api/users", body.path());
@@ -213,25 +217,26 @@ class CocoWebAutoConfigurationTest {
             assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
             assertNotNull(body);
             assertFalse(body.success());
-            assertEquals("coco.error.not-found", body.code());
+            assertEquals(404, body.code());
             assertEquals("资源不存在：user", body.message());
             assertEquals("/api/users/404", body.path());
         });
     }
 
     @Test
-    void rejectsBlankResponseCode() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new CocoApiResponse<>(false, " ", "message", null, "trace", "/api/users"));
+    void acceptsZeroResponseCode() {
+        CocoApiResponse<Void> response = new CocoApiResponse<>(true, 0, "message", null, "trace", "/api/users");
+
+        assertEquals(0, response.code());
     }
 
     @Test
     void createsSuccessResponseModel() {
         CocoApiResponse<String> response = CocoApiResponse.success(
-                "coco.success", "操作成功", "payload", "trace-id", "/api/users");
+                200, "操作成功", "payload", "trace-id", "/api/users");
 
         assertTrue(response.success());
-        assertEquals("coco.success", response.code());
+        assertEquals(200, response.code());
         assertEquals("操作成功", response.message());
         assertEquals("payload", response.data());
         assertEquals("trace-id", response.traceId());
@@ -243,13 +248,11 @@ class CocoWebAutoConfigurationTest {
         CocoWebProperties properties = new CocoWebProperties();
 
         assertTrue(properties.getResponseWrap().isEnabled());
-        assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
         assertEquals("coco.web.response.success", properties.getResponseWrap().getSuccessMessageCode());
 
         properties.setResponseWrap(null);
 
         assertTrue(properties.getResponseWrap().isEnabled());
-        assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
     }
 
     @Test
@@ -267,7 +270,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(body instanceof CocoApiResponse<?>);
             CocoApiResponse<?> response = (CocoApiResponse<?>) body;
             assertTrue(response.success());
-            assertEquals("coco.success", response.code());
+            assertEquals(200, response.code());
             assertEquals("未知错误", response.message());
             assertEquals(Map.of("name", "Coco"), response.data());
             assertEquals("trace-wrap", response.traceId());
@@ -323,6 +326,58 @@ class CocoWebAutoConfigurationTest {
                             new ServletWebRequest(request));
 
                     assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+                });
+    }
+
+    @Test
+    void usesCustomSystemCodeProviderForDefaultSuccessAndExceptionCodes() throws Exception {
+        CocoSystemCodeProvider codeProvider = CocoSystemCodes.builder()
+                .success(0)
+                .invalidArgument(100400)
+                .notFound(100404)
+                .build();
+        this.webContextRunner
+                .withBean(CocoSystemCodeProvider.class, () -> codeProvider)
+                .run(context -> {
+                    CocoResponseWrapAdvice advice = responseWrapAdvice(context.getBean(CocoMessageService.class),
+                            context.getBean(CocoSystemCodeProvider.class));
+                    MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+                    ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+
+                    Object body = advice.beforeBodyWrite(Map.of("name", "Coco"), methodParameter("objectBody"),
+                            MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request,
+                            new ServletServerHttpResponse(new MockHttpServletResponse()));
+
+                    assertTrue(body instanceof CocoApiResponse<?>);
+                    assertEquals(0, ((CocoApiResponse<?>) body).code());
+
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                            CocoCommonErrorCode.NOT_FOUND.notFound("user"),
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/users/404")));
+
+                    assertNotNull(response.getBody());
+                    assertEquals(100404, response.getBody().code());
+                });
+    }
+
+    @Test
+    void businessCodeOverridesCustomSystemCodeProvider() {
+        CocoSystemCodeProvider codeProvider = CocoSystemCodes.builder()
+                .notFound(100404)
+                .build();
+        this.webContextRunner
+                .withBean(CocoSystemCodeProvider.class, () -> codeProvider)
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                            CocoBusinessExceptions.notFound(TestBusinessCode.ORDER_NOT_FOUND, "ORD-1001"),
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/orders/ORD-1001")));
+
+                    assertNotNull(response.getBody());
+                    assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+                    assertEquals(200001, response.getBody().code());
+                    assertEquals("资源不存在：ORD-1001", response.getBody().message());
                 });
     }
 
@@ -542,9 +597,14 @@ class CocoWebAutoConfigurationTest {
     }
 
     private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService) {
+        return responseWrapAdvice(messageService, CocoSystemCodes.defaults());
+    }
+
+    private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService,
+            CocoSystemCodeProvider codeProvider) {
         CocoResponseWrapProperties properties = new CocoResponseWrapProperties();
         properties.setSuccessMessageCode("coco.error.unknown");
-        return new CocoResponseWrapAdvice(messageService, properties, new ObjectMapper());
+        return new CocoResponseWrapAdvice(messageService, properties, codeProvider, new ObjectMapper());
     }
 
     private static MethodParameter methodParameter(String methodName) throws NoSuchMethodException {
@@ -566,7 +626,7 @@ class CocoWebAutoConfigurationTest {
     }
 
     private CocoApiResponse<String> wrappedBody() {
-        return CocoApiResponse.success("coco.success", "操作成功", "hello", null, null);
+        return CocoApiResponse.success(200, "操作成功", "hello", null, null);
     }
 
     @CocoIgnoreResponseWrap
@@ -576,6 +636,30 @@ class CocoWebAutoConfigurationTest {
 
     private ResponseEntity<String> responseEntityBody() {
         return ResponseEntity.ok("hello");
+    }
+
+    private enum TestBusinessCode implements CocoBusinessCode {
+
+        ORDER_NOT_FOUND(200001, "coco.error.not-found");
+
+        private final int code;
+
+        private final String messageCode;
+
+        TestBusinessCode(int code, String messageCode) {
+            this.code = code;
+            this.messageCode = messageCode;
+        }
+
+        @Override
+        public int code() {
+            return this.code;
+        }
+
+        @Override
+        public String messageCode() {
+            return this.messageCode;
+        }
     }
 
     @CocoIgnoreResponseWrap

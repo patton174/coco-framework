@@ -14,6 +14,8 @@ import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
+import io.github.coco.feature.web.response.CocoSystemCodeProvider;
+import io.github.coco.feature.web.response.CocoSystemCodes;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -86,18 +88,31 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认系统响应码提供器。
+     * </p>
+     * @return 系统响应码提供器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoSystemCodeProvider cocoSystemCodeProvider() {
+        return CocoSystemCodes.defaults();
+    }
+
+    /**
+     * <p>
      * 创建 Coco Web 全局异常处理器。
      * </p>
      * @param messageService Coco 消息服务
      * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
      * @return Coco Web 全局异常处理器
      */
     @Bean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
     public CocoWebExceptionHandler cocoWebExceptionHandler(CocoMessageService messageService,
-            CocoExceptionHttpStatusResolver httpStatusResolver) {
-        return new CocoWebExceptionHandler(messageService, httpStatusResolver);
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider) {
+        return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider);
     }
 
     /**
@@ -106,6 +121,7 @@ public class CocoWebAutoConfiguration {
      * </p>
      * @param messageService Coco 消息服务
      * @param properties Coco Web 配置属性
+     * @param codeProvider 系统响应码提供器
      * @param objectMapper JSON 序列化器提供器
      * @return Coco Web 正常响应包装处理器
      */
@@ -115,9 +131,9 @@ public class CocoWebAutoConfiguration {
             matchIfMissing = true)
     @ConditionalOnMissingBean
     public CocoResponseWrapAdvice cocoResponseWrapAdvice(CocoMessageService messageService,
-            CocoWebProperties properties, ObjectProvider<ObjectMapper> objectMapper) {
+            CocoWebProperties properties, CocoSystemCodeProvider codeProvider, ObjectProvider<ObjectMapper> objectMapper) {
         return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(),
-                objectMapper.getIfAvailable(ObjectMapper::new));
+                codeProvider, objectMapper.getIfAvailable(ObjectMapper::new));
     }
 
     /**

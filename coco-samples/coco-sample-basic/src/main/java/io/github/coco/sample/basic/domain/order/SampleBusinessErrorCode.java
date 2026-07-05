@@ -1,6 +1,6 @@
 package io.github.coco.sample.basic.domain.order;
 
-import io.github.coco.common.exception.CocoErrorCode;
+import io.github.coco.common.exception.CocoBusinessCode;
 
 /**
  * Coco 示例业务错误码。
@@ -18,47 +18,58 @@ import io.github.coco.common.exception.CocoErrorCode;
  * @author patton174
  * @since 1.0.0
  */
-public enum SampleBusinessErrorCode implements CocoErrorCode {
+public enum SampleBusinessErrorCode implements CocoBusinessCode {
 
     /**
      * <p>
      * 商品不存在。
      * </p>
      */
-    PRODUCT_NOT_FOUND("sample.product.not-found"),
+    PRODUCT_NOT_FOUND(1001, "sample.product.not-found"),
 
     /**
      * <p>
      * 订单不存在。
      * </p>
      */
-    ORDER_NOT_FOUND("sample.order.not-found"),
+    ORDER_NOT_FOUND(1002, "sample.order.not-found"),
 
     /**
      * <p>
      * 下单数量不合法。
      * </p>
      */
-    INVALID_ORDER_QUANTITY("sample.order.invalid-quantity"),
+    INVALID_ORDER_QUANTITY(1003, "sample.order.invalid-quantity"),
 
     /**
      * <p>
      * 商品库存不足。
      * </p>
      */
-    INSUFFICIENT_STOCK("sample.order.insufficient-stock");
+    INSUFFICIENT_STOCK(1004, "sample.order.insufficient-stock");
 
-    private final String code;
+    private final int code;
 
-    SampleBusinessErrorCode(String code) {
+    private final String messageCode;
+
+    SampleBusinessErrorCode(int code, String messageCode) {
         this.code = code;
+        this.messageCode = messageCode;
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public String code() {
+    public int code() {
         return this.code;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String messageCode() {
+        return this.messageCode;
     }
 }

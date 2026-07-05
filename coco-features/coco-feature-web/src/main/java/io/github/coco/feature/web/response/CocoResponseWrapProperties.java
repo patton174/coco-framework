@@ -3,7 +3,7 @@ package io.github.coco.feature.web.response;
 /**
  * Coco Web 正常响应包装配置。
  * <p>
- * 维护正常响应包装的开关、成功响应编码和成功消息编码。
+ * 维护正常响应包装的开关和成功消息编码。
  * </p>
  * <p>
  * 项目信息：
@@ -18,19 +18,12 @@ package io.github.coco.feature.web.response;
  */
 public class CocoResponseWrapProperties {
 
-    private static final String DEFAULT_SUCCESS_CODE = "coco.success";
-
     private static final String DEFAULT_SUCCESS_MESSAGE_CODE = "coco.web.response.success";
 
     /**
      * 是否启用正常响应包装。
      */
     private boolean enabled = true;
-
-    /**
-     * 成功响应编码。
-     */
-    private String successCode = DEFAULT_SUCCESS_CODE;
 
     /**
      * 成功消息国际化编码。
@@ -55,26 +48,6 @@ public class CocoResponseWrapProperties {
      */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
-    }
-
-    /**
-     * <p>
-     * 返回成功响应编码。
-     * </p>
-     * @return 成功响应编码
-     */
-    public String getSuccessCode() {
-        return hasText(this.successCode) ? this.successCode.trim() : DEFAULT_SUCCESS_CODE;
-    }
-
-    /**
-     * <p>
-     * 设置成功响应编码。
-     * </p>
-     * @param successCode 成功响应编码
-     */
-    public void setSuccessCode(String successCode) {
-        this.successCode = successCode;
     }
 
     /**

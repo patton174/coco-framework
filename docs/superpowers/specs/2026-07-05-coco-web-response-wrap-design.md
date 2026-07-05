@@ -22,7 +22,7 @@ public UserDetail getUser(@PathVariable Long id) {
 ```json
 {
   "success": true,
-  "code": "coco.success",
+  "code": 200,
   "message": "操作成功",
   "data": {
     "id": 1,
@@ -68,6 +68,8 @@ io.github.coco.feature.web.response
 CocoResponseWrapAdvice
 CocoIgnoreResponseWrap
 CocoResponseWrapProperties
+CocoSystemCodeProvider
+CocoSystemCodes
 ```
 
 `CocoApiResponse` 保持在同一包下，并补充 success 工厂方法。
@@ -81,7 +83,6 @@ coco:
   web:
     response-wrap:
       enabled: true
-      success-code: coco.success
       success-message-code: coco.web.response.success
 ```
 
@@ -97,10 +98,24 @@ coco:
 属性说明：
 
 - `enabled`：是否注册正常响应包装。
-- `success-code`：成功响应的稳定业务编码，默认 `coco.success`。
 - `success-message-code`：成功消息的国际化编码，默认 `coco.web.response.success`。
 
 成功消息文本放在 `coco-feature-web-messages*.properties`，由 `CocoMessageService` 解析。
+
+成功、参数错误、未认证、无权限、资源不存在、资源冲突和内部错误等系统响应码由 `CocoSystemCodeProvider`
+提供，默认分别为 `200`、`400`、`401`、`403`、`404`、`409`、`500`。业务项目需要覆盖系统响应码时，声明
+自己的 `CocoSystemCodeProvider` Bean 即可：
+
+```java
+@Bean
+CocoSystemCodeProvider cocoSystemCodeProvider() {
+    return CocoSystemCodes.builder()
+            .success(0)
+            .invalidArgument(100400)
+            .notFound(100404)
+            .build();
+}
+```
 
 ## 包装规则
 
@@ -129,6 +144,7 @@ Controller 返回值
 -> CocoResponseWrapAdvice
 -> 判断是否应该跳过
 -> CocoMessageService 解析成功消息
+-> CocoSystemCodeProvider 解析成功响应码
 -> CocoTraceContext 读取或创建 traceId
 -> CocoApiResponse.success(...)
 -> HttpMessageConverter 输出 JSON
@@ -140,6 +156,7 @@ Controller 返回值
 CocoException
 -> CocoWebExceptionHandler
 -> CocoMessageService 解析异常消息
+-> 业务码优先，否则按异常类型、Coco 内置消息码或 HTTP 状态解析系统响应码
 -> CocoApiResponse.error(...)
 ```
 
@@ -149,7 +166,7 @@ CocoException
 
 `CocoResponseWrapProperties` 应保证空配置回到默认值。
 
-`success-code` 或 `success-message-code` 为空时，启动阶段不强制失败；包装时使用默认值兜底，避免配置错误导致接口完全不可用。
+`success-message-code` 为空时，启动阶段不强制失败；包装时使用默认值兜底，避免配置错误导致接口完全不可用。
 
 `CocoMessageService` 缺少成功消息资源时，按 i18n 既有规则回退为消息编码。
 
@@ -168,7 +185,9 @@ CocoException
 - 类级 `@CocoIgnoreResponseWrap` 会跳过包装。
 - `ResponseEntity<?>` 不包装。
 - 成功消息通过 `CocoMessageService` 从 Web 模块消息资源解析。
-- 配置元数据包含 `coco.web.response-wrap.*`。
+- 自定义 `CocoSystemCodeProvider` 可以覆盖默认成功码和默认异常码。
+- 业务自定义 `CocoBusinessCode` 优先于系统默认码。
+- 配置元数据包含 `coco.web.response-wrap.enabled` 和 `coco.web.response-wrap.success-message-code`。
 
 ## 本阶段不做
 
@@ -185,7 +204,7 @@ CocoException
 - 引入 starter 且启用 Web 功能后，正常 REST 返回值默认输出 `CocoApiResponse`。
 - 标注 `@CocoIgnoreResponseWrap` 后可以按类或方法跳过包装。
 - 关闭 `coco.web.response-wrap.enabled` 后不注册包装 advice。
-- 成功响应携带 `success=true`、成功 code、国际化成功 message、data、traceId、path。
+- 成功响应携带 `success=true`、数字成功 code、国际化成功 message、data、traceId、path。
 - 异常响应现有行为不退化。
 - `mvn verify` 通过。
 - `mvn -DskipTests install javadoc:javadoc` 通过。

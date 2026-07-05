@@ -28,7 +28,11 @@
 - Create `coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/response/CocoIgnoreResponseWrap.java`
   - Method/type annotation used by controllers to opt out of wrapping.
 - Create `coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/response/CocoResponseWrapProperties.java`
-  - Holds `enabled`, `successCode`, and `successMessageCode`.
+  - Holds `enabled` and `successMessageCode`.
+- Create `coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/response/CocoSystemCodeProvider.java`
+  - Provides default system response codes.
+- Create `coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/response/CocoSystemCodes.java`
+  - Provides default codes and builder-based overrides.
 - Create `coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/response/CocoResponseWrapAdvice.java`
   - Implements `ResponseBodyAdvice<Object>` and owns wrap/skip logic.
 - Modify `coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/CocoWebProperties.java`
@@ -50,8 +54,8 @@
 - Test: `coco-features/coco-feature-web/src/test/java/io/github/coco/feature/web/CocoWebAutoConfigurationTest.java`
 
 **Interfaces:**
-- Produces: `CocoApiResponse.success(String code, String message, T data, String traceId, String path)`
-- Produces: `CocoResponseWrapProperties#isEnabled()`, `#setEnabled(boolean)`, `#getSuccessCode()`, `#setSuccessCode(String)`, `#getSuccessMessageCode()`, `#setSuccessMessageCode(String)`
+- Produces: `CocoApiResponse.success(int code, String message, T data, String traceId, String path)`
+- Produces: `CocoResponseWrapProperties#isEnabled()`, `#setEnabled(boolean)`, `#getSuccessMessageCode()`, `#setSuccessMessageCode(String)`
 - Produces: `CocoWebProperties#getResponseWrap()` and `#setResponseWrap(CocoResponseWrapProperties)`
 
 - [ ] **Step 1: Write failing tests for success response and default properties**
@@ -62,10 +66,10 @@ Add tests to `CocoWebAutoConfigurationTest`:
 @Test
 void createsSuccessResponseModel() {
     CocoApiResponse<String> response = CocoApiResponse.success(
-            "coco.success", "操作成功", "payload", "trace-id", "/api/users");
+            200, "操作成功", "payload", "trace-id", "/api/users");
 
     assertTrue(response.success());
-    assertEquals("coco.success", response.code());
+    assertEquals(200, response.code());
     assertEquals("操作成功", response.message());
     assertEquals("payload", response.data());
     assertEquals("trace-id", response.traceId());
@@ -77,13 +81,11 @@ void responseWrapPropertiesUseDefaultsAndResetNullNestedValue() {
     CocoWebProperties properties = new CocoWebProperties();
 
     assertTrue(properties.getResponseWrap().isEnabled());
-    assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
     assertEquals("coco.web.response.success", properties.getResponseWrap().getSuccessMessageCode());
 
     properties.setResponseWrap(null);
 
     assertTrue(properties.getResponseWrap().isEnabled());
-    assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
 }
 ```
 
@@ -102,7 +104,7 @@ Expected: compilation fails because `CocoApiResponse.success(...)` and `CocoWebP
 Add `CocoApiResponse.success(...)`:
 
 ```java
-public static <T> CocoApiResponse<T> success(String code, String message, T data, String traceId, String path) {
+public static <T> CocoApiResponse<T> success(int code, String message, T data, String traceId, String path) {
     return new CocoApiResponse<>(true, code, message, data, traceId, path);
 }
 ```
@@ -112,13 +114,9 @@ Create `CocoResponseWrapProperties`:
 ```java
 public class CocoResponseWrapProperties {
 
-    private static final String DEFAULT_SUCCESS_CODE = "coco.success";
-
     private static final String DEFAULT_SUCCESS_MESSAGE_CODE = "coco.web.response.success";
 
     private boolean enabled = true;
-
-    private String successCode = DEFAULT_SUCCESS_CODE;
 
     private String successMessageCode = DEFAULT_SUCCESS_MESSAGE_CODE;
 
@@ -128,14 +126,6 @@ public class CocoResponseWrapProperties {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
-    }
-
-    public String getSuccessCode() {
-        return hasText(this.successCode) ? this.successCode.trim() : DEFAULT_SUCCESS_CODE;
-    }
-
-    public void setSuccessCode(String successCode) {
-        this.successCode = successCode;
     }
 
     public String getSuccessMessageCode() {
@@ -218,7 +208,7 @@ void wrapsObjectResponseBody() {
         assertTrue(body instanceof CocoApiResponse<?>);
         CocoApiResponse<?> response = (CocoApiResponse<?>) body;
         assertTrue(response.success());
-        assertEquals("coco.success", response.code());
+        assertEquals(200, response.code());
         assertEquals("操作成功", response.message());
         assertEquals(Map.of("name", "Coco"), response.data());
         assertEquals("/api/users", response.path());
@@ -269,7 +259,7 @@ String stringBody() {
 }
 
 CocoApiResponse<String> wrappedBody() {
-    return CocoApiResponse.success("coco.success", "操作成功", "hello", null, null);
+    return CocoApiResponse.success(200, "操作成功", "hello", null, null);
 }
 
 @CocoIgnoreResponseWrap
@@ -313,9 +303,10 @@ Create `CocoResponseWrapAdvice` with constructor:
 
 ```java
 public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
-        ObjectMapper objectMapper) {
+        CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper) {
     this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
     this.properties = Objects.requireNonNull(properties, "properties must not be null");
+    this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
 }
 ```
@@ -347,7 +338,7 @@ Core wrapping:
 public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
         Class<? extends HttpMessageConverter<?>> selectedConverterType, ServerHttpRequest request,
         ServerHttpResponse response) {
-    CocoApiResponse<Object> wrapped = CocoApiResponse.success(this.properties.getSuccessCode(),
+    CocoApiResponse<Object> wrapped = CocoApiResponse.success(this.codeProvider.success(),
             this.messageService.getMessage(this.properties.getSuccessMessageCode()), body,
             CocoTraceContext.getOrCreateTraceId(), resolvePath(request));
     if (StringHttpMessageConverter.class.isAssignableFrom(selectedConverterType)) {
@@ -393,7 +384,7 @@ git commit -m "feat: add web response wrap advice"
 - Consumes: `CocoResponseWrapAdvice`
 - Produces: bean `cocoResponseWrapAdvice`
 - Produces: resource key `coco.web.response.success`
-- Produces: metadata entries `coco.web.response-wrap.enabled`, `coco.web.response-wrap.success-code`, `coco.web.response-wrap.success-message-code`
+- Produces: metadata entries `coco.web.response-wrap.enabled`, `coco.web.response-wrap.success-message-code`
 
 - [ ] **Step 1: Write failing auto-configuration and metadata tests**
 
@@ -426,7 +417,6 @@ Update `CocoWebConfigurationMetadataTest`:
 
 ```java
 assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
-assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));
 assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));
 ```
 
@@ -451,8 +441,8 @@ Add bean:
         havingValue = "true", matchIfMissing = true)
 @ConditionalOnMissingBean
 public CocoResponseWrapAdvice cocoResponseWrapAdvice(CocoMessageService messageService,
-        CocoWebProperties properties, ObjectMapper objectMapper) {
-    return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(), objectMapper);
+        CocoWebProperties properties, CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper) {
+    return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(), codeProvider, objectMapper);
 }
 ```
 

@@ -1,13 +1,14 @@
 package io.github.coco.common.exception;
 
 import java.util.Arrays;
+import java.util.OptionalInt;
 
 import io.github.coco.common.i18n.api.CocoMessage;
 
 /**
  * Coco 框架异常基类。
  * <p>
- * 保存国际化消息编码、默认文本和参数，具体语言文本由上层消息服务或异常处理器解析。
+ * 保存可选业务码、国际化消息编码、默认文本和参数，具体语言文本由上层消息服务或异常处理器解析。
  * </p>
  * <p>
  * 项目信息：
@@ -28,6 +29,11 @@ public class CocoException extends RuntimeException {
     private final String code;
 
     /**
+     * 对外响应业务码。
+     */
+    private final Integer businessCode;
+
+    /**
      * 消息资源缺失时使用的默认文本。
      */
     private final String defaultMessage;
@@ -45,7 +51,7 @@ public class CocoException extends RuntimeException {
      * @param args 消息格式化参数
      */
     public CocoException(CocoErrorCode errorCode, Object... args) {
-        this(code(errorCode), defaultMessage(errorCode), args);
+        this(null, code(errorCode), defaultMessage(errorCode), args);
     }
 
     /**
@@ -57,7 +63,30 @@ public class CocoException extends RuntimeException {
      * @param args 消息格式化参数
      */
     public CocoException(CocoErrorCode errorCode, Throwable cause, Object... args) {
-        this(code(errorCode), defaultMessage(errorCode), cause, args);
+        this(null, code(errorCode), defaultMessage(errorCode), cause, args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码契约创建 Coco 异常。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param args 消息格式化参数
+     */
+    public CocoException(CocoBusinessCode businessCode, Object... args) {
+        this(responseCode(businessCode), messageCode(businessCode), defaultMessage(businessCode), args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码契约和异常原因创建 Coco 异常。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     */
+    public CocoException(CocoBusinessCode businessCode, Throwable cause, Object... args) {
+        this(responseCode(businessCode), messageCode(businessCode), defaultMessage(businessCode), cause, args);
     }
 
     /**
@@ -90,10 +119,7 @@ public class CocoException extends RuntimeException {
      * @param args 消息格式化参数
      */
     public CocoException(String code, String defaultMessage, Object... args) {
-        super(messageOrCode(code, defaultMessage));
-        this.code = requireCode(code);
-        this.defaultMessage = defaultMessage;
-        this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
+        this(null, code, defaultMessage, args);
     }
 
     /**
@@ -118,7 +144,20 @@ public class CocoException extends RuntimeException {
      * @param args 消息格式化参数
      */
     public CocoException(String code, String defaultMessage, Throwable cause, Object... args) {
+        this(null, code, defaultMessage, cause, args);
+    }
+
+    private CocoException(Integer businessCode, String code, String defaultMessage, Object... args) {
+        super(messageOrCode(code, defaultMessage));
+        this.businessCode = businessCode;
+        this.code = requireCode(code);
+        this.defaultMessage = defaultMessage;
+        this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
+    }
+
+    private CocoException(Integer businessCode, String code, String defaultMessage, Throwable cause, Object... args) {
         super(messageOrCode(code, defaultMessage), cause);
+        this.businessCode = businessCode;
         this.code = requireCode(code);
         this.defaultMessage = defaultMessage;
         this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
@@ -132,6 +171,26 @@ public class CocoException extends RuntimeException {
      */
     public String code() {
         return this.code;
+    }
+
+    /**
+     * <p>
+     * 返回国际化消息编码。
+     * </p>
+     * @return 消息编码
+     */
+    public String messageCode() {
+        return this.code;
+    }
+
+    /**
+     * <p>
+     * 返回对外响应业务码。
+     * </p>
+     * @return 对外响应业务码；未指定时为空
+     */
+    public OptionalInt businessCode() {
+        return this.businessCode == null ? OptionalInt.empty() : OptionalInt.of(this.businessCode);
     }
 
     /**
@@ -177,6 +236,18 @@ public class CocoException extends RuntimeException {
         return requireErrorCode(errorCode).defaultMessage();
     }
 
+    private static int responseCode(CocoBusinessCode businessCode) {
+        return requireBusinessCode(businessCode).code();
+    }
+
+    private static String messageCode(CocoBusinessCode businessCode) {
+        return requireBusinessCode(businessCode).messageCode();
+    }
+
+    private static String defaultMessage(CocoBusinessCode businessCode) {
+        return requireBusinessCode(businessCode).defaultMessage();
+    }
+
     private static CocoErrorCode requireErrorCode(CocoErrorCode errorCode) {
         if (errorCode == null) {
             throw CocoCommonErrorCode.MISSING_ERROR_CODE.request();
@@ -189,5 +260,12 @@ public class CocoException extends RuntimeException {
             throw CocoCommonErrorCode.MISSING_MESSAGE_CODE.request();
         }
         return code;
+    }
+
+    private static CocoBusinessCode requireBusinessCode(CocoBusinessCode businessCode) {
+        if (businessCode == null) {
+            throw CocoCommonErrorCode.MISSING_ERROR_CODE.request();
+        }
+        return businessCode;
     }
 }
