@@ -105,6 +105,30 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void createsResponseWrapAdviceByDefault() {
+        this.webContextRunner.run(context -> {
+            assertTrue(context.containsBean("cocoResponseWrapAdvice"));
+            assertNotNull(context.getBean(CocoResponseWrapAdvice.class));
+        });
+    }
+
+    @Test
+    void disablesResponseWrapAdviceByProperty() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.response-wrap.enabled=false")
+                .run(context -> assertFalse(context.containsBean("cocoResponseWrapAdvice")));
+    }
+
+    @Test
+    void registersLocalizedSuccessResponseMessage() {
+        this.contextRunner.run(context -> {
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("操作成功", messageService.getMessage("coco.web.response.success"));
+        });
+    }
+
+    @Test
     void disablesTraceFilterRegistrationByProperty() {
         this.webContextRunner
                 .withPropertyValues("coco.web.trace.enabled=false")
