@@ -33,10 +33,12 @@ mvn -B install
 
 ```bash
 mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
+python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
 ```
 
 该命令会像外部业务项目一样只声明 `coco-spring-boot-starter`，并生成 Spring Boot 可执行包；`coco.features.disabled`
-中关闭的功能模块会从最终 `BOOT-INF/lib` 和 Spring Boot 索引文件中裁剪掉。
+中关闭的功能模块会从最终 `BOOT-INF/lib` 和 Spring Boot 索引文件中裁剪掉。Python 脚本会启动最终
+Spring Boot jar，并通过商品查询、创建订单、查询订单和库存不足场景执行黑盒 HTTP 验证。
 
 需要检查 release profile 产物时，可以执行：
 

@@ -1,9 +1,9 @@
 package io.github.coco.sample.basic.web;
 
 /**
- * Coco 示例问候响应。
+ * Coco 示例创建订单请求。
  * <p>
- * 普通业务响应模型，不依赖 Coco Web 统一响应结构。
+ * 表示真实业务接口接收的下单参数。
  * </p>
  * <p>
  * 项目信息：
@@ -13,10 +13,11 @@ package io.github.coco.sample.basic.web;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-sample-basic}</li>
  * </ul>
- * @param name 示例名称
- * @param message 示例消息
+ * @param buyerName 买家名称
+ * @param sku 商品编码
+ * @param quantity 下单数量
  * @author patton174
  * @since 1.0.0
  */
-public record SampleHelloResponse(String name, String message) {
+public record SampleCreateOrderRequest(String buyerName, String sku, int quantity) {
 }

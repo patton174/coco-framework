@@ -1,20 +1,23 @@
 package io.github.coco.sample.basic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.accesslog.CocoAccessLog;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.common.accesslog.CocoAccessLog;
+import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,11 +25,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
+import org.springframework.test.annotation.DirtiesContext;
 
 /**
- * Coco 基础示例应用集成测试。
+ * Coco 示例业务应用集成测试。
  * <p>
- * 验证示例接口可以真实触发 Coco Web 的统一响应、异常处理、请求上下文和访问日志基础设施。
+ * 通过商品查询、创建订单和订单查询验证业务项目接入 Coco Starter 后的统一响应、统一异常、请求追踪和访问日志扩展点。
  * </p>
  * <p>
  * 项目信息：
@@ -40,6 +44,7 @@ import org.springframework.context.annotation.Bean;
  * @since 1.0.0
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 class CocoSampleBasicApplicationTest {
 
     @LocalServerPort
@@ -66,77 +71,84 @@ class CocoSampleBasicApplicationTest {
 
     /**
      * <p>
-     * 普通业务接口返回值会被 Coco 包装为统一成功响应。
+     * 商品查询接口返回值会被 Coco 包装为统一成功响应。
      * </p>
-     * @throws Exception MockMvc 调用失败时抛出
+     * @throws Exception HTTP 调用或 JSON 解析失败时抛出
      */
     @Test
-    void wrapsSampleHelloResponse() throws Exception {
-        SampleHttpResponse response = get("/sample/hello?name=Coco", "sample-trace");
+    void listsProductsWithUnifiedResponse() throws Exception {
+        SampleHttpResponse response = get("/sample/products", "products-trace");
 
         assertEquals(200, response.status());
-        assertEquals("sample-trace", response.header("X-Trace-Id"));
+        assertEquals("products-trace", response.header("X-Trace-Id"));
         assertTrue(response.body().path("success").booleanValue());
         assertEquals("coco.success", response.body().path("code").textValue());
-        assertEquals("操作成功", response.body().path("message").textValue());
-        assertEquals("sample-trace", response.body().path("traceId").textValue());
-        assertEquals("/sample/hello", response.body().path("path").textValue());
-        assertEquals("Coco", response.body().path("data").path("name").textValue());
-        assertEquals("Hello Coco", response.body().path("data").path("message").textValue());
+        assertEquals("products-trace", response.body().path("traceId").textValue());
+        assertEquals("/sample/products", response.body().path("path").textValue());
+        assertEquals("COCO-STARTER", response.body().path("data").get(0).path("sku").textValue());
+        assertEquals(5, response.body().path("data").get(0).path("availableStock").intValue());
     }
 
     /**
      * <p>
-     * 示例接口可以读取 Coco 请求上下文中的 TraceId、HTTP 方法和请求路径。
+     * 下单接口会扣减库存并允许按订单编号查询订单详情。
      * </p>
-     * @throws Exception MockMvc 调用失败时抛出
+     * @throws Exception HTTP 调用或 JSON 解析失败时抛出
      */
     @Test
-    void exposesCurrentRequestContext() throws Exception {
-        SampleHttpResponse response = get("/sample/context", "context-trace");
+    void createsOrderAndLoadsOrderDetail() throws Exception {
+        SampleHttpResponse created = post("/sample/orders", "create-order-trace",
+                Map.of("buyerName", "Patton", "sku", "COCO-STARTER", "quantity", 2));
 
-        assertEquals(200, response.status());
-        assertTrue(response.body().path("success").booleanValue());
-        assertEquals("context-trace", response.body().path("traceId").textValue());
-        assertEquals("context-trace", response.body().path("data").path("traceId").textValue());
-        assertEquals("GET", response.body().path("data").path("method").textValue());
-        assertEquals("/sample/context", response.body().path("data").path("path").textValue());
+        assertEquals(200, created.status());
+        assertTrue(created.body().path("success").booleanValue());
+        assertEquals("ORD-1001", created.body().path("data").path("orderId").textValue());
+        assertEquals("CREATED", created.body().path("data").path("status").textValue());
+        assertEquals(19800, created.body().path("data").path("totalAmount").longValue());
+        assertEquals(3, created.body().path("data").path("remainingStock").intValue());
+
+        SampleHttpResponse loaded = get("/sample/orders/ORD-1001", "load-order-trace");
+
+        assertEquals(200, loaded.status());
+        assertTrue(loaded.body().path("success").booleanValue());
+        assertEquals("ORD-1001", loaded.body().path("data").path("orderId").textValue());
+        assertEquals("Patton", loaded.body().path("data").path("buyerName").textValue());
     }
 
     /**
      * <p>
-     * 示例异常会进入 Coco Web 全局异常处理器，并返回国际化后的统一错误响应。
+     * 库存不足会进入 Coco Web 全局异常处理器，并返回国际化后的统一错误响应。
      * </p>
-     * @throws Exception MockMvc 调用失败时抛出
+     * @throws Exception HTTP 调用或 JSON 解析失败时抛出
      */
     @Test
-    void returnsUnifiedErrorResponse() throws Exception {
-        SampleHttpResponse response = get("/sample/error", "error-trace");
+    void returnsUnifiedStockErrorResponse() throws Exception {
+        SampleHttpResponse response = post("/sample/orders", "stock-error-trace",
+                Map.of("buyerName", "Patton", "sku", "COCO-STARTER", "quantity", 99));
 
-        assertEquals(400, response.status());
-        assertTrue(!response.body().path("success").booleanValue());
-        assertEquals("coco.error.invalid-argument", response.body().path("code").textValue());
-        assertEquals("参数不合法：sampleName", response.body().path("message").textValue());
-        assertEquals("error-trace", response.body().path("traceId").textValue());
-        assertEquals("/sample/error", response.body().path("path").textValue());
+        assertEquals(409, response.status());
+        assertFalse(response.body().path("success").booleanValue());
+        assertEquals("sample.order.insufficient-stock", response.body().path("code").textValue());
+        assertEquals("stock-error-trace", response.body().path("traceId").textValue());
+        assertEquals("/sample/orders", response.body().path("path").textValue());
     }
 
     /**
      * <p>
      * 测试作用域访问日志记录器可以拿到业务请求完成后的访问日志。
      * </p>
-     * @throws Exception MockMvc 调用失败时抛出
+     * @throws Exception HTTP 调用或 JSON 解析失败时抛出
      */
     @Test
     void recordsAccessLogThroughBusinessRequest() throws Exception {
-        SampleHttpResponse helloResponse = get("/sample/hello", "access-trace");
+        SampleHttpResponse response = get("/sample/products", "access-trace");
 
-        assertEquals(200, helloResponse.status());
+        assertEquals(200, response.status());
         CocoAccessLog accessLog = this.accessLogRecorder.latest()
                 .orElseThrow(() -> new AssertionError("Access log was not recorded."));
         assertEquals("access-trace", accessLog.traceId());
         assertEquals("GET", accessLog.method().orElse(null));
-        assertEquals("/sample/hello", accessLog.path().orElse(null));
+        assertEquals("/sample/products", accessLog.path().orElse(null));
         assertEquals(200, accessLog.status());
         assertTrue(accessLog.success());
     }
@@ -146,19 +158,47 @@ class CocoSampleBasicApplicationTest {
      * 发送 GET 请求并解析 JSON 响应。
      * </p>
      * @param path 请求路径和查询参数
-     * @param traceId 请求 TraceId；为空时不写入请求头
+     * @param traceId 请求 TraceId
      * @return HTTP 响应快照
      * @throws Exception 请求失败或 JSON 解析失败时抛出
      */
     private SampleHttpResponse get(String path, String traceId) throws Exception {
+        HttpRequest request = baseRequest(path, traceId)
+                .GET()
+                .build();
+        return send(request);
+    }
+
+    /**
+     * <p>
+     * 发送 POST JSON 请求并解析 JSON 响应。
+     * </p>
+     * @param path 请求路径
+     * @param traceId 请求 TraceId
+     * @param body JSON 请求体对象
+     * @return HTTP 响应快照
+     * @throws Exception 请求失败或 JSON 解析失败时抛出
+     */
+    private SampleHttpResponse post(String path, String traceId, Object body) throws Exception {
+        HttpRequest request = baseRequest(path, traceId)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(this.objectMapper.writeValueAsString(body)))
+                .build();
+        return send(request);
+    }
+
+    private HttpRequest.Builder baseRequest(String path, String traceId) {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + this.port + path))
-                .GET();
+                .header("Accept", "application/json");
         if (traceId != null && !traceId.isBlank()) {
             requestBuilder.header("X-Trace-Id", traceId);
         }
-        HttpResponse<String> response = this.httpClient.send(requestBuilder.build(),
-                HttpResponse.BodyHandlers.ofString());
+        return requestBuilder;
+    }
+
+    private SampleHttpResponse send(HttpRequest request) throws Exception {
+        HttpResponse<String> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         return new SampleHttpResponse(response.statusCode(), response.headers(),
                 this.objectMapper.readTree(response.body()));
     }
