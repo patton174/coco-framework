@@ -36,8 +36,6 @@ public final class CocoSpringBanner implements Banner {
         }
         CocoBannerProperties properties = new CocoBannerProperties();
         properties.setTitle(environment.getProperty("coco.banner.title"));
-        properties.setAuthor(environment.getProperty("coco.banner.author"));
-        properties.setRepository(environment.getProperty("coco.banner.repository"));
         properties.setVersion(environment.getProperty("coco.banner.version"));
 
         CocoStartupBanner banner = new CocoStartupBanner(properties);

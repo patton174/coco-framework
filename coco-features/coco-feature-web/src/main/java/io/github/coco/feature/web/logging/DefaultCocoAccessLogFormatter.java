@@ -1,6 +1,9 @@
 package io.github.coco.feature.web.logging;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 import io.github.coco.common.accesslog.CocoAccessLog;
 
@@ -37,9 +40,14 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
 
     private static String formatText(CocoAccessLog accessLog) {
         StringBuilder builder = new StringBuilder()
-                .append("traceId=").append(accessLog.traceId())
+                .append("scope=access")
+                .append(" traceId=").append(accessLog.traceId())
+                .append(" clientIp=").append(accessLog.clientIp().orElse(""))
                 .append(" method=").append(accessLog.method().orElse(""))
                 .append(" path=").append(accessLog.path().orElse(""))
+                .append(" query=\"").append(escape(accessLog.queryString().orElse(""))).append('"')
+                .append(" params=\"").append(escape(formatParameters(accessLog.requestParameters()))).append('"')
+                .append(" ua=\"").append(escape(accessLog.userAgent().orElse(""))).append('"')
                 .append(" status=").append(accessLog.status())
                 .append(" durationMs=").append(accessLog.durationMillis())
                 .append(" success=").append(accessLog.success());
@@ -53,11 +61,63 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
                 .append("\"traceId\":\"").append(escape(accessLog.traceId())).append('"')
                 .append(",\"method\":\"").append(escape(accessLog.method().orElse(""))).append('"')
                 .append(",\"path\":\"").append(escape(accessLog.path().orElse(""))).append('"')
+                .append(",\"clientIp\":\"").append(escape(accessLog.clientIp().orElse(""))).append('"')
+                .append(",\"queryString\":\"").append(escape(accessLog.queryString().orElse(""))).append('"')
+                .append(",\"parameters\":").append(formatParametersJson(accessLog.requestParameters()))
+                .append(",\"userAgent\":\"").append(escape(accessLog.userAgent().orElse(""))).append('"')
                 .append(",\"status\":").append(accessLog.status())
                 .append(",\"durationMs\":").append(accessLog.durationMillis())
                 .append(",\"success\":").append(accessLog.success());
         accessLog.exceptionType().ifPresent(exceptionType -> builder.append(",\"exceptionType\":\"")
                 .append(escape(exceptionType)).append('"'));
+        return builder.append('}').toString();
+    }
+
+    /**
+     * <p>
+     * 将请求参数格式化为可读的键值对文本。
+     * </p>
+     * @param parameters 请求参数
+     * @return 键值对文本
+     */
+    private static String formatParameters(Map<String, List<String>> parameters) {
+        if (parameters.isEmpty()) {
+            return "";
+        }
+        return parameters.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> entry.getKey() + "=" + String.join(",", entry.getValue()))
+                .collect(Collectors.joining("&"));
+    }
+
+    /**
+     * <p>
+     * 将请求参数格式化为 JSON 对象文本。
+     * </p>
+     * @param parameters 请求参数
+     * @return JSON 对象文本
+     */
+    private static String formatParametersJson(Map<String, List<String>> parameters) {
+        StringBuilder builder = new StringBuilder().append('{');
+        boolean firstEntry = true;
+        for (Map.Entry<String, List<String>> entry : parameters.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .toList()) {
+            if (!firstEntry) {
+                builder.append(',');
+            }
+            builder.append('"').append(escape(entry.getKey())).append("\":[");
+            boolean firstValue = true;
+            for (String value : entry.getValue()) {
+                if (!firstValue) {
+                    builder.append(',');
+                }
+                builder.append('"').append(escape(value)).append('"');
+                firstValue = false;
+            }
+            builder.append(']');
+            firstEntry = false;
+        }
         return builder.append('}').toString();
     }
 

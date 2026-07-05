@@ -183,7 +183,8 @@ public class CocoWebAutoConfiguration {
     public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties,
             ObjectProvider<CocoAccessLogRecorder> accessLogRecorders) {
         FilterRegistrationBean<CocoTraceFilter> registration = new FilterRegistrationBean<>(
-                new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList()));
+                new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList(),
+                        properties.getAccessLog()));
         registration.setName("cocoTraceFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

@@ -43,8 +43,12 @@ class CocoSpringApplicationRunListenerTest {
                 new PrintStream(output, true, StandardCharsets.UTF_8));
 
         String rendered = output.toString(StandardCharsets.UTF_8);
+        assertTrue(rendered.contains("╭"));
+        assertTrue(rendered.contains("█"));
         assertTrue(rendered.contains("Coco Spring"));
-        assertTrue(rendered.contains("https://github.com/patton174/coco-framework"));
+        assertFalse(rendered.contains("Author"));
+        assertFalse(rendered.contains("Repository"));
+        assertFalse(rendered.contains("https://github.com/patton174/coco-framework"));
         assertFalse(rendered.contains(":: Spring Boot ::"));
         assertFalse(rendered.contains("____          _"));
     }
@@ -62,6 +66,7 @@ class CocoSpringApplicationRunListenerTest {
         assertEquals("ERROR", environment.getProperty("logging.level.org.springframework"));
         assertEquals("WARN", environment.getProperty("logging.level.org.apache.catalina"));
         assertTrue(environment.getProperty("logging.pattern.console").contains("COCO"));
+        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr"));
     }
 
     @Test

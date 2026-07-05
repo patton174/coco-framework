@@ -35,8 +35,6 @@ class CocoStarterConfigurationMetadataTest {
         String content = new String(metadata.readAllBytes(), StandardCharsets.UTF_8);
         assertTrue(content.contains("\"name\": \"coco.banner.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.banner.title\""));
-        assertTrue(content.contains("\"name\": \"coco.banner.author\""));
-        assertTrue(content.contains("\"name\": \"coco.banner.repository\""));
         assertTrue(content.contains("\"name\": \"coco.banner.version\""));
         assertTrue(content.contains("\"name\": \"coco.logging.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.logging.quiet-spring\""));

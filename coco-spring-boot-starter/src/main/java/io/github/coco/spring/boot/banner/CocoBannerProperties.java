@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Coco 启动 banner 配置属性。
  * <p>
- * 绑定 {@code coco.banner} 命名空间，控制 Coco 启动信息是否打印以及展示的项目元信息。
+ * 绑定 {@code coco.banner} 命名空间，控制 Coco 启动信息是否打印以及展示的标题和版本号。
  * </p>
  * <p>
  * 项目信息：
@@ -23,17 +23,9 @@ public class CocoBannerProperties {
 
     private static final String DEFAULT_TITLE = "Coco Spring";
 
-    private static final String DEFAULT_AUTHOR = "patton174";
-
-    private static final String DEFAULT_REPOSITORY = "https://github.com/patton174/coco-framework";
-
     private boolean enabled = true;
 
     private String title = DEFAULT_TITLE;
-
-    private String author = DEFAULT_AUTHOR;
-
-    private String repository = DEFAULT_REPOSITORY;
 
     private String version;
 
@@ -75,46 +67,6 @@ public class CocoBannerProperties {
      */
     public void setTitle(String title) {
         this.title = title == null || title.isBlank() ? DEFAULT_TITLE : title.trim();
-    }
-
-    /**
-     * <p>
-     * 返回作者 GitHub 用户名。
-     * </p>
-     * @return 作者 GitHub 用户名
-     */
-    public String getAuthor() {
-        return this.author;
-    }
-
-    /**
-     * <p>
-     * 设置作者 GitHub 用户名。
-     * </p>
-     * @param author 作者 GitHub 用户名
-     */
-    public void setAuthor(String author) {
-        this.author = author == null || author.isBlank() ? DEFAULT_AUTHOR : author.trim();
-    }
-
-    /**
-     * <p>
-     * 返回项目仓库地址。
-     * </p>
-     * @return 项目仓库地址
-     */
-    public String getRepository() {
-        return this.repository;
-    }
-
-    /**
-     * <p>
-     * 设置项目仓库地址。
-     * </p>
-     * @param repository 项目仓库地址
-     */
-    public void setRepository(String repository) {
-        this.repository = repository == null || repository.isBlank() ? DEFAULT_REPOSITORY : repository.trim();
     }
 
     /**

@@ -87,6 +87,9 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
      */
     @Override
     public void started(ConfigurableApplicationContext context, Duration timeTaken) {
+        if (context.getEnvironment().getProperty("coco.logging.enabled", Boolean.class, true)) {
+            this.lifecycleLogger.started(context, timeTaken);
+        }
     }
 
     /**
@@ -104,5 +107,8 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
      */
     @Override
     public void failed(ConfigurableApplicationContext context, Throwable exception) {
+        if (context == null || context.getEnvironment().getProperty("coco.logging.enabled", Boolean.class, true)) {
+            this.lifecycleLogger.failed(context, exception);
+        }
     }
 }

@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 
 /**
@@ -28,11 +31,17 @@ class CocoAccessLogTest {
     @Test
     void createsAccessLogWithNormalizedRequestInformation() {
         CocoAccessLog accessLog = CocoAccessLog.of(" trace-001 ", " post ", " /api/users ", 201, 12L,
-                true, null);
+                true, null, " 10.0.0.8 ", " PostmanRuntime/7.37 ", " name=Coco ",
+                Map.of("name", List.of(" Coco "), "empty", List.of(" ")));
 
         assertEquals("trace-001", accessLog.traceId());
         assertEquals("POST", accessLog.method().orElseThrow());
         assertEquals("/api/users", accessLog.path().orElseThrow());
+        assertEquals("10.0.0.8", accessLog.clientIp().orElseThrow());
+        assertEquals("PostmanRuntime/7.37", accessLog.userAgent().orElseThrow());
+        assertEquals("name=Coco", accessLog.queryString().orElseThrow());
+        assertEquals(List.of("Coco"), accessLog.requestParameters().get("name"));
+        assertEquals(List.of(""), accessLog.requestParameters().get("empty"));
         assertEquals(201, accessLog.status());
         assertEquals(12L, accessLog.durationMillis());
         assertTrue(accessLog.success());

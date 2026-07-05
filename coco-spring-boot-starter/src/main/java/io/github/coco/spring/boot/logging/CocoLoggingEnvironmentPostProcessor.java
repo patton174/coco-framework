@@ -42,6 +42,7 @@ public final class CocoLoggingEnvironmentPostProcessor implements EnvironmentPos
                 CocoLoggingProperties.DEFAULT_CONSOLE_PATTERN));
         defaults.put("logging.level.io.github.coco", "INFO");
         defaults.put("logging.level.io.github.coco.access", "INFO");
+        defaults.put("logging.level.io.github.coco.lifecycle", "INFO");
         if (environment.getProperty("coco.logging.quiet-spring", Boolean.class, true)) {
             defaults.put("spring.main.log-startup-info", "false");
             defaults.put("logging.level.org.springframework", "WARN");

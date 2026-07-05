@@ -24,8 +24,9 @@ public class CocoLoggingProperties {
     /**
      * Coco 默认控制台日志格式。
      */
-    public static final String DEFAULT_CONSOLE_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level COCO [%15.15thread] "
-            + "%-40.40logger{39} : %msg%n%ex";
+    public static final String DEFAULT_CONSOLE_PATTERN = "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%-5level) "
+            + "%clr(COCO){cyan} %clr([%15.15thread]){faint} %clr(%-40.40logger{39}){blue} "
+            + "%clr(:){faint} %msg%n%wEx";
 
     private boolean enabled = true;
 

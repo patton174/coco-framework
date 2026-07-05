@@ -3,7 +3,7 @@ package io.github.coco.spring.boot.banner;
 /**
  * Coco 启动 banner 渲染器。
  * <p>
- * 负责生成 Coco 框架启动信息文本，展示版本号、作者和项目仓库地址。
+ * 负责生成 Coco Spring 启动信息文本，展示框架标识、框架版本和 Spring Boot 版本。
  * </p>
  * <p>
  * 项目信息：
@@ -52,18 +52,17 @@ public final class CocoStartupBanner {
     public String render(String detectedVersion, String springBootVersion) {
         String version = resolveVersion(detectedVersion);
         return System.lineSeparator()
-                + "  _________                         ______            _" + System.lineSeparator()
-                + " /  ______/___  _________     _____/  ___/_________(_)___  ____ _" + System.lineSeparator()
-                + "/  /     / __ \\/  ___/  _ \\   / ___/\\__ \\/ ___/ ___/ / __ \\/ __ `/" + System.lineSeparator()
-                + "\\  \\____/ /_/ / /___/  __/  (__  )___/ / /  / /  / / / / / /_/ /" + System.lineSeparator()
-                + " \\_____/\\____/\\___/\\___/  /____//____/_/  /_/  /_/_/ /_/\\__, /" + System.lineSeparator()
-                + "                                                       /____/" + System.lineSeparator()
-                + System.lineSeparator()
-                + " :: " + this.properties.getTitle() + " ::" + System.lineSeparator()
-                + " :: Version     : " + version + System.lineSeparator()
-                + " :: Spring Boot : " + resolveSpringBootVersion(springBootVersion) + System.lineSeparator()
-                + " :: Author      : " + this.properties.getAuthor() + System.lineSeparator()
-                + " :: Repository  : " + this.properties.getRepository();
+                + top()
+                + row("  ██████╗  ██████╗  ██████╗ ██████╗")
+                + row(" ██╔════╝ ██╔═══██╗██╔════╝██╔═══██╗")
+                + row(" ██║      ██║   ██║██║     ██║   ██║")
+                + row(" ╚██████╗ ╚██████╔╝╚██████╗╚██████╔╝")
+                + row("  ╚═════╝  ╚═════╝  ╚═════╝ ╚═════╝")
+                + separator()
+                + row(" " + this.properties.getTitle())
+                + row(" Coco       : " + version)
+                + row(" Spring Boot : " + resolveSpringBootVersion(springBootVersion))
+                + bottom();
     }
 
     private String resolveVersion(String detectedVersion) {
@@ -75,5 +74,26 @@ public final class CocoStartupBanner {
 
     private static String resolveSpringBootVersion(String springBootVersion) {
         return springBootVersion == null || springBootVersion.isBlank() ? "unknown" : springBootVersion.trim();
+    }
+
+    private static String top() {
+        return "╭" + "─".repeat(52) + "╮" + System.lineSeparator();
+    }
+
+    private static String separator() {
+        return "├" + "─".repeat(52) + "┤" + System.lineSeparator();
+    }
+
+    private static String bottom() {
+        return "╰" + "─".repeat(52) + "╯";
+    }
+
+    private static String row(String text) {
+        String normalizedText = text == null ? "" : text;
+        if (normalizedText.length() >= 50) {
+            return "│ " + normalizedText.substring(0, 50) + " │" + System.lineSeparator();
+        }
+        return "│ " + normalizedText + " ".repeat(50 - normalizedText.length()) + " │"
+                + System.lineSeparator();
     }
 }

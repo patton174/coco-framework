@@ -286,6 +286,9 @@ class CocoWebAutoConfigurationTest {
         assertEquals(CocoAccessLogLevel.INFO, properties.getAccessLog().getLevel());
         assertEquals(CocoAccessLogStyle.TEXT, properties.getAccessLog().getStyle());
         assertEquals("io.github.coco.access", properties.getAccessLog().getLoggerName());
+        assertTrue(properties.getAccessLog().isIncludeParameters());
+        assertEquals(256, properties.getAccessLog().getMaxParameterValueLength());
+        assertTrue(properties.getAccessLog().getMaskedParameterNames().contains("token"));
 
         properties.setAccessLog(null);
 
@@ -295,17 +298,23 @@ class CocoWebAutoConfigurationTest {
     @Test
     void formatsAccessLogAsTextAndJson() {
         CocoAccessLog accessLog = CocoAccessLog.of("trace-1001", "post", "/sample/orders",
-                201, 42L, true, null);
+                201, 42L, true, null, "10.0.0.8", "PostmanRuntime/7.37",
+                "sku=COCO-STARTER&token=******",
+                Map.of("sku", List.of("COCO-STARTER"), "token", List.of("******")));
         CocoAccessLogProperties properties = new CocoAccessLogProperties();
         DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
 
-        assertEquals("traceId=trace-1001 method=POST path=/sample/orders status=201 durationMs=42 success=true",
+        assertEquals("scope=access traceId=trace-1001 clientIp=10.0.0.8 method=POST path=/sample/orders "
+                        + "query=\"sku=COCO-STARTER&token=******\" params=\"sku=COCO-STARTER&token=******\" "
+                        + "ua=\"PostmanRuntime/7.37\" status=201 durationMs=42 success=true",
                 formatter.format(accessLog, properties));
 
         properties.setStyle(CocoAccessLogStyle.JSON);
 
         assertEquals("{\"traceId\":\"trace-1001\",\"method\":\"POST\",\"path\":\"/sample/orders\","
-                        + "\"status\":201,\"durationMs\":42,\"success\":true}",
+                        + "\"clientIp\":\"10.0.0.8\",\"queryString\":\"sku=COCO-STARTER&token=******\","
+                        + "\"parameters\":{\"sku\":[\"COCO-STARTER\"],\"token\":[\"******\"]},"
+                        + "\"userAgent\":\"PostmanRuntime/7.37\",\"status\":201,\"durationMs\":42,\"success\":true}",
                 formatter.format(accessLog, properties));
     }
 
@@ -588,6 +597,11 @@ class CocoWebAutoConfigurationTest {
                     MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
                     MockHttpServletResponse response = new MockHttpServletResponse();
                     request.addHeader("X-Trace-Id", "access-trace");
+                    request.addHeader("X-Forwarded-For", " 10.0.0.8, 10.0.0.9 ");
+                    request.addHeader("User-Agent", "PostmanRuntime/7.37");
+                    request.setQueryString("name=Coco&token=abc");
+                    request.addParameter("name", "Coco");
+                    request.addParameter("token", "abc");
 
                     filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
                             response.setStatus(201))));
@@ -596,6 +610,11 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("access-trace", accessLog.traceId());
                     assertEquals("POST", accessLog.method().orElseThrow());
                     assertEquals("/api/users", accessLog.path().orElseThrow());
+                    assertEquals("10.0.0.8", accessLog.clientIp().orElseThrow());
+                    assertEquals("PostmanRuntime/7.37", accessLog.userAgent().orElseThrow());
+                    assertEquals("name=Coco&token=******", accessLog.queryString().orElseThrow());
+                    assertEquals(List.of("Coco"), accessLog.requestParameters().get("name"));
+                    assertEquals(List.of("******"), accessLog.requestParameters().get("token"));
                     assertEquals(201, accessLog.status());
                     assertTrue(accessLog.success());
                     assertTrue(accessLog.durationMillis() >= 0L);

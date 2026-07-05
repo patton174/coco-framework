@@ -2,6 +2,7 @@ package io.github.coco.spring.boot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 
@@ -35,7 +36,24 @@ class CocoLifecycleLoggerTest {
 
         String message = logger.readyMessage(context, Duration.ofMillis(1234));
 
-        assertEquals("event=coco.ready application=sample durationMs=1234", message);
+        assertEquals("event=coco.ready application=sample durationMs=1234 profiles=default", message);
         assertFalse(message.contains("Started "));
+    }
+
+    @Test
+    void formatsStartedMessageWithDetailedCocoFields() {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.setId("sample");
+        CocoLifecycleLogger logger = new CocoLifecycleLogger();
+
+        String message = logger.startedMessage(context, Duration.ofMillis(1000));
+
+        assertTrue(message.contains("event=coco.started"));
+        assertTrue(message.contains("application=sample"));
+        assertTrue(message.contains("durationMs=1000"));
+        assertTrue(message.contains("java="));
+        assertTrue(message.contains("pid="));
+        assertTrue(message.contains("cwd=\""));
+        assertTrue(message.contains("profiles=default"));
     }
 }

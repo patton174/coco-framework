@@ -105,16 +105,16 @@ class CocoAutoConfigurationTest {
     @Test
     void rendersStartupBannerWithProjectInfo() {
         CocoBannerProperties properties = new CocoBannerProperties();
-        properties.setAuthor("tester");
-        properties.setRepository("https://github.com/patton174/coco-framework");
         CocoStartupBanner banner = new CocoStartupBanner(properties);
 
         String rendered = banner.render("9.9.9");
 
+        assertTrue(rendered.contains("╭"));
+        assertTrue(rendered.contains("█"));
         assertTrue(rendered.contains("Coco Spring"));
         assertTrue(rendered.contains("9.9.9"));
-        assertTrue(rendered.contains("tester"));
-        assertTrue(rendered.contains("https://github.com/patton174/coco-framework"));
+        assertEquals(false, rendered.contains("Author"));
+        assertEquals(false, rendered.contains("Repository"));
         assertEquals(false, rendered.contains(":: Spring Boot ::"));
     }
 }
