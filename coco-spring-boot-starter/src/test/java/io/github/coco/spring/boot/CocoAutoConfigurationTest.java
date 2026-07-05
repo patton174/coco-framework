@@ -10,7 +10,7 @@ import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.spring.boot.banner.CocoBannerProperties;
 import io.github.coco.spring.boot.banner.CocoStartupBanner;
-import io.github.coco.spring.boot.banner.CocoStartupBannerLogger;
+import io.github.coco.spring.boot.logging.CocoLoggingProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -72,17 +72,27 @@ class CocoAutoConfigurationTest {
     }
 
     @Test
-    void createsStartupBannerLoggerByDefault() {
+    void createsStartupBannerByDefault() {
         this.contextRunner.run(context -> {
-            assertTrue(context.containsBean("cocoStartupBannerLogger"));
             assertTrue(context.containsBean("cocoStartupBanner"));
             assertTrue(context.getBean(CocoBannerProperties.class) instanceof CocoBannerProperties);
-            assertTrue(context.getBean(CocoStartupBannerLogger.class) instanceof CocoStartupBannerLogger);
+            assertEquals("Coco Spring", context.getBean(CocoBannerProperties.class).getTitle());
         });
     }
 
     @Test
-    void disablesStartupBannerLoggerByProperty() {
+    void providesLoggingPropertiesByDefault() {
+        this.contextRunner.run(context -> {
+            CocoLoggingProperties loggingProperties = context.getBean(CocoLoggingProperties.class);
+
+            assertTrue(loggingProperties.isEnabled());
+            assertTrue(loggingProperties.isQuietSpring());
+            assertTrue(loggingProperties.getConsolePattern().contains("COCO"));
+        });
+    }
+
+    @Test
+    void doesNotRegisterStartupBannerLogger() {
         this.contextRunner
                 .withPropertyValues("coco.banner.enabled=false")
                 .run(context -> {
@@ -95,16 +105,16 @@ class CocoAutoConfigurationTest {
     @Test
     void rendersStartupBannerWithProjectInfo() {
         CocoBannerProperties properties = new CocoBannerProperties();
-        properties.setTitle("Coco Test");
         properties.setAuthor("tester");
         properties.setRepository("https://github.com/patton174/coco-framework");
         CocoStartupBanner banner = new CocoStartupBanner(properties);
 
         String rendered = banner.render("9.9.9");
 
-        assertTrue(rendered.contains("Coco Test"));
+        assertTrue(rendered.contains("Coco Spring"));
         assertTrue(rendered.contains("9.9.9"));
         assertTrue(rendered.contains("tester"));
         assertTrue(rendered.contains("https://github.com/patton174/coco-framework"));
+        assertEquals(false, rendered.contains(":: Spring Boot ::"));
     }
 }

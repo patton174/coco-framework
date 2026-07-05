@@ -38,18 +38,32 @@ public final class CocoStartupBanner {
      * @return banner 文本
      */
     public String render(String detectedVersion) {
+        return render(detectedVersion, null);
+    }
+
+    /**
+     * <p>
+     * 渲染 Coco 启动 banner，并附带 Spring Boot 版本号。
+     * </p>
+     * @param detectedVersion 自动探测到的 Coco 版本号
+     * @param springBootVersion Spring Boot 版本号
+     * @return banner 文本
+     */
+    public String render(String detectedVersion, String springBootVersion) {
         String version = resolveVersion(detectedVersion);
         return System.lineSeparator()
-                + "  _________" + System.lineSeparator()
-                + " /  ______/___  _________" + System.lineSeparator()
-                + "/  /     / __ \\/  ___/  _ \\" + System.lineSeparator()
-                + "\\  \\____/ /_/ / /___/  __/" + System.lineSeparator()
-                + " \\_____/\\____/\\___/\\___/" + System.lineSeparator()
+                + "  _________                         ______            _" + System.lineSeparator()
+                + " /  ______/___  _________     _____/  ___/_________(_)___  ____ _" + System.lineSeparator()
+                + "/  /     / __ \\/  ___/  _ \\   / ___/\\__ \\/ ___/ ___/ / __ \\/ __ `/" + System.lineSeparator()
+                + "\\  \\____/ /_/ / /___/  __/  (__  )___/ / /  / /  / / / / / /_/ /" + System.lineSeparator()
+                + " \\_____/\\____/\\___/\\___/  /____//____/_/  /_/  /_/_/ /_/\\__, /" + System.lineSeparator()
+                + "                                                       /____/" + System.lineSeparator()
                 + System.lineSeparator()
                 + " :: " + this.properties.getTitle() + " ::" + System.lineSeparator()
-                + " :: Version    : " + version + System.lineSeparator()
-                + " :: Author     : " + this.properties.getAuthor() + System.lineSeparator()
-                + " :: Repository : " + this.properties.getRepository();
+                + " :: Version     : " + version + System.lineSeparator()
+                + " :: Spring Boot : " + resolveSpringBootVersion(springBootVersion) + System.lineSeparator()
+                + " :: Author      : " + this.properties.getAuthor() + System.lineSeparator()
+                + " :: Repository  : " + this.properties.getRepository();
     }
 
     private String resolveVersion(String detectedVersion) {
@@ -57,5 +71,9 @@ public final class CocoStartupBanner {
             return this.properties.getVersion();
         }
         return detectedVersion == null || detectedVersion.isBlank() ? "unknown" : detectedVersion.trim();
+    }
+
+    private static String resolveSpringBootVersion(String springBootVersion) {
+        return springBootVersion == null || springBootVersion.isBlank() ? "unknown" : springBootVersion.trim();
     }
 }

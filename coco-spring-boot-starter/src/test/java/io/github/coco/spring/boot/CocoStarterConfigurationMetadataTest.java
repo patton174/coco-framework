@@ -38,5 +38,8 @@ class CocoStarterConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.banner.author\""));
         assertTrue(content.contains("\"name\": \"coco.banner.repository\""));
         assertTrue(content.contains("\"name\": \"coco.banner.version\""));
+        assertTrue(content.contains("\"name\": \"coco.logging.enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.logging.quiet-spring\""));
+        assertTrue(content.contains("\"name\": \"coco.logging.console-pattern\""));
     }
 }

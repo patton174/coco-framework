@@ -21,7 +21,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "coco.banner")
 public class CocoBannerProperties {
 
-    private static final String DEFAULT_TITLE = "Coco Framework";
+    private static final String DEFAULT_TITLE = "Coco Spring";
 
     private static final String DEFAULT_AUTHOR = "patton174";
 
