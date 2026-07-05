@@ -3,7 +3,7 @@ package io.github.coco.feature.web.exception;
 import java.util.Objects;
 
 import io.github.coco.common.exception.CocoException;
-import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.response.CocoApiResponse;
 import org.springframework.http.HttpStatusCode;
@@ -62,7 +62,7 @@ public class CocoWebExceptionHandler {
         CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");
         HttpStatusCode statusCode = Objects.requireNonNull(this.httpStatusResolver.resolve(checkedException),
                 "resolved http status must not be null");
-        String message = this.messageService.resolve(checkedException);
+        String message = this.messageService.resolve(checkedException.message());
         String traceId = CocoTraceContext.getOrCreateTraceId();
         CocoApiResponse<Void> response = CocoApiResponse.error(checkedException.code(), message, traceId,
                 resolvePath(request));

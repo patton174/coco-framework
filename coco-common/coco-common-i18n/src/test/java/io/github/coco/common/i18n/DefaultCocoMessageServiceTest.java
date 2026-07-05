@@ -5,7 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Locale;
 
-import io.github.coco.common.exception.CocoException;
+import io.github.coco.common.i18n.api.CocoMessage;
+import io.github.coco.common.i18n.api.CocoMessageCode;
+import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.common.i18n.internal.DefaultCocoLocaleResolver;
+import io.github.coco.common.i18n.internal.DefaultCocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.ResourceBundleMessageSource;
 
@@ -82,10 +86,10 @@ class DefaultCocoMessageServiceTest {
     }
 
     @Test
-    void resolvesCocoExceptionDescriptor() {
-        CocoException exception = new CocoException("sample.missing", "默认错误：{0}", "Coco");
+    void resolvesFallbackMessageDescriptor() {
+        CocoMessage message = new CocoMessage("sample.missing", "默认错误：{0}", "Coco");
 
-        assertEquals("默认错误：Coco", this.messageService.resolve(exception));
+        assertEquals("默认错误：Coco", this.messageService.resolve(message));
     }
 
     @Test

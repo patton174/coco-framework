@@ -1,7 +1,10 @@
-package io.github.coco.common.i18n;
+package io.github.coco.common.i18n.internal;
 
 import java.util.Locale;
 import java.util.Objects;
+
+import io.github.coco.common.i18n.CocoI18nProperties;
+import io.github.coco.common.i18n.api.CocoLocaleResolver;
 
 /**
  * 默认 Coco 语言解析器。

@@ -4,9 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.coco.common.exception.CocoCommonErrorCode;
-import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
-import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.i18n.api.CocoMessage;
+import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.common.i18n.api.CocoMessageCode;
+import io.github.coco.common.i18n.api.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -55,27 +56,28 @@ class CocoCommonAutoConfigurationTest {
         this.contextRunner.run(context -> {
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
-            assertEquals("参数不合法：name", messageService.getMessage(CocoCommonErrorCode.INVALID_ARGUMENT, "name"));
+            assertEquals("参数不合法：name", messageService.getMessage(TestMessageCode.INVALID_ARGUMENT, "name"));
         });
     }
 
     @Test
-    void resolvesTypedExceptionMessageWithDefaultLocale() {
+    void resolvesNotFoundMessageDescriptorWithDefaultLocale() {
         this.contextRunner.run(context -> {
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
             assertEquals("资源不存在：user",
-                    messageService.resolve(CocoCommonErrorCode.NOT_FOUND.notFound("user")));
+                    messageService.resolve(new CocoMessage("coco.error.not-found", "coco.error.not-found", "user")));
         });
     }
 
     @Test
-    void resolvesInternalGuardExceptionMessageWithDefaultLocale() {
+    void resolvesInternalGuardMessageDescriptorWithDefaultLocale() {
         this.contextRunner.run(context -> {
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
             assertEquals("异常编码不能为空",
-                    messageService.resolve(CocoCommonErrorCode.MISSING_ERROR_CODE.request()));
+                    messageService.resolve(new CocoMessage("coco.error.missing-error-code",
+                            "coco.error.missing-error-code")));
         });
     }
 
@@ -131,6 +133,22 @@ class CocoCommonAutoConfigurationTest {
         @Bean
         CocoMessageBundleRegistrar moduleMessageBundleRegistrar() {
             return registry -> registry.add("module-messages");
+        }
+    }
+
+    private enum TestMessageCode implements CocoMessageCode {
+
+        INVALID_ARGUMENT("coco.error.invalid-argument");
+
+        private final String code;
+
+        TestMessageCode(String code) {
+            this.code = code;
+        }
+
+        @Override
+        public String code() {
+            return this.code;
         }
     }
 }

@@ -1,9 +1,7 @@
-package io.github.coco.common.i18n;
+package io.github.coco.common.i18n.api;
 
 import java.util.Locale;
 import java.util.Objects;
-
-import io.github.coco.common.exception.CocoException;
 
 /**
  * Coco 消息服务。
@@ -110,23 +108,4 @@ public interface CocoMessageService {
      * @return 解析后的消息文本
      */
     String resolve(CocoMessage message, Locale locale);
-
-    /**
-     * <p>
-     * 使用当前语言解析 Coco 异常中的消息信息。
-     * </p>
-     * @param exception Coco 异常
-     * @return 解析后的消息文本
-     */
-    String resolve(CocoException exception);
-
-    /**
-     * <p>
-     * 使用指定语言解析 Coco 异常中的消息信息。
-     * </p>
-     * @param exception Coco 异常
-     * @param locale 目标语言
-     * @return 解析后的消息文本
-     */
-    String resolve(CocoException exception, Locale locale);
 }

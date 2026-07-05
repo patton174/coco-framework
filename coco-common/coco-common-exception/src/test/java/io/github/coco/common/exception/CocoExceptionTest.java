@@ -13,6 +13,7 @@ import io.github.coco.common.exception.type.CocoNotFoundException;
 import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.exception.type.CocoSystemException;
 import io.github.coco.common.exception.type.CocoUnauthorizedException;
+import io.github.coco.common.i18n.api.CocoMessage;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -185,5 +186,16 @@ class CocoExceptionTest {
         args[0] = "after";
 
         assertArrayEquals(new Object[] {"before"}, exception.args());
+    }
+
+    @Test
+    void exportsMessageDescriptorForI18nResolution() {
+        CocoException exception = new CocoException("coco.error.invalid-argument", "参数 {0} 不合法", "name");
+
+        CocoMessage message = exception.message();
+
+        assertEquals("coco.error.invalid-argument", message.code());
+        assertEquals("参数 {0} 不合法", message.defaultMessage());
+        assertArrayEquals(new Object[] {"name"}, message.args());
     }
 }

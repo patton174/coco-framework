@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoExceptions;
-import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;

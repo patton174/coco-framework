@@ -1,4 +1,4 @@
-package io.github.coco.common.i18n;
+package io.github.coco.common.i18n.api;
 
 /**
  * Coco 模块消息资源注册器。

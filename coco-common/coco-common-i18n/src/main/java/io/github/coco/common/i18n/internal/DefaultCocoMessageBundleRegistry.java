@@ -1,8 +1,10 @@
-package io.github.coco.common.i18n;
+package io.github.coco.common.i18n.internal;
 
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+
+import io.github.coco.common.i18n.api.CocoMessageBundleRegistry;
 
 /**
  * 默认 Coco 消息资源包注册表。

@@ -90,11 +90,6 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-i18n-api</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-common-exception</artifactId>
                 <version>${project.version}</version>
             </dependency>

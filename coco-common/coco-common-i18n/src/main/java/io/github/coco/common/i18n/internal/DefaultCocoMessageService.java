@@ -1,10 +1,12 @@
-package io.github.coco.common.i18n;
+package io.github.coco.common.i18n.internal;
 
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Objects;
 
-import io.github.coco.common.exception.CocoException;
+import io.github.coco.common.i18n.api.CocoLocaleResolver;
+import io.github.coco.common.i18n.api.CocoMessage;
+import io.github.coco.common.i18n.api.CocoMessageService;
 import org.springframework.context.MessageSource;
 
 /**
@@ -103,24 +105,6 @@ public final class DefaultCocoMessageService implements CocoMessageService {
         CocoMessage checkedMessage = Objects.requireNonNull(message, "message must not be null");
         return getMessageOrDefault(checkedMessage.code(), checkedMessage.defaultMessage(), locale,
                 checkedMessage.args());
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public String resolve(CocoException exception) {
-        return resolve(exception, this.localeResolver.resolveLocale());
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public String resolve(CocoException exception, Locale locale) {
-        CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");
-        return getMessageOrDefault(checkedException.code(), checkedException.defaultMessage(), locale,
-                checkedException.args());
     }
 
     private static String requireCode(String code) {

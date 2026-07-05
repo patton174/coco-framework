@@ -1,11 +1,9 @@
-package io.github.coco.common.i18n;
-
-import java.util.Locale;
+package io.github.coco.common.i18n.api;
 
 /**
- * Coco 语言解析器。
+ * Coco 消息资源包注册表。
  * <p>
- * 为不显式传入语言的消息解析提供当前语言来源。
+ * 只暴露添加 basename 的能力，避免业务模块直接接触消息源实现细节。
  * </p>
  * <p>
  * 项目信息：
@@ -18,13 +16,13 @@ import java.util.Locale;
  * @author patton174
  * @since 1.0.0
  */
-public interface CocoLocaleResolver {
+public interface CocoMessageBundleRegistry {
 
     /**
      * <p>
-     * 解析当前消息处理应使用的语言。
+     * 添加一个消息资源 basename。
      * </p>
-     * @return 当前语言
+     * @param basename 消息资源 basename
      */
-    Locale resolveLocale();
+    void add(String basename);
 }
