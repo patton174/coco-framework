@@ -1,9 +1,9 @@
-package io.github.coco.sample.basic.web;
+package io.github.coco.sample.basic.interfaces.rest;
 
 import java.util.List;
 import java.util.Objects;
 
-import io.github.coco.sample.basic.business.SampleOrderService;
+import io.github.coco.sample.basic.application.order.SampleOrderApplicationService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,16 +31,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/sample")
 public class SampleOrderController {
 
-    private final SampleOrderService orderService;
+    private final SampleOrderApplicationService orderApplicationService;
 
     /**
      * <p>
      * 创建 Coco 示例订单接口。
      * </p>
-     * @param orderService 示例订单服务
+     * @param orderApplicationService 示例订单应用服务
      */
-    public SampleOrderController(SampleOrderService orderService) {
-        this.orderService = Objects.requireNonNull(orderService, "orderService must not be null");
+    public SampleOrderController(SampleOrderApplicationService orderApplicationService) {
+        this.orderApplicationService = Objects.requireNonNull(orderApplicationService,
+                "orderApplicationService must not be null");
     }
 
     /**
@@ -51,7 +52,7 @@ public class SampleOrderController {
      */
     @GetMapping("/products")
     public List<SampleProductResponse> products() {
-        return this.orderService.listProducts().stream()
+        return this.orderApplicationService.listProducts().stream()
                 .map(SampleProductResponse::from)
                 .toList();
     }
@@ -65,7 +66,7 @@ public class SampleOrderController {
      */
     @PostMapping("/orders")
     public SampleOrderResponse createOrder(@RequestBody SampleCreateOrderRequest request) {
-        return SampleOrderResponse.from(this.orderService.createOrder(request.buyerName(), request.sku(),
+        return SampleOrderResponse.from(this.orderApplicationService.createOrder(request.buyerName(), request.sku(),
                 request.quantity()));
     }
 
@@ -78,6 +79,6 @@ public class SampleOrderController {
      */
     @GetMapping("/orders/{orderId}")
     public SampleOrderResponse order(@PathVariable String orderId) {
-        return SampleOrderResponse.from(this.orderService.getOrder(orderId));
+        return SampleOrderResponse.from(this.orderApplicationService.getOrder(orderId));
     }
 }

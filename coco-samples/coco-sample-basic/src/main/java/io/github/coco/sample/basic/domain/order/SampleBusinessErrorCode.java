@@ -1,4 +1,4 @@
-package io.github.coco.sample.basic.business;
+package io.github.coco.sample.basic.domain.order;
 
 import io.github.coco.common.exception.CocoErrorCode;
 

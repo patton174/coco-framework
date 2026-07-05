@@ -1,6 +1,6 @@
-package io.github.coco.sample.basic.web;
+package io.github.coco.sample.basic.interfaces.rest;
 
-import io.github.coco.sample.basic.business.SampleProduct;
+import io.github.coco.sample.basic.domain.order.SampleProduct;
 
 /**
  * Coco 示例商品响应。

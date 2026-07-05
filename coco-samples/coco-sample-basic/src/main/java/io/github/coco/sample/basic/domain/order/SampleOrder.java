@@ -1,4 +1,4 @@
-package io.github.coco.sample.basic.business;
+package io.github.coco.sample.basic.domain.order;
 
 /**
  * Coco 示例订单快照。

@@ -1,4 +1,4 @@
-package io.github.coco.sample.basic;
+package io.github.coco.sample.basic.architecture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilderFactory;
 
@@ -108,6 +110,22 @@ class CocoSampleBusinessIntegrationTest {
         }
     }
 
+    /**
+     * <p>
+     * 示例主代码应该按真实业务项目分层组织，避免继续使用含义过粗的 {@code business} 和 {@code web} 包。
+     * </p>
+     * @throws Exception 源码扫描失败时抛出
+     */
+    @Test
+    void followsLayeredBusinessPackageStructure() throws Exception {
+        assertEquals(Set.of(
+                "io.github.coco.sample.basic",
+                "io.github.coco.sample.basic.application.order",
+                "io.github.coco.sample.basic.domain.order",
+                "io.github.coco.sample.basic.infrastructure.order",
+                "io.github.coco.sample.basic.interfaces.rest"), mainPackages());
+    }
+
     private static Document readPom() throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
@@ -166,6 +184,22 @@ class CocoSampleBusinessIntegrationTest {
         catch (Exception ex) {
             throw new IllegalStateException("Cannot read Java source: " + path, ex);
         }
+    }
+
+    private static Set<String> mainPackages() throws Exception {
+        Path mainSourceDirectory = sampleDirectory().resolve("src/main/java");
+        Set<String> packages = new TreeSet<>();
+        try (Stream<Path> files = Files.walk(mainSourceDirectory)) {
+            for (Path path : files.filter(sourcePath -> sourcePath.toString().endsWith(".java")).toList()) {
+                String content = Files.readString(path);
+                content.lines()
+                        .filter(line -> line.startsWith("package "))
+                        .map(line -> line.substring("package ".length(), line.length() - 1))
+                        .findFirst()
+                        .ifPresent(packages::add);
+            }
+        }
+        return packages;
     }
 
     private static Path sampleDirectory() {

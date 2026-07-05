@@ -1,15 +1,19 @@
-package io.github.coco.sample.basic.business;
+package io.github.coco.sample.basic.application.order;
 
 import java.util.List;
 import java.util.Objects;
 
 import io.github.coco.common.exception.CocoCommonErrorCode;
+import io.github.coco.sample.basic.domain.order.SampleBusinessErrorCode;
+import io.github.coco.sample.basic.domain.order.SampleOrder;
+import io.github.coco.sample.basic.domain.order.SampleOrderRepository;
+import io.github.coco.sample.basic.domain.order.SampleProduct;
 import org.springframework.stereotype.Service;
 
 /**
- * Coco 示例订单服务。
+ * Coco 示例订单应用服务。
  * <p>
- * 承载商品查询、下单和订单查询等业务规则，模拟真实业务项目中 service 层对 Coco 异常能力的使用方式。
+ * 承载商品查询、下单和订单查询等应用用例，模拟真实业务项目中 application 层对 Coco 异常能力的使用方式。
  * </p>
  * <p>
  * 项目信息：
@@ -23,7 +27,7 @@ import org.springframework.stereotype.Service;
  * @since 1.0.0
  */
 @Service
-public class SampleOrderService {
+public class SampleOrderApplicationService {
 
     private final SampleOrderRepository orderRepository;
 
@@ -33,7 +37,7 @@ public class SampleOrderService {
      * </p>
      * @param orderRepository 示例订单仓储
      */
-    public SampleOrderService(SampleOrderRepository orderRepository) {
+    public SampleOrderApplicationService(SampleOrderRepository orderRepository) {
         this.orderRepository = Objects.requireNonNull(orderRepository, "orderRepository must not be null");
     }
 

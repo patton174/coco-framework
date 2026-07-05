@@ -1,16 +1,20 @@
-package io.github.coco.sample.basic.business;
+package io.github.coco.sample.basic.infrastructure.order;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import io.github.coco.sample.basic.domain.order.SampleBusinessErrorCode;
+import io.github.coco.sample.basic.domain.order.SampleOrder;
+import io.github.coco.sample.basic.domain.order.SampleOrderRepository;
+import io.github.coco.sample.basic.domain.order.SampleProduct;
 import org.springframework.stereotype.Repository;
 
 /**
- * Coco 示例订单仓储。
+ * Coco 示例内存订单仓储实现。
  * <p>
- * 使用内存数据模拟商品库存和订单状态，保持示例可直接运行；真实业务项目可以替换为数据库 Mapper 或 Repository。
+ * 使用内存数据模拟商品库存和订单状态，保持示例可直接运行；真实业务项目可以在 infrastructure 层替换为数据库 Mapper 或 Repository。
  * </p>
  * <p>
  * 项目信息：
@@ -24,7 +28,7 @@ import org.springframework.stereotype.Repository;
  * @since 1.0.0
  */
 @Repository
-public class SampleOrderRepository {
+public class InMemorySampleOrderRepository implements SampleOrderRepository {
 
     private final Map<String, ProductState> products = new LinkedHashMap<>();
 
@@ -37,7 +41,7 @@ public class SampleOrderRepository {
      * 创建示例订单仓储，并初始化可售商品。
      * </p>
      */
-    public SampleOrderRepository() {
+    public InMemorySampleOrderRepository() {
         this.products.put("COCO-STARTER", new ProductState("COCO-STARTER", "Coco Starter", 9900L, 5));
         this.products.put("COCO-AUDIT", new ProductState("COCO-AUDIT", "Coco Audit", 12900L, 2));
     }
@@ -48,6 +52,7 @@ public class SampleOrderRepository {
      * </p>
      * @return 商品库存快照列表
      */
+    @Override
     public synchronized List<SampleProduct> findProducts() {
         return this.products.values().stream()
                 .map(ProductState::snapshot)
@@ -63,6 +68,7 @@ public class SampleOrderRepository {
      * @param quantity 下单数量
      * @return 已创建订单
      */
+    @Override
     public synchronized SampleOrder createOrder(String buyerName, String sku, int quantity) {
         ProductState product = this.products.get(sku);
         if (product == null) {
@@ -86,6 +92,7 @@ public class SampleOrderRepository {
      * @param orderId 订单编号
      * @return 订单快照；不存在时为空
      */
+    @Override
     public synchronized Optional<SampleOrder> findOrder(String orderId) {
         return Optional.ofNullable(this.orders.get(orderId));
     }

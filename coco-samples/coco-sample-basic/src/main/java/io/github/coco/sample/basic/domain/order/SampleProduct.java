@@ -1,9 +1,9 @@
-package io.github.coco.sample.basic.web;
+package io.github.coco.sample.basic.domain.order;
 
 /**
- * Coco 示例创建订单请求。
+ * Coco 示例商品快照。
  * <p>
- * 表示真实业务接口接收的下单参数。
+ * 表示业务接口可以读取到的商品库存状态。
  * </p>
  * <p>
  * 项目信息：
@@ -13,11 +13,12 @@ package io.github.coco.sample.basic.web;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-sample-basic}</li>
  * </ul>
- * @param buyerName 买家名称
  * @param sku 商品编码
- * @param quantity 下单数量
+ * @param name 商品名称
+ * @param unitPrice 商品单价，单位为分
+ * @param availableStock 可售库存
  * @author patton174
  * @since 1.0.0
  */
-public record SampleCreateOrderRequest(String buyerName, String sku, int quantity) {
+public record SampleProduct(String sku, String name, long unitPrice, int availableStock) {
 }

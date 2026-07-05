@@ -1,4 +1,4 @@
-package io.github.coco.sample.basic;
+package io.github.coco.sample.basic.interfaces.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
