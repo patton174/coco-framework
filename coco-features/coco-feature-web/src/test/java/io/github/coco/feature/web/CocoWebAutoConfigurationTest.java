@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.common.accesslog.CocoAccessLog;
+import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.context.CocoRequestContext;
 import io.github.coco.common.context.CocoRequestContextHolder;
@@ -31,6 +33,7 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
@@ -432,6 +435,75 @@ class CocoWebAutoConfigurationTest {
         });
     }
 
+    @Test
+    void recordsAccessLogAfterTraceFilterCompletes() throws Exception {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        this.webContextRunner
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "access-trace");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                            response.setStatus(201))));
+
+                    CocoAccessLog accessLog = recorder.lastAccessLog();
+                    assertEquals("access-trace", accessLog.traceId());
+                    assertEquals("POST", accessLog.method().orElseThrow());
+                    assertEquals("/api/users", accessLog.path().orElseThrow());
+                    assertEquals(201, accessLog.status());
+                    assertTrue(accessLog.success());
+                    assertTrue(accessLog.durationMillis() >= 0L);
+                    assertTrue(accessLog.exceptionType().isEmpty());
+                });
+    }
+
+    @Test
+    void recordsFailedAccessLogWhenTraceFilterThrows() {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        this.webContextRunner
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/fail");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "failed-trace");
+
+                    assertThrows(ServletException.class, () -> filter.doFilter(request, response,
+                            new MockFilterChain(new FailingServlet())));
+
+                    CocoAccessLog accessLog = recorder.lastAccessLog();
+                    assertEquals("failed-trace", accessLog.traceId());
+                    assertEquals("GET", accessLog.method().orElseThrow());
+                    assertEquals("/api/fail", accessLog.path().orElseThrow());
+                    assertFalse(accessLog.success());
+                    assertEquals(ServletException.class.getName(), accessLog.exceptionType().orElseThrow());
+                });
+    }
+
+    @Test
+    void ignoresAccessLogRecorderFailureAndStillClearsContext() {
+        this.webContextRunner
+                .withBean(CocoAccessLogRecorder.class, ThrowingAccessLogRecorder::new)
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "access-trace");
+
+                    filter.doFilter(request, response, new MockFilterChain());
+
+                    assertTrue(CocoRequestContextHolder.current().isEmpty());
+                    assertTrue(CocoTraceContext.currentTraceId().isEmpty());
+                    assertNull(MDC.get("traceId"));
+                });
+    }
+
     private static CocoTraceFilter traceFilter(FilterRegistrationBean<?> registrationBean) {
         return (CocoTraceFilter) registrationBean.getFilter();
     }
@@ -537,6 +609,54 @@ class CocoWebAutoConfigurationTest {
 
         @Override
         public void destroy() {
+        }
+    }
+
+    private static final class FailingServlet implements Servlet {
+
+        @Override
+        public void init(ServletConfig config) {
+        }
+
+        @Override
+        public ServletConfig getServletConfig() {
+            return null;
+        }
+
+        @Override
+        public void service(ServletRequest request, ServletResponse response) throws ServletException {
+            throw new ServletException("boom");
+        }
+
+        @Override
+        public String getServletInfo() {
+            return "failing-servlet";
+        }
+
+        @Override
+        public void destroy() {
+        }
+    }
+
+    private static final class CapturingAccessLogRecorder implements CocoAccessLogRecorder {
+
+        private final AtomicReference<CocoAccessLog> lastAccessLog = new AtomicReference<>();
+
+        @Override
+        public void record(CocoAccessLog accessLog) {
+            this.lastAccessLog.set(accessLog);
+        }
+
+        private CocoAccessLog lastAccessLog() {
+            return this.lastAccessLog.get();
+        }
+    }
+
+    private static final class ThrowingAccessLogRecorder implements CocoAccessLogRecorder {
+
+        @Override
+        public void record(CocoAccessLog accessLog) {
+            throw new IllegalStateException("recorder failed");
         }
     }
 }

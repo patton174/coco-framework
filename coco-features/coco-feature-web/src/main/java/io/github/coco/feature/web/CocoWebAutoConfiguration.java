@@ -2,6 +2,7 @@ package io.github.coco.feature.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.core.feature.ConditionalOnCocoFeature;
@@ -112,9 +113,10 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnProperty(prefix = "coco.web.trace", name = "enabled", havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean(name = "cocoTraceFilterRegistration")
-    public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties) {
+    public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties,
+            ObjectProvider<CocoAccessLogRecorder> accessLogRecorders) {
         FilterRegistrationBean<CocoTraceFilter> registration = new FilterRegistrationBean<>(
-                new CocoTraceFilter(properties.getTrace()));
+                new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList()));
         registration.setName("cocoTraceFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;
