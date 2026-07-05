@@ -32,6 +32,7 @@ import jakarta.servlet.ServletResponse;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -41,6 +42,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpOutputMessage;
@@ -55,6 +57,8 @@ import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.context.request.ServletWebRequest;
 
 /**
@@ -91,6 +95,8 @@ class CocoWebAutoConfigurationTest {
     void clearTraceContext() {
         CocoRequestContextHolder.clear();
         CocoTraceContext.clear();
+        LocaleContextHolder.resetLocaleContext();
+        RequestContextHolder.resetRequestAttributes();
         MDC.clear();
     }
 
@@ -131,6 +137,33 @@ class CocoWebAutoConfigurationTest {
     @Test
     void registersLocalizedSuccessResponseMessage() {
         this.contextRunner.run(context -> {
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("操作成功", messageService.getMessage("coco.web.response.success"));
+        });
+    }
+
+    @Test
+    void resolvesWebMessageFromAcceptLanguageHeader() {
+        this.webContextRunner.run(context -> {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            request.addHeader("Accept-Language", "en-US");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+            LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("Operation succeeded.", messageService.getMessage("coco.web.response.success"));
+        });
+    }
+
+    @Test
+    void fallsBackToCocoDefaultLocaleWhenAcceptLanguageHeaderIsMissing() {
+        this.webContextRunner.run(context -> {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+            LocaleContextHolder.setLocale(Locale.US);
+
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
             assertEquals("操作成功", messageService.getMessage("coco.web.response.success"));

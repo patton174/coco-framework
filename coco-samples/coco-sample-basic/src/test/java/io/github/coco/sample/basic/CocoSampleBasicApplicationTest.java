@@ -83,6 +83,7 @@ class CocoSampleBasicApplicationTest {
         assertEquals("products-trace", response.header("X-Trace-Id"));
         assertTrue(response.body().path("success").booleanValue());
         assertEquals("coco.success", response.body().path("code").textValue());
+        assertEquals("操作成功", response.body().path("message").textValue());
         assertEquals("products-trace", response.body().path("traceId").textValue());
         assertEquals("/sample/products", response.body().path("path").textValue());
         assertEquals("COCO-STARTER", response.body().path("data").get(0).path("sku").textValue());

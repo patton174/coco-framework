@@ -236,6 +236,7 @@ def assert_success(response: HttpResult, trace_id: str, path: str) -> None:
     assert_equal(response.headers.get("X-Trace-Id"), trace_id, f"{path} trace header")
     assert_equal(response.body["success"], True, f"{path} success flag")
     assert_equal(response.body["code"], "coco.success", f"{path} response code")
+    assert_equal(response.body["message"], "\u64cd\u4f5c\u6210\u529f", f"{path} response message")
     assert_equal(response.body["traceId"], trace_id, f"{path} response trace")
     assert_equal(response.body["path"], path, f"{path} response path")
 

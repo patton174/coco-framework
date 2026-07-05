@@ -2,13 +2,17 @@ package io.github.coco.feature.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.common.CocoCommonProperties;
 import io.github.coco.common.accesslog.CocoAccessLogRecorder;
+import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.i18n.api.CocoLocaleResolver;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.core.feature.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
+import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import org.springframework.beans.factory.ObjectProvider;
@@ -37,10 +41,24 @@ import org.springframework.core.Ordered;
  * @author patton174
  * @since 1.0.0
  */
-@AutoConfiguration
+@AutoConfiguration(before = CocoCommonAutoConfiguration.class)
 @ConditionalOnCocoFeature(CocoFeature.WEB)
-@EnableConfigurationProperties(CocoWebProperties.class)
+@EnableConfigurationProperties({ CocoWebProperties.class, CocoCommonProperties.class })
 public class CocoWebAutoConfiguration {
+
+    /**
+     * <p>
+     * 创建 Servlet Web 请求语言解析器。
+     * </p>
+     * @param properties Coco 通用配置属性
+     * @return Coco Web 请求语言解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoLocaleResolver cocoWebLocaleResolver(CocoCommonProperties properties) {
+        return new CocoWebLocaleResolver(properties.getI18n());
+    }
 
     /**
      * <p>
