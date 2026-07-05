@@ -27,6 +27,12 @@ import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.CocoSystemCodes;
+import io.github.coco.feature.web.logging.CocoAccessLogFormatter;
+import io.github.coco.feature.web.logging.CocoAccessLogLevel;
+import io.github.coco.feature.web.logging.CocoAccessLogProperties;
+import io.github.coco.feature.web.logging.CocoAccessLogStyle;
+import io.github.coco.feature.web.logging.DefaultCocoAccessLogFormatter;
+import io.github.coco.feature.web.logging.Slf4jCocoAccessLogRecorder;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -136,6 +142,23 @@ class CocoWebAutoConfigurationTest {
         this.webContextRunner
                 .withPropertyValues("coco.web.response-wrap.enabled=false")
                 .run(context -> assertFalse(context.containsBean("cocoResponseWrapAdvice")));
+    }
+
+    @Test
+    void createsAccessLogRecorderByDefault() {
+        this.webContextRunner.run(context -> {
+            assertTrue(context.containsBean("cocoAccessLogFormatter"));
+            assertTrue(context.containsBean("cocoSlf4jAccessLogRecorder"));
+            assertNotNull(context.getBean(CocoAccessLogFormatter.class));
+            assertNotNull(context.getBean(Slf4jCocoAccessLogRecorder.class));
+        });
+    }
+
+    @Test
+    void disablesAccessLogRecorderByProperty() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.access-log.enabled=false")
+                .run(context -> assertFalse(context.containsBean("cocoSlf4jAccessLogRecorder")));
     }
 
     @Test
@@ -253,6 +276,37 @@ class CocoWebAutoConfigurationTest {
         properties.setResponseWrap(null);
 
         assertTrue(properties.getResponseWrap().isEnabled());
+    }
+
+    @Test
+    void accessLogPropertiesUseDefaultsAndResetNullNestedValue() {
+        CocoWebProperties properties = new CocoWebProperties();
+
+        assertTrue(properties.getAccessLog().isEnabled());
+        assertEquals(CocoAccessLogLevel.INFO, properties.getAccessLog().getLevel());
+        assertEquals(CocoAccessLogStyle.TEXT, properties.getAccessLog().getStyle());
+        assertEquals("io.github.coco.access", properties.getAccessLog().getLoggerName());
+
+        properties.setAccessLog(null);
+
+        assertTrue(properties.getAccessLog().isEnabled());
+    }
+
+    @Test
+    void formatsAccessLogAsTextAndJson() {
+        CocoAccessLog accessLog = CocoAccessLog.of("trace-1001", "post", "/sample/orders",
+                201, 42L, true, null);
+        CocoAccessLogProperties properties = new CocoAccessLogProperties();
+        DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
+
+        assertEquals("traceId=trace-1001 method=POST path=/sample/orders status=201 durationMs=42 success=true",
+                formatter.format(accessLog, properties));
+
+        properties.setStyle(CocoAccessLogStyle.JSON);
+
+        assertEquals("{\"traceId\":\"trace-1001\",\"method\":\"POST\",\"path\":\"/sample/orders\","
+                        + "\"status\":201,\"durationMs\":42,\"success\":true}",
+                formatter.format(accessLog, properties));
     }
 
     @Test

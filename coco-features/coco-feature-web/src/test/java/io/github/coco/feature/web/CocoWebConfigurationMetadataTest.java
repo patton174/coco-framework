@@ -37,6 +37,10 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.trace.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.header-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.mdc-key\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.level\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.style\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.logger-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));
         assertFalse(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));
