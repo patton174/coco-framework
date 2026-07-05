@@ -3,6 +3,7 @@ target/
 .vscode/
 *.iml
 *.log
+.flattened-pom.xml
 .DS_Store
 .worktrees/
 worktrees/

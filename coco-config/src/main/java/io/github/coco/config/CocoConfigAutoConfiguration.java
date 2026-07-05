@@ -1,7 +1,7 @@
 package io.github.coco.config;
 
 import io.github.coco.api.CocoConfigurer;
-import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.registry.CocoFeatureManifestLoader;
 import io.github.coco.feature.registry.CocoFeaturePlan;
 import io.github.coco.feature.registry.CocoFeatureSelection;

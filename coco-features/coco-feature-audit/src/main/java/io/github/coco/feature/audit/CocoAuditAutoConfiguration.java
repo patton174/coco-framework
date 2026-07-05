@@ -1,8 +1,10 @@
 package io.github.coco.feature.audit;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.common.accesslog.CocoAccessLogRecorder;
+import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.core.feature.ConditionalOnCocoFeature;
+import io.github.coco.feature.audit.accesslog.NoOpCocoAccessLogRecorder;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -37,5 +39,17 @@ public class CocoAuditAutoConfiguration {
     @ConditionalOnMissingBean(name = "cocoAuditMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoAuditMessageBundleRegistrar() {
         return registry -> registry.add("coco-feature-audit-messages");
+    }
+
+    /**
+     * <p>
+     * 创建默认接口访问日志记录器。
+     * </p>
+     * @return 接口访问日志记录器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoAccessLogRecorder cocoAccessLogRecorder() {
+        return new NoOpCocoAccessLogRecorder();
     }
 }

@@ -1,12 +1,12 @@
 package io.github.coco.common.autoconfigure;
 
 import io.github.coco.common.CocoCommonProperties;
-import io.github.coco.common.i18n.CocoLocaleResolver;
-import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
-import io.github.coco.common.i18n.CocoMessageService;
-import io.github.coco.common.i18n.DefaultCocoMessageBundleRegistry;
-import io.github.coco.common.i18n.DefaultCocoLocaleResolver;
-import io.github.coco.common.i18n.DefaultCocoMessageService;
+import io.github.coco.common.i18n.api.CocoLocaleResolver;
+import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.common.i18n.internal.DefaultCocoLocaleResolver;
+import io.github.coco.common.i18n.internal.DefaultCocoMessageBundleRegistry;
+import io.github.coco.common.i18n.internal.DefaultCocoMessageService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;

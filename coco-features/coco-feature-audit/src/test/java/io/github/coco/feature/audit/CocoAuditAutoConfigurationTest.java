@@ -1,10 +1,12 @@
 package io.github.coco.feature.audit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.i18n.api.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -40,6 +42,14 @@ class CocoAuditAutoConfigurationTest {
 
             assertTrue(context.containsBean("cocoAuditMessageBundleRegistrar"));
             assertEquals("Coco 审计功能消息资源已就绪。", messageService.getMessage("coco.feature.audit.ready"));
+        });
+    }
+
+    @Test
+    void createsDefaultAccessLogRecorder() {
+        this.contextRunner.run(context -> {
+            assertTrue(context.containsBean("cocoAccessLogRecorder"));
+            assertNotNull(context.getBean(CocoAccessLogRecorder.class));
         });
     }
 }

@@ -61,6 +61,22 @@ public record CocoApiResponse<T>(boolean success, String code, String message, T
         return new CocoApiResponse<>(false, code, message, null, traceId, path);
     }
 
+    /**
+     * <p>
+     * 创建成功响应对象。
+     * </p>
+     * @param code 成功响应编码
+     * @param message 成功响应消息
+     * @param data 响应数据
+     * @param traceId 请求链路标识
+     * @param path 请求路径
+     * @param <T> 响应数据类型
+     * @return 统一成功响应
+     */
+    public static <T> CocoApiResponse<T> success(String code, String message, T data, String traceId, String path) {
+        return new CocoApiResponse<>(true, code, message, data, traceId, path);
+    }
+
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }

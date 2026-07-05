@@ -1,13 +1,17 @@
 package io.github.coco.feature.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
-import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.accesslog.CocoAccessLogRecorder;
+import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.core.feature.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
+import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -20,7 +24,7 @@ import org.springframework.core.Ordered;
 /**
  * Coco Web 功能自动配置。
  * <p>
- * 负责为 Web 功能模块注册国际化消息资源、统一异常响应处理器、异常 HTTP 状态解析器和 Trace 过滤器。
+ * 负责为 Web 功能模块注册国际化消息资源、统一响应包装处理器、统一异常响应处理器、异常 HTTP 状态解析器和 Trace 过滤器。
  * </p>
  * <p>
  * 项目信息：
@@ -80,6 +84,26 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建 Coco Web 正常响应包装处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param properties Coco Web 配置属性
+     * @param objectMapper JSON 序列化器提供器
+     * @return Coco Web 正常响应包装处理器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnProperty(prefix = "coco.web.response-wrap", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean
+    public CocoResponseWrapAdvice cocoResponseWrapAdvice(CocoMessageService messageService,
+            CocoWebProperties properties, ObjectProvider<ObjectMapper> objectMapper) {
+        return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(),
+                objectMapper.getIfAvailable(ObjectMapper::new));
+    }
+
+    /**
+     * <p>
      * 创建 Coco Trace 过滤器注册器。
      * </p>
      * @param properties Coco Web 配置属性
@@ -89,9 +113,10 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnProperty(prefix = "coco.web.trace", name = "enabled", havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean(name = "cocoTraceFilterRegistration")
-    public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties) {
+    public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties,
+            ObjectProvider<CocoAccessLogRecorder> accessLogRecorders) {
         FilterRegistrationBean<CocoTraceFilter> registration = new FilterRegistrationBean<>(
-                new CocoTraceFilter(properties.getTrace()));
+                new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList()));
         registration.setName("cocoTraceFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

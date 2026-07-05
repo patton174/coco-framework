@@ -9,7 +9,7 @@ import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatureRegistry;
 import io.github.coco.api.feature.CocoFeatures;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.i18n.CocoMessageService;
+import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.feature.registry.CocoFeaturePlan;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;

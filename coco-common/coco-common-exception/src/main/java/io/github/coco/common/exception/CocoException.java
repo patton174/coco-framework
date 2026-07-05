@@ -2,6 +2,8 @@ package io.github.coco.common.exception;
 
 import java.util.Arrays;
 
+import io.github.coco.common.i18n.api.CocoMessage;
+
 /**
  * Coco 框架异常基类。
  * <p>
@@ -150,6 +152,16 @@ public class CocoException extends RuntimeException {
      */
     public String defaultMessage() {
         return this.defaultMessage;
+    }
+
+    /**
+     * <p>
+     * 返回可交给国际化消息服务解析的消息描述。
+     * </p>
+     * @return Coco 消息描述
+     */
+    public CocoMessage message() {
+        return new CocoMessage(this.code, this.defaultMessage, this.args);
     }
 
     private static String messageOrCode(String code, String defaultMessage) {

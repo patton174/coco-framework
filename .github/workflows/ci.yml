@@ -9,14 +9,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
-      - name: Verify
-        run: mvn -B verify
+      - name: Verify framework and install artifacts
+        run: mvn -B install
+
+      - name: Verify sample business application
+        run: mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
+
+      - name: Verify sample feature pruning
+        shell: bash
+        run: |
+          jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
+            | grep 'BOOT-INF/lib/coco-feature'
+          ! jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
+            | grep -E 'coco-feature-(tenant|data-permission)-'
+          jar xf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
+            BOOT-INF/classpath.idx BOOT-INF/layers.idx
+          ! grep -E 'coco-feature-(tenant|data-permission)-' BOOT-INF/classpath.idx BOOT-INF/layers.idx
+
+      - name: Verify sample business flow with Python
+        run: python3 coco-samples/coco-sample-basic/scripts/verify_business_flow.py

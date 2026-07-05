@@ -1,7 +1,7 @@
 package io.github.coco.feature.codegen;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.core.feature.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
