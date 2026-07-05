@@ -35,6 +35,7 @@ class CocoWebConfigurationMetadataTest {
         String content = new String(metadata.readAllBytes(), StandardCharsets.UTF_8);
         assertTrue(content.contains("\"name\": \"coco.web.trace.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.mdc-key\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));

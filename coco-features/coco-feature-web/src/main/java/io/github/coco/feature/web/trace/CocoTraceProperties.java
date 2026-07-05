@@ -23,9 +23,16 @@ public class CocoTraceProperties {
      */
     public static final String DEFAULT_HEADER_NAME = "X-Trace-Id";
 
+    /**
+     * 默认 MDC TraceId 键名。
+     */
+    public static final String DEFAULT_MDC_KEY = "traceId";
+
     private boolean enabled = true;
 
     private String headerName = DEFAULT_HEADER_NAME;
+
+    private String mdcKey = DEFAULT_MDC_KEY;
 
     /**
      * <p>
@@ -67,5 +74,27 @@ public class CocoTraceProperties {
         this.headerName = headerName == null || headerName.isBlank()
                 ? DEFAULT_HEADER_NAME
                 : headerName.trim();
+    }
+
+    /**
+     * <p>
+     * 返回写入日志 MDC 的 TraceId 键名。
+     * </p>
+     * @return MDC TraceId 键名
+     */
+    public String getMdcKey() {
+        return this.mdcKey;
+    }
+
+    /**
+     * <p>
+     * 设置写入日志 MDC 的 TraceId 键名。
+     * </p>
+     * @param mdcKey MDC TraceId 键名
+     */
+    public void setMdcKey(String mdcKey) {
+        this.mdcKey = mdcKey == null || mdcKey.isBlank()
+                ? DEFAULT_MDC_KEY
+                : mdcKey.trim();
     }
 }

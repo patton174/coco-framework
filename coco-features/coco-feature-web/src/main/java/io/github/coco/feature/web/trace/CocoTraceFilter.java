@@ -3,11 +3,14 @@ package io.github.coco.feature.web.trace;
 import java.io.IOException;
 import java.util.Objects;
 
+import io.github.coco.common.context.CocoRequestContext;
+import io.github.coco.common.context.CocoRequestContextHolder;
 import io.github.coco.common.trace.CocoTraceContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -30,6 +33,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
     private final String headerName;
 
+    private final String mdcKey;
+
     /**
      * <p>
      * 创建 Coco Web Trace 过滤器。
@@ -39,6 +44,7 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     public CocoTraceFilter(CocoTraceProperties properties) {
         CocoTraceProperties checkedProperties = Objects.requireNonNull(properties, "properties must not be null");
         this.headerName = checkedProperties.getHeaderName();
+        this.mdcKey = checkedProperties.getMdcKey();
     }
 
     /**
@@ -48,13 +54,16 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
         String traceId = resolveTraceId(request);
-        CocoTraceContext.setTraceId(traceId);
+        String previousMdcValue = MDC.get(this.mdcKey);
+        CocoRequestContextHolder.set(CocoRequestContext.of(traceId, request.getMethod(), resolvePath(request)));
+        MDC.put(this.mdcKey, traceId);
         response.setHeader(this.headerName, traceId);
         try {
             filterChain.doFilter(request, response);
         }
         finally {
-            CocoTraceContext.clear();
+            restoreMdcValue(previousMdcValue);
+            CocoRequestContextHolder.clear();
         }
     }
 
@@ -74,5 +83,18 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             return CocoTraceContext.getOrCreateTraceId();
         }
         return requestTraceId.trim();
+    }
+
+    private static String resolvePath(HttpServletRequest request) {
+        String requestUri = request.getRequestURI();
+        return requestUri == null || requestUri.isBlank() ? null : requestUri;
+    }
+
+    private void restoreMdcValue(String previousMdcValue) {
+        if (previousMdcValue == null) {
+            MDC.remove(this.mdcKey);
+            return;
+        }
+        MDC.put(this.mdcKey, previousMdcValue);
     }
 }

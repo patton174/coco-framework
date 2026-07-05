@@ -3,11 +3,14 @@ package io.github.coco.feature.web;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.context.CocoRequestContext;
+import io.github.coco.common.context.CocoRequestContextHolder;
 import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoExceptions;
 import io.github.coco.common.i18n.api.CocoMessageService;
@@ -30,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -82,7 +86,9 @@ class CocoWebAutoConfigurationTest {
 
     @AfterEach
     void clearTraceContext() {
+        CocoRequestContextHolder.clear();
         CocoTraceContext.clear();
+        MDC.clear();
     }
 
     @Test
@@ -325,7 +331,30 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("incoming-trace", CocoTraceContext.currentTraceId().orElseThrow()))));
 
             assertEquals("incoming-trace", response.getHeader("X-Trace-Id"));
+            assertTrue(CocoRequestContextHolder.current().isEmpty());
             assertTrue(CocoTraceContext.currentTraceId().isEmpty());
+        });
+    }
+
+    @Test
+    void bindsRequestContextAndMdcDuringTraceFilter() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            request.addHeader("X-Trace-Id", " incoming-trace ");
+
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                assertEquals("incoming-trace", requestContext.traceId());
+                assertEquals("POST", requestContext.method().orElseThrow());
+                assertEquals("/api/users", requestContext.path().orElseThrow());
+                assertEquals("incoming-trace", MDC.get("traceId"));
+            })));
+
+            assertTrue(CocoRequestContextHolder.current().isEmpty());
+            assertNull(MDC.get("traceId"));
         });
     }
 
@@ -364,6 +393,43 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("request-trace", response.getHeader("X-Request-Id"));
                     assertTrue(CocoTraceContext.currentTraceId().isEmpty());
                 });
+    }
+
+    @Test
+    void usesConfiguredMdcKey() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.trace.mdc-key=cocoTraceId")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "mdc-trace");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                        assertEquals("mdc-trace", MDC.get("cocoTraceId"));
+                        assertNull(MDC.get("traceId"));
+                    })));
+
+                    assertNull(MDC.get("cocoTraceId"));
+                });
+    }
+
+    @Test
+    void restoresPreviousMdcValueAfterTraceFilter() throws Exception {
+        MDC.put("traceId", "outer-trace");
+        this.webContextRunner.run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            request.addHeader("X-Trace-Id", "inner-trace");
+
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                    assertEquals("inner-trace", MDC.get("traceId")))));
+
+            assertEquals("outer-trace", MDC.get("traceId"));
+        });
     }
 
     private static CocoTraceFilter traceFilter(FilterRegistrationBean<?> registrationBean) {
