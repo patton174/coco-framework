@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.junit.jupiter.api.Test;
@@ -87,6 +88,26 @@ class CocoSampleBusinessIntegrationTest {
         assertEquals(List.of("tenant", "data-permission"), disabledFeatures);
     }
 
+    /**
+     * <p>
+     * 示例主代码不应该把测试探针作为业务接口暴露。
+     * </p>
+     * @throws Exception 源码扫描失败时抛出
+     */
+    @Test
+    void doesNotExposeFrameworkAccessLogProbeAsBusinessApi() throws Exception {
+        Path mainSourceDirectory = sampleDirectory().resolve("src/main/java");
+        try (Stream<Path> files = Files.walk(mainSourceDirectory)) {
+            List<String> offenders = files
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(CocoSampleBusinessIntegrationTest::containsAccessLogProbe)
+                    .map(path -> mainSourceDirectory.relativize(path).toString())
+                    .toList();
+
+            assertEquals(List.of(), offenders);
+        }
+    }
+
     private static Document readPom() throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
@@ -134,6 +155,16 @@ class CocoSampleBusinessIntegrationTest {
     private static void addIfPresent(List<String> values, Object value) {
         if (value != null) {
             values.add(Objects.toString(value));
+        }
+    }
+
+    private static boolean containsAccessLogProbe(Path path) {
+        try {
+            String content = Files.readString(path);
+            return content.contains("CocoAccessLogRecorder") || content.contains("/access-log");
+        }
+        catch (Exception ex) {
+            throw new IllegalStateException("Cannot read Java source: " + path, ex);
         }
     }
 

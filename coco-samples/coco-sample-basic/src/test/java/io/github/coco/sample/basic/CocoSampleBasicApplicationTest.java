@@ -5,17 +5,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.sample.basic.accesslog.SampleAccessLogRecorder;
+import io.github.coco.common.accesslog.CocoAccessLog;
+import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
 
 /**
  * Coco 基础示例应用集成测试。
@@ -40,7 +46,7 @@ class CocoSampleBasicApplicationTest {
     private int port;
 
     @Autowired
-    private SampleAccessLogRecorder accessLogRecorder;
+    private TestAccessLogRecorder accessLogRecorder;
 
     private ObjectMapper objectMapper;
 
@@ -48,7 +54,7 @@ class CocoSampleBasicApplicationTest {
 
     /**
      * <p>
-     * 初始化 HTTP 客户端，并清理上一个用例留下的访问日志快照。
+     * 初始化 HTTP 客户端，并清理上一个用例留下的测试访问日志快照。
      * </p>
      */
     @BeforeEach
@@ -117,23 +123,22 @@ class CocoSampleBasicApplicationTest {
 
     /**
      * <p>
-     * 访问日志记录器可以拿到上一次请求完成后的访问日志。
+     * 测试作用域访问日志记录器可以拿到业务请求完成后的访问日志。
      * </p>
      * @throws Exception MockMvc 调用失败时抛出
      */
     @Test
-    void recordsLatestAccessLog() throws Exception {
+    void recordsAccessLogThroughBusinessRequest() throws Exception {
         SampleHttpResponse helloResponse = get("/sample/hello", "access-trace");
-        SampleHttpResponse accessLogResponse = get("/sample/access-log/latest", null);
 
         assertEquals(200, helloResponse.status());
-        assertEquals(200, accessLogResponse.status());
-        assertTrue(accessLogResponse.body().path("success").booleanValue());
-        assertEquals("access-trace", accessLogResponse.body().path("data").path("traceId").textValue());
-        assertEquals("GET", accessLogResponse.body().path("data").path("method").textValue());
-        assertEquals("/sample/hello", accessLogResponse.body().path("data").path("path").textValue());
-        assertEquals(200, accessLogResponse.body().path("data").path("status").intValue());
-        assertTrue(accessLogResponse.body().path("data").path("success").booleanValue());
+        CocoAccessLog accessLog = this.accessLogRecorder.latest()
+                .orElseThrow(() -> new AssertionError("Access log was not recorded."));
+        assertEquals("access-trace", accessLog.traceId());
+        assertEquals("GET", accessLog.method().orElse(null));
+        assertEquals("/sample/hello", accessLog.path().orElse(null));
+        assertEquals(200, accessLog.status());
+        assertTrue(accessLog.success());
     }
 
     /**
@@ -169,6 +174,70 @@ class CocoSampleBasicApplicationTest {
          */
         private String header(String name) {
             return this.headers.firstValue(name).orElse(null);
+        }
+    }
+
+    /**
+     * <p>
+     * 示例集成测试专用配置。
+     * </p>
+     * <p>
+     * 业务示例主代码不声明访问日志记录器；这里仅在测试作用域注册探针，用于验证 Coco Web
+     * 过滤器确实发布了访问日志事件。
+     * </p>
+     */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class AccessLogTestConfiguration {
+
+        /**
+         * <p>
+         * 创建测试作用域访问日志记录器。
+         * </p>
+         * @return 测试访问日志记录器
+         */
+        @Bean
+        TestAccessLogRecorder testAccessLogRecorder() {
+            return new TestAccessLogRecorder();
+        }
+    }
+
+    /**
+     * <p>
+     * 测试作用域访问日志记录器。
+     * </p>
+     * <p>
+     * 该类型不属于示例业务代码，只用于测试断言 Coco Web 访问日志扩展点是否被触发。
+     * </p>
+     */
+    static final class TestAccessLogRecorder implements CocoAccessLogRecorder {
+
+        private final AtomicReference<CocoAccessLog> latestAccessLog = new AtomicReference<>();
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public void record(CocoAccessLog accessLog) {
+            this.latestAccessLog.set(Objects.requireNonNull(accessLog, "accessLog must not be null"));
+        }
+
+        /**
+         * <p>
+         * 返回最近一次测试访问日志。
+         * </p>
+         * @return 最近一次测试访问日志；尚未记录时为空
+         */
+        Optional<CocoAccessLog> latest() {
+            return Optional.ofNullable(this.latestAccessLog.get());
+        }
+
+        /**
+         * <p>
+         * 清理最近一次测试访问日志。
+         * </p>
+         */
+        void clear() {
+            this.latestAccessLog.set(null);
         }
     }
 }
