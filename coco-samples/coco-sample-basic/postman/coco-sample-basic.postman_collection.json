@@ -1,0 +1,488 @@
+{
+  "info": {
+    "_postman_id": "d1591b88-761e-4ffd-a6e9-9a7f207ef28f",
+    "name": "Coco Sample Basic",
+    "description": "Coco 示例基础业务接口测试集。导入后修改 collection variable 中的 baseUrl 即可运行；示例应用使用内存仓储，完整主流程建议在 sample 应用新启动后执行。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get(\"baseUrl\")) {",
+          "    pm.collectionVariables.set(\"baseUrl\", \"http://localhost:8080\");",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "业务主流程",
+      "description": "按顺序执行：查询商品、创建订单、使用保存的 orderId 查询订单。",
+      "item": [
+        {
+          "name": "查询商品库存",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-products"
+              }
+            ],
+            "url": "{{baseUrl}}/sample/products"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"HTTP 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"返回 Coco 统一成功响应\", function () {",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.code).to.eql(\"coco.success\");",
+                  "    pm.expect(body.message).to.eql(\"操作成功\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-products\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/products\");",
+                  "});",
+                  "",
+                  "pm.test(\"包含示例商品 COCO-STARTER\", function () {",
+                  "    pm.expect(body.data).to.be.an(\"array\").that.is.not.empty;",
+                  "    const starter = body.data.find(function (item) {",
+                  "        return item.sku === \"COCO-STARTER\";",
+                  "    });",
+                  "    pm.expect(starter).to.exist;",
+                  "    pm.expect(starter.name).to.eql(\"Coco Starter\");",
+                  "    pm.expect(starter.unitPrice).to.eql(9900);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "创建订单",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-create-order"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"buyerName\": \"Patton\",\n  \"sku\": \"COCO-STARTER\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sample/orders"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"HTTP 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"创建订单成功并写入 orderId 变量\", function () {",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.code).to.eql(\"coco.success\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-create-order\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/orders\");",
+                  "    pm.expect(body.data.orderId).to.match(/^ORD-\\d+$/);",
+                  "    pm.collectionVariables.set(\"orderId\", body.data.orderId);",
+                  "});",
+                  "",
+                  "pm.test(\"订单金额和状态符合业务规则\", function () {",
+                  "    pm.expect(body.data.buyerName).to.eql(\"Patton\");",
+                  "    pm.expect(body.data.sku).to.eql(\"COCO-STARTER\");",
+                  "    pm.expect(body.data.quantity).to.eql(2);",
+                  "    pm.expect(body.data.totalAmount).to.eql(19800);",
+                  "    pm.expect(body.data.status).to.eql(\"CREATED\");",
+                  "    pm.expect(body.data.remainingStock).to.be.a(\"number\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询订单详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-load-order"
+              }
+            ],
+            "url": "{{baseUrl}}/sample/orders/{{orderId}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const orderId = pm.collectionVariables.get(\"orderId\");",
+                  "",
+                  "pm.test(\"HTTP 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"按 orderId 查询订单成功\", function () {",
+                  "    pm.expect(orderId, \"请先运行创建订单请求\").to.not.be.empty;",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.code).to.eql(\"coco.success\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-load-order\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/orders/\" + orderId);",
+                  "    pm.expect(body.data.orderId).to.eql(orderId);",
+                  "    pm.expect(body.data.buyerName).to.eql(\"Patton\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "异常与国际化",
+      "description": "验证业务异常进入 Coco 统一异常响应，并按 Accept-Language 返回国际化消息。",
+      "item": [
+        {
+          "name": "库存不足 zh-CN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "zh-CN"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-stock-error-zh"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"buyerName\": \"Patton\",\n  \"sku\": \"COCO-STARTER\",\n  \"quantity\": 99\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sample/orders"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"HTTP 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test(\"返回中文库存不足错误\", function () {",
+                  "    pm.expect(body.success).to.eql(false);",
+                  "    pm.expect(body.code).to.eql(\"sample.order.insufficient-stock\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-stock-error-zh\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/orders\");",
+                  "    pm.expect(body.message).to.include(\"商品 COCO-STARTER 库存不足\");",
+                  "    pm.expect(body.message).to.include(\"请求数量 99\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "库存不足 en-US",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "en-US"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-stock-error-en"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"buyerName\": \"Patton\",\n  \"sku\": \"COCO-STARTER\",\n  \"quantity\": 99\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sample/orders"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"HTTP 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test(\"返回英文库存不足错误\", function () {",
+                  "    pm.expect(body.success).to.eql(false);",
+                  "    pm.expect(body.code).to.eql(\"sample.order.insufficient-stock\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-stock-error-en\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/orders\");",
+                  "    pm.expect(body.message).to.include(\"Product COCO-STARTER has insufficient stock\");",
+                  "    pm.expect(body.message).to.include(\"requested quantity 99\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "订单不存在 zh-CN",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "zh-CN"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-order-not-found"
+              }
+            ],
+            "url": "{{baseUrl}}/sample/orders/ORD-NOT-FOUND"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"HTTP 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"返回中文订单不存在错误\", function () {",
+                  "    pm.expect(body.success).to.eql(false);",
+                  "    pm.expect(body.code).to.eql(\"sample.order.not-found\");",
+                  "    pm.expect(body.message).to.eql(\"订单不存在：ORD-NOT-FOUND\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-order-not-found\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/orders/ORD-NOT-FOUND\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "商品不存在 zh-CN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "zh-CN"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-product-not-found"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"buyerName\": \"Patton\",\n  \"sku\": \"COCO-MISSING\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sample/orders"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"HTTP 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"返回中文商品不存在错误\", function () {",
+                  "    pm.expect(body.success).to.eql(false);",
+                  "    pm.expect(body.code).to.eql(\"sample.product.not-found\");",
+                  "    pm.expect(body.message).to.eql(\"商品不存在：COCO-MISSING\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-product-not-found\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/orders\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "下单数量不合法 zh-CN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "zh-CN"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Trace-Id",
+                "value": "postman-invalid-quantity"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"buyerName\": \"Patton\",\n  \"sku\": \"COCO-STARTER\",\n  \"quantity\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sample/orders"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"HTTP 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"返回中文下单数量错误\", function () {",
+                  "    pm.expect(body.success).to.eql(false);",
+                  "    pm.expect(body.code).to.eql(\"sample.order.invalid-quantity\");",
+                  "    pm.expect(body.message).to.eql(\"下单数量不合法：quantity\");",
+                  "    pm.expect(body.traceId).to.eql(\"postman-invalid-quantity\");",
+                  "    pm.expect(body.path).to.eql(\"/sample/orders\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
