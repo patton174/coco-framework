@@ -15,6 +15,10 @@
     <name>Coco Sample Basic</name>
     <description>Basic sample application for Coco Framework.</description>
 
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
