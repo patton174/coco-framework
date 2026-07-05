@@ -24,10 +24,19 @@ Central Portal 中还需要完成 `io.github.patton174` 命名空间验证，否
 发布前建议先执行：
 
 ```bash
-mvn -B -DskipTests install
+mvn -B install
 ```
 
 这一步会生成 `.flattened-pom.xml` 并安装到本地仓库，主要用于验证 `${revision}` 已被解析，样例项目可以像外部业务项目一样消费框架依赖。
+
+验证真实业务接入示例时执行：
+
+```bash
+mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
+```
+
+该命令会像外部业务项目一样只声明 `coco-spring-boot-starter`，并生成 Spring Boot 可执行包；`coco.features.disabled`
+中关闭的功能模块会从最终 `BOOT-INF/lib` 和 Spring Boot 索引文件中裁剪掉。
 
 需要检查 release profile 产物时，可以执行：
 

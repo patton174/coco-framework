@@ -130,6 +130,7 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 applicationSelection.merge(parameterSelection).merge(annotationSelection));
         writeManifest(plan);
         applyFeatureDependencies(plan);
+        pruneDisabledFeatureArtifacts(plan);
         getLog().info("Coco feature manifest generated with " + plan.enabledFeatures().size() + " enabled features.");
     }
 
@@ -161,6 +162,43 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             resolveRuntimeArtifact(dependency).ifPresent(this.project.getArtifacts()::add);
             existingDependencies.add(coordinate);
         }
+    }
+
+    /**
+     * <p>
+     * 从 Maven 已解析 artifact 集合中移除被禁用的 Coco 功能模块，避免后续打包插件把禁用能力写入业务应用产物。
+     * </p>
+     * @param plan 最终功能启用计划
+     */
+    void pruneDisabledFeatureArtifacts(CocoFeaturePlan plan) {
+        Set<String> disabledCoordinates = plan.definitions().stream()
+                .filter(definition -> !plan.isEnabled(definition.feature()))
+                .map(definition -> this.featureGroupId + ":" + definition.artifactId())
+                .collect(Collectors.toUnmodifiableSet());
+        if (disabledCoordinates.isEmpty()) {
+            return;
+        }
+        this.project.setArtifacts(pruneArtifacts(this.project.getArtifacts(), disabledCoordinates));
+        if (this.project.getDependencyArtifacts() != null) {
+            this.project.setDependencyArtifacts(pruneArtifacts(this.project.getDependencyArtifacts(), disabledCoordinates));
+        }
+    }
+
+    /**
+     * <p>
+     * 从 artifact 集合中过滤指定坐标。
+     * </p>
+     * @param artifacts 原始 artifact 集合
+     * @param excludedCoordinates 需要过滤的 {@code groupId:artifactId} 坐标
+     * @return 过滤后的 artifact 集合
+     */
+    private Set<Artifact> pruneArtifacts(Set<Artifact> artifacts, Set<String> excludedCoordinates) {
+        if (artifacts == null || artifacts.isEmpty()) {
+            return Set.of();
+        }
+        return artifacts.stream()
+                .filter(artifact -> !excludedCoordinates.contains(artifact.getGroupId() + ":" + artifact.getArtifactId()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**

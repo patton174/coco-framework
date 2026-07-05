@@ -1,0 +1,153 @@
+package io.github.coco.maven;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Set;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
+import java.util.stream.Collectors;
+
+import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.registry.CocoFeatureManifestLoader;
+import io.github.coco.feature.registry.CocoFeatureSelection;
+import io.github.coco.feature.registry.StandardCocoFeatures;
+import org.apache.maven.model.Build;
+import org.apache.maven.model.Model;
+import org.apache.maven.project.MavenProject;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/**
+ * Coco 业务应用打包裁剪 Mojo 测试。
+ * <p>
+ * 验证 Spring Boot 可执行包会根据 Coco 功能清单移除被禁用的功能模块依赖。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-maven-plugin}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+class CocoPackagePruneMojoTest {
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void removesDisabledFeatureJarsFromSpringBootArchive() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("project"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeManifest(classesDirectory);
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        writeArchive(archivePath);
+
+        CocoPackagePruneMojo mojo = new CocoPackagePruneMojo();
+        set(mojo, "project", project(baseDir, buildDirectory, classesDirectory));
+        set(mojo, "classesDirectory", classesDirectory.toFile());
+        set(mojo, "buildDirectory", buildDirectory.toFile());
+        set(mojo, "finalName", "demo");
+
+        mojo.execute();
+
+        assertThat(entries(archivePath))
+                .contains(
+                        "BOOT-INF/classpath.idx",
+                        "BOOT-INF/layers.idx",
+                        "BOOT-INF/classes/application.yml",
+                        "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-feature-audit-1.0.0-SNAPSHOT.jar")
+                .doesNotContain(
+                        "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar");
+        assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
+                .contains("coco-feature-web")
+                .doesNotContain("coco-feature-tenant", "coco-feature-data-permission");
+        assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
+                .contains("coco-feature-web")
+                .doesNotContain("coco-feature-tenant", "coco-feature-data-permission");
+    }
+
+    private void writeManifest(Path classesDirectory) throws Exception {
+        Path manifestPath = classesDirectory.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
+        Files.createDirectories(manifestPath.getParent());
+        var plan = StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(
+                Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION)));
+        Files.writeString(manifestPath,
+                CocoFeatureManifestLoader.write(StandardCocoFeatures.toManifest(plan, "test")),
+                StandardCharsets.UTF_8);
+    }
+
+    private void writeArchive(Path archivePath) throws Exception {
+        try (JarOutputStream outputStream = new JarOutputStream(Files.newOutputStream(archivePath))) {
+            add(outputStream, "BOOT-INF/classpath.idx", """
+                    - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar"
+                    """);
+            add(outputStream, "BOOT-INF/layers.idx", """
+                    - "dependencies":
+                      - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar"
+                    """);
+            add(outputStream, "BOOT-INF/classes/application.yml", "spring.application.name=demo");
+            add(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar", "web");
+            add(outputStream, "BOOT-INF/lib/coco-feature-audit-1.0.0-SNAPSHOT.jar", "audit");
+            add(outputStream, "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar", "tenant");
+            add(outputStream, "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar", "data-permission");
+        }
+    }
+
+    private MavenProject project(Path baseDir, Path buildDirectory, Path classesDirectory) throws Exception {
+        Model model = new Model();
+        model.setGroupId("com.example");
+        model.setArtifactId("demo");
+        model.setVersion("1.0.0");
+        Build build = new Build();
+        build.setDirectory(buildDirectory.toString());
+        build.setOutputDirectory(classesDirectory.toString());
+        build.setFinalName("demo");
+        model.setBuild(build);
+        MavenProject project = new MavenProject(model);
+        project.setFile(baseDir.resolve("pom.xml").toFile());
+        Files.writeString(project.getFile().toPath(), "<project />", StandardCharsets.UTF_8);
+        return project;
+    }
+
+    private Set<String> entries(Path archivePath) throws Exception {
+        try (JarFile jarFile = new JarFile(archivePath.toFile())) {
+            return jarFile.stream().map(JarEntry::getName).collect(Collectors.toUnmodifiableSet());
+        }
+    }
+
+    private String readEntry(Path archivePath, String name) throws Exception {
+        try (JarFile jarFile = new JarFile(archivePath.toFile())) {
+            try (var inputStream = jarFile.getInputStream(jarFile.getEntry(name))) {
+                return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+            }
+        }
+    }
+
+    private void add(JarOutputStream outputStream, String name, String content) throws Exception {
+        outputStream.putNextEntry(new JarEntry(name));
+        outputStream.write(content.getBytes(StandardCharsets.UTF_8));
+        outputStream.closeEntry();
+    }
+
+    private void set(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+}

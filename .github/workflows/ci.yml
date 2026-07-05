@@ -18,5 +18,19 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Verify
-        run: mvn -B verify
+      - name: Verify framework and install artifacts
+        run: mvn -B install
+
+      - name: Verify sample business application
+        run: mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
+
+      - name: Verify sample feature pruning
+        shell: bash
+        run: |
+          jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
+            | grep 'BOOT-INF/lib/coco-feature'
+          ! jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
+            | grep -E 'coco-feature-(tenant|data-permission)-'
+          jar xf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
+            BOOT-INF/classpath.idx BOOT-INF/layers.idx
+          ! grep -E 'coco-feature-(tenant|data-permission)-' BOOT-INF/classpath.idx BOOT-INF/layers.idx

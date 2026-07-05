@@ -1,4 +1,8 @@
 coco:
+  features:
+    disabled:
+      - tenant
+      - data-permission
   common:
     i18n:
       basename:
