@@ -33,7 +33,9 @@ def main() -> int:
     if base_url is None:
         port = free_port()
         base_url = f"http://127.0.0.1:{port}"
-        process = start_application(args.jar, port, resolve_java_command(args.java_command))
+        java_command = resolve_java_command(args.java_command)
+        log(f"Starting sample jar: {java_command} -jar {args.jar} --server.port={port}")
+        process = start_application(args.jar, port, java_command)
         wait_until_ready(base_url, args.timeout_seconds, process)
     try:
         run_business_flow(base_url)
@@ -94,6 +96,7 @@ def stop_application(process: subprocess.Popen[str]) -> None:
 
 
 def wait_until_ready(base_url: str, timeout_seconds: int, process: subprocess.Popen[str]) -> None:
+    log(f"Waiting for sample application: {base_url}")
     deadline = time.monotonic() + timeout_seconds
     last_error: Exception | None = None
     while time.monotonic() < deadline:
@@ -104,6 +107,7 @@ def wait_until_ready(base_url: str, timeout_seconds: int, process: subprocess.Po
         try:
             response = request("GET", base_url, "/sample/products", trace_id="python-ready")
             if response.status == 200:
+                log_response("READY", "GET", "/sample/products", response)
                 return
         except Exception as exc:
             last_error = exc
@@ -112,10 +116,14 @@ def wait_until_ready(base_url: str, timeout_seconds: int, process: subprocess.Po
 
 
 def run_business_flow(base_url: str) -> None:
+    log(f"Running business flow against {base_url}")
+
     products = request("GET", base_url, "/sample/products", trace_id="python-products")
+    log_response("PRODUCTS", "GET", "/sample/products", products)
     assert_success(products, "python-products", "/sample/products")
     assert_equal(products.body["data"][0]["sku"], "COCO-STARTER", "first product sku")
     assert_equal(products.body["data"][0]["availableStock"], 5, "first product stock")
+    log("  first product: sku=COCO-STARTER stock=5")
 
     created = request_json(
         base_url,
@@ -123,16 +131,20 @@ def run_business_flow(base_url: str) -> None:
         {"buyerName": "Patton", "sku": "COCO-STARTER", "quantity": 2},
         trace_id="python-create-order",
     )
+    log_response("CREATE_ORDER", "POST", "/sample/orders", created)
     assert_success(created, "python-create-order", "/sample/orders")
     order_id = created.body["data"]["orderId"]
     assert_equal(created.body["data"]["status"], "CREATED", "created order status")
     assert_equal(created.body["data"]["totalAmount"], 19800, "created order total")
     assert_equal(created.body["data"]["remainingStock"], 3, "remaining stock after order")
+    log(f"  created order: orderId={order_id} totalAmount=19800 remainingStock=3")
 
     loaded = request("GET", base_url, f"/sample/orders/{order_id}", trace_id="python-load-order")
+    log_response("LOAD_ORDER", "GET", f"/sample/orders/{order_id}", loaded)
     assert_success(loaded, "python-load-order", f"/sample/orders/{order_id}")
     assert_equal(loaded.body["data"]["orderId"], order_id, "loaded order id")
     assert_equal(loaded.body["data"]["buyerName"], "Patton", "loaded buyer")
+    log(f"  loaded order: orderId={order_id} buyerName=Patton")
 
     insufficient = request_json(
         base_url,
@@ -140,10 +152,12 @@ def run_business_flow(base_url: str) -> None:
         {"buyerName": "Patton", "sku": "COCO-STARTER", "quantity": 99},
         trace_id="python-stock-error",
     )
+    log_response("INSUFFICIENT_STOCK", "POST", "/sample/orders", insufficient)
     assert_equal(insufficient.status, 409, "insufficient stock HTTP status")
     assert_equal(insufficient.body["success"], False, "insufficient stock success flag")
     assert_equal(insufficient.body["code"], "sample.order.insufficient-stock", "insufficient stock code")
     assert_equal(insufficient.body["traceId"], "python-stock-error", "insufficient stock trace")
+    log("  stock error: code=sample.order.insufficient-stock status=409")
 
 
 def request(method: str, base_url: str, path: str, trace_id: str) -> HttpResult:
@@ -187,6 +201,18 @@ def assert_success(response: HttpResult, trace_id: str, path: str) -> None:
 def assert_equal(actual: Any, expected: Any, label: str) -> None:
     if actual != expected:
         raise AssertionError(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def log(message: str) -> None:
+    print(f"[coco-sample] {message}", flush=True)
+
+
+def log_response(label: str, method: str, path: str, response: HttpResult) -> None:
+    log(
+        f"{label} {method} {path} -> status={response.status} "
+        f"code={response.body.get('code')} success={response.body.get('success')} "
+        f"traceId={response.body.get('traceId')}"
+    )
 
 
 if __name__ == "__main__":
