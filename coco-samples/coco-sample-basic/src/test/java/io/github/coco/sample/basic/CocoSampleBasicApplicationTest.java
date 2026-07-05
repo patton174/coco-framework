@@ -123,14 +123,27 @@ class CocoSampleBasicApplicationTest {
      */
     @Test
     void returnsUnifiedStockErrorResponse() throws Exception {
-        SampleHttpResponse response = post("/sample/orders", "stock-error-trace",
+        SampleHttpResponse response = post("/sample/orders", "stock-error-trace", "zh-CN",
                 Map.of("buyerName", "Patton", "sku", "COCO-STARTER", "quantity", 99));
 
         assertEquals(409, response.status());
         assertFalse(response.body().path("success").booleanValue());
         assertEquals("sample.order.insufficient-stock", response.body().path("code").textValue());
+        assertEquals("商品 COCO-STARTER 库存不足，当前库存 5，请求数量 99",
+                response.body().path("message").textValue());
         assertEquals("stock-error-trace", response.body().path("traceId").textValue());
         assertEquals("/sample/orders", response.body().path("path").textValue());
+
+        SampleHttpResponse englishResponse = post("/sample/orders", "stock-error-en-trace", "en-US",
+                Map.of("buyerName", "Patton", "sku", "COCO-STARTER", "quantity", 99));
+
+        assertEquals(409, englishResponse.status());
+        assertFalse(englishResponse.body().path("success").booleanValue());
+        assertEquals("sample.order.insufficient-stock", englishResponse.body().path("code").textValue());
+        assertEquals("Product COCO-STARTER has insufficient stock, current stock 5, requested quantity 99",
+                englishResponse.body().path("message").textValue());
+        assertEquals("stock-error-en-trace", englishResponse.body().path("traceId").textValue());
+        assertEquals("/sample/orders", englishResponse.body().path("path").textValue());
     }
 
     /**
@@ -181,6 +194,26 @@ class CocoSampleBasicApplicationTest {
      */
     private SampleHttpResponse post(String path, String traceId, Object body) throws Exception {
         HttpRequest request = baseRequest(path, traceId)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(this.objectMapper.writeValueAsString(body)))
+                .build();
+        return send(request);
+    }
+
+    /**
+     * <p>
+     * 发送带语言请求头的 POST JSON 请求，并解析 JSON 响应。
+     * </p>
+     * @param path 请求路径
+     * @param traceId 请求 TraceId
+     * @param locale {@code Accept-Language} 请求头
+     * @param body JSON 请求体对象
+     * @return HTTP 响应快照
+     * @throws Exception 请求失败或 JSON 解析失败时抛出
+     */
+    private SampleHttpResponse post(String path, String traceId, String locale, Object body) throws Exception {
+        HttpRequest request = baseRequest(path, traceId)
+                .header("Accept-Language", locale)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(this.objectMapper.writeValueAsString(body)))
                 .build();

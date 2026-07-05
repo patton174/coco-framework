@@ -11,6 +11,7 @@ import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.i18n.internal.DefaultCocoLocaleResolver;
 import io.github.coco.common.i18n.internal.DefaultCocoMessageService;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.context.support.ResourceBundleMessageSource;
 
 /**
@@ -62,6 +63,18 @@ class DefaultCocoMessageServiceTest {
         String message = this.messageService.getMessage(SampleMessageCode.HELLO, Locale.US, "Coco");
 
         assertEquals("Hello, Coco", message);
+    }
+
+    @Test
+    void resolvesMessageWithSpringLocaleContext() {
+        LocaleContextHolder.setLocale(Locale.US);
+        try {
+            String message = this.messageService.getMessage("sample.hello", "Coco");
+
+            assertEquals("Hello, Coco", message);
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
     }
 
     @Test
