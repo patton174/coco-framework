@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoExceptions;
@@ -14,6 +15,9 @@ import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoApiResponse;
+import io.github.coco.feature.web.response.CocoIgnoreResponseWrap;
+import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
+import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -21,14 +25,26 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.core.MethodParameter;
+import org.springframework.http.HttpInputMessage;
+import org.springframework.http.HttpOutputMessage;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -171,6 +187,63 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void wrapsObjectResponseBody() throws Exception {
+        CocoTraceContext.setTraceId("trace-wrap");
+        this.webContextRunner.run(context -> {
+            CocoResponseWrapAdvice advice = responseWrapAdvice(context.getBean(CocoMessageService.class));
+            MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+            ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+
+            Object body = advice.beforeBodyWrite(Map.of("name", "Coco"), methodParameter("objectBody"),
+                    MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request,
+                    new ServletServerHttpResponse(new MockHttpServletResponse()));
+
+            assertTrue(body instanceof CocoApiResponse<?>);
+            CocoApiResponse<?> response = (CocoApiResponse<?>) body;
+            assertTrue(response.success());
+            assertEquals("coco.success", response.code());
+            assertEquals("未知错误", response.message());
+            assertEquals(Map.of("name", "Coco"), response.data());
+            assertEquals("trace-wrap", response.traceId());
+            assertEquals("/api/users", response.path());
+        });
+    }
+
+    @Test
+    void wrapsStringResponseBodyAsJsonString() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoResponseWrapAdvice advice = responseWrapAdvice(context.getBean(CocoMessageService.class));
+            MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/text");
+            ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+
+            Object body = advice.beforeBodyWrite("hello", methodParameter("stringBody"),
+                    MediaType.TEXT_PLAIN, StringHttpMessageConverter.class, request,
+                    new ServletServerHttpResponse(new MockHttpServletResponse()));
+
+            assertTrue(body instanceof String);
+            assertTrue(((String) body).contains("\"success\":true"));
+            assertTrue(((String) body).contains("\"data\":\"hello\""));
+            assertTrue(((String) body).contains("\"path\":\"/api/text\""));
+        });
+    }
+
+    @Test
+    void skipsAlreadyWrappedBodyIgnoredMethodsIgnoredClassesAndResponseEntity() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoResponseWrapAdvice advice = responseWrapAdvice(context.getBean(CocoMessageService.class));
+
+            assertFalse(advice.supports(methodParameter("wrappedBody"),
+                    TestHttpMessageConverter.class));
+            assertFalse(advice.supports(methodParameter("ignoredBody"),
+                    TestHttpMessageConverter.class));
+            assertFalse(advice.supports(methodParameter(IgnoredController.class, "classIgnoredBody"),
+                    TestHttpMessageConverter.class));
+            assertFalse(advice.supports(methodParameter("responseEntityBody"),
+                    TestHttpMessageConverter.class));
+        });
+    }
+
+    @Test
     void usesCustomExceptionHttpStatusResolver() {
         this.webContextRunner
                 .withBean(CocoExceptionHttpStatusResolver.class,
@@ -271,6 +344,78 @@ class CocoWebAutoConfigurationTest {
 
     private static CocoTraceFilter traceFilter(FilterRegistrationBean<?> registrationBean) {
         return (CocoTraceFilter) registrationBean.getFilter();
+    }
+
+    private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService) {
+        CocoResponseWrapProperties properties = new CocoResponseWrapProperties();
+        properties.setSuccessMessageCode("coco.error.unknown");
+        return new CocoResponseWrapAdvice(messageService, properties, new ObjectMapper());
+    }
+
+    private static MethodParameter methodParameter(String methodName) throws NoSuchMethodException {
+        return methodParameter(CocoWebAutoConfigurationTest.class, methodName);
+    }
+
+    private static MethodParameter methodParameter(Class<?> declaringClass, String methodName)
+            throws NoSuchMethodException {
+        Method method = declaringClass.getDeclaredMethod(methodName);
+        return new MethodParameter(method, -1);
+    }
+
+    private Object objectBody() {
+        return Map.of("name", "Coco");
+    }
+
+    private String stringBody() {
+        return "hello";
+    }
+
+    private CocoApiResponse<String> wrappedBody() {
+        return CocoApiResponse.success("coco.success", "操作成功", "hello", null, null);
+    }
+
+    @CocoIgnoreResponseWrap
+    private Object ignoredBody() {
+        return Map.of("ignored", true);
+    }
+
+    private ResponseEntity<String> responseEntityBody() {
+        return ResponseEntity.ok("hello");
+    }
+
+    @CocoIgnoreResponseWrap
+    private static final class IgnoredController {
+
+        private Object classIgnoredBody() {
+            return Map.of("ignored", true);
+        }
+    }
+
+    private static final class TestHttpMessageConverter implements HttpMessageConverter<Object> {
+
+        @Override
+        public boolean canRead(Class<?> clazz, MediaType mediaType) {
+            return false;
+        }
+
+        @Override
+        public boolean canWrite(Class<?> clazz, MediaType mediaType) {
+            return true;
+        }
+
+        @Override
+        public List<MediaType> getSupportedMediaTypes() {
+            return List.of(MediaType.APPLICATION_JSON);
+        }
+
+        @Override
+        public Object read(Class<? extends Object> clazz, HttpInputMessage inputMessage) {
+            return null;
+        }
+
+        @Override
+        public void write(Object body, MediaType contentType, HttpOutputMessage outputMessage) {
+        }
     }
 
     private static final class TraceCapturingServlet implements Servlet {
