@@ -144,6 +144,33 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void createsSuccessResponseModel() {
+        CocoApiResponse<String> response = CocoApiResponse.success(
+                "coco.success", "操作成功", "payload", "trace-id", "/api/users");
+
+        assertTrue(response.success());
+        assertEquals("coco.success", response.code());
+        assertEquals("操作成功", response.message());
+        assertEquals("payload", response.data());
+        assertEquals("trace-id", response.traceId());
+        assertEquals("/api/users", response.path());
+    }
+
+    @Test
+    void responseWrapPropertiesUseDefaultsAndResetNullNestedValue() {
+        CocoWebProperties properties = new CocoWebProperties();
+
+        assertTrue(properties.getResponseWrap().isEnabled());
+        assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
+        assertEquals("coco.web.response.success", properties.getResponseWrap().getSuccessMessageCode());
+
+        properties.setResponseWrap(null);
+
+        assertTrue(properties.getResponseWrap().isEnabled());
+        assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
+    }
+
+    @Test
     void usesCustomExceptionHttpStatusResolver() {
         this.webContextRunner
                 .withBean(CocoExceptionHttpStatusResolver.class,
