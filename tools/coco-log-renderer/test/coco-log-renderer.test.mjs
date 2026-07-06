@@ -11,9 +11,10 @@ test('renders coco log line compactly without colors', () => {
 });
 
 test('keeps lightweight unicode banner readable', () => {
-  assert.equal(renderLine('◆ coco spring', { colors: false }), '◆ coco spring');
-  assert.equal(renderLine('   version     1.0.0-SNAPSHOT', { colors: false }),
-    '   version     1.0.0-SNAPSHOT');
+  assert.equal(renderLine('  ╔═╗╔═╗╔═╗╔═╗   ╔═╗╔═╗╦═╗╦╔╗╔╔═╗', { colors: false }),
+    '  ╔═╗╔═╗╔═╗╔═╗   ╔═╗╔═╗╦═╗╦╔╗╔╔═╗');
+  assert.equal(renderLine('     version     1.0.0-SNAPSHOT', { colors: false }),
+    '     version     1.0.0-SNAPSHOT');
 });
 
 test('keeps stack trace lines visible', () => {
@@ -29,12 +30,12 @@ test('strips existing ansi codes before rendering', () => {
 
 test('renders multiline text', () => {
   const text = [
-    '◆ coco spring',
+    '  ╔═╗╔═╗╔═╗╔═╗   ╔═╗╔═╗╦═╗╦╔╗╔╔═╗',
     '2026-07-06 00:21:53.738 WARN  coco access     [nio-8080-exec-1] slow request',
   ].join('\n');
 
   assert.equal(renderText(text, { colors: false }), [
-    '◆ coco spring',
+    '  ╔═╗╔═╗╔═╗╔═╗   ╔═╗╔═╗╦═╗╦╔╗╔╔═╗',
     '2026-07-06 00:21:53.738 WARN  access     nio-8080-exec-1 slow request',
   ].join('\n'));
 });
