@@ -5,10 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.StreamSupport;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 
@@ -29,6 +35,8 @@ import org.junit.jupiter.api.Test;
  * @since 1.0.0
  */
 class CocoWebConfigurationMetadataTest {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
     void exposesAutoConfigurationImport() throws IOException {
@@ -143,5 +151,86 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));
         assertFalse(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));
+    }
+
+    @Test
+    void exposesConfigurationMetadataHintsAndDeprecations() throws IOException {
+        JsonNode metadata = configurationMetadata("/META-INF/additional-spring-configuration-metadata.json");
+
+        assertHintValues(metadata, "coco.web.request-body.mode", "security-headers", "always");
+        assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "trace", "debug");
+        assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
+        assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");
+        assertHintValues(metadata, "coco.web.encryption.payload-encoding", "base64", "hex", "utf8", "raw");
+        assertDeprecated(metadata, "coco.web.access-log.include-parameters",
+                "coco.web.context.parameter.include-parameters");
+        assertDeprecated(metadata, "coco.web.access-log.max-parameter-value-length",
+                "coco.web.context.parameter.max-parameter-value-length");
+        assertDeprecated(metadata, "coco.web.access-log.masked-parameter-names",
+                "coco.web.context.parameter.masked-parameter-names");
+    }
+
+    @Test
+    void nonEmptyWebPackagesDeclarePackageInfo() throws IOException {
+        Path root = Path.of("src/main/java/io/github/coco/feature/web");
+
+        assertTrue(Files.isDirectory(root));
+        List<Path> missingPackageInfo;
+        try (Stream<Path> directories = Files.walk(root)) {
+            missingPackageInfo = directories
+                    .filter(Files::isDirectory)
+                    .filter(CocoWebConfigurationMetadataTest::containsDirectJavaSource)
+                    .filter(directory -> !Files.isRegularFile(directory.resolve("package-info.java")))
+                    .toList();
+        }
+
+        assertEquals(List.of(), missingPackageInfo);
+    }
+
+    private JsonNode configurationMetadata() throws IOException {
+        return configurationMetadata("/META-INF/spring-configuration-metadata.json");
+    }
+
+    private JsonNode configurationMetadata(String resourceName) throws IOException {
+        InputStream metadata = getClass().getResourceAsStream(resourceName);
+        assertNotNull(metadata);
+        return OBJECT_MAPPER.readTree(metadata);
+    }
+
+    private static void assertHintValues(JsonNode metadata, String name, String... expectedValues) {
+        JsonNode hint = findNamedNode(metadata.path("hints"), name);
+        assertNotNull(hint, "missing hint: " + name);
+        List<String> values = StreamSupport.stream(hint.path("values").spliterator(), false)
+                .map(value -> value.path("value").asText())
+                .toList();
+        assertEquals(List.of(expectedValues), values);
+    }
+
+    private static void assertDeprecated(JsonNode metadata, String name, String replacement) {
+        JsonNode property = findNamedNode(metadata.path("properties"), name);
+        assertNotNull(property, "missing property: " + name);
+        JsonNode deprecation = property.path("deprecation");
+        assertEquals("warning", deprecation.path("level").asText());
+        assertEquals(replacement, deprecation.path("replacement").asText());
+        assertFalse(deprecation.path("reason").asText().isBlank());
+    }
+
+    private static JsonNode findNamedNode(JsonNode nodes, String name) {
+        for (JsonNode node : nodes) {
+            if (name.equals(node.path("name").asText())) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    private static boolean containsDirectJavaSource(Path directory) {
+        try (Stream<Path> files = Files.list(directory)) {
+            return files.anyMatch(path -> Files.isRegularFile(path)
+                    && path.getFileName().toString().endsWith(".java"));
+        }
+        catch (IOException ex) {
+            throw new IllegalStateException("Failed to inspect package directory: " + directory, ex);
+        }
     }
 }

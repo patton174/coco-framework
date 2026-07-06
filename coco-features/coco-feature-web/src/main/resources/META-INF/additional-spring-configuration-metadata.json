@@ -1,0 +1,123 @@
+{
+  "properties": [
+    {
+      "name": "coco.web.access-log.include-parameters",
+      "deprecation": {
+        "level": "warning",
+        "reason": "访问日志参数采集策略已迁移到统一 Web 请求上下文参数配置。",
+        "replacement": "coco.web.context.parameter.include-parameters"
+      }
+    },
+    {
+      "name": "coco.web.access-log.max-parameter-value-length",
+      "deprecation": {
+        "level": "warning",
+        "reason": "访问日志参数裁剪策略已迁移到统一 Web 请求上下文参数配置。",
+        "replacement": "coco.web.context.parameter.max-parameter-value-length"
+      }
+    },
+    {
+      "name": "coco.web.access-log.masked-parameter-names",
+      "deprecation": {
+        "level": "warning",
+        "reason": "访问日志参数脱敏策略已迁移到统一 Web 请求上下文参数配置。",
+        "replacement": "coco.web.context.parameter.masked-parameter-names"
+      }
+    }
+  ],
+  "hints": [
+    {
+      "name": "coco.web.request-body.mode",
+      "values": [
+        {
+          "value": "security-headers",
+          "description": "仅当请求包含签名、加密或防重放等安全触发头时缓存请求体。"
+        },
+        {
+          "value": "always",
+          "description": "对符合方法和内容类型条件的请求始终缓存请求体。"
+        }
+      ]
+    },
+    {
+      "name": "coco.web.response.metadata-mode",
+      "values": [
+        {
+          "value": "none",
+          "description": "不在统一响应体中输出 TraceId 或请求路径。"
+        },
+        {
+          "value": "trace",
+          "description": "仅在统一响应体中输出 TraceId。"
+        },
+        {
+          "value": "debug",
+          "description": "在统一响应体中输出 TraceId 和请求路径。"
+        }
+      ]
+    },
+    {
+      "name": "coco.web.encryption.key-encoding",
+      "values": [
+        {
+          "value": "base64",
+          "description": "Base64 文本编码。"
+        },
+        {
+          "value": "hex",
+          "description": "十六进制文本编码。"
+        },
+        {
+          "value": "utf8",
+          "description": "UTF-8 文本编码。"
+        },
+        {
+          "value": "raw",
+          "description": "原始字节，不做文本解码。"
+        }
+      ]
+    },
+    {
+      "name": "coco.web.encryption.iv-encoding",
+      "values": [
+        {
+          "value": "base64",
+          "description": "Base64 文本编码。"
+        },
+        {
+          "value": "hex",
+          "description": "十六进制文本编码。"
+        },
+        {
+          "value": "utf8",
+          "description": "UTF-8 文本编码。"
+        },
+        {
+          "value": "raw",
+          "description": "原始字节，不做文本解码。"
+        }
+      ]
+    },
+    {
+      "name": "coco.web.encryption.payload-encoding",
+      "values": [
+        {
+          "value": "base64",
+          "description": "Base64 文本编码。"
+        },
+        {
+          "value": "hex",
+          "description": "十六进制文本编码。"
+        },
+        {
+          "value": "utf8",
+          "description": "UTF-8 文本编码。"
+        },
+        {
+          "value": "raw",
+          "description": "原始字节，不做文本解码。"
+        }
+      ]
+    }
+  ]
+}
