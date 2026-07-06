@@ -5,6 +5,8 @@ import java.util.Locale;
 import java.util.Set;
 
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.context.payload.CocoPayloadParameterProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
  * Coco Web 请求参数配置属性。
@@ -34,6 +36,9 @@ public class CocoWebParameterProperties {
     private int maxParameterValueLength = DEFAULT_MAX_PARAMETER_VALUE_LENGTH;
 
     private Set<String> maskedParameterNames = DEFAULT_MASKED_PARAMETER_NAMES;
+
+    @NestedConfigurationProperty
+    private CocoPayloadParameterProperties payload = new CocoPayloadParameterProperties();
 
     /**
      * <p>
@@ -124,5 +129,25 @@ public class CocoWebParameterProperties {
         this.maskedParameterNames = normalizedNames.isEmpty()
                 ? DEFAULT_MASKED_PARAMETER_NAMES
                 : Set.copyOf(normalizedNames);
+    }
+
+    /**
+     * <p>
+     * 返回请求体参数解析配置。
+     * </p>
+     * @return 请求体参数解析配置
+     */
+    public CocoPayloadParameterProperties getPayload() {
+        return this.payload;
+    }
+
+    /**
+     * <p>
+     * 设置请求体参数解析配置。
+     * </p>
+     * @param payload 请求体参数解析配置
+     */
+    public void setPayload(CocoPayloadParameterProperties payload) {
+        this.payload = payload == null ? new CocoPayloadParameterProperties() : payload;
     }
 }

@@ -28,6 +28,8 @@ import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityInputResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.context.payload.CocoPayloadParameterResolver;
+import io.github.coco.feature.web.context.payload.DefaultCocoPayloadParameterResolver;
 import io.github.coco.feature.web.encryption.AesGcmCocoRequestDecryptor;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.encryption.CocoEncryptionKeyResolver;
@@ -191,16 +193,36 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco 请求体参数解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param objectMapper JSON 序列化器提供器
+     * @return 请求体参数解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoPayloadParameterResolver cocoPayloadParameterResolver(CocoWebProperties properties,
+            ObjectProvider<ObjectMapper> objectMapper) {
+        return new DefaultCocoPayloadParameterResolver(properties.getContext().getParameter(),
+                objectMapper.getIfAvailable(ObjectMapper::new));
+    }
+
+    /**
+     * <p>
      * 创建默认 Coco 请求参数解析器。
      * </p>
      * @param properties Coco Web 配置属性
+     * @param payloadParameterResolver 请求体参数解析器
      * @return 请求参数解析器
      */
     @Bean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
-    public CocoRequestParameterResolver cocoRequestParameterResolver(CocoWebProperties properties) {
-        return new DefaultCocoRequestParameterResolver(properties.getContext().getParameter());
+    public CocoRequestParameterResolver cocoRequestParameterResolver(CocoWebProperties properties,
+            CocoPayloadParameterResolver payloadParameterResolver) {
+        return new DefaultCocoRequestParameterResolver(properties.getContext().getParameter(),
+                payloadParameterResolver);
     }
 
     /**

@@ -59,6 +59,7 @@ import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.context.payload.CocoPayloadParameterResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
 import io.github.coco.feature.web.encryption.CocoEncryptedRequest;
 import io.github.coco.feature.web.encryption.CocoEncryptionAssociatedData;
@@ -188,6 +189,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoClientIpResolver"));
             assertTrue(context.containsBean("cocoBrowserFingerprintResolver"));
             assertTrue(context.containsBean("cocoRequestHeaderResolver"));
+            assertTrue(context.containsBean("cocoPayloadParameterResolver"));
             assertTrue(context.containsBean("cocoRequestParameterResolver"));
             assertTrue(context.containsBean("cocoWebRequestSecurityInputResolver"));
             assertTrue(context.containsBean("cocoWebRequestSecurityMetadataResolver"));
@@ -530,6 +532,15 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getContext().getParameter().isIncludeParameters());
         assertEquals(256, properties.getContext().getParameter().getMaxParameterValueLength());
         assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("token"));
+        assertTrue(properties.getContext().getParameter().getPayload().isEnabled());
+        assertTrue(properties.getContext().getParameter().getPayload().getIncludedContentTypes()
+                .contains("application/json"));
+        assertTrue(properties.getContext().getParameter().getPayload().getIncludedContentTypes()
+                .contains("application/*+json"));
+        assertTrue(properties.getContext().getParameter().getPayload().getIncludedContentTypes()
+                .contains("application/x-www-form-urlencoded"));
+        assertEquals(8, properties.getContext().getParameter().getPayload().getMaxJsonDepth());
+        assertEquals(128, properties.getContext().getParameter().getPayload().getMaxParameterCount());
         assertEquals("coco-v1", properties.getContext().getCanonicalization().getVersion());
         assertFalse(properties.getContext().getCanonicalization().isIncludeVersion());
         assertFalse(properties.getContext().getCanonicalization().isIncludePurpose());
@@ -1150,6 +1161,93 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void resolvesCachedJsonPayloadParametersIntoContextAndSecurityInput() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.canonicalization.version=coco-v2")
+                .run(context -> {
+            CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+            CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    byte[] body = ("{\"sku\":\"COCO-STARTER\",\"buyer\":{\"name\":\"Patton\"},"
+                            + "\"tags\":[\"web\",\"sign\"],\"nickname\":\"Coco%20Spring\","
+                            + "\"password\":\"plain-secret\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+
+            CocoWebRequestSnapshot snapshot = resolver.resolve("json-payload-trace",
+                    new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+            CocoWebRequestCanonicalForm canonicalForm = canonicalizer.canonicalize(snapshot.securityInput());
+            CocoRequestContext requestContext = snapshot.toRequestContext();
+
+                    assertEquals(List.of("COCO-STARTER"), snapshot.parameters().get("sku"));
+                    assertEquals(List.of("Patton"), snapshot.parameters().get("buyer.name"));
+                    assertEquals(List.of("web", "sign"), snapshot.parameters().get("tags"));
+                    assertEquals(List.of("Coco%20Spring"), snapshot.parameters().get("nickname"));
+                    assertEquals(List.of("******"), snapshot.parameters().get("password"));
+            assertEquals(List.of("plain-secret"), snapshot.securityInput().parameter("password").orElseThrow());
+            assertEquals("Patton", requestContext.parameter("buyer.name").orElseThrow());
+            assertEquals("web,sign", requestContext.parameter("tags").orElseThrow());
+            assertEquals("******", requestContext.parameter("password").orElseThrow());
+            assertTrue(canonicalForm.text().contains("buyer.name#1\n"));
+            assertTrue(canonicalForm.text().contains("buyer.name[0]=6:Patton\n"));
+            assertTrue(canonicalForm.text().contains("tags#2\n"));
+            assertTrue(canonicalForm.text().contains("tags[0]=4:sign\n"));
+            assertTrue(canonicalForm.text().contains("tags[1]=3:web\n"));
+                });
+    }
+
+    @Test
+    void resolvesCachedFormPayloadParametersIntoContextAndSecurityInput() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.canonicalization.version=coco-v2")
+                .run(context -> {
+            CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+            CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    byte[] body = "sku=COCO-STARTER&tag=b&tag=a&tag=a&token=abc&name=Coco%20Spring"
+                            .getBytes(StandardCharsets.UTF_8);
+                    request.setContentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+                    request.addParameter("sku", "COCO-STARTER");
+                    request.addParameter("tag", "b", "a", "a");
+                    request.addParameter("token", "abc");
+                    request.addParameter("name", "Coco Spring");
+
+                    CocoWebRequestSnapshot snapshot = resolver.resolve("form-payload-trace",
+                            new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+            CocoWebRequestCanonicalForm canonicalForm = canonicalizer.canonicalize(snapshot.securityInput());
+
+                    assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().parameter("sku").orElseThrow());
+                    assertEquals(List.of("b", "a", "a"), snapshot.securityInput().parameter("tag").orElseThrow());
+                    assertEquals(List.of("Coco%20Spring"), snapshot.securityInput().parameter("name").orElseThrow());
+                    assertEquals(List.of("Coco Spring"), snapshot.parameters().get("name"));
+                    assertEquals(List.of("b", "a", "a"), snapshot.parameters().get("tag"));
+                    assertEquals(List.of("******"), snapshot.parameters().get("token"));
+                    assertTrue(canonicalForm.text().contains("tag#3\n"));
+                    assertTrue(canonicalForm.text().contains("tag[0]=1:a\n"));
+                    assertTrue(canonicalForm.text().contains("tag[1]=1:a\n"));
+                    assertTrue(canonicalForm.text().contains("tag[2]=1:b\n"));
+                });
+    }
+
+    @Test
+    void skipsCachedPayloadParametersWhenPayloadParsingIsDisabled() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.parameter.payload.enabled=false")
+                .run(context -> {
+                    CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+
+                    CocoWebRequestSnapshot snapshot = resolver.resolve("payload-disabled-trace",
+                            new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+
+                    assertFalse(snapshot.parameters().containsKey("sku"));
+                    assertTrue(snapshot.securityInput().parameter("sku").isEmpty());
+                });
+    }
+
+    @Test
     void defaultRequestCanonicalizerBuildsStableTextAndDigest() {
         CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("post", "/api/orders",
                 "tag=b&tag=a&sku=COCO-STARTER",
@@ -1615,6 +1713,33 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(List.of("yes"), snapshot.parameters().get("clean"));
                     assertEquals("raw=query", snapshot.securityInput().queryString());
                     assertEquals(List.of("yes"), snapshot.securityInput().parameter("raw").orElseThrow());
+                });
+    }
+
+    @Test
+    void usesCustomPayloadParameterResolverInRequestContext() {
+        CocoPayloadParameterResolver resolver = new CocoPayloadParameterResolver() {
+
+            @Override
+            public Map<String, List<String>> resolvePayloadParameters(HttpServletRequest request) {
+                return Map.of("payload.clean", List.of("yes"));
+            }
+
+            @Override
+            public Map<String, List<String>> resolveRawPayloadParameters(HttpServletRequest request) {
+                return Map.of("payload.raw", List.of("yes"));
+            }
+        };
+        this.webContextRunner
+                .withBean(CocoPayloadParameterResolver.class, () -> resolver)
+                .run(context -> {
+                    CocoWebRequestContextResolver contextResolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
+
+                    CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-payload-trace", request);
+
+                    assertEquals(List.of("yes"), snapshot.parameters().get("payload.clean"));
+                    assertEquals(List.of("yes"), snapshot.securityInput().parameter("payload.raw").orElseThrow());
                 });
     }
 

@@ -135,6 +135,10 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.include-parameters\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.max-parameter-value-length\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.masked-parameter-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.included-content-types\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.max-json-depth\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.max-parameter-count\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.version\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-version\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-purpose\""));
@@ -161,6 +165,8 @@ class CocoWebConfigurationMetadataTest {
         assertHintDescriptionContains(metadata, "coco.web.request-body.mode", "security-headers",
                 "签名、加密强制匹配规则");
         assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "trace", "debug");
+        assertHintValues(metadata, "coco.web.context.parameter.payload.included-content-types",
+                "application/json", "application/*+json", "application/x-www-form-urlencoded");
         assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v1", "coco-v2");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");

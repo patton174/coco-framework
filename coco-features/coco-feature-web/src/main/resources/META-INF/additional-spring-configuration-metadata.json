@@ -117,6 +117,23 @@
       ]
     },
     {
+      "name": "coco.web.context.parameter.payload.included-content-types",
+      "values": [
+        {
+          "value": "application/json",
+          "description": "标准 JSON 请求体。"
+        },
+        {
+          "value": "application/*+json",
+          "description": "带业务子类型的 JSON 请求体。"
+        },
+        {
+          "value": "application/x-www-form-urlencoded",
+          "description": "表单 URL 编码请求体。"
+        }
+      ]
+    },
+    {
       "name": "coco.web.context.canonicalization.version",
       "values": [
         {
