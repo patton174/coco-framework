@@ -42,6 +42,14 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
      */
     @Override
     public String resolve(HttpServletRequest request) {
+        return resolveResolution(request).clientIp();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoClientIpResolution resolveResolution(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
         String remoteAddr = normalizeClientIp(checkedRequest.getRemoteAddr());
         if (isTrustedProxy(remoteAddr)) {
@@ -51,11 +59,11 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
                         ? firstForwardedForValue(headerValue)
                         : firstHeaderValue(headerValue);
                 if (clientIp != null) {
-                    return clientIp;
+                    return CocoClientIpResolution.forwardedHeader(clientIp, headerName, headerValue, remoteAddr);
                 }
             }
         }
-        return remoteAddr;
+        return remoteAddr == null ? CocoClientIpResolution.unresolved() : CocoClientIpResolution.remoteAddress(remoteAddr);
     }
 
     private boolean isTrustedProxy(String remoteAddr) {

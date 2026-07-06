@@ -3,6 +3,7 @@ package io.github.coco.feature.web.context;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -51,25 +52,24 @@ public final class DefaultCocoBrowserFingerprintResolver implements CocoBrowserF
             if (headerName == null || headerName.isBlank()) {
                 continue;
             }
-            String value = firstExistingHeaderValue(checkedRequest, headerName);
-            if (value != null) {
+            List<String> values = existingHeaderValues(checkedRequest, headerName);
+            if (!values.isEmpty()) {
                 signals.put(headerName.trim().toLowerCase(Locale.ROOT),
-                        trimValue(value, this.properties.getMaxHeaderValueLength()));
+                        fingerprintSignalValue(values, this.properties.getMaxHeaderValueLength()));
             }
         }
         return CocoBrowserFingerprint.from(signals);
     }
 
-    private static String firstExistingHeaderValue(HttpServletRequest request, String headerName) {
+    private static List<String> existingHeaderValues(HttpServletRequest request, String headerName) {
         Enumeration<String> values = request.getHeaders(headerName);
         if (values == null) {
-            return null;
+            return List.of();
         }
         return enumerationAsStream(values)
                 .map(DefaultCocoBrowserFingerprintResolver::normalizeString)
                 .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
+                .toList();
     }
 
     private static Stream<String> enumerationAsStream(Enumeration<String> values) {
@@ -93,5 +93,17 @@ public final class DefaultCocoBrowserFingerprintResolver implements CocoBrowserF
             return "";
         }
         return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
+    }
+
+    private static String fingerprintSignalValue(List<String> values, int maxLength) {
+        if (values.size() == 1) {
+            return trimValue(values.get(0), maxLength);
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int index = 0; index < values.size(); index++) {
+            String value = trimValue(values.get(index), maxLength);
+            builder.append(index).append('=').append(value.length()).append(':').append(value).append(';');
+        }
+        return builder.toString();
     }
 }

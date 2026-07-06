@@ -144,6 +144,48 @@ public final class CocoRequestContext {
 
     /**
      * <p>
+     * 返回客户端 IP 来源。
+     * </p>
+     * @return 客户端 IP 来源；未设置时为空
+     */
+    public Optional<String> clientIpSource() {
+        return attribute(CocoRequestContextAttributes.CLIENT_IP_SOURCE);
+    }
+
+    /**
+     * <p>
+     * 返回客户端 IP 来源请求头。
+     * </p>
+     * @return 客户端 IP 来源请求头；未设置时为空
+     */
+    public Optional<String> clientIpSourceHeader() {
+        return attribute(CocoRequestContextAttributes.CLIENT_IP_SOURCE_HEADER);
+    }
+
+    /**
+     * <p>
+     * 返回 Servlet 远端地址。
+     * </p>
+     * @return Servlet 远端地址；未设置时为空
+     */
+    public Optional<String> clientIpRemoteAddress() {
+        return attribute(CocoRequestContextAttributes.CLIENT_IP_REMOTE_ADDRESS);
+    }
+
+    /**
+     * <p>
+     * 返回客户端 IP 是否来自可信代理链。
+     * </p>
+     * @return 客户端 IP 来自可信代理链时返回 {@code true}
+     */
+    public boolean clientIpTrustedProxy() {
+        return attribute(CocoRequestContextAttributes.CLIENT_IP_TRUSTED_PROXY)
+                .map(Boolean::parseBoolean)
+                .orElse(false);
+    }
+
+    /**
+     * <p>
      * 返回 User-Agent。
      * </p>
      * @return User-Agent；未设置时为空

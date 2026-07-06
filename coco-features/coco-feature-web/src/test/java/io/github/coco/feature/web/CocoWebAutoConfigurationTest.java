@@ -29,7 +29,9 @@ import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingMode;
 import io.github.coco.feature.web.context.CocoBrowserFingerprint;
 import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
+import io.github.coco.feature.web.context.CocoClientIpResolution;
 import io.github.coco.feature.web.context.CocoClientIpResolver;
+import io.github.coco.feature.web.context.CocoClientIpSource;
 import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
@@ -869,6 +871,10 @@ class CocoWebAutoConfigurationTest {
                 assertEquals("POST", requestContext.method().orElseThrow());
                 assertEquals("/api/users", requestContext.path().orElseThrow());
                 assertEquals("10.0.0.8", requestContext.clientIp().orElseThrow());
+                assertEquals("FORWARDED_HEADER", requestContext.clientIpSource().orElseThrow());
+                assertEquals("X-Forwarded-For", requestContext.clientIpSourceHeader().orElseThrow());
+                assertEquals("127.0.0.1", requestContext.clientIpRemoteAddress().orElseThrow());
+                assertTrue(requestContext.clientIpTrustedProxy());
                 assertEquals("PostmanRuntime/7.37", requestContext.userAgent().orElseThrow());
                 assertEquals("name=Coco&token=******", requestContext.queryString().orElseThrow());
                 assertEquals("zh-CN", requestContext.locale().orElseThrow());
@@ -1197,6 +1203,11 @@ class CocoWebAutoConfigurationTest {
         request.addHeader("X-Forwarded-For", "10.0.0.8");
 
         assertEquals("127.0.0.1", resolver.resolve(request));
+        CocoClientIpResolution resolution = resolver.resolveResolution(request);
+        assertEquals("127.0.0.1", resolution.clientIp());
+        assertEquals(CocoClientIpSource.REMOTE_ADDRESS, resolution.source());
+        assertEquals("127.0.0.1", resolution.remoteAddress());
+        assertFalse(resolution.trustedProxy());
     }
 
     @Test
@@ -1210,6 +1221,13 @@ class CocoWebAutoConfigurationTest {
         request.addHeader("X-Forwarded-For", "10.0.0.8");
 
         assertEquals("2001:db8:cafe::17", resolver.resolve(request));
+        CocoClientIpResolution resolution = resolver.resolveResolution(request);
+        assertEquals("2001:db8:cafe::17", resolution.clientIp());
+        assertEquals(CocoClientIpSource.FORWARDED_HEADER, resolution.source());
+        assertEquals("Forwarded", resolution.sourceHeaderName());
+        assertEquals("for=\"[2001:db8:cafe::17]:4711\";proto=https", resolution.sourceHeaderValue());
+        assertEquals("127.0.0.1", resolution.remoteAddress());
+        assertTrue(resolution.trustedProxy());
     }
 
     @Test
@@ -1222,6 +1240,10 @@ class CocoWebAutoConfigurationTest {
         request.addHeader("Forwarded", "for=_hidden, for=unknown, for=10.0.0.8:8443");
 
         assertEquals("10.0.0.8", resolver.resolve(request));
+        CocoClientIpResolution resolution = resolver.resolveResolution(request);
+        assertEquals(CocoClientIpSource.FORWARDED_HEADER, resolution.source());
+        assertEquals("Forwarded", resolution.sourceHeaderName());
+        assertTrue(resolution.trustedProxy());
     }
 
     @Test
@@ -1239,6 +1261,22 @@ class CocoWebAutoConfigurationTest {
         assertNotNull(fingerprint.value());
         assertEquals("Chrome/1...", fingerprint.signals().get("user-agent"));
         assertEquals("\"Chromiu...", fingerprint.signals().get("sec-ch-ua"));
+    }
+
+    @Test
+    void defaultBrowserFingerprintResolverFramesMultiValueHeaderSignals() {
+        CocoWebProperties properties = new CocoWebProperties();
+        properties.getContext().setFingerprintHeaderNames(Set.of("X-Fp"));
+        properties.getContext().setMaxHeaderValueLength(32);
+        CocoBrowserFingerprintResolver resolver = new DefaultCocoBrowserFingerprintResolver(properties.getContext());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+        request.addHeader("X-Fp", "alpha");
+        request.addHeader("X-Fp", "beta,gamma");
+
+        CocoBrowserFingerprint fingerprint = resolver.resolve(request);
+
+        assertNotNull(fingerprint.value());
+        assertEquals("0=5:alpha;1=10:beta,gamma;", fingerprint.signals().get("x-fp"));
     }
 
     @Test
@@ -1314,6 +1352,8 @@ class CocoWebAutoConfigurationTest {
 
                     assertEquals("203.0.113.8", snapshot.clientIp());
                     assertEquals("203.0.113.8", snapshot.toRequestContext().clientIp().orElseThrow());
+                    assertEquals(CocoClientIpSource.CUSTOM, snapshot.clientIpResolution().source());
+                    assertEquals("CUSTOM", snapshot.toRequestContext().clientIpSource().orElseThrow());
                 });
     }
 

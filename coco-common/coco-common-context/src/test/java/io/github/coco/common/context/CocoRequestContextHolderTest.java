@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import static java.util.Map.entry;
+
 import java.util.Map;
 
 import io.github.coco.common.trace.CocoTraceContext;
@@ -36,16 +38,20 @@ class CocoRequestContextHolderTest {
     @Test
     void setRequestContextStoresSnapshotAndSynchronizesTraceId() {
         CocoRequestContext context = CocoRequestContext.of(
-                " trace-001 ", " get ", " /api/users ", Map.of(
-                        "tenantId", " tenant-a ",
-                        CocoRequestContextAttributes.CLIENT_IP, " 10.0.0.8 ",
-                        CocoRequestContextAttributes.USER_AGENT, " PostmanRuntime/7.37 ",
-                        CocoRequestContextAttributes.QUERY_STRING, " name=Coco ",
-                        CocoRequestContextAttributes.LOCALE, " zh-CN ",
-                        CocoRequestContextAttributes.BROWSER_FINGERPRINT, " fp-001 ",
-                        CocoRequestContextAttributes.REQUEST_BODY_SHA256, " body-sha-001 ",
-                        CocoRequestContextAttributes.header("Accept-Language"), " zh-CN ",
-                        CocoRequestContextAttributes.parameter("name"), " Coco "));
+                " trace-001 ", " get ", " /api/users ", Map.ofEntries(
+                        entry("tenantId", " tenant-a "),
+                        entry(CocoRequestContextAttributes.CLIENT_IP, " 10.0.0.8 "),
+                        entry(CocoRequestContextAttributes.CLIENT_IP_SOURCE, " FORWARDED_HEADER "),
+                        entry(CocoRequestContextAttributes.CLIENT_IP_SOURCE_HEADER, " X-Forwarded-For "),
+                        entry(CocoRequestContextAttributes.CLIENT_IP_REMOTE_ADDRESS, " 127.0.0.1 "),
+                        entry(CocoRequestContextAttributes.CLIENT_IP_TRUSTED_PROXY, " true "),
+                        entry(CocoRequestContextAttributes.USER_AGENT, " PostmanRuntime/7.37 "),
+                        entry(CocoRequestContextAttributes.QUERY_STRING, " name=Coco "),
+                        entry(CocoRequestContextAttributes.LOCALE, " zh-CN "),
+                        entry(CocoRequestContextAttributes.BROWSER_FINGERPRINT, " fp-001 "),
+                        entry(CocoRequestContextAttributes.REQUEST_BODY_SHA256, " body-sha-001 "),
+                        entry(CocoRequestContextAttributes.header("Accept-Language"), " zh-CN "),
+                        entry(CocoRequestContextAttributes.parameter("name"), " Coco ")));
 
         CocoRequestContextHolder.set(context);
 
@@ -55,6 +61,10 @@ class CocoRequestContextHolderTest {
         assertEquals("/api/users", current.path().orElseThrow());
         assertEquals("tenant-a", current.attribute("tenantId").orElseThrow());
         assertEquals("10.0.0.8", current.clientIp().orElseThrow());
+        assertEquals("FORWARDED_HEADER", current.clientIpSource().orElseThrow());
+        assertEquals("X-Forwarded-For", current.clientIpSourceHeader().orElseThrow());
+        assertEquals("127.0.0.1", current.clientIpRemoteAddress().orElseThrow());
+        assertTrue(current.clientIpTrustedProxy());
         assertEquals("PostmanRuntime/7.37", current.userAgent().orElseThrow());
         assertEquals("name=Coco", current.queryString().orElseThrow());
         assertEquals("zh-CN", current.locale().orElseThrow());

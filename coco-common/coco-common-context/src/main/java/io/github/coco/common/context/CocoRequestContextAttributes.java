@@ -26,6 +26,26 @@ public final class CocoRequestContextAttributes {
     public static final String CLIENT_IP = "clientIp";
 
     /**
+     * 客户端 IP 来源属性键。
+     */
+    public static final String CLIENT_IP_SOURCE = "clientIpSource";
+
+    /**
+     * 客户端 IP 来源请求头属性键。
+     */
+    public static final String CLIENT_IP_SOURCE_HEADER = "clientIpSourceHeader";
+
+    /**
+     * Servlet 远端地址属性键。
+     */
+    public static final String CLIENT_IP_REMOTE_ADDRESS = "clientIpRemoteAddress";
+
+    /**
+     * 客户端 IP 是否来自可信代理链属性键。
+     */
+    public static final String CLIENT_IP_TRUSTED_PROXY = "clientIpTrustedProxy";
+
+    /**
      * User-Agent 属性键。
      */
     public static final String USER_AGENT = "userAgent";

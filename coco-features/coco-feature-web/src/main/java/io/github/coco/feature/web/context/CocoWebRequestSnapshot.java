@@ -38,13 +38,15 @@ import io.github.coco.common.context.CocoRequestContextAttributes;
  * @param parameters 请求参数快照
  * @param securityInput 请求安全输入
  * @param browserFingerprint 浏览器指纹
+ * @param clientIpResolution 客户端 IP 解析结果
  * @author patton174
  * @since 1.0.0
  */
 public record CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
         String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
         String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
-        CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint) {
+        CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint,
+        CocoClientIpResolution clientIpResolution) {
 
     /**
      * <p>
@@ -70,7 +72,36 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
                 contentType, headers, parameters,
                 new CocoWebRequestSecurityInput(method, path, null, Map.of(), Map.of(), Map.of(), null),
-                CocoBrowserFingerprint.empty());
+                CocoBrowserFingerprint.empty(), CocoClientIpResolution.custom(clientIp));
+    }
+
+    /**
+     * <p>
+     * 创建 Web 请求快照。
+     * </p>
+     * @param traceId TraceId
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 查询字符串
+     * @param clientIp 客户端 IP
+     * @param userAgent User-Agent
+     * @param locale 请求语言
+     * @param scheme 请求协议
+     * @param host 请求主机
+     * @param port 请求端口
+     * @param contentType 请求内容类型
+     * @param headers 请求头快照
+     * @param parameters 请求参数快照
+     * @param securityInput 请求安全输入
+     * @param browserFingerprint 浏览器指纹
+     */
+    public CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
+            String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
+            String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
+            CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint) {
+        this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
+                contentType, headers, parameters, securityInput, browserFingerprint,
+                CocoClientIpResolution.custom(clientIp));
     }
 
     /**
@@ -92,13 +123,15 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
      * @param parameters 请求参数快照
      * @param securityInput 请求安全输入
      * @param browserFingerprint 浏览器指纹
+     * @param clientIpResolution 客户端 IP 解析结果
      */
     public CocoWebRequestSnapshot {
         traceId = requireTraceId(traceId);
         method = normalizeMethod(method);
         path = normalizeOptional(path);
         queryString = normalizeOptional(queryString);
-        clientIp = normalizeOptional(clientIp);
+        clientIpResolution = clientIpResolution == null ? CocoClientIpResolution.custom(clientIp) : clientIpResolution;
+        clientIp = firstNonBlank(clientIp, clientIpResolution.clientIp());
         userAgent = normalizeOptional(userAgent);
         locale = normalizeOptional(locale);
         scheme = normalizeOptional(scheme);
@@ -119,6 +152,13 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
     public CocoRequestContext toRequestContext() {
         Map<String, String> attributes = new LinkedHashMap<>();
         putIfPresent(attributes, CocoRequestContextAttributes.CLIENT_IP, this.clientIp);
+        putIfPresent(attributes, CocoRequestContextAttributes.CLIENT_IP_SOURCE, this.clientIpResolution.source().name());
+        putIfPresent(attributes, CocoRequestContextAttributes.CLIENT_IP_SOURCE_HEADER,
+                this.clientIpResolution.sourceHeaderName());
+        putIfPresent(attributes, CocoRequestContextAttributes.CLIENT_IP_REMOTE_ADDRESS,
+                this.clientIpResolution.remoteAddress());
+        putIfPresent(attributes, CocoRequestContextAttributes.CLIENT_IP_TRUSTED_PROXY,
+                Boolean.toString(this.clientIpResolution.trustedProxy()));
         putIfPresent(attributes, CocoRequestContextAttributes.USER_AGENT, this.userAgent);
         putIfPresent(attributes, CocoRequestContextAttributes.QUERY_STRING, this.queryString);
         putIfPresent(attributes, CocoRequestContextAttributes.LOCALE, this.locale);
@@ -155,6 +195,11 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
 
     private static String normalizeOptional(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        String normalizedFirst = normalizeOptional(first);
+        return normalizedFirst == null ? normalizeOptional(second) : normalizedFirst;
     }
 
     private static Map<String, String> copyHeaders(Map<String, String> headers) {

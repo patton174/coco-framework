@@ -153,14 +153,16 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
     private CocoWebRequestSnapshot resolveAndCache(String traceId, HttpServletRequest request) {
         String method = request.getMethod();
         String path = resolvePath(request);
+        CocoClientIpResolution clientIpResolution = this.clientIpResolver.resolveResolution(request);
         CocoBrowserFingerprint browserFingerprint = this.browserFingerprintResolver.resolve(request);
         CocoWebRequestSecurityInput securityInput = this.securityInputResolver.resolve(request, method, path);
         CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(request),
-                this.clientIpResolver.resolve(request), request.getHeader("User-Agent"),
+                clientIpResolution.clientIp(), request.getHeader("User-Agent"),
                 resolveLocale(request),
                 request.getScheme(), request.getServerName(), request.getServerPort(),
                 request.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(request),
-                this.requestParameterResolver.resolveParameters(request), securityInput, browserFingerprint);
+                this.requestParameterResolver.resolveParameters(request), securityInput, browserFingerprint,
+                clientIpResolution);
         CocoWebRequestSnapshotAttributes.set(request, snapshot, headerFingerprint(request));
         return snapshot;
     }
@@ -215,9 +217,19 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
             List<String> values = new ArrayList<>(Collections.list(request.getHeaders(name)));
             values.replaceAll(value -> value == null ? "" : value.trim());
             Collections.sort(values);
-            joiner.add(name.length() + ":" + name + "=" + values.size() + ":" + String.join(",", values));
+            joiner.add(framedHeader(name, values));
         }
         return joiner.toString();
+    }
+
+    private static String framedHeader(String name, List<String> values) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(name.length()).append(':').append(name).append('#').append(values.size());
+        for (int index = 0; index < values.size(); index++) {
+            String value = values.get(index);
+            builder.append('|').append(index).append('=').append(value.length()).append(':').append(value);
+        }
+        return builder.toString();
     }
 
 }
