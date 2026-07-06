@@ -982,6 +982,9 @@ class CocoWebAutoConfigurationTest {
                 assertTrue(requestContext.header("accept-language").orElseThrow().contains("zh-cn"));
                 assertEquals("Coco", requestContext.parameter("name").orElseThrow());
                 assertEquals("******", requestContext.parameter("token").orElseThrow());
+                assertEquals("Coco", requestContext.queryParameter("name").orElseThrow());
+                assertEquals("******", requestContext.queryParameter("token").orElseThrow());
+                assertTrue(requestContext.payloadParameter("name").isEmpty());
                 assertEquals("incoming-trace", MDC.get("traceId"));
             })));
 
@@ -1195,6 +1198,10 @@ class CocoWebAutoConfigurationTest {
             assertEquals("Patton", requestContext.parameter("buyer.name").orElseThrow());
             assertEquals("web,sign", requestContext.parameter("tags").orElseThrow());
             assertEquals("******", requestContext.parameter("password").orElseThrow());
+            assertTrue(snapshot.queryParameters().isEmpty());
+            assertEquals(List.of("******"), snapshot.payloadParameters().get("password"));
+            assertTrue(requestContext.queryParameter("password").isEmpty());
+            assertEquals("******", requestContext.payloadParameter("password").orElseThrow());
             assertTrue(canonicalForm.text().contains("queryParameters\n"));
             assertTrue(canonicalForm.text().contains("payloadParameters\n"));
             assertTrue(canonicalForm.text().contains("buyer.name#1\n"));
@@ -1234,6 +1241,10 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(List.of("Coco Spring"), snapshot.parameters().get("name"));
                     assertEquals(List.of("b", "a", "a"), snapshot.parameters().get("tag"));
                     assertEquals(List.of("******"), snapshot.parameters().get("token"));
+                    assertTrue(snapshot.queryParameters().isEmpty());
+                    assertEquals(List.of("******"), snapshot.payloadParameters().get("token"));
+                    CocoRequestContext requestContext = snapshot.toRequestContext();
+                    assertEquals("******", requestContext.payloadParameter("token").orElseThrow());
                     assertTrue(canonicalForm.text().contains("queryParameters\n"));
                     assertTrue(canonicalForm.text().contains("payloadParameters\n"));
                     assertTrue(canonicalForm.text().contains("tag#3\n"));
@@ -1783,6 +1794,8 @@ class CocoWebAutoConfigurationTest {
 
                     assertEquals("clean=query", snapshot.queryString());
                     assertEquals(List.of("yes"), snapshot.parameters().get("clean"));
+                    assertTrue(snapshot.queryParameters().isEmpty());
+                    assertTrue(snapshot.payloadParameters().isEmpty());
                     assertEquals("raw=query", snapshot.securityInput().queryString());
                     assertEquals(List.of("yes"), snapshot.securityInput().parameter("raw").orElseThrow());
                 });
@@ -1811,6 +1824,7 @@ class CocoWebAutoConfigurationTest {
                     CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-payload-trace", request);
 
                     assertEquals(List.of("yes"), snapshot.parameters().get("payload.clean"));
+                    assertEquals(List.of("yes"), snapshot.payloadParameters().get("payload.clean"));
                     assertEquals(List.of("yes"), snapshot.securityInput().parameter("payload.raw").orElseThrow());
                 });
     }
@@ -1849,6 +1863,21 @@ class CocoWebAutoConfigurationTest {
 
         assertTrue(first == second);
         assertEquals("JUnit", second.userAgent());
+    }
+
+    @Test
+    void defaultRequestContextResolverRefreshesSnapshotWhenQueryStringChanges() {
+        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null, null);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+        request.setQueryString("name=first");
+
+        CocoWebRequestSnapshot first = resolver.resolve("cached-query-trace", request);
+        request.setQueryString("name=second");
+        CocoWebRequestSnapshot second = resolver.resolve("cached-query-trace", request);
+
+        assertFalse(first == second);
+        assertEquals("name=first", first.securityInput().queryString());
+        assertEquals("name=second", second.securityInput().queryString());
     }
 
     @Test

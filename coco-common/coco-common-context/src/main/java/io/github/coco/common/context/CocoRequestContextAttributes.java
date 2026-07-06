@@ -160,6 +160,16 @@ public final class CocoRequestContextAttributes {
      */
     public static final String PARAMETER_PREFIX = "parameter.";
 
+    /**
+     * 查询参数属性键前缀。
+     */
+    public static final String QUERY_PARAMETER_PREFIX = "queryParameter.";
+
+    /**
+     * 请求体参数属性键前缀。
+     */
+    public static final String PAYLOAD_PARAMETER_PREFIX = "payloadParameter.";
+
     private CocoRequestContextAttributes() {
     }
 
@@ -183,6 +193,28 @@ public final class CocoRequestContextAttributes {
      */
     public static String parameter(String name) {
         return PARAMETER_PREFIX + normalizeSegment(name);
+    }
+
+    /**
+     * <p>
+     * 创建查询参数上下文属性键。
+     * </p>
+     * @param name 查询参数名称
+     * @return 查询参数上下文属性键
+     */
+    public static String queryParameter(String name) {
+        return QUERY_PARAMETER_PREFIX + normalizeSegment(name);
+    }
+
+    /**
+     * <p>
+     * 创建请求体参数上下文属性键。
+     * </p>
+     * @param name 请求体参数名称
+     * @return 请求体参数上下文属性键
+     */
+    public static String payloadParameter(String name) {
+        return PAYLOAD_PARAMETER_PREFIX + normalizeSegment(name);
     }
 
     private static String normalizeHeaderName(String name) {

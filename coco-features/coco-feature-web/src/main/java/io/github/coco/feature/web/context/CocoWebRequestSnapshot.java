@@ -37,6 +37,8 @@ import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
  * @param contentType 请求内容类型
  * @param headers 请求头快照
  * @param parameters 请求参数快照
+ * @param queryParameters 查询参数快照
+ * @param payloadParameters 请求体参数快照
  * @param securityInput 请求安全输入
  * @param requestBody 请求体元数据
  * @param securityMetadata 请求安全元数据
@@ -48,6 +50,7 @@ import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
 public record CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
         String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
         String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
+        Map<String, List<String>> queryParameters, Map<String, List<String>> payloadParameters,
         CocoWebRequestSecurityInput securityInput, CocoRequestBodyMetadata requestBody,
         CocoWebRequestSecurityMetadata securityMetadata, CocoBrowserFingerprint browserFingerprint,
         CocoClientIpResolution clientIpResolution) {
@@ -74,7 +77,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
             String contentType, Map<String, String> headers, Map<String, List<String>> parameters) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters,
+                contentType, headers, parameters, Map.of(), Map.of(),
                 new CocoWebRequestSecurityInput(method, path, null, Map.of(), Map.of(), Map.of(), null),
                 CocoRequestBodyMetadata.empty(), CocoWebRequestSecurityMetadata.empty(), CocoBrowserFingerprint.empty(),
                 CocoClientIpResolution.custom(clientIp));
@@ -105,7 +108,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
             CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, securityInput, null, CocoWebRequestSecurityMetadata.empty(),
+                contentType, headers, parameters, Map.of(), Map.of(), securityInput, null,
+                CocoWebRequestSecurityMetadata.empty(),
                 browserFingerprint,
                 CocoClientIpResolution.custom(clientIp));
     }
@@ -137,7 +141,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint,
             CocoClientIpResolution clientIpResolution) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, securityInput, null, CocoWebRequestSecurityMetadata.empty(),
+                contentType, headers, parameters, Map.of(), Map.of(), securityInput, null,
+                CocoWebRequestSecurityMetadata.empty(),
                 browserFingerprint, clientIpResolution);
     }
 
@@ -169,7 +174,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             CocoWebRequestSecurityInput securityInput, CocoWebRequestSecurityMetadata securityMetadata,
             CocoBrowserFingerprint browserFingerprint, CocoClientIpResolution clientIpResolution) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, securityInput, null, securityMetadata, browserFingerprint,
+                contentType, headers, parameters, Map.of(), Map.of(), securityInput, null, securityMetadata,
+                browserFingerprint,
                 clientIpResolution);
     }
 
@@ -190,6 +196,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
      * @param contentType 请求内容类型
      * @param headers 请求头快照
      * @param parameters 请求参数快照
+     * @param queryParameters 查询参数快照
+     * @param payloadParameters 请求体参数快照
      * @param securityInput 请求安全输入
      * @param requestBody 请求体元数据
      * @param securityMetadata 请求安全元数据
@@ -210,6 +218,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         contentType = normalizeOptional(contentType);
         headers = copyHeaders(headers);
         parameters = copyParameters(parameters);
+        queryParameters = copyParameters(queryParameters);
+        payloadParameters = copyParameters(payloadParameters);
         securityInput = securityInput == null ? CocoWebRequestSecurityInput.empty() : securityInput;
         requestBody = requestBody == null
                 ? CocoRequestBodyMetadata.fromEffective(securityInput.bodySha256(), securityInput.bodyLength(),
@@ -271,6 +281,10 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
                 putIfPresent(attributes, CocoRequestContextAttributes.header(name), value));
         this.parameters.forEach((name, values) ->
                 putIfPresent(attributes, CocoRequestContextAttributes.parameter(name), String.join(",", values)));
+        this.queryParameters.forEach((name, values) ->
+                putIfPresent(attributes, CocoRequestContextAttributes.queryParameter(name), String.join(",", values)));
+        this.payloadParameters.forEach((name, values) ->
+                putIfPresent(attributes, CocoRequestContextAttributes.payloadParameter(name), String.join(",", values)));
         return CocoRequestContext.of(this.traceId, this.method, this.path, attributes);
     }
 

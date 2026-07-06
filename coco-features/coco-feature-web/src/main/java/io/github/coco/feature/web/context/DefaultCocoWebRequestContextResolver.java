@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.StringJoiner;
 
@@ -187,12 +188,15 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         CocoWebRequestSecurityInput securityInput = this.securityInputResolver.resolve(request, method, path);
         CocoRequestBodyMetadata requestBody = CocoRequestBodyMetadata.from(request);
         CocoWebRequestSecurityMetadata securityMetadata = this.securityMetadataResolver.resolve(securityInput);
+        Map<String, List<String>> parameters = this.requestParameterResolver.resolveParameters(request);
+        Map<String, List<String>> queryParameters = this.requestParameterResolver.resolveQueryParameters(request);
+        Map<String, List<String>> payloadParameters = this.requestParameterResolver.resolvePayloadParameters(request);
         CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(request),
                 clientIpResolution.clientIp(), request.getHeader("User-Agent"),
                 resolveLocale(request),
                 request.getScheme(), request.getServerName(), request.getServerPort(),
                 request.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(request),
-                this.requestParameterResolver.resolveParameters(request), securityInput, requestBody, securityMetadata,
+                parameters, queryParameters, payloadParameters, securityInput, requestBody, securityMetadata,
                 browserFingerprint, clientIpResolution);
         CocoWebRequestSnapshotAttributes.set(request, snapshot, headerFingerprint(request));
         return snapshot;
@@ -202,6 +206,7 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         return snapshot.traceId().equals(normalizeTraceId(traceId))
                 && Objects.equals(snapshot.method(), normalizeMethod(request.getMethod()))
                 && Objects.equals(snapshot.path(), resolvePath(request))
+                && Objects.equals(snapshot.securityInput().queryString(), normalizeOptional(request.getQueryString()))
                 && CocoWebRequestSnapshotAttributes.headerFingerprint(request)
                         .filter(fingerprint -> fingerprint.equals(headerFingerprint(request)))
                         .isPresent()
@@ -235,6 +240,10 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
 
     private static String normalizeMethod(String method) {
         return method == null || method.isBlank() ? null : method.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeOptional(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static String headerFingerprint(HttpServletRequest request) {

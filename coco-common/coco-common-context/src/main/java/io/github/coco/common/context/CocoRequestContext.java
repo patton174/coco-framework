@@ -389,6 +389,34 @@ public final class CocoRequestContext {
         return attribute(CocoRequestContextAttributes.parameter(name));
     }
 
+    /**
+     * <p>
+     * 返回查询参数上下文属性。
+     * </p>
+     * @param name 查询参数名称
+     * @return 查询参数值；未设置时为空
+     */
+    public Optional<String> queryParameter(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return attribute(CocoRequestContextAttributes.queryParameter(name));
+    }
+
+    /**
+     * <p>
+     * 返回请求体参数上下文属性。
+     * </p>
+     * @param name 请求体参数名称
+     * @return 请求体参数值；未设置时为空
+     */
+    public Optional<String> payloadParameter(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return attribute(CocoRequestContextAttributes.payloadParameter(name));
+    }
+
     private Optional<Long> longAttribute(String name) {
         return attribute(name).flatMap(CocoRequestContext::parseLong);
     }
