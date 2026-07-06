@@ -52,10 +52,54 @@ public interface CocoRequestParameterResolver {
 
     /**
      * <p>
+     * 解析清洗后的查询参数。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 清洗后的查询参数快照
+     */
+    default Map<String, List<String>> resolveQueryParameters(HttpServletRequest request) {
+        return Map.of();
+    }
+
+    /**
+     * <p>
+     * 解析清洗后的请求体参数。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 清洗后的请求体参数快照
+     */
+    default Map<String, List<String>> resolvePayloadParameters(HttpServletRequest request) {
+        return Map.of();
+    }
+
+    /**
+     * <p>
      * 解析原始请求参数。
      * </p>
      * @param request 当前 Servlet 请求
      * @return 原始请求参数快照
      */
     Map<String, List<String>> resolveRawParameters(HttpServletRequest request);
+
+    /**
+     * <p>
+     * 解析原始查询参数。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 原始查询参数快照
+     */
+    default Map<String, List<String>> resolveRawQueryParameters(HttpServletRequest request) {
+        return Map.of();
+    }
+
+    /**
+     * <p>
+     * 解析原始请求体参数。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 原始请求体参数快照
+     */
+    default Map<String, List<String>> resolveRawPayloadParameters(HttpServletRequest request) {
+        return Map.of();
+    }
 }

@@ -35,7 +35,8 @@ import java.util.Optional;
  * @since 1.0.0
  */
 public record CocoWebRequestSecurityInput(String method, String path, String queryString,
-        Map<String, List<String>> parameters, Map<String, String> securityHeaders,
+        Map<String, List<String>> parameters, Map<String, List<String>> queryParameters,
+        Map<String, List<String>> payloadParameters, Map<String, String> securityHeaders,
         Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached,
         Map<String, List<String>> canonicalHeaderValues) {
 
@@ -80,6 +81,29 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
 
     /**
      * <p>
+     * 创建请求安全输入。
+     * </p>
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 原始查询字符串
+     * @param parameters 原始请求参数
+     * @param securityHeaders 安全能力相关请求头
+     * @param canonicalHeaders 默认参与签名规范化的请求头
+     * @param bodySha256 请求体 SHA-256 摘要
+     * @param bodyLength 请求体长度
+     * @param bodyCached 请求体是否已缓存
+     * @param canonicalHeaderValues 默认参与签名规范化的多值请求头
+     */
+    public CocoWebRequestSecurityInput(String method, String path, String queryString,
+            Map<String, List<String>> parameters, Map<String, String> securityHeaders,
+            Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached,
+            Map<String, List<String>> canonicalHeaderValues) {
+        this(method, path, queryString, parameters, Map.of(), Map.of(), securityHeaders, canonicalHeaders,
+                bodySha256, bodyLength, bodyCached, canonicalHeaderValues);
+    }
+
+    /**
+     * <p>
      * 创建请求安全输入，并归一化字段和集合。
      * </p>
      * @param method HTTP 方法
@@ -97,7 +121,12 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         method = normalizeMethod(method);
         path = normalizeOptional(path);
         queryString = normalizeOptional(queryString);
+        queryParameters = copyParameters(queryParameters);
+        payloadParameters = copyParameters(payloadParameters);
         parameters = copyParameters(parameters);
+        if (parameters.isEmpty() && (!queryParameters.isEmpty() || !payloadParameters.isEmpty())) {
+            parameters = mergeParameters(queryParameters, payloadParameters);
+        }
         securityHeaders = copyHeaders(securityHeaders);
         canonicalHeaders = copyHeaders(canonicalHeaders);
         canonicalHeaderValues = copyHeaderValues(canonicalHeaderValues);
@@ -164,6 +193,34 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
             return Optional.empty();
         }
         return Optional.ofNullable(this.parameters.get(name.trim()));
+    }
+
+    /**
+     * <p>
+     * 返回指定原始查询参数。
+     * </p>
+     * @param name 请求参数名称
+     * @return 查询参数值；未设置时为空
+     */
+    public Optional<List<String>> queryParameter(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(this.queryParameters.get(name.trim()));
+    }
+
+    /**
+     * <p>
+     * 返回指定原始请求体参数。
+     * </p>
+     * @param name 请求参数名称
+     * @return 请求体参数值；未设置时为空
+     */
+    public Optional<List<String>> payloadParameter(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(this.payloadParameters.get(name.trim()));
     }
 
     private static Optional<String> header(Map<String, String> headers, String name) {
@@ -255,6 +312,39 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
             }
         });
         return copied.isEmpty() ? Map.of() : Collections.unmodifiableMap(copied);
+    }
+
+    private static Map<String, List<String>> mergeParameters(Map<String, List<String>> first,
+            Map<String, List<String>> second) {
+        Map<String, List<String>> merged = new LinkedHashMap<>();
+        mergeInto(merged, first);
+        mergeInto(merged, second);
+        return copyParameters(merged);
+    }
+
+    private static void mergeInto(Map<String, List<String>> target, Map<String, List<String>> source) {
+        if (source == null || source.isEmpty()) {
+            return;
+        }
+        source.forEach((name, values) -> {
+            String normalizedName = normalizeOptional(name);
+            if (normalizedName == null) {
+                return;
+            }
+            List<String> targetValues = new ArrayList<>(target.getOrDefault(normalizedName, List.of()));
+            List<String> coveredValues = new ArrayList<>(targetValues);
+            for (String value : values == null || values.isEmpty() ? List.of("") : values) {
+                String normalizedValue = value == null ? "" : value;
+                int coveredIndex = coveredValues.indexOf(normalizedValue);
+                if (coveredIndex >= 0) {
+                    coveredValues.remove(coveredIndex);
+                }
+                else {
+                    targetValues.add(normalizedValue);
+                }
+            }
+            target.put(normalizedName, targetValues);
+        });
     }
 
     private static List<String> copyParameterValues(List<String> values) {

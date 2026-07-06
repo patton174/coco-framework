@@ -106,6 +106,10 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
     public CocoWebRequestSecurityInput resolve(HttpServletRequest request, String method, String path) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
         String rawQueryString = this.requestParameterResolver.resolveRawQueryString(checkedRequest);
+        Map<String, List<String>> rawQueryParameters = this.requestParameterResolver.resolveRawQueryParameters(
+                checkedRequest);
+        Map<String, List<String>> rawPayloadParameters = this.requestParameterResolver.resolveRawPayloadParameters(
+                checkedRequest);
         Map<String, List<String>> rawParameters = this.requestParameterResolver.resolveRawParameters(checkedRequest);
         Map<String, String> securityHeaders = this.requestHeaderResolver.resolveSelectedHeaders(checkedRequest,
                 this.securityHeaderNames, false);
@@ -115,9 +119,9 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         Map<String, String> canonicalHeaders = joinHeaders(canonicalHeaderValues);
         CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
                 .orElse(CocoCachedRequestBody.empty());
-        return new CocoWebRequestSecurityInput(method, path, rawQueryString, rawParameters, securityHeaders,
-                canonicalHeaders, cachedBody.sha256(), cachedBody.cached() ? cachedBody.length() : null,
-                cachedBody.cached(), canonicalHeaderValues);
+        return new CocoWebRequestSecurityInput(method, path, rawQueryString, rawParameters, rawQueryParameters,
+                rawPayloadParameters, securityHeaders, canonicalHeaders, cachedBody.sha256(),
+                cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached(), canonicalHeaderValues);
     }
 
     private static Set<String> securityHeaderNames(CocoWebContextProperties properties,

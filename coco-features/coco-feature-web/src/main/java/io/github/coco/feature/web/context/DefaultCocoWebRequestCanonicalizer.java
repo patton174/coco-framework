@@ -83,7 +83,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         appendLine(builder, "path", input.path(), signature || this.properties.isIncludePath());
         appendLine(builder, "query", input.queryString(), signature || this.properties.isIncludeQueryString());
         appendHeaders(builder, input.canonicalHeaderValues(), signature);
-        appendParameters(builder, input.parameters());
+        appendParameters(builder, input);
         appendLine(builder, "bodySha256", input.bodySha256(), signature || this.properties.isIncludeBodySha256());
         appendLine(builder, "bodyLength", input.bodyLength(), signature || this.properties.isIncludeBodyLength());
         return builder.toString();
@@ -123,11 +123,26 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         }
     }
 
-    private void appendParameters(StringBuilder builder, Map<String, List<String>> parameters) {
+    private void appendParameters(StringBuilder builder, CocoWebRequestSecurityInput input) {
         if (!this.properties.isIncludeParameters()) {
             return;
         }
-        builder.append("parameters").append('\n');
+        if (usesParameterSources(input)) {
+            appendParameterSection(builder, "queryParameters", input.queryParameters());
+            appendParameterSection(builder, "payloadParameters", input.payloadParameters());
+            return;
+        }
+        appendParameterSection(builder, "parameters", input.parameters());
+    }
+
+    private boolean usesParameterSources(CocoWebRequestSecurityInput input) {
+        return usesFramedParameterValues() && this.properties.isIncludeParameterSources()
+                && (!input.queryParameters().isEmpty() || !input.payloadParameters().isEmpty());
+    }
+
+    private void appendParameterSection(StringBuilder builder, String sectionName,
+            Map<String, List<String>> parameters) {
+        builder.append(sectionName).append('\n');
         if (usesFramedParameterValues()) {
             new TreeMap<>(parameters).forEach((name, values) -> appendFramedParameterValues(builder, name, values));
             return;

@@ -38,6 +38,8 @@ public class CocoWebRequestCanonicalizationProperties {
 
     private boolean includeParameters = true;
 
+    private boolean includeParameterSources = true;
+
     private boolean includeBodySha256 = true;
 
     private boolean includeBodyLength = true;
@@ -204,6 +206,26 @@ public class CocoWebRequestCanonicalizationProperties {
      */
     public void setIncludeParameters(boolean includeParameters) {
         this.includeParameters = includeParameters;
+    }
+
+    /**
+     * <p>
+     * 返回是否在支持分源的规范化版本中输出查询参数和请求体参数分段。
+     * </p>
+     * @return 输出分源参数时返回 {@code true}
+     */
+    public boolean isIncludeParameterSources() {
+        return this.includeParameterSources;
+    }
+
+    /**
+     * <p>
+     * 设置是否在支持分源的规范化版本中输出查询参数和请求体参数分段。
+     * </p>
+     * @param includeParameterSources 是否输出分源参数
+     */
+    public void setIncludeParameterSources(boolean includeParameterSources) {
+        this.includeParameterSources = includeParameterSources;
     }
 
     /**

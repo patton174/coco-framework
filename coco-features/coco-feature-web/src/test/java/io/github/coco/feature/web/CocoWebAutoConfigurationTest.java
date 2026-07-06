@@ -549,6 +549,7 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getContext().getCanonicalization().isIncludeQueryString());
         assertTrue(properties.getContext().getCanonicalization().isIncludeHeaders());
         assertTrue(properties.getContext().getCanonicalization().isIncludeParameters());
+        assertTrue(properties.getContext().getCanonicalization().isIncludeParameterSources());
         assertTrue(properties.getContext().getCanonicalization().isIncludeBodySha256());
         assertTrue(properties.getContext().getCanonicalization().isIncludeBodyLength());
         assertTrue(properties.getContext().getCanonicalization().isSortParameterValues());
@@ -1128,6 +1129,10 @@ class CocoWebAutoConfigurationTest {
             assertEquals("1783300000000",
                     snapshot.securityInput().canonicalHeader("x-coco-timestamp").orElseThrow());
             assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().parameter("sku").orElseThrow());
+            assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().queryParameter("sku").orElseThrow());
+            assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().payloadParameter("sku").orElseThrow());
+            assertEquals(List.of("abc"), snapshot.securityInput().queryParameter("token").orElseThrow());
+            assertTrue(snapshot.securityInput().payloadParameter("token").isEmpty());
             assertEquals("sku=COCO-STARTER&token=abc", snapshot.securityInput().queryString());
             assertEquals(sha256(body), snapshot.securityInput().bodySha256());
             assertEquals(body.length, snapshot.securityInput().bodyLength());
@@ -1182,12 +1187,16 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(List.of("COCO-STARTER"), snapshot.parameters().get("sku"));
                     assertEquals(List.of("Patton"), snapshot.parameters().get("buyer.name"));
                     assertEquals(List.of("web", "sign"), snapshot.parameters().get("tags"));
-                    assertEquals(List.of("Coco%20Spring"), snapshot.parameters().get("nickname"));
-                    assertEquals(List.of("******"), snapshot.parameters().get("password"));
+            assertEquals(List.of("Coco%20Spring"), snapshot.parameters().get("nickname"));
+            assertEquals(List.of("******"), snapshot.parameters().get("password"));
             assertEquals(List.of("plain-secret"), snapshot.securityInput().parameter("password").orElseThrow());
+            assertTrue(snapshot.securityInput().queryParameters().isEmpty());
+            assertEquals(List.of("plain-secret"), snapshot.securityInput().payloadParameter("password").orElseThrow());
             assertEquals("Patton", requestContext.parameter("buyer.name").orElseThrow());
             assertEquals("web,sign", requestContext.parameter("tags").orElseThrow());
             assertEquals("******", requestContext.parameter("password").orElseThrow());
+            assertTrue(canonicalForm.text().contains("queryParameters\n"));
+            assertTrue(canonicalForm.text().contains("payloadParameters\n"));
             assertTrue(canonicalForm.text().contains("buyer.name#1\n"));
             assertTrue(canonicalForm.text().contains("buyer.name[0]=6:Patton\n"));
             assertTrue(canonicalForm.text().contains("tags#2\n"));
@@ -1219,13 +1228,48 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().parameter("sku").orElseThrow());
                     assertEquals(List.of("b", "a", "a"), snapshot.securityInput().parameter("tag").orElseThrow());
                     assertEquals(List.of("Coco%20Spring"), snapshot.securityInput().parameter("name").orElseThrow());
+                    assertTrue(snapshot.securityInput().queryParameters().isEmpty());
+                    assertEquals(List.of("b", "a", "a"),
+                            snapshot.securityInput().payloadParameter("tag").orElseThrow());
                     assertEquals(List.of("Coco Spring"), snapshot.parameters().get("name"));
                     assertEquals(List.of("b", "a", "a"), snapshot.parameters().get("tag"));
                     assertEquals(List.of("******"), snapshot.parameters().get("token"));
+                    assertTrue(canonicalForm.text().contains("queryParameters\n"));
+                    assertTrue(canonicalForm.text().contains("payloadParameters\n"));
                     assertTrue(canonicalForm.text().contains("tag#3\n"));
                     assertTrue(canonicalForm.text().contains("tag[0]=1:a\n"));
                     assertTrue(canonicalForm.text().contains("tag[1]=1:a\n"));
                     assertTrue(canonicalForm.text().contains("tag[2]=1:b\n"));
+                });
+    }
+
+    @Test
+    void canonicalizerV2SeparatesQueryAndPayloadParameters() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.canonicalization.version=coco-v2")
+                .run(context -> {
+                    CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+                    CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    byte[] body = "{\"sku\":\"BODY\",\"tag\":\"payload\"}".getBytes(StandardCharsets.UTF_8);
+                    request.setQueryString("sku=QUERY&tag=query");
+                    request.addParameter("sku", "QUERY");
+                    request.addParameter("tag", "query");
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+
+                    CocoWebRequestSnapshot snapshot = resolver.resolve("split-parameter-trace",
+                            new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+                    CocoWebRequestCanonicalForm canonicalForm = canonicalizer.canonicalize(snapshot.securityInput());
+
+                    assertEquals(List.of("QUERY", "BODY"),
+                            snapshot.securityInput().parameter("sku").orElseThrow());
+                    assertEquals(List.of("QUERY"), snapshot.securityInput().queryParameter("sku").orElseThrow());
+                    assertEquals(List.of("BODY"), snapshot.securityInput().payloadParameter("sku").orElseThrow());
+                    assertTrue(canonicalForm.text().contains("queryParameters\n"));
+                    assertTrue(canonicalForm.text().contains("payloadParameters\n"));
+                    assertTrue(canonicalForm.text().contains("sku[0]=5:QUERY\n"));
+                    assertTrue(canonicalForm.text().contains("sku[0]=4:BODY\n"));
+                    assertFalse(canonicalForm.text().contains("parameters\nsku#2\n"));
                 });
     }
 

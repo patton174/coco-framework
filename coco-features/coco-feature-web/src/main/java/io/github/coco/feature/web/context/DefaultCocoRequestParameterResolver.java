@@ -117,11 +117,10 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         if (!this.properties.isIncludeParameters()) {
             return Map.of();
         }
-        Map<String, List<String>> payloadParameters = this.payloadParameterResolver.resolvePayloadParameters(
-                checkedRequest);
+        Map<String, List<String>> payloadParameters = resolvePayloadParameters(checkedRequest);
         Map<String, List<String>> parameters = new LinkedHashMap<>();
         if (isCachedFormPayload(checkedRequest) && !payloadParameters.isEmpty()) {
-            merge(parameters, parseSanitizedQueryString(resolveRawQueryString(checkedRequest)));
+            merge(parameters, resolveQueryParameters(checkedRequest));
         }
         else {
             checkedRequest.getParameterMap().forEach((name, values) -> parameters.put(name,
@@ -137,12 +136,53 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
      * {@inheritDoc}
      */
     @Override
+    public Map<String, List<String>> resolveQueryParameters(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        if (!this.properties.isIncludeParameters()) {
+            return Map.of();
+        }
+        return parseSanitizedQueryString(resolveRawQueryString(checkedRequest));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, List<String>> resolvePayloadParameters(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        if (!this.properties.isIncludeParameters()) {
+            return Map.of();
+        }
+        return this.payloadParameterResolver.resolvePayloadParameters(checkedRequest);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public Map<String, List<String>> resolveRawParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        Map<String, List<String>> parameters = new LinkedHashMap<>(parseRawQueryString(resolveRawQueryString(
-                checkedRequest)));
-        merge(parameters, this.payloadParameterResolver.resolveRawPayloadParameters(checkedRequest));
+        Map<String, List<String>> parameters = new LinkedHashMap<>(resolveRawQueryParameters(checkedRequest));
+        merge(parameters, resolveRawPayloadParameters(checkedRequest));
         return copy(parameters);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, List<String>> resolveRawQueryParameters(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        return parseRawQueryString(resolveRawQueryString(checkedRequest));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, List<String>> resolveRawPayloadParameters(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        return this.payloadParameterResolver.resolveRawPayloadParameters(checkedRequest);
     }
 
     private static void merge(Map<String, List<String>> target, Map<String, List<String>> source) {

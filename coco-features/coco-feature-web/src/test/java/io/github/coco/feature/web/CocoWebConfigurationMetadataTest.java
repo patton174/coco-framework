@@ -147,6 +147,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-query-string\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-headers\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-parameters\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-parameter-sources\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-body-sha256\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-body-length\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.sort-parameter-values\""));
