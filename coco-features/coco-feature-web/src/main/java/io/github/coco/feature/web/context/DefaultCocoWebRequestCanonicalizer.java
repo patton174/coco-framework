@@ -87,6 +87,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         appendParameters(builder, input);
         appendLine(builder, "bodySha256", input.bodySha256(), signature || this.properties.isIncludeBodySha256());
         appendLine(builder, "bodyLength", input.bodyLength(), signature || this.properties.isIncludeBodyLength());
+        appendBrowserFingerprint(builder, context.browserFingerprint());
         return builder.toString();
     }
 
@@ -132,6 +133,22 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         new TreeMap<>(cookies).forEach((name, cookieValue) -> builder.append(value(name))
                 .append('=')
                 .append(framedValue(cookieValue))
+                .append('\n'));
+    }
+
+    private void appendBrowserFingerprint(StringBuilder builder, CocoBrowserFingerprint browserFingerprint) {
+        if (browserFingerprint == null) {
+            return;
+        }
+        appendLine(builder, "browserFingerprint", browserFingerprint.value(),
+                this.properties.isIncludeBrowserFingerprint());
+        if (!this.properties.isIncludeBrowserFingerprintSignals() || browserFingerprint.signals().isEmpty()) {
+            return;
+        }
+        builder.append("browserFingerprintSignals").append('\n');
+        new TreeMap<>(browserFingerprint.signals()).forEach((name, signalValue) -> builder.append(value(name))
+                .append('=')
+                .append(framedValue(signalValue))
                 .append('\n'));
     }
 

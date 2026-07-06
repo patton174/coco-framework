@@ -38,6 +38,10 @@ public class CocoWebRequestCanonicalizationProperties {
 
     private boolean includeCookies = false;
 
+    private boolean includeBrowserFingerprint = false;
+
+    private boolean includeBrowserFingerprintSignals = false;
+
     private boolean includeParameters = true;
 
     private boolean includeParameterSources = true;
@@ -208,6 +212,46 @@ public class CocoWebRequestCanonicalizationProperties {
      */
     public void setIncludeCookies(boolean includeCookies) {
         this.includeCookies = includeCookies;
+    }
+
+    /**
+     * <p>
+     * 返回是否将浏览器指纹摘要写入规范化文本。
+     * </p>
+     * @return 写入时返回 {@code true}
+     */
+    public boolean isIncludeBrowserFingerprint() {
+        return this.includeBrowserFingerprint;
+    }
+
+    /**
+     * <p>
+     * 设置是否将浏览器指纹摘要写入规范化文本。
+     * </p>
+     * @param includeBrowserFingerprint 是否写入浏览器指纹摘要
+     */
+    public void setIncludeBrowserFingerprint(boolean includeBrowserFingerprint) {
+        this.includeBrowserFingerprint = includeBrowserFingerprint;
+    }
+
+    /**
+     * <p>
+     * 返回是否将浏览器指纹信号写入规范化文本。
+     * </p>
+     * @return 写入时返回 {@code true}
+     */
+    public boolean isIncludeBrowserFingerprintSignals() {
+        return this.includeBrowserFingerprintSignals;
+    }
+
+    /**
+     * <p>
+     * 设置是否将浏览器指纹信号写入规范化文本。
+     * </p>
+     * @param includeBrowserFingerprintSignals 是否写入浏览器指纹信号
+     */
+    public void setIncludeBrowserFingerprintSignals(boolean includeBrowserFingerprintSignals) {
+        this.includeBrowserFingerprintSignals = includeBrowserFingerprintSignals;
     }
 
     /**

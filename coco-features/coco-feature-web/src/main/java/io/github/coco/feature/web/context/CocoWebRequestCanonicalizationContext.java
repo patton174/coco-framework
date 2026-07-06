@@ -36,6 +36,7 @@ public record CocoWebRequestCanonicalizationContext(CocoWebRequestCanonicalizati
     public CocoWebRequestCanonicalizationContext {
         purpose = purpose == null ? CocoWebRequestCanonicalizationPurpose.GENERAL : purpose;
         securityInput = securityInput == null ? CocoWebRequestSecurityInput.empty() : securityInput;
+        securityMetadata = securityMetadata == null ? CocoWebRequestSecurityMetadata.empty() : securityMetadata;
         browserFingerprint = browserFingerprint == null ? CocoBrowserFingerprint.empty() : browserFingerprint;
     }
 

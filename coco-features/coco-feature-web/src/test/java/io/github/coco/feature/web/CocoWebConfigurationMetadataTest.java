@@ -151,6 +151,9 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-query-string\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-headers\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-cookies\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-browser-fingerprint\""));
+        assertTrue(content.contains(
+                "\"name\": \"coco.web.context.canonicalization.include-browser-fingerprint-signals\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-parameters\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-parameter-sources\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-body-sha256\""));

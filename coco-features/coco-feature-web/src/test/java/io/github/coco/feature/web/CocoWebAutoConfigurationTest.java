@@ -1545,6 +1545,32 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void requestCanonicalizerCanIncludeBrowserFingerprintContext() {
+        CocoWebRequestCanonicalizationProperties properties = new CocoWebRequestCanonicalizationProperties();
+        properties.setIncludeBrowserFingerprint(true);
+        properties.setIncludeBrowserFingerprintSignals(true);
+        CocoBrowserFingerprint browserFingerprint = CocoBrowserFingerprint.from(Map.of(
+                "User-Agent", "Chrome",
+                "Accept-Language", "zh-CN"));
+        CocoWebRequestCanonicalizationContext canonicalizationContext =
+                new CocoWebRequestCanonicalizationContext(CocoWebRequestCanonicalizationPurpose.GENERAL,
+                        CocoWebRequestSecurityInput.empty(), CocoWebRequestSecurityMetadata.empty(),
+                        browserFingerprint);
+
+        CocoWebRequestCanonicalForm canonicalForm =
+                new DefaultCocoWebRequestCanonicalizer(properties).canonicalize(canonicalizationContext);
+        CocoWebRequestCanonicalForm defaultForm =
+                new DefaultCocoWebRequestCanonicalizer().canonicalize(canonicalizationContext);
+
+        assertTrue(canonicalForm.text().contains("browserFingerprint=" + browserFingerprint.value() + "\n"));
+        assertTrue(canonicalForm.text().contains("browserFingerprintSignals\n"));
+        assertTrue(canonicalForm.text().contains("accept-language=5:zh-CN\n"));
+        assertTrue(canonicalForm.text().contains("user-agent=6:Chrome\n"));
+        assertFalse(defaultForm.text().contains("browserFingerprint"));
+        assertEquals(sha256(canonicalForm.text()), canonicalForm.sha256());
+    }
+
+    @Test
     void defaultWebRequestMatcherMatchesMethodAndContextRelativePath() {
         CocoWebRequestMatchRule rule = new CocoWebRequestMatchRule();
         rule.setMethods(Set.of("post"));
