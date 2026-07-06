@@ -9,6 +9,8 @@ import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
@@ -114,6 +116,20 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco Web 请求上下文解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return Coco Web 请求上下文解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoWebRequestContextResolver cocoWebRequestContextResolver(CocoWebProperties properties) {
+        return new DefaultCocoWebRequestContextResolver(properties.getContext(), properties.getAccessLog());
+    }
+
+    /**
+     * <p>
      * 创建 Coco Web 全局异常处理器。
      * </p>
      * @param messageService Coco 消息服务
@@ -166,10 +182,11 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnProperty(prefix = "coco.web.trace", name = "enabled", havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean(name = "cocoTraceFilterRegistration")
     public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties,
-            ObjectProvider<CocoAccessLogRecorder> accessLogRecorders) {
+            ObjectProvider<CocoAccessLogRecorder> accessLogRecorders,
+            CocoWebRequestContextResolver requestContextResolver) {
         FilterRegistrationBean<CocoTraceFilter> registration = new FilterRegistrationBean<>(
                 new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList(),
-                        properties.getAccessLog()));
+                        properties.getAccessLog(), requestContextResolver));
         registration.setName("cocoTraceFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

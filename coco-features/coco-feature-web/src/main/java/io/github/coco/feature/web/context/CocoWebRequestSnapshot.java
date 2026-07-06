@@ -1,0 +1,163 @@
+package io.github.coco.feature.web.context;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+import io.github.coco.common.context.CocoRequestContext;
+import io.github.coco.common.context.CocoRequestContextAttributes;
+
+/**
+ * Coco Web 请求快照。
+ * <p>
+ * 保存一次 Servlet 请求中解析出的稳定上下文字段，供请求上下文和访问日志复用。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-feature-web}</li>
+ * </ul>
+ * @param traceId TraceId
+ * @param method HTTP 方法
+ * @param path 请求路径
+ * @param queryString 查询字符串
+ * @param clientIp 客户端 IP
+ * @param userAgent User-Agent
+ * @param locale 请求语言
+ * @param scheme 请求协议
+ * @param host 请求主机
+ * @param port 请求端口
+ * @param contentType 请求内容类型
+ * @param headers 请求头快照
+ * @param parameters 请求参数快照
+ * @author patton174
+ * @since 1.0.0
+ */
+public record CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
+        String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
+        String contentType, Map<String, String> headers, Map<String, List<String>> parameters) {
+
+    /**
+     * <p>
+     * 创建 Web 请求快照，并归一化空白字段和集合字段。
+     * </p>
+     * @param traceId TraceId
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 查询字符串
+     * @param clientIp 客户端 IP
+     * @param userAgent User-Agent
+     * @param locale 请求语言
+     * @param scheme 请求协议
+     * @param host 请求主机
+     * @param port 请求端口
+     * @param contentType 请求内容类型
+     * @param headers 请求头快照
+     * @param parameters 请求参数快照
+     */
+    public CocoWebRequestSnapshot {
+        traceId = requireTraceId(traceId);
+        method = normalizeMethod(method);
+        path = normalizeOptional(path);
+        queryString = normalizeOptional(queryString);
+        clientIp = normalizeOptional(clientIp);
+        userAgent = normalizeOptional(userAgent);
+        locale = normalizeOptional(locale);
+        scheme = normalizeOptional(scheme);
+        host = normalizeOptional(host);
+        contentType = normalizeOptional(contentType);
+        headers = copyHeaders(headers);
+        parameters = copyParameters(parameters);
+    }
+
+    /**
+     * <p>
+     * 转换为公共请求上下文。
+     * </p>
+     * @return 公共请求上下文
+     */
+    public CocoRequestContext toRequestContext() {
+        Map<String, String> attributes = new LinkedHashMap<>();
+        putIfPresent(attributes, CocoRequestContextAttributes.CLIENT_IP, this.clientIp);
+        putIfPresent(attributes, CocoRequestContextAttributes.USER_AGENT, this.userAgent);
+        putIfPresent(attributes, CocoRequestContextAttributes.QUERY_STRING, this.queryString);
+        putIfPresent(attributes, CocoRequestContextAttributes.LOCALE, this.locale);
+        putIfPresent(attributes, CocoRequestContextAttributes.SCHEME, this.scheme);
+        putIfPresent(attributes, CocoRequestContextAttributes.HOST, this.host);
+        putIfPresent(attributes, CocoRequestContextAttributes.PORT, this.port == null ? null : this.port.toString());
+        putIfPresent(attributes, CocoRequestContextAttributes.CONTENT_TYPE, this.contentType);
+        this.headers.forEach((name, value) ->
+                putIfPresent(attributes, CocoRequestContextAttributes.header(name), value));
+        this.parameters.forEach((name, values) ->
+                putIfPresent(attributes, CocoRequestContextAttributes.parameter(name), String.join(",", values)));
+        return CocoRequestContext.of(this.traceId, this.method, this.path, attributes);
+    }
+
+    private static void putIfPresent(Map<String, String> attributes, String name, String value) {
+        if (value != null && !value.isBlank()) {
+            attributes.put(name, value);
+        }
+    }
+
+    private static String requireTraceId(String traceId) {
+        if (traceId == null || traceId.isBlank()) {
+            throw new IllegalArgumentException("traceId must not be blank");
+        }
+        return traceId.trim();
+    }
+
+    private static String normalizeMethod(String method) {
+        String normalized = normalizeOptional(method);
+        return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeOptional(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static Map<String, String> copyHeaders(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> copied = new LinkedHashMap<>();
+        headers.forEach((name, value) -> {
+            String normalizedName = normalizeOptional(name);
+            String normalizedValue = normalizeOptional(value);
+            if (normalizedName != null && normalizedValue != null) {
+                copied.put(normalizedName.toLowerCase(Locale.ROOT), normalizedValue);
+            }
+        });
+        return Collections.unmodifiableMap(copied);
+    }
+
+    private static Map<String, List<String>> copyParameters(Map<String, List<String>> parameters) {
+        if (parameters == null || parameters.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> copied = new LinkedHashMap<>();
+        parameters.forEach((name, values) -> {
+            String normalizedName = normalizeOptional(name);
+            if (normalizedName != null) {
+                copied.put(normalizedName, copyParameterValues(values));
+            }
+        });
+        return Collections.unmodifiableMap(copied);
+    }
+
+    private static List<String> copyParameterValues(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of("");
+        }
+        List<String> copied = new ArrayList<>(values.size());
+        for (String value : values) {
+            copied.add(value == null || value.isBlank() ? "" : value.trim());
+        }
+        return List.copyOf(copied);
+    }
+}

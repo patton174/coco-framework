@@ -132,6 +132,74 @@ public final class CocoRequestContext {
         return Optional.ofNullable(this.attributes.get(name.trim()));
     }
 
+    /**
+     * <p>
+     * 返回客户端 IP。
+     * </p>
+     * @return 客户端 IP；未设置时为空
+     */
+    public Optional<String> clientIp() {
+        return attribute(CocoRequestContextAttributes.CLIENT_IP);
+    }
+
+    /**
+     * <p>
+     * 返回 User-Agent。
+     * </p>
+     * @return User-Agent；未设置时为空
+     */
+    public Optional<String> userAgent() {
+        return attribute(CocoRequestContextAttributes.USER_AGENT);
+    }
+
+    /**
+     * <p>
+     * 返回查询字符串。
+     * </p>
+     * @return 查询字符串；未设置时为空
+     */
+    public Optional<String> queryString() {
+        return attribute(CocoRequestContextAttributes.QUERY_STRING);
+    }
+
+    /**
+     * <p>
+     * 返回请求语言。
+     * </p>
+     * @return 请求语言；未设置时为空
+     */
+    public Optional<String> locale() {
+        return attribute(CocoRequestContextAttributes.LOCALE);
+    }
+
+    /**
+     * <p>
+     * 返回请求头上下文属性。
+     * </p>
+     * @param name 请求头名称
+     * @return 请求头值；未设置时为空
+     */
+    public Optional<String> header(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return attribute(CocoRequestContextAttributes.header(name));
+    }
+
+    /**
+     * <p>
+     * 返回请求参数上下文属性。
+     * </p>
+     * @param name 请求参数名称
+     * @return 请求参数值；未设置时为空
+     */
+    public Optional<String> parameter(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return attribute(CocoRequestContextAttributes.parameter(name));
+    }
+
     private static String requireTraceId(String traceId) {
         if (traceId == null || traceId.isBlank()) {
             throw new IllegalArgumentException("traceId must not be blank");

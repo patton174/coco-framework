@@ -1,6 +1,7 @@
 package io.github.coco.feature.web;
 
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.context.CocoWebContextProperties;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
@@ -37,6 +38,9 @@ public class CocoWebProperties {
 
     @NestedConfigurationProperty
     private CocoAccessLogCaptureProperties accessLog = new CocoAccessLogCaptureProperties();
+
+    @NestedConfigurationProperty
+    private CocoWebContextProperties context = new CocoWebContextProperties();
 
     /**
      * <p>
@@ -116,5 +120,25 @@ public class CocoWebProperties {
      */
     public void setAccessLog(CocoAccessLogCaptureProperties accessLog) {
         this.accessLog = accessLog == null ? new CocoAccessLogCaptureProperties() : accessLog;
+    }
+
+    /**
+     * <p>
+     * 返回 Web 请求上下文配置属性。
+     * </p>
+     * @return Web 请求上下文配置属性
+     */
+    public CocoWebContextProperties getContext() {
+        return this.context;
+    }
+
+    /**
+     * <p>
+     * 设置 Web 请求上下文配置属性。
+     * </p>
+     * @param context Web 请求上下文配置属性
+     */
+    public void setContext(CocoWebContextProperties context) {
+        this.context = context == null ? new CocoWebContextProperties() : context;
     }
 }

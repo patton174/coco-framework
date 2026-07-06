@@ -23,6 +23,8 @@ import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.CocoAccessLogStyle;
 import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoApiResponse;
@@ -127,6 +129,7 @@ class CocoWebAutoConfigurationTest {
         this.webContextRunner.run(context -> {
             assertTrue(context.containsBean("cocoExceptionHttpStatusResolver"));
             assertTrue(context.containsBean("cocoWebExceptionHandler"));
+            assertTrue(context.containsBean("cocoWebRequestContextResolver"));
             assertTrue(context.containsBean("cocoTraceFilterRegistration"));
         });
     }
@@ -320,10 +323,17 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getAccessLog().isIncludeParameters());
         assertEquals(256, properties.getAccessLog().getMaxParameterValueLength());
         assertTrue(properties.getAccessLog().getMaskedParameterNames().contains("token"));
+        assertTrue(properties.getContext().isIncludeHeaders());
+        assertTrue(properties.getContext().getClientIpHeaderNames().contains("X-Forwarded-For"));
+        assertTrue(properties.getContext().getIncludedHeaderNames().contains("user-agent"));
+        assertTrue(properties.getContext().getMaskedHeaderNames().contains("authorization"));
+        assertEquals(256, properties.getContext().getMaxHeaderValueLength());
 
         properties.setAccessLog(null);
+        properties.setContext(null);
 
         assertTrue(properties.getAccessLog().isEnabled());
+        assertTrue(properties.getContext().isIncludeHeaders());
     }
 
     @Test
@@ -631,12 +641,34 @@ class CocoWebAutoConfigurationTest {
             MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
             MockHttpServletResponse response = new MockHttpServletResponse();
             request.addHeader("X-Trace-Id", " incoming-trace ");
+            request.addHeader("X-Forwarded-For", " 10.0.0.8, 10.0.0.9 ");
+            request.addHeader("User-Agent", "PostmanRuntime/7.37");
+            request.addHeader("Accept-Language", "zh-CN");
+            request.setContentType("application/json");
+            request.setScheme("https");
+            request.setServerName("api.example.test");
+            request.setServerPort(8443);
+            request.setQueryString("name=Coco&token=abc");
+            request.addParameter("name", "Coco");
+            request.addParameter("token", "abc");
+            request.addPreferredLocale(Locale.SIMPLIFIED_CHINESE);
 
             filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
                 CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
                 assertEquals("incoming-trace", requestContext.traceId());
                 assertEquals("POST", requestContext.method().orElseThrow());
                 assertEquals("/api/users", requestContext.path().orElseThrow());
+                assertEquals("10.0.0.8", requestContext.clientIp().orElseThrow());
+                assertEquals("PostmanRuntime/7.37", requestContext.userAgent().orElseThrow());
+                assertEquals("name=Coco&token=******", requestContext.queryString().orElseThrow());
+                assertEquals("zh-CN", requestContext.locale().orElseThrow());
+                assertEquals("https", requestContext.attribute("scheme").orElseThrow());
+                assertEquals("api.example.test", requestContext.attribute("host").orElseThrow());
+                assertEquals("8443", requestContext.attribute("port").orElseThrow());
+                assertEquals("application/json", requestContext.attribute("contentType").orElseThrow());
+                assertTrue(requestContext.header("accept-language").orElseThrow().contains("zh-cn"));
+                assertEquals("Coco", requestContext.parameter("name").orElseThrow());
+                assertEquals("******", requestContext.parameter("token").orElseThrow());
                 assertEquals("incoming-trace", MDC.get("traceId"));
             })));
 
@@ -716,7 +748,73 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("inner-trace", MDC.get("traceId")))));
 
             assertEquals("outer-trace", MDC.get("traceId"));
-        });
+                });
+    }
+
+    @Test
+    void sanitizesForwardedIpHeadersAndSensitiveContextValues() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.context.included-header-names=authorization,accept-language",
+                        "coco.web.context.max-header-value-length=8",
+                        "coco.web.access-log.max-parameter-value-length=4")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "context-trace");
+                    request.addHeader("Forwarded", "for=\"[2001:db8:cafe::17]:4711\";proto=https");
+                    request.addHeader("Authorization", "Bearer secret-token");
+                    request.addHeader("Accept-Language", "zh-CN,en;q=0.8");
+                    request.setQueryString("password=abcdef&name=Coconut");
+                    request.addParameter("password", "abcdef");
+                    request.addParameter("name", "Coconut");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                        CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                        assertEquals("2001:db8:cafe::17", requestContext.clientIp().orElseThrow());
+                        assertEquals("password=******&name=Coco...", requestContext.queryString().orElseThrow());
+                        assertEquals("******", requestContext.header("authorization").orElseThrow());
+                        assertEquals("zh-CN,en...", requestContext.header("accept-language").orElseThrow());
+                        assertEquals("******", requestContext.parameter("password").orElseThrow());
+                        assertEquals("Coco...", requestContext.parameter("name").orElseThrow());
+                    })));
+                });
+    }
+
+    @Test
+    void usesCustomWebRequestContextResolver() throws Exception {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        CocoWebRequestContextResolver resolver = (traceId, request) -> new CocoWebRequestSnapshot(traceId,
+                "PATCH", "/custom/context", null, "127.0.0.7", "custom-agent", "en-US",
+                "http", "custom.example.test", 8081, null, Map.of("x-custom", "yes"),
+                Map.of("custom", List.of("value")));
+        this.webContextRunner
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .withBean(CocoWebRequestContextResolver.class, () -> resolver)
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "custom-context");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                        CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                        assertEquals("PATCH", requestContext.method().orElseThrow());
+                        assertEquals("/custom/context", requestContext.path().orElseThrow());
+                        assertEquals("127.0.0.7", requestContext.clientIp().orElseThrow());
+                        assertEquals("yes", requestContext.header("x-custom").orElseThrow());
+                        assertEquals("value", requestContext.parameter("custom").orElseThrow());
+                    })));
+
+                    CocoAccessLog accessLog = recorder.lastAccessLog();
+                    assertEquals("PATCH", accessLog.method().orElseThrow());
+                    assertEquals("/custom/context", accessLog.path().orElseThrow());
+                    assertEquals("127.0.0.7", accessLog.clientIp().orElseThrow());
+                    assertEquals(List.of("value"), accessLog.requestParameters().get("custom"));
+                });
     }
 
     @Test

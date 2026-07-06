@@ -36,7 +36,14 @@ class CocoRequestContextHolderTest {
     @Test
     void setRequestContextStoresSnapshotAndSynchronizesTraceId() {
         CocoRequestContext context = CocoRequestContext.of(
-                " trace-001 ", " get ", " /api/users ", Map.of("tenantId", " tenant-a "));
+                " trace-001 ", " get ", " /api/users ", Map.of(
+                        "tenantId", " tenant-a ",
+                        CocoRequestContextAttributes.CLIENT_IP, " 10.0.0.8 ",
+                        CocoRequestContextAttributes.USER_AGENT, " PostmanRuntime/7.37 ",
+                        CocoRequestContextAttributes.QUERY_STRING, " name=Coco ",
+                        CocoRequestContextAttributes.LOCALE, " zh-CN ",
+                        CocoRequestContextAttributes.header("Accept-Language"), " zh-CN ",
+                        CocoRequestContextAttributes.parameter("name"), " Coco "));
 
         CocoRequestContextHolder.set(context);
 
@@ -45,6 +52,12 @@ class CocoRequestContextHolderTest {
         assertEquals("GET", current.method().orElseThrow());
         assertEquals("/api/users", current.path().orElseThrow());
         assertEquals("tenant-a", current.attribute("tenantId").orElseThrow());
+        assertEquals("10.0.0.8", current.clientIp().orElseThrow());
+        assertEquals("PostmanRuntime/7.37", current.userAgent().orElseThrow());
+        assertEquals("name=Coco", current.queryString().orElseThrow());
+        assertEquals("zh-CN", current.locale().orElseThrow());
+        assertEquals("zh-CN", current.header("accept-language").orElseThrow());
+        assertEquals("Coco", current.parameter("name").orElseThrow());
         assertEquals("trace-001", CocoTraceContext.currentTraceId().orElseThrow());
     }
 

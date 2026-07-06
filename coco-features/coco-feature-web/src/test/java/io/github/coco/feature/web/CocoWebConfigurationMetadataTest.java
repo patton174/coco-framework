@@ -52,6 +52,11 @@ class CocoWebConfigurationMetadataTest {
         assertFalse(content.contains("\"name\": \"coco.web.access-log.level\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.style\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.logger-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.client-ip-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.include-headers\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.included-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.masked-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.max-header-value-length\""));
         assertTrue(content.contains("\"name\": \"coco.web.response.metadata-mode\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));

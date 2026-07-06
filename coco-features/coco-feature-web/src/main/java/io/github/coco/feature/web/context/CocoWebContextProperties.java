@@ -1,0 +1,178 @@
+package io.github.coco.feature.web.context;
+
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+/**
+ * Coco Web 请求上下文配置属性。
+ * <p>
+ * 控制 Web 入口解析客户端 IP、请求头和上下文属性的策略；请求参数值清洗策略复用访问日志采集配置。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-feature-web}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+public class CocoWebContextProperties {
+
+    private static final int DEFAULT_MAX_HEADER_VALUE_LENGTH = 256;
+
+    private static final List<String> DEFAULT_CLIENT_IP_HEADER_NAMES = List.of(
+            "Forwarded",
+            "X-Forwarded-For",
+            "X-Real-IP",
+            "Proxy-Client-IP",
+            "WL-Proxy-Client-IP",
+            "HTTP_CLIENT_IP",
+            "HTTP_X_FORWARDED_FOR");
+
+    private static final Set<String> DEFAULT_INCLUDED_HEADER_NAMES = Set.of(
+            "host", "content-type", "user-agent", "accept", "accept-language", "referer", "origin");
+
+    private static final Set<String> DEFAULT_MASKED_HEADER_NAMES = Set.of(
+            "authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token");
+
+    private List<String> clientIpHeaderNames = DEFAULT_CLIENT_IP_HEADER_NAMES;
+
+    private boolean includeHeaders = true;
+
+    private Set<String> includedHeaderNames = DEFAULT_INCLUDED_HEADER_NAMES;
+
+    private Set<String> maskedHeaderNames = DEFAULT_MASKED_HEADER_NAMES;
+
+    private int maxHeaderValueLength = DEFAULT_MAX_HEADER_VALUE_LENGTH;
+
+    /**
+     * <p>
+     * 返回用于解析客户端 IP 的请求头名称，按顺序匹配。
+     * </p>
+     * @return 客户端 IP 请求头名称
+     */
+    public List<String> getClientIpHeaderNames() {
+        return this.clientIpHeaderNames;
+    }
+
+    /**
+     * <p>
+     * 设置用于解析客户端 IP 的请求头名称。
+     * </p>
+     * @param clientIpHeaderNames 客户端 IP 请求头名称
+     */
+    public void setClientIpHeaderNames(List<String> clientIpHeaderNames) {
+        if (clientIpHeaderNames == null || clientIpHeaderNames.isEmpty()) {
+            this.clientIpHeaderNames = DEFAULT_CLIENT_IP_HEADER_NAMES;
+            return;
+        }
+        List<String> normalizedNames = clientIpHeaderNames.stream()
+                .filter(name -> name != null && !name.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+        this.clientIpHeaderNames = normalizedNames.isEmpty()
+                ? DEFAULT_CLIENT_IP_HEADER_NAMES
+                : List.copyOf(normalizedNames);
+    }
+
+    /**
+     * <p>
+     * 返回是否将配置的请求头写入请求上下文。
+     * </p>
+     * @return 写入请求头时返回 {@code true}
+     */
+    public boolean isIncludeHeaders() {
+        return this.includeHeaders;
+    }
+
+    /**
+     * <p>
+     * 设置是否将配置的请求头写入请求上下文。
+     * </p>
+     * @param includeHeaders 是否写入请求头
+     */
+    public void setIncludeHeaders(boolean includeHeaders) {
+        this.includeHeaders = includeHeaders;
+    }
+
+    /**
+     * <p>
+     * 返回允许写入请求上下文的请求头名称。
+     * </p>
+     * @return 请求头名称集合
+     */
+    public Set<String> getIncludedHeaderNames() {
+        return this.includedHeaderNames;
+    }
+
+    /**
+     * <p>
+     * 设置允许写入请求上下文的请求头名称。
+     * </p>
+     * @param includedHeaderNames 请求头名称集合
+     */
+    public void setIncludedHeaderNames(Set<String> includedHeaderNames) {
+        this.includedHeaderNames = normalizeHeaderNames(includedHeaderNames, DEFAULT_INCLUDED_HEADER_NAMES);
+    }
+
+    /**
+     * <p>
+     * 返回需要掩码的请求头名称。
+     * </p>
+     * @return 请求头名称集合
+     */
+    public Set<String> getMaskedHeaderNames() {
+        return this.maskedHeaderNames;
+    }
+
+    /**
+     * <p>
+     * 设置需要掩码的请求头名称。
+     * </p>
+     * @param maskedHeaderNames 请求头名称集合
+     */
+    public void setMaskedHeaderNames(Set<String> maskedHeaderNames) {
+        this.maskedHeaderNames = normalizeHeaderNames(maskedHeaderNames, DEFAULT_MASKED_HEADER_NAMES);
+    }
+
+    /**
+     * <p>
+     * 返回单个请求头值最大采集长度。
+     * </p>
+     * @return 单个请求头值最大采集长度
+     */
+    public int getMaxHeaderValueLength() {
+        return this.maxHeaderValueLength;
+    }
+
+    /**
+     * <p>
+     * 设置单个请求头值最大采集长度。
+     * </p>
+     * @param maxHeaderValueLength 单个请求头值最大采集长度
+     */
+    public void setMaxHeaderValueLength(int maxHeaderValueLength) {
+        this.maxHeaderValueLength = maxHeaderValueLength <= 0
+                ? DEFAULT_MAX_HEADER_VALUE_LENGTH
+                : maxHeaderValueLength;
+    }
+
+    private static Set<String> normalizeHeaderNames(Set<String> headerNames, Set<String> defaults) {
+        if (headerNames == null || headerNames.isEmpty()) {
+            return defaults;
+        }
+        Set<String> normalizedNames = new LinkedHashSet<>();
+        for (String name : headerNames) {
+            if (name != null && !name.isBlank()) {
+                normalizedNames.add(name.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return normalizedNames.isEmpty() ? defaults : Set.copyOf(normalizedNames);
+    }
+}
