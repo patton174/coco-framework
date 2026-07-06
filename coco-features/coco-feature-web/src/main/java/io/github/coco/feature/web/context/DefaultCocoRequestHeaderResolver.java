@@ -86,16 +86,47 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
         return headers;
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, List<String>> resolveSelectedHeaderValues(HttpServletRequest request,
+            Iterable<String> headerNames, boolean trimValue) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        if (headerNames == null) {
+            return headers;
+        }
+        for (String headerName : headerNames) {
+            if (headerName == null || headerName.isBlank()) {
+                continue;
+            }
+            List<String> values = existingHeaderValues(checkedRequest, headerName);
+            if (!values.isEmpty()) {
+                headers.put(headerName.trim().toLowerCase(Locale.ROOT), trimValue
+                        ? values.stream()
+                                .map(value -> trimValue(value, this.properties.getMaxHeaderValueLength()))
+                                .toList()
+                        : values);
+            }
+        }
+        return headers;
+    }
+
     private static String existingHeaderValue(HttpServletRequest request, String headerName) {
+        List<String> normalizedValues = existingHeaderValues(request, headerName);
+        return normalizedValues.isEmpty() ? null : String.join(",", normalizedValues);
+    }
+
+    private static List<String> existingHeaderValues(HttpServletRequest request, String headerName) {
         Enumeration<String> values = request.getHeaders(headerName);
         if (values == null) {
-            return null;
+            return List.of();
         }
-        List<String> normalizedValues = enumerationAsStream(values)
+        return enumerationAsStream(values)
                 .map(DefaultCocoRequestHeaderResolver::normalizeString)
                 .filter(Objects::nonNull)
                 .toList();
-        return normalizedValues.isEmpty() ? null : String.join(",", normalizedValues);
     }
 
     private String sanitizeHeaderValue(String name, String value) {

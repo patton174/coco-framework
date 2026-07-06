@@ -80,7 +80,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         appendLine(builder, "method", input.method(), signature || this.properties.isIncludeMethod());
         appendLine(builder, "path", input.path(), signature || this.properties.isIncludePath());
         appendLine(builder, "query", input.queryString(), signature || this.properties.isIncludeQueryString());
-        appendHeaders(builder, input.canonicalHeaders(), signature);
+        appendHeaders(builder, input.canonicalHeaderValues(), signature);
         appendParameters(builder, input.parameters());
         appendLine(builder, "bodySha256", input.bodySha256(), signature || this.properties.isIncludeBodySha256());
         appendLine(builder, "bodyLength", input.bodyLength(), signature || this.properties.isIncludeBodyLength());
@@ -99,13 +99,26 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         }
     }
 
-    private void appendHeaders(StringBuilder builder, Map<String, String> headers, boolean forced) {
+    private void appendHeaders(StringBuilder builder, Map<String, List<String>> headers, boolean forced) {
         if (!forced && !this.properties.isIncludeHeaders()) {
             return;
         }
         builder.append("headers").append('\n');
-        new TreeMap<>(headers).forEach((name, value) ->
-                builder.append(value(name)).append(':').append(value(value)).append('\n'));
+        new TreeMap<>(headers).forEach((name, values) -> appendHeaderValues(builder, name, values));
+    }
+
+    private static void appendHeaderValues(StringBuilder builder, String name, List<String> values) {
+        List<String> safeValues = values == null || values.isEmpty() ? List.of("") : values;
+        String headerName = value(name);
+        builder.append(headerName).append('#').append(safeValues.size()).append('\n');
+        for (int index = 0; index < safeValues.size(); index++) {
+            builder.append(headerName)
+                    .append('[')
+                    .append(index)
+                    .append("]=")
+                    .append(framedValue(safeValues.get(index)))
+                    .append('\n');
+        }
     }
 
     private void appendParameters(StringBuilder builder, Map<String, List<String>> parameters) {
@@ -151,6 +164,11 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
 
     private static String value(Long value) {
         return value == null ? "" : value.toString();
+    }
+
+    private static String framedValue(String value) {
+        String escapedValue = value(value);
+        return escapedValue.length() + ":" + escapedValue;
     }
 
     private static String sha256(String value) {

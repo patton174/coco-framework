@@ -1,5 +1,7 @@
 package io.github.coco.feature.web.context;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -42,4 +44,21 @@ public interface CocoRequestHeaderResolver {
      */
     Map<String, String> resolveSelectedHeaders(HttpServletRequest request, Iterable<String> headerNames,
             boolean trimValue);
+
+    /**
+     * <p>
+     * 按指定请求头名称解析多值请求头。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @param headerNames 请求头名称集合
+     * @param trimValue 是否按配置裁剪请求头值
+     * @return 多值请求头快照
+     */
+    default Map<String, List<String>> resolveSelectedHeaderValues(HttpServletRequest request,
+            Iterable<String> headerNames, boolean trimValue) {
+        Map<String, List<String>> values = new LinkedHashMap<>();
+        resolveSelectedHeaders(request, headerNames, trimValue)
+                .forEach((name, value) -> values.put(name, List.of(value)));
+        return values;
+    }
 }

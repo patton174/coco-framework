@@ -30,12 +30,14 @@ import java.util.Optional;
  * @param bodySha256 请求体 SHA-256 摘要；未解析请求体时为空
  * @param bodyLength 请求体长度；未解析请求体时为空
  * @param bodyCached 请求体是否已缓存
+ * @param canonicalHeaderValues 默认参与签名规范化的多值请求头
  * @author patton174
  * @since 1.0.0
  */
 public record CocoWebRequestSecurityInput(String method, String path, String queryString,
         Map<String, List<String>> parameters, Map<String, String> securityHeaders,
-        Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached) {
+        Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached,
+        Map<String, List<String>> canonicalHeaderValues) {
 
     /**
      * <p>
@@ -57,7 +59,7 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
 
     /**
      * <p>
-     * 创建请求安全输入，并归一化字段和集合。
+     * 创建请求安全输入。
      * </p>
      * @param method HTTP 方法
      * @param path 请求路径
@@ -69,6 +71,28 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
      * @param bodyLength 请求体长度
      * @param bodyCached 请求体是否已缓存
      */
+    public CocoWebRequestSecurityInput(String method, String path, String queryString,
+            Map<String, List<String>> parameters, Map<String, String> securityHeaders,
+            Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached) {
+        this(method, path, queryString, parameters, securityHeaders, canonicalHeaders, bodySha256, bodyLength,
+                bodyCached, headerValuesFromHeaders(canonicalHeaders));
+    }
+
+    /**
+     * <p>
+     * 创建请求安全输入，并归一化字段和集合。
+     * </p>
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 原始查询字符串
+     * @param parameters 原始请求参数
+     * @param securityHeaders 安全能力相关请求头
+     * @param canonicalHeaders 默认参与签名规范化的请求头
+     * @param bodySha256 请求体 SHA-256 摘要
+     * @param bodyLength 请求体长度
+     * @param bodyCached 请求体是否已缓存
+     * @param canonicalHeaderValues 默认参与签名规范化的多值请求头
+     */
     public CocoWebRequestSecurityInput {
         method = normalizeMethod(method);
         path = normalizeOptional(path);
@@ -76,6 +100,7 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         parameters = copyParameters(parameters);
         securityHeaders = copyHeaders(securityHeaders);
         canonicalHeaders = copyHeaders(canonicalHeaders);
+        canonicalHeaderValues = copyHeaderValues(canonicalHeaderValues);
         bodySha256 = normalizeOptional(bodySha256);
         bodyLength = bodyLength == null || bodyLength < 0 ? null : bodyLength;
         bodyCached = bodyCached && bodySha256 != null;
@@ -104,13 +129,27 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
 
     /**
      * <p>
-     * 返回指定规范化请求头。
+     * 返回指定规范化请求头的合并值。
      * </p>
      * @param name 请求头名称
      * @return 请求头值；未设置时为空
      */
     public Optional<String> canonicalHeader(String name) {
         return header(this.canonicalHeaders, name);
+    }
+
+    /**
+     * <p>
+     * 返回指定规范化请求头的多值快照。
+     * </p>
+     * @param name 请求头名称
+     * @return 请求头值列表；未设置时为空
+     */
+    public Optional<List<String>> canonicalHeaderValues(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(this.canonicalHeaderValues.get(name.trim().toLowerCase(Locale.ROOT)));
     }
 
     /**
@@ -156,6 +195,52 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
             }
         });
         return copied.isEmpty() ? Map.of() : Collections.unmodifiableMap(copied);
+    }
+
+    private static Map<String, List<String>> copyHeaderValues(Map<String, List<String>> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> copied = new LinkedHashMap<>();
+        headers.forEach((name, values) -> {
+            String normalizedName = normalizeOptional(name);
+            if (normalizedName != null) {
+                List<String> copiedValues = copyHeaderValueList(values);
+                if (!copiedValues.isEmpty()) {
+                    copied.put(normalizedName.toLowerCase(Locale.ROOT), copiedValues);
+                }
+            }
+        });
+        return copied.isEmpty() ? Map.of() : Collections.unmodifiableMap(copied);
+    }
+
+    private static Map<String, List<String>> headerValuesFromHeaders(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> values = new LinkedHashMap<>();
+        headers.forEach((name, value) -> {
+            String normalizedName = normalizeOptional(name);
+            String normalizedValue = normalizeOptional(value);
+            if (normalizedName != null && normalizedValue != null) {
+                values.put(normalizedName.toLowerCase(Locale.ROOT), List.of(normalizedValue));
+            }
+        });
+        return values;
+    }
+
+    private static List<String> copyHeaderValueList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        List<String> copied = new ArrayList<>(values.size());
+        for (String value : values) {
+            String normalizedValue = normalizeOptional(value);
+            if (normalizedValue != null) {
+                copied.add(normalizedValue);
+            }
+        }
+        return List.copyOf(copied);
     }
 
     private static Map<String, List<String>> copyParameters(Map<String, List<String>> parameters) {

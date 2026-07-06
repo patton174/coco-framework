@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.context;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -108,13 +109,15 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         Map<String, List<String>> rawParameters = this.requestParameterResolver.resolveRawParameters(checkedRequest);
         Map<String, String> securityHeaders = this.requestHeaderResolver.resolveSelectedHeaders(checkedRequest,
                 this.securityHeaderNames, false);
-        Map<String, String> canonicalHeaders = this.requestHeaderResolver.resolveSelectedHeaders(checkedRequest,
+        Map<String, List<String>> canonicalHeaderValues = this.requestHeaderResolver.resolveSelectedHeaderValues(
+                checkedRequest,
                 this.canonicalHeaderNames, false);
+        Map<String, String> canonicalHeaders = joinHeaders(canonicalHeaderValues);
         CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
                 .orElse(CocoCachedRequestBody.empty());
         return new CocoWebRequestSecurityInput(method, path, rawQueryString, rawParameters, securityHeaders,
                 canonicalHeaders, cachedBody.sha256(), cachedBody.cached() ? cachedBody.length() : null,
-                cachedBody.cached());
+                cachedBody.cached(), canonicalHeaderValues);
     }
 
     private static Set<String> securityHeaderNames(CocoWebContextProperties properties,
@@ -181,5 +184,18 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         if (normalizedName != null) {
             headerNames.add(normalizedName);
         }
+    }
+
+    private static Map<String, String> joinHeaders(Map<String, List<String>> headerValues) {
+        if (headerValues == null || headerValues.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> joined = new LinkedHashMap<>();
+        headerValues.forEach((name, values) -> {
+            if (values != null && !values.isEmpty()) {
+                joined.put(name, String.join(",", values));
+            }
+        });
+        return joined;
     }
 }

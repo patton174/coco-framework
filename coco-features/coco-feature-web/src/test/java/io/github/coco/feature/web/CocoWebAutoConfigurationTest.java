@@ -1037,7 +1037,7 @@ class CocoWebAutoConfigurationTest {
             assertEquals(sha256(body), snapshot.toRequestContext().requestBodySha256().orElseThrow());
             assertTrue(canonicalForm.text().contains("method=POST"));
             assertTrue(canonicalForm.text().contains("path=/api/orders"));
-            assertTrue(canonicalForm.text().contains("x-coco-timestamp:1783300000000"));
+            assertTrue(canonicalForm.text().contains("x-coco-timestamp[0]=13:1783300000000"));
             assertTrue(canonicalForm.text().contains("bodySha256=" + sha256(body)));
             assertTrue(canonicalForm.text().contains("bodyLength=" + body.length));
             assertTrue(canonicalForm.sha256().length() == 64);
@@ -1058,8 +1058,10 @@ class CocoWebAutoConfigurationTest {
                 + "path=/api/orders\n"
                 + "query=tag\\=b&tag\\=a&sku\\=COCO-STARTER\n"
                 + "headers\n"
-                + "content-type:application/json\n"
-                + "x-coco-timestamp:1783300000000\n"
+                + "content-type#1\n"
+                + "content-type[0]=16:application/json\n"
+                + "x-coco-timestamp#1\n"
+                + "x-coco-timestamp[0]=13:1783300000000\n"
                 + "parameters\n"
                 + "sku=COCO-STARTER\n"
                 + "tag=a,b\n"
@@ -1079,10 +1081,25 @@ class CocoWebAutoConfigurationTest {
 
         CocoWebRequestCanonicalForm canonicalForm = new DefaultCocoWebRequestCanonicalizer().canonicalize(input);
 
-        assertTrue(canonicalForm.text().contains("x-coco-name:Coco\\:Runtime"));
-        assertTrue(canonicalForm.text().contains("x-coco-flags:a\\=b\\|c"));
+        assertTrue(canonicalForm.text().contains("x-coco-name[0]=13:Coco\\:Runtime"));
+        assertTrue(canonicalForm.text().contains("x-coco-flags[0]=7:a\\=b\\|c"));
         assertTrue(canonicalForm.text().contains("tag=a,a\\,b,b"));
         assertEquals(sha256(canonicalForm.text()), canonicalForm.sha256());
+    }
+
+    @Test
+    void defaultRequestCanonicalizerFramesMultiValueHeaders() {
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                null, Map.of(), Map.of(), Map.of("x-name", "Coconut,Runtime"), null, null, false,
+                Map.of("x-name", List.of("Coconut", "Runtime"), "x-comma", List.of("Coconut,Runtime")));
+
+        CocoWebRequestCanonicalForm canonicalForm = new DefaultCocoWebRequestCanonicalizer().canonicalize(input);
+
+        assertTrue(canonicalForm.text().contains("x-name#2"));
+        assertTrue(canonicalForm.text().contains("x-name[0]=7:Coconut"));
+        assertTrue(canonicalForm.text().contains("x-name[1]=7:Runtime"));
+        assertTrue(canonicalForm.text().contains("x-comma#1"));
+        assertTrue(canonicalForm.text().contains("x-comma[0]=16:Coconut\\,Runtime"));
     }
 
     @Test
@@ -1166,7 +1183,7 @@ class CocoWebAutoConfigurationTest {
         assertTrue(canonicalForm.text().contains("path=/api/orders"));
         assertTrue(canonicalForm.text().contains("query=sku\\=COCO-STARTER"));
         assertTrue(canonicalForm.text().contains("headers"));
-        assertTrue(canonicalForm.text().contains("x-coco-timestamp:1783300000000"));
+        assertTrue(canonicalForm.text().contains("x-coco-timestamp[0]=13:1783300000000"));
         assertTrue(canonicalForm.text().contains("bodySha256=body-digest"));
         assertTrue(canonicalForm.text().contains("bodyLength=12"));
     }
@@ -1239,11 +1256,14 @@ class CocoWebAutoConfigurationTest {
         Map<String, String> includedHeaders = resolver.resolveIncludedHeaders(request);
         Map<String, String> selectedHeaders = resolver.resolveSelectedHeaders(request, Set.of("X-Name"), true);
         Map<String, String> rawSelectedHeaders = resolver.resolveSelectedHeaders(request, Set.of("X-Name"), false);
+        Map<String, List<String>> rawSelectedHeaderValues = resolver.resolveSelectedHeaderValues(request,
+                Set.of("X-Name"), false);
 
         assertEquals("******", includedHeaders.get("authorization"));
         assertEquals("Coco...", includedHeaders.get("x-name"));
         assertEquals("Coco...", selectedHeaders.get("x-name"));
         assertEquals("Coconut,Runtime", rawSelectedHeaders.get("x-name"));
+        assertEquals(List.of("Coconut", "Runtime"), rawSelectedHeaderValues.get("x-name"));
     }
 
     @Test
