@@ -12,11 +12,13 @@ import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestMatcher;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
@@ -50,6 +52,8 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
     private final CocoRequestDecryptor requestDecryptor;
 
     private final CocoWebRequestContextResolver requestContextResolver;
+
+    private final CocoWebRequestMatcher requestMatcher;
 
     private final CocoWebRequestSecurityMetadataResolver securityMetadataResolver;
 
@@ -86,11 +90,32 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
             CocoRequestDecryptor requestDecryptor, CocoWebRequestContextResolver requestContextResolver,
             CocoFilterExceptionResponseWriter exceptionResponseWriter,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
+        this(properties, keyResolver, requestDecryptor, requestContextResolver, exceptionResponseWriter,
+                securityMetadataResolver, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求解密过滤器。
+     * </p>
+     * @param properties 请求加密配置属性
+     * @param keyResolver AES 解密密钥解析器
+     * @param requestDecryptor 请求解密器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param securityMetadataResolver 请求安全元数据解析器
+     * @param requestMatcher Web 请求匹配器
+     */
+    public CocoEncryptionFilter(CocoEncryptionProperties properties, CocoEncryptionKeyResolver keyResolver,
+            CocoRequestDecryptor requestDecryptor, CocoWebRequestContextResolver requestContextResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver, CocoWebRequestMatcher requestMatcher) {
         this.properties = properties == null ? new CocoEncryptionProperties() : properties;
         this.keyResolver = Objects.requireNonNull(keyResolver, "keyResolver must not be null");
         this.requestDecryptor = Objects.requireNonNull(requestDecryptor, "requestDecryptor must not be null");
         this.requestContextResolver = Objects.requireNonNull(requestContextResolver,
                 "requestContextResolver must not be null");
+        this.requestMatcher = requestMatcher == null ? new DefaultCocoWebRequestMatcher() : requestMatcher;
         this.securityMetadataResolver = securityMetadataResolver == null
                 ? new DefaultCocoWebRequestSecurityMetadataResolver(null, this.properties)
                 : securityMetadataResolver;
@@ -108,8 +133,13 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+        if (matchesIgnoredRequest(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         boolean encrypted = encrypted(request);
-        if (!encrypted && !this.properties.isRequired()) {
+        boolean encryptionRequired = encryptionRequired(request);
+        if (!encrypted && !encryptionRequired) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -127,6 +157,15 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
         finally {
             restoreRequestContext(previousContext, previousTraceId);
         }
+    }
+
+    private boolean matchesIgnoredRequest(HttpServletRequest request) {
+        return this.requestMatcher.matches(request, this.properties.getMatcher().getIgnored());
+    }
+
+    private boolean encryptionRequired(HttpServletRequest request) {
+        return this.properties.isRequired()
+                || this.requestMatcher.matches(request, this.properties.getMatcher().getRequired());
     }
 
     private HttpServletRequest decryptRequest(HttpServletRequest request, boolean encrypted) {

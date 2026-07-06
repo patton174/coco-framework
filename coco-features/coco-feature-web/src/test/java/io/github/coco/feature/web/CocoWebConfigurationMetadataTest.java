@@ -169,6 +169,12 @@ class CocoWebConfigurationMetadataTest {
                 "coco.web.context.parameter.max-parameter-value-length");
         assertDeprecated(metadata, "coco.web.access-log.masked-parameter-names",
                 "coco.web.context.parameter.masked-parameter-names");
+        assertAdditionalProperty(metadata, "coco.web.signature.matcher.required[].methods");
+        assertAdditionalProperty(metadata, "coco.web.signature.matcher.required[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.encryption.matcher.required[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.encryption.matcher.ignored[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.replay.matcher.required[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.replay.matcher.ignored[].methods");
     }
 
     @Test
@@ -214,6 +220,12 @@ class CocoWebConfigurationMetadataTest {
         assertEquals("warning", deprecation.path("level").asText());
         assertEquals(replacement, deprecation.path("replacement").asText());
         assertFalse(deprecation.path("reason").asText().isBlank());
+    }
+
+    private static void assertAdditionalProperty(JsonNode metadata, String name) {
+        JsonNode property = findNamedNode(metadata.path("properties"), name);
+        assertNotNull(property, "missing property: " + name);
+        assertFalse(property.path("description").asText().isBlank());
     }
 
     private static JsonNode findNamedNode(JsonNode nodes, String name) {

@@ -1,5 +1,8 @@
 package io.github.coco.feature.web.replay;
 
+import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
+
 /**
  * Coco Web 防重放配置属性。
  * <p>
@@ -41,6 +44,9 @@ public class CocoReplayProperties {
     private boolean includeMethod = true;
 
     private boolean includePath = true;
+
+    @NestedConfigurationProperty
+    private CocoWebRequestMatcherProperties matcher = new CocoWebRequestMatcherProperties();
 
     private String appIdHeaderName = DEFAULT_APP_ID_HEADER_NAME;
 
@@ -172,6 +178,26 @@ public class CocoReplayProperties {
      */
     public void setIncludePath(boolean includePath) {
         this.includePath = includePath;
+    }
+
+    /**
+     * <p>
+     * 返回防重放路径和方法匹配配置。
+     * </p>
+     * @return 请求匹配配置
+     */
+    public CocoWebRequestMatcherProperties getMatcher() {
+        return this.matcher;
+    }
+
+    /**
+     * <p>
+     * 设置防重放路径和方法匹配配置。
+     * </p>
+     * @param matcher 请求匹配配置
+     */
+    public void setMatcher(CocoWebRequestMatcherProperties matcher) {
+        this.matcher = matcher == null ? new CocoWebRequestMatcherProperties() : matcher;
     }
 
     /**

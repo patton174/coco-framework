@@ -4,6 +4,9 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
+
 /**
  * Coco 请求加密配置属性。
  * <p>
@@ -45,6 +48,9 @@ public class CocoEncryptionProperties {
     private CocoCryptoTextEncoding payloadEncoding = CocoCryptoTextEncoding.BASE64;
 
     private int gcmTagLengthBits = 128;
+
+    @NestedConfigurationProperty
+    private CocoWebRequestMatcherProperties matcher = new CocoWebRequestMatcherProperties();
 
     private Map<String, String> keys = Map.of();
 
@@ -288,6 +294,26 @@ public class CocoEncryptionProperties {
      */
     public void setGcmTagLengthBits(int gcmTagLengthBits) {
         this.gcmTagLengthBits = gcmTagLengthBits <= 0 ? 128 : gcmTagLengthBits;
+    }
+
+    /**
+     * <p>
+     * 返回请求加密路径和方法匹配配置。
+     * </p>
+     * @return 请求匹配配置
+     */
+    public CocoWebRequestMatcherProperties getMatcher() {
+        return this.matcher;
+    }
+
+    /**
+     * <p>
+     * 设置请求加密路径和方法匹配配置。
+     * </p>
+     * @param matcher 请求匹配配置
+     */
+    public void setMatcher(CocoWebRequestMatcherProperties matcher) {
+        this.matcher = matcher == null ? new CocoWebRequestMatcherProperties() : matcher;
     }
 
     /**

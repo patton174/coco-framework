@@ -23,6 +23,66 @@
         "reason": "访问日志参数脱敏策略已迁移到统一 Web 请求上下文参数配置。",
         "replacement": "coco.web.context.parameter.masked-parameter-names"
       }
+    },
+    {
+      "name": "coco.web.signature.matcher.required[].methods",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要强制验签的 HTTP 方法集合。"
+    },
+    {
+      "name": "coco.web.signature.matcher.required[].path-patterns",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要强制验签的请求路径模式集合。"
+    },
+    {
+      "name": "coco.web.signature.matcher.ignored[].methods",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要跳过验签的 HTTP 方法集合。"
+    },
+    {
+      "name": "coco.web.signature.matcher.ignored[].path-patterns",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要跳过验签的请求路径模式集合。"
+    },
+    {
+      "name": "coco.web.encryption.matcher.required[].methods",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要强制解密的 HTTP 方法集合。"
+    },
+    {
+      "name": "coco.web.encryption.matcher.required[].path-patterns",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要强制解密的请求路径模式集合。"
+    },
+    {
+      "name": "coco.web.encryption.matcher.ignored[].methods",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要跳过解密的 HTTP 方法集合。"
+    },
+    {
+      "name": "coco.web.encryption.matcher.ignored[].path-patterns",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要跳过解密的请求路径模式集合。"
+    },
+    {
+      "name": "coco.web.replay.matcher.required[].methods",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要强制防重放校验的 HTTP 方法集合。"
+    },
+    {
+      "name": "coco.web.replay.matcher.required[].path-patterns",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要强制防重放校验的请求路径模式集合。"
+    },
+    {
+      "name": "coco.web.replay.matcher.ignored[].methods",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要跳过防重放校验的 HTTP 方法集合。"
+    },
+    {
+      "name": "coco.web.replay.matcher.ignored[].path-patterns",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "需要跳过防重放校验的请求路径模式集合。"
     }
   ],
   "hints": [

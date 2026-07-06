@@ -10,9 +10,11 @@ import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestMatcher;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -45,6 +47,8 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
     private final CocoReplayKeyResolver replayKeyResolver;
 
     private final CocoWebRequestContextResolver requestContextResolver;
+
+    private final CocoWebRequestMatcher requestMatcher;
 
     private final CocoWebRequestSecurityMetadataResolver securityMetadataResolver;
 
@@ -87,11 +91,34 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
             CocoReplayKeyResolver replayKeyResolver, CocoWebRequestContextResolver requestContextResolver,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
             CocoFilterExceptionResponseWriter exceptionResponseWriter, Clock clock) {
+        this(properties, replayStore, replayKeyResolver, requestContextResolver, securityMetadataResolver,
+                exceptionResponseWriter, null, clock);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 防重放过滤器。
+     * </p>
+     * @param properties 防重放配置属性
+     * @param replayStore 防重放存储
+     * @param replayKeyResolver 防重放键解析器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param requestMatcher Web 请求匹配器
+     * @param clock 时钟
+     */
+    public CocoReplayFilter(CocoReplayProperties properties, CocoReplayStore replayStore,
+            CocoReplayKeyResolver replayKeyResolver, CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter, CocoWebRequestMatcher requestMatcher,
+            Clock clock) {
         this.properties = properties == null ? new CocoReplayProperties() : properties;
         this.replayStore = Objects.requireNonNull(replayStore, "replayStore must not be null");
         this.replayKeyResolver = Objects.requireNonNull(replayKeyResolver, "replayKeyResolver must not be null");
         this.requestContextResolver = Objects.requireNonNull(requestContextResolver,
                 "requestContextResolver must not be null");
+        this.requestMatcher = requestMatcher == null ? new DefaultCocoWebRequestMatcher() : requestMatcher;
         this.securityMetadataResolver = Objects.requireNonNull(securityMetadataResolver,
                 "securityMetadataResolver must not be null");
         this.exceptionResponseWriter = Objects.requireNonNull(exceptionResponseWriter,
@@ -109,8 +136,13 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+        if (matchesIgnoredRequest(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        boolean replayRequired = replayRequired(request);
         try {
-            verifyReplay(request);
+            verifyReplay(request, replayRequired);
         }
         catch (CocoException ex) {
             this.exceptionResponseWriter.write(ex, request, response);
@@ -119,11 +151,20 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private void verifyReplay(HttpServletRequest request) {
+    private boolean matchesIgnoredRequest(HttpServletRequest request) {
+        return this.requestMatcher.matches(request, this.properties.getMatcher().getIgnored());
+    }
+
+    private boolean replayRequired(HttpServletRequest request) {
+        return this.properties.isRequired()
+                || this.requestMatcher.matches(request, this.properties.getMatcher().getRequired());
+    }
+
+    private void verifyReplay(HttpServletRequest request, boolean replayRequired) {
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
         CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(snapshot.securityInput());
-        if (!shouldProtect(metadata)) {
+        if (!shouldProtect(metadata, replayRequired)) {
             return;
         }
         CocoReplayKey replayKey = this.replayKeyResolver.resolve(snapshot, metadata);
@@ -143,8 +184,8 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean shouldProtect(CocoWebRequestSecurityMetadata metadata) {
-        return this.properties.isRequired()
+    private boolean shouldProtect(CocoWebRequestSecurityMetadata metadata, boolean replayRequired) {
+        return replayRequired
                 || (this.properties.isProtectSignedRequests() && metadata.signed())
                 || (this.properties.isProtectEncryptedRequests() && metadata.encrypted());
     }
