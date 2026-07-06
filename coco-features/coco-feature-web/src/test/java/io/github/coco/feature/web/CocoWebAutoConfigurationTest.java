@@ -57,6 +57,7 @@ import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
+import io.github.coco.feature.web.encryption.CocoEncryptedRequest;
 import io.github.coco.feature.web.encryption.CocoEncryptionAssociatedData;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
@@ -2133,6 +2134,26 @@ class CocoWebAutoConfigurationTest {
                 + "replayTimestamp=13:1783300000000\n"
                 + "replayNonce=10:nonce-1001\n";
         assertEquals(expectedText, new String(associatedData, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void encryptionAssociatedDataUsesSecurityRawQueryString() {
+        CocoEncryptedRequest encryptedRequest = new CocoEncryptedRequest("app-1001", "key-1001", "iv-1001",
+                "AES-GCM", true, new byte[0]);
+        CocoWebRequestSecurityInput securityInput = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                "sku=COCO-STARTER&token=secret", Map.of("token", List.of("secret")),
+                Map.of(), Map.of(), null);
+        CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot("trace-aad", "POST", "/api/orders",
+                "sku=COCO-STARTER&token=******", "127.0.0.1", "JUnit", "zh-CN", "https",
+                "api.example.test", 443, "application/json", Map.of(), Map.of(), securityInput,
+                CocoWebRequestSecurityMetadata.empty(), CocoBrowserFingerprint.empty(),
+                CocoClientIpResolution.remoteAddress("127.0.0.1"));
+
+        String aad = new String(CocoEncryptionAssociatedData.from(encryptedRequest, snapshot,
+                CocoWebRequestSecurityMetadata.empty()), StandardCharsets.UTF_8);
+
+        assertTrue(aad.contains("query=29:sku=COCO-STARTER&token=secret\n"));
+        assertFalse(aad.contains("token=******"));
     }
 
     @Test

@@ -58,7 +58,7 @@ public final class CocoEncryptionAssociatedData {
         CocoWebRequestSecurityMetadata checkedMetadata = Objects.requireNonNull(metadata, "metadata must not be null");
         return from(checkedRequest.appId(), checkedRequest.keyId(), checkedRequest.iv(), checkedRequest.algorithm(),
                 checkedRequest.encrypted(), checkedSnapshot.method(), checkedSnapshot.path(),
-                checkedSnapshot.queryString(), checkedMetadata.replayTimestamp(),
+                checkedSnapshot.securityInput().queryString(), checkedMetadata.replayTimestamp(),
                 checkedMetadata.replayNonce());
     }
 
