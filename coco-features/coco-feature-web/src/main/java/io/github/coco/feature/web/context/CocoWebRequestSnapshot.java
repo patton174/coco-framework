@@ -127,6 +127,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         putIfPresent(attributes, CocoRequestContextAttributes.PORT, this.port == null ? null : this.port.toString());
         putIfPresent(attributes, CocoRequestContextAttributes.CONTENT_TYPE, this.contentType);
         putIfPresent(attributes, CocoRequestContextAttributes.BROWSER_FINGERPRINT, this.browserFingerprint.value());
+        putIfPresent(attributes, CocoRequestContextAttributes.REQUEST_BODY_SHA256, this.securityInput.bodySha256());
         this.headers.forEach((name, value) ->
                 putIfPresent(attributes, CocoRequestContextAttributes.header(name), value));
         this.parameters.forEach((name, values) ->

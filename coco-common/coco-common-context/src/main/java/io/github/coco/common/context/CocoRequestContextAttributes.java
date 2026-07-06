@@ -66,6 +66,11 @@ public final class CocoRequestContextAttributes {
     public static final String BROWSER_FINGERPRINT = "browserFingerprint";
 
     /**
+     * 请求体 SHA-256 摘要属性键。
+     */
+    public static final String REQUEST_BODY_SHA256 = "requestBodySha256";
+
+    /**
      * 请求头属性键前缀。
      */
     public static final String HEADER_PREFIX = "header.";

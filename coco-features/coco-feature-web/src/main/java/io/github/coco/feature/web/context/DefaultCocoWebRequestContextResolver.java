@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.stream.Stream;
 
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
+import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -70,8 +72,11 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
                 this.properties.getCanonicalHeaderNames(), false);
         CocoBrowserFingerprint browserFingerprint = CocoBrowserFingerprint.from(resolveSelectedHeaders(checkedRequest,
                 this.properties.getFingerprintHeaderNames(), true));
+        CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
+                .orElse(CocoCachedRequestBody.empty());
         CocoWebRequestSecurityInput securityInput = new CocoWebRequestSecurityInput(method, path, rawQueryString,
-                rawParameters, securityHeaders, canonicalHeaders, null);
+                rawParameters, securityHeaders, canonicalHeaders, cachedBody.sha256(),
+                cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached());
         return new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(checkedRequest),
                 resolveClientIp(checkedRequest), checkedRequest.getHeader("User-Agent"), resolveLocale(checkedRequest),
                 checkedRequest.getScheme(), checkedRequest.getServerName(), checkedRequest.getServerPort(),

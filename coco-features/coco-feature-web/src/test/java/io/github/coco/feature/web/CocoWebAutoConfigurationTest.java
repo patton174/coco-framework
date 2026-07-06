@@ -23,6 +23,10 @@ import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.CocoAccessLogStyle;
 import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
+import io.github.coco.feature.web.body.CocoCachedRequestBody;
+import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
+import io.github.coco.feature.web.body.CocoRequestBodyCachingMode;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
@@ -47,6 +51,10 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -133,6 +141,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoWebExceptionHandler"));
             assertTrue(context.containsBean("cocoWebRequestCanonicalizer"));
             assertTrue(context.containsBean("cocoWebRequestContextResolver"));
+            assertTrue(context.containsBean("cocoRequestBodyCachingFilterRegistration"));
             assertTrue(context.containsBean("cocoTraceFilterRegistration"));
         });
     }
@@ -326,6 +335,13 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getAccessLog().isIncludeParameters());
         assertEquals(256, properties.getAccessLog().getMaxParameterValueLength());
         assertTrue(properties.getAccessLog().getMaskedParameterNames().contains("token"));
+        assertTrue(properties.getRequestBody().isEnabled());
+        assertEquals(CocoRequestBodyCachingMode.SECURITY_HEADERS, properties.getRequestBody().getMode());
+        assertEquals(1024 * 1024, properties.getRequestBody().getMaxCacheBytes());
+        assertTrue(properties.getRequestBody().getCacheMethods().contains("POST"));
+        assertTrue(properties.getRequestBody().getTriggerHeaderNames().contains("x-coco-sign"));
+        assertTrue(properties.getRequestBody().getIncludedContentTypes().contains("application/json"));
+        assertTrue(properties.getRequestBody().getExcludedContentTypePrefixes().contains("multipart/"));
         assertTrue(properties.getContext().isIncludeHeaders());
         assertTrue(properties.getContext().getClientIpHeaderNames().contains("X-Forwarded-For"));
         assertTrue(properties.getContext().getIncludedHeaderNames().contains("user-agent"));
@@ -336,9 +352,11 @@ class CocoWebAutoConfigurationTest {
         assertEquals(256, properties.getContext().getMaxHeaderValueLength());
 
         properties.setAccessLog(null);
+        properties.setRequestBody(null);
         properties.setContext(null);
 
         assertTrue(properties.getAccessLog().isEnabled());
+        assertTrue(properties.getRequestBody().isEnabled());
         assertTrue(properties.getContext().isIncludeHeaders());
     }
 
@@ -796,6 +814,7 @@ class CocoWebAutoConfigurationTest {
             CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
             CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
             MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+            byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
             request.setQueryString("sku=COCO-STARTER&token=abc");
             request.addParameter("sku", "COCO-STARTER");
             request.addParameter("token", "abc");
@@ -812,7 +831,8 @@ class CocoWebAutoConfigurationTest {
             request.addHeader("Sec-CH-UA", "\"Chromium\";v=\"126\"");
             request.addHeader("Sec-CH-UA-Platform", "\"Windows\"");
 
-            CocoWebRequestSnapshot snapshot = resolver.resolve("security-trace", request);
+            CocoWebRequestSnapshot snapshot = resolver.resolve("security-trace",
+                    new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
             CocoWebRequestCanonicalForm canonicalForm = canonicalizer.canonicalize(snapshot.securityInput());
 
             assertEquals("sign-value", snapshot.securityInput().securityHeader("x-coco-sign").orElseThrow());
@@ -821,13 +841,46 @@ class CocoWebAutoConfigurationTest {
                     snapshot.securityInput().canonicalHeader("x-coco-timestamp").orElseThrow());
             assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().parameter("sku").orElseThrow());
             assertEquals("sku=COCO-STARTER&token=abc", snapshot.securityInput().queryString());
+            assertEquals(sha256(body), snapshot.securityInput().bodySha256());
+            assertEquals(body.length, snapshot.securityInput().bodyLength());
+            assertTrue(snapshot.securityInput().bodyCached());
             assertTrue(snapshot.browserFingerprint().value().length() == 64);
             assertEquals(snapshot.browserFingerprint().value(),
                     snapshot.toRequestContext().browserFingerprint().orElseThrow());
+            assertEquals(sha256(body), snapshot.toRequestContext().requestBodySha256().orElseThrow());
             assertTrue(canonicalForm.text().contains("method=POST"));
             assertTrue(canonicalForm.text().contains("path=/api/orders"));
             assertTrue(canonicalForm.text().contains("x-coco-timestamp:1783300000000"));
+            assertTrue(canonicalForm.text().contains("bodySha256=" + sha256(body)));
+            assertTrue(canonicalForm.text().contains("bodyLength=" + body.length));
             assertTrue(canonicalForm.sha256().length() == 64);
+        });
+    }
+
+    @Test
+    void cachesSignedJsonRequestBodyBeforeTraceContextResolution() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                    context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+            CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
+            AtomicReference<String> downstreamBody = new AtomicReference<>();
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            request.setContent(body);
+            request.addHeader("X-Trace-Id", "signed-body-trace");
+            request.addHeader("X-Coco-Sign", "sign-value");
+
+            bodyFilter.doFilter(request, response, (wrappedRequest, wrappedResponse) ->
+                    traceFilter.doFilter(wrappedRequest, wrappedResponse,
+                            new MockFilterChain(new BodyReadingServlet(downstreamBody, () -> {
+                                CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                                assertEquals(sha256(body), requestContext.requestBodySha256().orElseThrow());
+                            }))));
+
+            assertEquals("{\"sku\":\"COCO-STARTER\"}", downstreamBody.get());
         });
     }
 
@@ -946,6 +999,20 @@ class CocoWebAutoConfigurationTest {
 
     private static CocoTraceFilter traceFilter(FilterRegistrationBean<?> registrationBean) {
         return (CocoTraceFilter) registrationBean.getFilter();
+    }
+
+    private static CocoRequestBodyCachingFilter requestBodyCachingFilter(FilterRegistrationBean<?> registrationBean) {
+        return (CocoRequestBodyCachingFilter) registrationBean.getFilter();
+    }
+
+    private static String sha256(byte[] content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(content));
+        }
+        catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 algorithm is not available", ex);
+        }
     }
 
     private static CocoApiResponse<?> apiBody(ResponseEntity<Object> response) {
@@ -1086,6 +1153,42 @@ class CocoWebAutoConfigurationTest {
         @Override
         public String getServletInfo() {
             return "trace-capturing-servlet";
+        }
+
+        @Override
+        public void destroy() {
+        }
+    }
+
+    private static final class BodyReadingServlet implements Servlet {
+
+        private final AtomicReference<String> body;
+
+        private final Runnable assertion;
+
+        private BodyReadingServlet(AtomicReference<String> body, Runnable assertion) {
+            this.body = body;
+            this.assertion = assertion;
+        }
+
+        @Override
+        public void init(ServletConfig config) {
+        }
+
+        @Override
+        public ServletConfig getServletConfig() {
+            return null;
+        }
+
+        @Override
+        public void service(ServletRequest request, ServletResponse response) throws IOException {
+            this.assertion.run();
+            this.body.set(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public String getServletInfo() {
+            return "body-reading-servlet";
         }
 
         @Override

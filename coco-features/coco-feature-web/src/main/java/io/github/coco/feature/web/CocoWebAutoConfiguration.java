@@ -9,6 +9,7 @@ import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
@@ -186,6 +187,27 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建 Coco 请求体缓存过滤器注册器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return 请求体缓存过滤器注册器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnProperty(prefix = "coco.web.request-body", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean(name = "cocoRequestBodyCachingFilterRegistration")
+    public FilterRegistrationBean<CocoRequestBodyCachingFilter> cocoRequestBodyCachingFilterRegistration(
+            CocoWebProperties properties) {
+        FilterRegistrationBean<CocoRequestBodyCachingFilter> registration = new FilterRegistrationBean<>(
+                new CocoRequestBodyCachingFilter(properties.getRequestBody()));
+        registration.setName("cocoRequestBodyCachingFilter");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
+
+    /**
+     * <p>
      * 创建 Coco Trace 过滤器注册器。
      * </p>
      * @param properties Coco Web 配置属性
@@ -202,7 +224,7 @@ public class CocoWebAutoConfiguration {
                 new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList(),
                         properties.getAccessLog(), requestContextResolver));
         registration.setName("cocoTraceFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
         return registration;
     }
 }

@@ -1,6 +1,7 @@
 package io.github.coco.feature.web;
 
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.body.CocoRequestBodyProperties;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
@@ -38,6 +39,9 @@ public class CocoWebProperties {
 
     @NestedConfigurationProperty
     private CocoAccessLogCaptureProperties accessLog = new CocoAccessLogCaptureProperties();
+
+    @NestedConfigurationProperty
+    private CocoRequestBodyProperties requestBody = new CocoRequestBodyProperties();
 
     @NestedConfigurationProperty
     private CocoWebContextProperties context = new CocoWebContextProperties();
@@ -120,6 +124,26 @@ public class CocoWebProperties {
      */
     public void setAccessLog(CocoAccessLogCaptureProperties accessLog) {
         this.accessLog = accessLog == null ? new CocoAccessLogCaptureProperties() : accessLog;
+    }
+
+    /**
+     * <p>
+     * 返回请求体缓存配置属性。
+     * </p>
+     * @return 请求体缓存配置属性
+     */
+    public CocoRequestBodyProperties getRequestBody() {
+        return this.requestBody;
+    }
+
+    /**
+     * <p>
+     * 设置请求体缓存配置属性。
+     * </p>
+     * @param requestBody 请求体缓存配置属性
+     */
+    public void setRequestBody(CocoRequestBodyProperties requestBody) {
+        this.requestBody = requestBody == null ? new CocoRequestBodyProperties() : requestBody;
     }
 
     /**

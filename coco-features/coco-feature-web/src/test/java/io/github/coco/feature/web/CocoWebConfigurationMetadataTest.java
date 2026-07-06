@@ -52,6 +52,13 @@ class CocoWebConfigurationMetadataTest {
         assertFalse(content.contains("\"name\": \"coco.web.access-log.level\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.style\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.logger-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.request-body.enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.request-body.mode\""));
+        assertTrue(content.contains("\"name\": \"coco.web.request-body.max-cache-bytes\""));
+        assertTrue(content.contains("\"name\": \"coco.web.request-body.cache-methods\""));
+        assertTrue(content.contains("\"name\": \"coco.web.request-body.trigger-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.request-body.included-content-types\""));
+        assertTrue(content.contains("\"name\": \"coco.web.request-body.excluded-content-type-prefixes\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.client-ip-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.include-headers\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.included-header-names\""));

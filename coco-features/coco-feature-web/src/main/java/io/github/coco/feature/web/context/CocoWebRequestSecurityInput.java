@@ -28,12 +28,32 @@ import java.util.Optional;
  * @param securityHeaders 安全能力相关请求头
  * @param canonicalHeaders 默认参与签名规范化的请求头
  * @param bodySha256 请求体 SHA-256 摘要；未解析请求体时为空
+ * @param bodyLength 请求体长度；未解析请求体时为空
+ * @param bodyCached 请求体是否已缓存
  * @author patton174
  * @since 1.0.0
  */
 public record CocoWebRequestSecurityInput(String method, String path, String queryString,
         Map<String, List<String>> parameters, Map<String, String> securityHeaders,
-        Map<String, String> canonicalHeaders, String bodySha256) {
+        Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached) {
+
+    /**
+     * <p>
+     * 创建请求安全输入。
+     * </p>
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 原始查询字符串
+     * @param parameters 原始请求参数
+     * @param securityHeaders 安全能力相关请求头
+     * @param canonicalHeaders 默认参与签名规范化的请求头
+     * @param bodySha256 请求体 SHA-256 摘要
+     */
+    public CocoWebRequestSecurityInput(String method, String path, String queryString,
+            Map<String, List<String>> parameters, Map<String, String> securityHeaders,
+            Map<String, String> canonicalHeaders, String bodySha256) {
+        this(method, path, queryString, parameters, securityHeaders, canonicalHeaders, bodySha256, null, false);
+    }
 
     /**
      * <p>
@@ -46,6 +66,8 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
      * @param securityHeaders 安全能力相关请求头
      * @param canonicalHeaders 默认参与签名规范化的请求头
      * @param bodySha256 请求体 SHA-256 摘要
+     * @param bodyLength 请求体长度
+     * @param bodyCached 请求体是否已缓存
      */
     public CocoWebRequestSecurityInput {
         method = normalizeMethod(method);
@@ -55,6 +77,8 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         securityHeaders = copyHeaders(securityHeaders);
         canonicalHeaders = copyHeaders(canonicalHeaders);
         bodySha256 = normalizeOptional(bodySha256);
+        bodyLength = bodyLength == null || bodyLength < 0 ? null : bodyLength;
+        bodyCached = bodyCached && bodySha256 != null;
     }
 
     /**
@@ -64,7 +88,7 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
      * @return 空请求安全输入
      */
     public static CocoWebRequestSecurityInput empty() {
-        return new CocoWebRequestSecurityInput(null, null, null, Map.of(), Map.of(), Map.of(), null);
+        return new CocoWebRequestSecurityInput(null, null, null, Map.of(), Map.of(), Map.of(), null, null, false);
     }
 
     /**

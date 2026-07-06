@@ -184,6 +184,16 @@ public final class CocoRequestContext {
 
     /**
      * <p>
+     * 返回请求体 SHA-256 摘要。
+     * </p>
+     * @return 请求体 SHA-256 摘要；未设置时为空
+     */
+    public Optional<String> requestBodySha256() {
+        return attribute(CocoRequestContextAttributes.REQUEST_BODY_SHA256);
+    }
+
+    /**
+     * <p>
      * 返回请求头上下文属性。
      * </p>
      * @param name 请求头名称

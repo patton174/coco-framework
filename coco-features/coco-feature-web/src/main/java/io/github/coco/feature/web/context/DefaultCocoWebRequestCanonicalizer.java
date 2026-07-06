@@ -45,6 +45,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         appendHeaders(builder, input.canonicalHeaders());
         appendParameters(builder, input.parameters());
         builder.append("bodySha256=").append(value(input.bodySha256())).append('\n');
+        builder.append("bodyLength=").append(value(input.bodyLength())).append('\n');
         return builder.toString();
     }
 
@@ -63,6 +64,10 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
 
     private static String value(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String value(Long value) {
+        return value == null ? "" : value.toString();
     }
 
     private static String sha256(String value) {
