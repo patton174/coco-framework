@@ -86,6 +86,14 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.encryption.payload-encoding\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.gcm-tag-length-bits\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.keys\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.required\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.protect-signed-requests\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.protect-encrypted-requests\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.include-method\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.include-path\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.ttl-seconds\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.cleanup-interval-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.client-ip-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.include-headers\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.included-header-names\""));

@@ -1,0 +1,178 @@
+package io.github.coco.feature.web.replay;
+
+import java.io.IOException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
+
+import io.github.coco.common.exception.CocoBusinessExceptions;
+import io.github.coco.common.exception.CocoException;
+import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+/**
+ * Coco Web 防重放过滤器。
+ * <p>
+ * 在业务处理前基于请求时间戳和随机串占用防重放键，阻止同一签名请求在有效窗口内重复提交。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-feature-web}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+public final class CocoReplayFilter extends OncePerRequestFilter {
+
+    private final CocoReplayProperties properties;
+
+    private final CocoReplayStore replayStore;
+
+    private final CocoReplayKeyResolver replayKeyResolver;
+
+    private final CocoWebRequestContextResolver requestContextResolver;
+
+    private final CocoWebRequestSecurityMetadataResolver securityMetadataResolver;
+
+    private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
+
+    private final Clock clock;
+
+    /**
+     * <p>
+     * 创建 Coco Web 防重放过滤器。
+     * </p>
+     * @param properties 防重放配置属性
+     * @param replayStore 防重放存储
+     * @param replayKeyResolver 防重放键解析器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     */
+    public CocoReplayFilter(CocoReplayProperties properties, CocoReplayStore replayStore,
+            CocoReplayKeyResolver replayKeyResolver, CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+        this(properties, replayStore, replayKeyResolver, requestContextResolver, securityMetadataResolver,
+                exceptionResponseWriter, Clock.systemUTC());
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 防重放过滤器。
+     * </p>
+     * @param properties 防重放配置属性
+     * @param replayStore 防重放存储
+     * @param replayKeyResolver 防重放键解析器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param clock 时钟
+     */
+    public CocoReplayFilter(CocoReplayProperties properties, CocoReplayStore replayStore,
+            CocoReplayKeyResolver replayKeyResolver, CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter, Clock clock) {
+        this.properties = properties == null ? new CocoReplayProperties() : properties;
+        this.replayStore = Objects.requireNonNull(replayStore, "replayStore must not be null");
+        this.replayKeyResolver = Objects.requireNonNull(replayKeyResolver, "replayKeyResolver must not be null");
+        this.requestContextResolver = Objects.requireNonNull(requestContextResolver,
+                "requestContextResolver must not be null");
+        this.securityMetadataResolver = Objects.requireNonNull(securityMetadataResolver,
+                "securityMetadataResolver must not be null");
+        this.exceptionResponseWriter = Objects.requireNonNull(exceptionResponseWriter,
+                "exceptionResponseWriter must not be null");
+        this.clock = clock == null ? Clock.systemUTC() : clock;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+            FilterChain filterChain) throws ServletException, IOException {
+        if (!this.properties.isEnabled()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        try {
+            verifyReplay(request);
+        }
+        catch (CocoException ex) {
+            this.exceptionResponseWriter.write(ex, request, response);
+            return;
+        }
+        filterChain.doFilter(request, response);
+    }
+
+    private void verifyReplay(HttpServletRequest request) {
+        String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
+        CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
+        CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(snapshot.securityInput());
+        if (!shouldProtect(metadata)) {
+            return;
+        }
+        validateRequiredFields(metadata);
+        Instant requestTime = parseTimestamp(metadata.signatureTimestamp());
+        Instant now = this.clock.instant();
+        Duration ttl = Duration.ofSeconds(this.properties.getTtlSeconds());
+        if (requestTime.isAfter(now.plus(ttl))) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.replay.invalid-timestamp");
+        }
+        Instant expiresAt = requestTime.plus(ttl);
+        if (!expiresAt.isAfter(now)) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.replay.expired");
+        }
+        CocoReplayKey replayKey = this.replayKeyResolver.resolve(snapshot, metadata);
+        if (!this.replayStore.reserve(replayKey, expiresAt)) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.replay.detected");
+        }
+    }
+
+    private boolean shouldProtect(CocoWebRequestSecurityMetadata metadata) {
+        return this.properties.isRequired()
+                || (this.properties.isProtectSignedRequests() && metadata.signed())
+                || (this.properties.isProtectEncryptedRequests() && metadata.encrypted());
+    }
+
+    private static void validateRequiredFields(CocoWebRequestSecurityMetadata metadata) {
+        if (metadata.primaryAppId().isEmpty()) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-app-id");
+        }
+        if (metadata.signatureTimestamp() == null) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-timestamp");
+        }
+        if (metadata.signatureNonce() == null) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-nonce");
+        }
+    }
+
+    private static Instant parseTimestamp(String timestamp) {
+        try {
+            long value = Long.parseLong(timestamp);
+            return value < 10_000_000_000L ? Instant.ofEpochSecond(value) : Instant.ofEpochMilli(value);
+        }
+        catch (NumberFormatException ex) {
+            try {
+                return Instant.parse(timestamp);
+            }
+            catch (RuntimeException ignored) {
+                throw CocoBusinessExceptions.unauthorized("coco.web.replay.invalid-timestamp");
+            }
+        }
+    }
+}

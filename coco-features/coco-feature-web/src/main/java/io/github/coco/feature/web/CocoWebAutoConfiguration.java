@@ -36,6 +36,11 @@ import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
+import io.github.coco.feature.web.replay.CocoReplayFilter;
+import io.github.coco.feature.web.replay.CocoReplayKeyResolver;
+import io.github.coco.feature.web.replay.CocoReplayStore;
+import io.github.coco.feature.web.replay.DefaultCocoReplayKeyResolver;
+import io.github.coco.feature.web.replay.InMemoryCocoReplayStore;
 import io.github.coco.feature.web.response.CocoResponseBodyFactory;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
@@ -319,6 +324,32 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco 防重放键解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return 防重放键解析器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoReplayKeyResolver cocoReplayKeyResolver(CocoWebProperties properties) {
+        return new DefaultCocoReplayKeyResolver(properties.getReplay());
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco 防重放存储。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return 防重放存储
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoReplayStore cocoReplayStore(CocoWebProperties properties) {
+        return new InMemoryCocoReplayStore(properties.getReplay());
+    }
+
+    /**
+     * <p>
      * 创建 Coco Web 全局异常处理器。
      * </p>
      * @param messageService Coco 消息服务
@@ -452,6 +483,35 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建 Coco Web 防重放过滤器注册器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param replayStore 防重放存储
+     * @param replayKeyResolver 防重放键解析器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @return 防重放过滤器注册器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnProperty(prefix = "coco.web.replay", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnMissingBean(name = "cocoReplayFilterRegistration")
+    public FilterRegistrationBean<CocoReplayFilter> cocoReplayFilterRegistration(CocoWebProperties properties,
+            CocoReplayStore replayStore, CocoReplayKeyResolver replayKeyResolver,
+            CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+        FilterRegistrationBean<CocoReplayFilter> registration = new FilterRegistrationBean<>(
+                new CocoReplayFilter(properties.getReplay(), replayStore, replayKeyResolver, requestContextResolver,
+                        securityMetadataResolver, exceptionResponseWriter));
+        registration.setName("cocoReplayFilter");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
+        return registration;
+    }
+
+    /**
+     * <p>
      * 创建 Coco 请求解密过滤器注册器。
      * </p>
      * @param properties Coco Web 配置属性
@@ -476,7 +536,7 @@ public class CocoWebAutoConfiguration {
                 new CocoEncryptionFilter(properties.getEncryption(), keyResolver, requestDecryptor,
                         requestContextResolver, exceptionResponseWriter, securityMetadataResolver));
         registration.setName("cocoEncryptionFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 4);
         return registration;
     }
 }

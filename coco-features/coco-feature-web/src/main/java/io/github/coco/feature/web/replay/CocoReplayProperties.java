@@ -1,0 +1,202 @@
+package io.github.coco.feature.web.replay;
+
+/**
+ * Coco Web 防重放配置属性。
+ * <p>
+ * 控制防重放过滤器启用策略、保护范围、重放窗口和内存存储清理节奏。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-feature-web}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+public class CocoReplayProperties {
+
+    private static final long DEFAULT_TTL_SECONDS = 300L;
+
+    private static final long DEFAULT_CLEANUP_INTERVAL_SECONDS = 60L;
+
+    private boolean enabled = true;
+
+    private boolean required = false;
+
+    private boolean protectSignedRequests = true;
+
+    private boolean protectEncryptedRequests = false;
+
+    private boolean includeMethod = true;
+
+    private boolean includePath = true;
+
+    private long ttlSeconds = DEFAULT_TTL_SECONDS;
+
+    private long cleanupIntervalSeconds = DEFAULT_CLEANUP_INTERVAL_SECONDS;
+
+    /**
+     * <p>
+     * 返回是否启用防重放设施。
+     * </p>
+     * @return 启用时返回 {@code true}
+     */
+    public boolean isEnabled() {
+        return this.enabled;
+    }
+
+    /**
+     * <p>
+     * 设置是否启用防重放设施。
+     * </p>
+     * @param enabled 是否启用防重放设施
+     */
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    /**
+     * <p>
+     * 返回是否要求所有请求都通过防重放校验。
+     * </p>
+     * @return 要求所有请求校验时返回 {@code true}
+     */
+    public boolean isRequired() {
+        return this.required;
+    }
+
+    /**
+     * <p>
+     * 设置是否要求所有请求都通过防重放校验。
+     * </p>
+     * @param required 是否要求所有请求校验
+     */
+    public void setRequired(boolean required) {
+        this.required = required;
+    }
+
+    /**
+     * <p>
+     * 返回是否保护已签名请求。
+     * </p>
+     * @return 保护已签名请求时返回 {@code true}
+     */
+    public boolean isProtectSignedRequests() {
+        return this.protectSignedRequests;
+    }
+
+    /**
+     * <p>
+     * 设置是否保护已签名请求。
+     * </p>
+     * @param protectSignedRequests 是否保护已签名请求
+     */
+    public void setProtectSignedRequests(boolean protectSignedRequests) {
+        this.protectSignedRequests = protectSignedRequests;
+    }
+
+    /**
+     * <p>
+     * 返回是否保护已加密请求。
+     * </p>
+     * @return 保护已加密请求时返回 {@code true}
+     */
+    public boolean isProtectEncryptedRequests() {
+        return this.protectEncryptedRequests;
+    }
+
+    /**
+     * <p>
+     * 设置是否保护已加密请求。
+     * </p>
+     * @param protectEncryptedRequests 是否保护已加密请求
+     */
+    public void setProtectEncryptedRequests(boolean protectEncryptedRequests) {
+        this.protectEncryptedRequests = protectEncryptedRequests;
+    }
+
+    /**
+     * <p>
+     * 返回防重放键是否包含 HTTP 方法。
+     * </p>
+     * @return 包含 HTTP 方法时返回 {@code true}
+     */
+    public boolean isIncludeMethod() {
+        return this.includeMethod;
+    }
+
+    /**
+     * <p>
+     * 设置防重放键是否包含 HTTP 方法。
+     * </p>
+     * @param includeMethod 是否包含 HTTP 方法
+     */
+    public void setIncludeMethod(boolean includeMethod) {
+        this.includeMethod = includeMethod;
+    }
+
+    /**
+     * <p>
+     * 返回防重放键是否包含请求路径。
+     * </p>
+     * @return 包含请求路径时返回 {@code true}
+     */
+    public boolean isIncludePath() {
+        return this.includePath;
+    }
+
+    /**
+     * <p>
+     * 设置防重放键是否包含请求路径。
+     * </p>
+     * @param includePath 是否包含请求路径
+     */
+    public void setIncludePath(boolean includePath) {
+        this.includePath = includePath;
+    }
+
+    /**
+     * <p>
+     * 返回重放窗口秒数。
+     * </p>
+     * @return 重放窗口秒数
+     */
+    public long getTtlSeconds() {
+        return this.ttlSeconds;
+    }
+
+    /**
+     * <p>
+     * 设置重放窗口秒数。
+     * </p>
+     * @param ttlSeconds 重放窗口秒数
+     */
+    public void setTtlSeconds(long ttlSeconds) {
+        this.ttlSeconds = ttlSeconds <= 0 ? DEFAULT_TTL_SECONDS : ttlSeconds;
+    }
+
+    /**
+     * <p>
+     * 返回内存存储过期键清理间隔秒数。
+     * </p>
+     * @return 清理间隔秒数
+     */
+    public long getCleanupIntervalSeconds() {
+        return this.cleanupIntervalSeconds;
+    }
+
+    /**
+     * <p>
+     * 设置内存存储过期键清理间隔秒数。
+     * </p>
+     * @param cleanupIntervalSeconds 清理间隔秒数
+     */
+    public void setCleanupIntervalSeconds(long cleanupIntervalSeconds) {
+        this.cleanupIntervalSeconds = cleanupIntervalSeconds <= 0
+                ? DEFAULT_CLEANUP_INTERVAL_SECONDS
+                : cleanupIntervalSeconds;
+    }
+}
