@@ -1130,7 +1130,7 @@ class CocoWebAutoConfigurationTest {
                     snapshot.securityInput().canonicalHeader("x-coco-timestamp").orElseThrow());
             assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().parameter("sku").orElseThrow());
             assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().queryParameter("sku").orElseThrow());
-            assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().payloadParameter("sku").orElseThrow());
+            assertTrue(snapshot.securityInput().payloadParameter("sku").isEmpty());
             assertEquals(List.of("abc"), snapshot.securityInput().queryParameter("token").orElseThrow());
             assertTrue(snapshot.securityInput().payloadParameter("token").isEmpty());
             assertEquals("sku=COCO-STARTER&token=abc", snapshot.securityInput().queryString());
@@ -1270,6 +1270,34 @@ class CocoWebAutoConfigurationTest {
                     assertTrue(canonicalForm.text().contains("sku[0]=5:QUERY\n"));
                     assertTrue(canonicalForm.text().contains("sku[0]=4:BODY\n"));
                     assertFalse(canonicalForm.text().contains("parameters\nsku#2\n"));
+                });
+    }
+
+    @Test
+    void skipsEncryptedTransportPayloadParametersBeforeDecryption() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.canonicalization.version=coco-v2")
+                .run(context -> {
+                    CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+                    CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    byte[] body = "{\"sku\":\"TRANSPORT\",\"token\":\"cipher\"}".getBytes(StandardCharsets.UTF_8);
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    request.addHeader("X-Coco-Encrypted", "true");
+
+                    CocoWebRequestSnapshot snapshot = resolver.resolve("encrypted-transport-trace",
+                            new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+                    CocoWebRequestCanonicalForm canonicalForm = canonicalizer.canonicalize(snapshot.securityInput());
+
+                    assertTrue(snapshot.parameters().isEmpty());
+                    assertTrue(snapshot.securityInput().parameter("sku").isEmpty());
+                    assertTrue(snapshot.securityInput().payloadParameter("sku").isEmpty());
+                    assertTrue(snapshot.securityInput().payloadParameters().isEmpty());
+                    assertEquals("transport", snapshot.requestBody().stage().id());
+                    assertEquals(sha256(body), snapshot.requestBody().transportSha256());
+                    assertEquals(sha256(body), snapshot.requestBody().effectiveSha256());
+                    assertFalse(canonicalForm.text().contains("TRANSPORT"));
+                    assertFalse(canonicalForm.text().contains("cipher"));
                 });
     }
 
@@ -2486,7 +2514,8 @@ class CocoWebAutoConfigurationTest {
         byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
         CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
         this.webContextRunner
-                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                .withPropertyValues("coco.web.context.canonicalization.version=coco-v2",
+                        "coco.web.encryption.keys.sample-app="
                         + Base64.getEncoder().encodeToString(key))
                 .withBean(CocoAccessLogRecorder.class, () -> recorder)
                 .run(context -> {
@@ -2496,6 +2525,7 @@ class CocoWebAutoConfigurationTest {
                             FilterRegistrationBean.class));
                     CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
                             "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
                     byte[] plainBody = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
                     MockHttpServletRequest request = encryptedRequest(plainBody, key, "encrypted-body-trace");
                     MockHttpServletResponse response = new MockHttpServletResponse();
@@ -2534,6 +2564,15 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(sha256(plainBody), effectiveSnapshot.requestBody().effectiveSha256());
                     assertEquals("sample-app", effectiveSnapshot.securityMetadata().primaryAppId().orElseThrow());
                     assertTrue(effectiveSnapshot.securityMetadata().encrypted());
+                    assertEquals(List.of("COCO-STARTER"),
+                            effectiveSnapshot.securityInput().parameter("sku").orElseThrow());
+                    assertTrue(effectiveSnapshot.securityInput().queryParameters().isEmpty());
+                    assertEquals(List.of("COCO-STARTER"),
+                            effectiveSnapshot.securityInput().payloadParameter("sku").orElseThrow());
+                    CocoWebRequestCanonicalForm canonicalForm =
+                            canonicalizer.canonicalize(effectiveSnapshot.securityInput());
+                    assertTrue(canonicalForm.text().contains("payloadParameters\n"));
+                    assertTrue(canonicalForm.text().contains("sku[0]=12:COCO-STARTER\n"));
                     assertEquals("encrypted-body-trace", recorder.lastAccessLog().traceId());
                 });
     }

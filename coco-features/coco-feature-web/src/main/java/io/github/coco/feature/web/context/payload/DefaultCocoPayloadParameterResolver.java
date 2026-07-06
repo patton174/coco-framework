@@ -7,10 +7,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,9 +43,13 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
 
     private static final String FORM_URLENCODED = "application/x-www-form-urlencoded";
 
+    private static final Set<String> DEFAULT_ENCRYPTED_HEADER_NAMES = Set.of("X-Coco-Encrypted");
+
     private final CocoWebParameterProperties properties;
 
     private final ObjectMapper objectMapper;
+
+    private final Set<String> encryptedHeaderNames;
 
     /**
      * <p>
@@ -63,8 +69,22 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
      * @param objectMapper JSON 序列化器
      */
     public DefaultCocoPayloadParameterResolver(CocoWebParameterProperties properties, ObjectMapper objectMapper) {
+        this(properties, objectMapper, DEFAULT_ENCRYPTED_HEADER_NAMES);
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco 请求体参数解析器。
+     * </p>
+     * @param properties Web 请求参数配置属性
+     * @param objectMapper JSON 序列化器
+     * @param encryptedHeaderNames 加密标记请求头名称集合
+     */
+    public DefaultCocoPayloadParameterResolver(CocoWebParameterProperties properties, ObjectMapper objectMapper,
+            Set<String> encryptedHeaderNames) {
         this.properties = properties == null ? new CocoWebParameterProperties() : properties;
         this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
+        this.encryptedHeaderNames = normalizeHeaderNames(encryptedHeaderNames);
     }
 
     /**
@@ -74,7 +94,8 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
     public Map<String, List<String>> resolvePayloadParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
         String contentType = normalizeMediaType(checkedRequest.getContentType());
-        if (!this.properties.getPayload().isEnabled() || !isIncludedContentType(contentType)) {
+        if (!this.properties.getPayload().isEnabled() || !isIncludedContentType(contentType)
+                || encryptedTransportBody(checkedRequest)) {
             return Map.of();
         }
         Map<String, List<String>> rawParameters = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
@@ -93,7 +114,7 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
     @Override
     public Map<String, List<String>> resolveRawPayloadParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        if (!this.properties.getPayload().isEnabled()) {
+        if (!this.properties.getPayload().isEnabled() || encryptedTransportBody(checkedRequest)) {
             return Map.of();
         }
         String contentType = normalizeMediaType(checkedRequest.getContentType());
@@ -250,6 +271,28 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
         return false;
     }
 
+    private boolean encryptedTransportBody(HttpServletRequest request) {
+        if (!encrypted(request)) {
+            return false;
+        }
+        CocoCachedRequestBody effectiveBody = CocoCachedBodyHttpServletRequest.effectiveBody(request)
+                .orElse(CocoCachedRequestBody.empty());
+        CocoCachedRequestBody transportBody = CocoCachedBodyHttpServletRequest.transportBody(request)
+                .orElse(CocoCachedRequestBody.empty());
+        return effectiveBody.cached() && transportBody.cached()
+                && Objects.equals(effectiveBody.sha256(), transportBody.sha256());
+    }
+
+    private boolean encrypted(HttpServletRequest request) {
+        for (String encryptedHeaderName : this.encryptedHeaderNames) {
+            String encrypted = request.getHeader(encryptedHeaderName);
+            if (encrypted != null && ("true".equalsIgnoreCase(encrypted.trim()) || "1".equals(encrypted.trim()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean isJsonContentType(String contentType) {
         return "application/json".equals(contentType) || contentType.endsWith("+json");
     }
@@ -327,6 +370,19 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
         String prefix = pattern.substring(0, wildcardIndex);
         String suffix = pattern.substring(wildcardIndex + 1);
         return contentType.startsWith(prefix) && contentType.endsWith(suffix);
+    }
+
+    private static Set<String> normalizeHeaderNames(Set<String> headerNames) {
+        if (headerNames == null || headerNames.isEmpty()) {
+            return DEFAULT_ENCRYPTED_HEADER_NAMES;
+        }
+        Set<String> normalizedHeaderNames = new LinkedHashSet<>();
+        for (String headerName : headerNames) {
+            if (headerName != null && !headerName.isBlank()) {
+                normalizedHeaderNames.add(headerName.trim());
+            }
+        }
+        return normalizedHeaderNames.isEmpty() ? DEFAULT_ENCRYPTED_HEADER_NAMES : Set.copyOf(normalizedHeaderNames);
     }
 
     private static String trimValue(String value, int maxLength) {

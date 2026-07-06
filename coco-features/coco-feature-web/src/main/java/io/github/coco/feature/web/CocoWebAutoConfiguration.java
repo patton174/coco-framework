@@ -1,5 +1,7 @@
 package io.github.coco.feature.web;
 
+import java.util.Set;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.CocoCommonProperties;
@@ -204,8 +206,10 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoPayloadParameterResolver cocoPayloadParameterResolver(CocoWebProperties properties,
             ObjectProvider<ObjectMapper> objectMapper) {
+        String encryptedHeaderName = properties.getEncryption().getEncryptedHeaderName();
         return new DefaultCocoPayloadParameterResolver(properties.getContext().getParameter(),
-                objectMapper.getIfAvailable(ObjectMapper::new));
+                objectMapper.getIfAvailable(ObjectMapper::new),
+                encryptedHeaderName == null ? Set.of() : Set.of(encryptedHeaderName));
     }
 
     /**
