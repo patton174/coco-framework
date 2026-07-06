@@ -8,7 +8,7 @@ import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 /**
  * 默认 Coco Web 防重放键解析器。
  * <p>
- * 使用安全元数据中的应用标识、密钥标识、时间戳和随机串组成基础键，并可按配置加入请求方法和路径。
+ * 使用防重放协议头中的应用标识、密钥标识、时间戳和随机串组成基础键，并可按配置加入请求方法和路径。
  * </p>
  * <p>
  * 项目信息：
@@ -43,10 +43,16 @@ public final class DefaultCocoReplayKeyResolver implements CocoReplayKeyResolver
         CocoWebRequestSnapshot checkedSnapshot = Objects.requireNonNull(snapshot, "snapshot must not be null");
         CocoWebRequestSecurityMetadata checkedMetadata = Objects.requireNonNull(metadata, "metadata must not be null");
         return new CocoReplayKey(
-                checkedMetadata.primaryAppId().orElse(null),
-                checkedMetadata.primaryKeyId().orElse(null),
-                checkedMetadata.signatureTimestamp(),
-                checkedMetadata.signatureNonce(),
+                checkedSnapshot.securityInput().securityHeader(this.properties.getAppIdHeaderName())
+                        .or(checkedMetadata::primaryAppId)
+                        .orElse(null),
+                checkedSnapshot.securityInput().securityHeader(this.properties.getKeyIdHeaderName())
+                        .or(checkedMetadata::primaryKeyId)
+                        .orElse(null),
+                checkedSnapshot.securityInput().securityHeader(this.properties.getTimestampHeaderName())
+                        .orElse(checkedMetadata.signatureTimestamp()),
+                checkedSnapshot.securityInput().securityHeader(this.properties.getNonceHeaderName())
+                        .orElse(checkedMetadata.signatureNonce()),
                 this.properties.isIncludeMethod() ? checkedSnapshot.method() : null,
                 this.properties.isIncludePath() ? checkedSnapshot.path() : null);
     }

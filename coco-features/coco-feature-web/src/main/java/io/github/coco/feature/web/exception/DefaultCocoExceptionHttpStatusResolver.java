@@ -35,6 +35,9 @@ public final class DefaultCocoExceptionHttpStatusResolver implements CocoExcepti
     @Override
     public HttpStatusCode resolve(CocoException exception) {
         CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");
+        if (checkedException instanceof CocoPayloadTooLargeException) {
+            return HttpStatusCode.valueOf(413);
+        }
         if (checkedException instanceof CocoUnauthorizedException) {
             return HttpStatus.UNAUTHORIZED;
         }

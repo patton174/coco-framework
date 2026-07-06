@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.Set;
 
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
+import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
+import io.github.coco.feature.web.exception.CocoPayloadTooLargeException;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -42,6 +44,8 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     private final Set<String> triggerHeaderNames;
 
+    private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
+
     /**
      * <p>
      * 创建 Coco 请求体缓存过滤器。
@@ -49,7 +53,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
      * @param properties 请求体缓存配置属性
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties) {
-        this(properties, null, null);
+        this(properties, null, null, null);
     }
 
     /**
@@ -62,8 +66,24 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
+        this(properties, signatureProperties, encryptionProperties, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求体缓存过滤器。
+     * </p>
+     * @param properties 请求体缓存配置属性
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     */
+    public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         this.properties = properties == null ? new CocoRequestBodyProperties() : properties;
         this.triggerHeaderNames = triggerHeaderNames(this.properties, signatureProperties, encryptionProperties);
+        this.exceptionResponseWriter = exceptionResponseWriter;
     }
 
     /**
@@ -78,7 +98,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
             return;
         }
         if (isKnownOversized(checkedRequest)) {
-            response.sendError(STATUS_PAYLOAD_TOO_LARGE, "Coco request body exceeds max cache bytes");
+            writePayloadTooLarge(checkedRequest, response);
             return;
         }
         try {
@@ -86,8 +106,19 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
             filterChain.doFilter(new CocoCachedBodyHttpServletRequest(checkedRequest, cachedBody), response);
         }
         catch (RequestBodyOverflowException ex) {
-            response.sendError(STATUS_PAYLOAD_TOO_LARGE, ex.getMessage());
+            writePayloadTooLarge(checkedRequest, response);
         }
+    }
+
+    private void writePayloadTooLarge(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        if (this.exceptionResponseWriter == null) {
+            response.sendError(STATUS_PAYLOAD_TOO_LARGE, "Coco request body exceeds max cache bytes");
+            return;
+        }
+        this.exceptionResponseWriter.write(
+                new CocoPayloadTooLargeException("coco.web.request-body.payload-too-large"),
+                request, response);
     }
 
     private boolean shouldCache(HttpServletRequest request) {

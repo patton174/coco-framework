@@ -11,6 +11,7 @@ import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
+import io.github.coco.feature.web.replay.CocoReplayProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -50,7 +51,7 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
      */
     public DefaultCocoWebRequestSecurityInputResolver(CocoWebContextProperties properties,
             CocoRequestHeaderResolver requestHeaderResolver, CocoRequestParameterResolver requestParameterResolver) {
-        this(properties, requestHeaderResolver, requestParameterResolver, null, null);
+        this(properties, requestHeaderResolver, requestParameterResolver, null, null, null);
     }
 
     /**
@@ -66,9 +67,30 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
     public DefaultCocoWebRequestSecurityInputResolver(CocoWebContextProperties properties,
             CocoRequestHeaderResolver requestHeaderResolver, CocoRequestParameterResolver requestParameterResolver,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
+        this(properties, requestHeaderResolver, requestParameterResolver, signatureProperties, encryptionProperties,
+                null);
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco Web 请求安全输入解析器。
+     * </p>
+     * @param properties Web 请求上下文配置属性
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param replayProperties 防重放配置属性
+     */
+    public DefaultCocoWebRequestSecurityInputResolver(CocoWebContextProperties properties,
+            CocoRequestHeaderResolver requestHeaderResolver, CocoRequestParameterResolver requestParameterResolver,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoReplayProperties replayProperties) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
-        this.securityHeaderNames = securityHeaderNames(contextProperties, signatureProperties, encryptionProperties);
-        this.canonicalHeaderNames = canonicalHeaderNames(contextProperties, signatureProperties, encryptionProperties);
+        this.securityHeaderNames = securityHeaderNames(contextProperties, signatureProperties, encryptionProperties,
+                replayProperties);
+        this.canonicalHeaderNames = canonicalHeaderNames(contextProperties, signatureProperties, encryptionProperties,
+                replayProperties);
         this.requestHeaderResolver = requestHeaderResolver == null
                 ? new DefaultCocoRequestHeaderResolver(contextProperties)
                 : requestHeaderResolver;
@@ -97,7 +119,8 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
     }
 
     private static Set<String> securityHeaderNames(CocoWebContextProperties properties,
-            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoReplayProperties replayProperties) {
         LinkedHashSet<String> headerNames = new LinkedHashSet<>(properties.getSecurityHeaderNames());
         CocoSignatureProperties signature = signatureProperties == null
                 ? new CocoSignatureProperties()
@@ -105,6 +128,7 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         CocoEncryptionProperties encryption = encryptionProperties == null
                 ? new CocoEncryptionProperties()
                 : encryptionProperties;
+        CocoReplayProperties replay = replayProperties == null ? new CocoReplayProperties() : replayProperties;
         add(headerNames, signature.getAppIdHeaderName());
         add(headerNames, signature.getKeyIdHeaderName());
         add(headerNames, signature.getTimestampHeaderName());
@@ -117,11 +141,16 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         add(headerNames, encryption.getKeyIdHeaderName());
         add(headerNames, encryption.getIvHeaderName());
         add(headerNames, encryption.getAlgorithmHeaderName());
+        add(headerNames, replay.getAppIdHeaderName());
+        add(headerNames, replay.getKeyIdHeaderName());
+        add(headerNames, replay.getTimestampHeaderName());
+        add(headerNames, replay.getNonceHeaderName());
         return Set.copyOf(headerNames);
     }
 
     private static Set<String> canonicalHeaderNames(CocoWebContextProperties properties,
-            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoReplayProperties replayProperties) {
         LinkedHashSet<String> headerNames = new LinkedHashSet<>(properties.getCanonicalHeaderNames());
         CocoSignatureProperties signature = signatureProperties == null
                 ? new CocoSignatureProperties()
@@ -129,6 +158,7 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         CocoEncryptionProperties encryption = encryptionProperties == null
                 ? new CocoEncryptionProperties()
                 : encryptionProperties;
+        CocoReplayProperties replay = replayProperties == null ? new CocoReplayProperties() : replayProperties;
         add(headerNames, signature.getAppIdHeaderName());
         add(headerNames, signature.getKeyIdHeaderName());
         add(headerNames, signature.getTimestampHeaderName());
@@ -138,6 +168,10 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         add(headerNames, encryption.getKeyIdHeaderName());
         add(headerNames, encryption.getIvHeaderName());
         add(headerNames, encryption.getAlgorithmHeaderName());
+        add(headerNames, replay.getAppIdHeaderName());
+        add(headerNames, replay.getKeyIdHeaderName());
+        add(headerNames, replay.getTimestampHeaderName());
+        add(headerNames, replay.getNonceHeaderName());
         return Set.copyOf(headerNames);
     }
 

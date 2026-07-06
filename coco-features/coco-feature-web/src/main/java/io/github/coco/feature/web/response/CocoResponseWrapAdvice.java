@@ -139,9 +139,11 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
         }
         CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
                 resolveTraceIdForBody(), resolvePath(request));
+        String successMessageCode = this.properties.getSuccessMessageCode();
         Object wrapped = this.responseBodyFactory.success(CocoResponsePayload.success(this.codeProvider.success(),
-                this.messageService.getMessage(this.properties.getSuccessMessageCode()), body, metadata));
+                this.messageService.getMessageOrDefault(successMessageCode, successMessageCode), body, metadata));
         if (StringHttpMessageConverter.class.isAssignableFrom(selectedConverterType)) {
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
             return writeJson(wrapped);
         }
         return wrapped;

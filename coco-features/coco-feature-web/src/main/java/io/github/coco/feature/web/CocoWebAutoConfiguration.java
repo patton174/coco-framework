@@ -217,7 +217,8 @@ public class CocoWebAutoConfiguration {
             CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestParameterResolver requestParameterResolver) {
         return new DefaultCocoWebRequestSecurityInputResolver(properties.getContext(), requestHeaderResolver,
-                requestParameterResolver, properties.getSignature(), properties.getEncryption());
+                requestParameterResolver, properties.getSignature(), properties.getEncryption(),
+                properties.getReplay());
     }
 
     /**
@@ -412,6 +413,7 @@ public class CocoWebAutoConfiguration {
      * 创建 Coco 请求体缓存过滤器注册器。
      * </p>
      * @param properties Coco Web 配置属性
+     * @param exceptionResponseWriter 过滤器异常响应写出器
      * @return 请求体缓存过滤器注册器
      */
     @Bean
@@ -420,10 +422,10 @@ public class CocoWebAutoConfiguration {
             matchIfMissing = true)
     @ConditionalOnMissingBean(name = "cocoRequestBodyCachingFilterRegistration")
     public FilterRegistrationBean<CocoRequestBodyCachingFilter> cocoRequestBodyCachingFilterRegistration(
-            CocoWebProperties properties) {
+            CocoWebProperties properties, CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         FilterRegistrationBean<CocoRequestBodyCachingFilter> registration = new FilterRegistrationBean<>(
                 new CocoRequestBodyCachingFilter(properties.getRequestBody(), properties.getSignature(),
-                        properties.getEncryption()));
+                        properties.getEncryption(), exceptionResponseWriter));
         registration.setName("cocoRequestBodyCachingFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

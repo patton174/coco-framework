@@ -18,10 +18,18 @@ import io.github.coco.feature.web.response.CocoResponsePayload;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.DefaultCocoResponseBodyFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.context.request.WebRequest;
 
 /**
@@ -120,6 +128,77 @@ public class CocoWebExceptionHandler {
         String message = this.messageService.resolve(checkedException.message());
         int code = checkedException.businessCode()
                 .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
+        return error(statusCode, code, message, request);
+    }
+
+    /**
+     * <p>
+     * 处理 Spring MVC 请求参数异常，并返回统一异常响应。
+     * </p>
+     * @param exception Spring MVC 请求参数异常
+     * @param request 当前 Web 请求
+     * @return 统一异常响应实体
+     */
+    @ExceptionHandler({
+            BindException.class,
+            HttpMessageNotReadableException.class,
+            MethodArgumentNotValidException.class,
+            MethodArgumentTypeMismatchException.class,
+            MissingServletRequestParameterException.class
+    })
+    public ResponseEntity<Object> handleBadRequestException(Exception exception, WebRequest request) {
+        Objects.requireNonNull(exception, "exception must not be null");
+        String message = this.messageService.getMessage(CocoCommonErrorCode.INVALID_ARGUMENT, "request");
+        return error(HttpStatus.BAD_REQUEST, this.codeProvider.invalidArgument(), message, request);
+    }
+
+    /**
+     * <p>
+     * 处理 Spring MVC 请求资源不存在异常，并返回统一异常响应。
+     * </p>
+     * @param exception Spring MVC 资源不存在异常
+     * @param request 当前 Web 请求
+     * @return 统一异常响应实体
+     */
+    @ExceptionHandler(NoHandlerFoundException.class)
+    public ResponseEntity<Object> handleNotFoundException(NoHandlerFoundException exception, WebRequest request) {
+        Objects.requireNonNull(exception, "exception must not be null");
+        String message = this.messageService.getMessage(CocoCommonErrorCode.NOT_FOUND, resolvePath(request));
+        return error(HttpStatus.NOT_FOUND, this.codeProvider.notFound(), message, request);
+    }
+
+    /**
+     * <p>
+     * 处理 Spring MVC 请求方法不支持异常，并返回统一异常响应。
+     * </p>
+     * @param exception Spring MVC 请求方法不支持异常
+     * @param request 当前 Web 请求
+     * @return 统一异常响应实体
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Object> handleMethodNotAllowedException(
+            HttpRequestMethodNotSupportedException exception, WebRequest request) {
+        Objects.requireNonNull(exception, "exception must not be null");
+        String message = this.messageService.getMessage(CocoCommonErrorCode.INVALID_ARGUMENT, "method");
+        return error(HttpStatus.METHOD_NOT_ALLOWED, this.codeProvider.invalidArgument(), message, request);
+    }
+
+    /**
+     * <p>
+     * 处理未捕获异常，并返回统一异常响应。
+     * </p>
+     * @param exception 未捕获异常
+     * @param request 当前 Web 请求
+     * @return 统一异常响应实体
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Object> handleUnhandledException(Exception exception, WebRequest request) {
+        Objects.requireNonNull(exception, "exception must not be null");
+        String message = this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR);
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, this.codeProvider.internalError(), message, request);
+    }
+
+    private ResponseEntity<Object> error(HttpStatusCode statusCode, int code, String message, WebRequest request) {
         CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
                 resolveTraceIdForBody(), resolvePath(request));
         Object response = this.responseBodyFactory.error(CocoResponsePayload.error(code, message, metadata));
@@ -138,6 +217,9 @@ public class CocoWebExceptionHandler {
      * @return 系统响应码
      */
     private int resolveSystemCode(CocoException exception, HttpStatusCode statusCode) {
+        if (exception instanceof CocoPayloadTooLargeException) {
+            return statusCode == null ? 413 : statusCode.value();
+        }
         if (exception instanceof CocoRequestException) {
             return this.codeProvider.invalidArgument();
         }
@@ -217,6 +299,9 @@ public class CocoWebExceptionHandler {
         }
         if (statusCode != null && statusCode.value() == 409) {
             return this.codeProvider.conflict();
+        }
+        if (statusCode != null && statusCode.value() == 413) {
+            return statusCode.value();
         }
         return this.codeProvider.internalError();
     }

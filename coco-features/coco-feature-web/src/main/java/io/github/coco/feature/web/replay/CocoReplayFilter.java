@@ -23,7 +23,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * Coco Web 防重放过滤器。
  * <p>
- * 在业务处理前基于请求时间戳和随机串占用防重放键，阻止同一签名请求在有效窗口内重复提交。
+ * 在业务处理前基于请求时间戳和随机串占用防重放键，阻止签名或加密等受保护请求在有效窗口内重复提交。
  * </p>
  * <p>
  * 项目信息：
@@ -126,8 +126,9 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         if (!shouldProtect(metadata)) {
             return;
         }
-        validateRequiredFields(metadata);
-        Instant requestTime = parseTimestamp(metadata.signatureTimestamp());
+        CocoReplayKey replayKey = this.replayKeyResolver.resolve(snapshot, metadata);
+        validateRequiredFields(replayKey);
+        Instant requestTime = parseTimestamp(replayKey.timestamp());
         Instant now = this.clock.instant();
         Duration ttl = Duration.ofSeconds(this.properties.getTtlSeconds());
         if (requestTime.isAfter(now.plus(ttl))) {
@@ -137,7 +138,6 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         if (!expiresAt.isAfter(now)) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.expired");
         }
-        CocoReplayKey replayKey = this.replayKeyResolver.resolve(snapshot, metadata);
         if (!this.replayStore.reserve(replayKey, expiresAt)) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.detected");
         }
@@ -149,14 +149,14 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
                 || (this.properties.isProtectEncryptedRequests() && metadata.encrypted());
     }
 
-    private static void validateRequiredFields(CocoWebRequestSecurityMetadata metadata) {
-        if (metadata.primaryAppId().isEmpty()) {
+    private static void validateRequiredFields(CocoReplayKey replayKey) {
+        if (replayKey.appId() == null) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-app-id");
         }
-        if (metadata.signatureTimestamp() == null) {
+        if (replayKey.timestamp() == null) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-timestamp");
         }
-        if (metadata.signatureNonce() == null) {
+        if (replayKey.nonce() == null) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-nonce");
         }
     }

@@ -92,6 +92,10 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-encrypted-requests\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.include-method\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.include-path\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.app-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.key-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.timestamp-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.nonce-header-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.ttl-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.cleanup-interval-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.client-ip-header-names\""));

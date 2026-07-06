@@ -416,6 +416,10 @@ class CocoWebAutoConfigurationTest {
         assertFalse(properties.getReplay().isProtectEncryptedRequests());
         assertTrue(properties.getReplay().isIncludeMethod());
         assertTrue(properties.getReplay().isIncludePath());
+        assertEquals("X-Coco-App-Id", properties.getReplay().getAppIdHeaderName());
+        assertEquals("X-Coco-Key-Id", properties.getReplay().getKeyIdHeaderName());
+        assertEquals("X-Coco-Timestamp", properties.getReplay().getTimestampHeaderName());
+        assertEquals("X-Coco-Nonce", properties.getReplay().getNonceHeaderName());
         assertEquals(300L, properties.getReplay().getTtlSeconds());
         assertEquals(60L, properties.getReplay().getCleanupIntervalSeconds());
         assertTrue(properties.getContext().isIncludeHeaders());
@@ -529,16 +533,18 @@ class CocoWebAutoConfigurationTest {
             CocoResponseWrapAdvice advice = responseWrapAdvice(context.getBean(CocoMessageService.class));
             MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/text");
             ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+            ServletServerHttpResponse response = new ServletServerHttpResponse(new MockHttpServletResponse());
 
             Object body = advice.beforeBodyWrite("hello", methodParameter("stringBody"),
                     MediaType.TEXT_PLAIN, StringHttpMessageConverter.class, request,
-                    new ServletServerHttpResponse(new MockHttpServletResponse()));
+                    response);
 
             assertTrue(body instanceof String);
             assertTrue(((String) body).contains("\"success\":true"));
             assertTrue(((String) body).contains("\"data\":\"hello\""));
             assertFalse(((String) body).contains("\"traceId\""));
             assertFalse(((String) body).contains("\"path\""));
+            assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
         });
     }
 
@@ -573,6 +579,61 @@ class CocoWebAutoConfigurationTest {
 
                     assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
                 });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseForSpringBadRequestException() {
+        this.webContextRunner.run(context -> {
+            CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+
+            ResponseEntity<Object> response = handler.handleBadRequestException(
+                    new org.springframework.web.bind.MissingServletRequestParameterException("sku", "String"),
+                    new ServletWebRequest(request));
+
+            CocoApiResponse<?> body = apiBody(response);
+            assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+            assertFalse(body.success());
+            assertEquals(400, body.code());
+            assertEquals("参数不合法：request", body.message());
+        });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseForSpringNotFoundException() {
+        this.webContextRunner.run(context -> {
+            CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/missing");
+
+            ResponseEntity<Object> response = handler.handleNotFoundException(
+                    new org.springframework.web.servlet.NoHandlerFoundException("GET", "/api/missing",
+                            new org.springframework.http.HttpHeaders()),
+                    new ServletWebRequest(request));
+
+            CocoApiResponse<?> body = apiBody(response);
+            assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+            assertFalse(body.success());
+            assertEquals(404, body.code());
+            assertEquals("资源不存在：/api/missing", body.message());
+        });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseForUnhandledException() {
+        this.webContextRunner.run(context -> {
+            CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/error");
+
+            ResponseEntity<Object> response = handler.handleUnhandledException(
+                    new IllegalStateException("boom"),
+                    new ServletWebRequest(request));
+
+            CocoApiResponse<?> body = apiBody(response);
+            assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+            assertFalse(body.success());
+            assertEquals(500, body.code());
+            assertEquals("服务器内部错误", body.message());
+        });
     }
 
     @Test
@@ -1295,6 +1356,37 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void includesCustomReplayHeaderNamesInSecurityInputAutomatically() {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.replay.app-id-header-name=X-Replay-App",
+                        "coco.web.replay.key-id-header-name=X-Replay-Key",
+                        "coco.web.replay.timestamp-header-name=X-Replay-Time",
+                        "coco.web.replay.nonce-header-name=X-Replay-Nonce")
+                .run(context -> {
+                    CocoWebRequestContextResolver requestResolver =
+                            context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Replay-App", "replay-app");
+                    request.addHeader("X-Replay-Key", "replay-key");
+                    request.addHeader("X-Replay-Time", "1783300000000");
+                    request.addHeader("X-Replay-Nonce", "nonce-replay-1001");
+
+                    CocoWebRequestSnapshot snapshot = requestResolver.resolve("custom-replay-headers", request);
+                    CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
+
+                    assertEquals("replay-app", securityInput.securityHeader("x-replay-app").orElseThrow());
+                    assertEquals("replay-key", securityInput.securityHeader("x-replay-key").orElseThrow());
+                    assertEquals("1783300000000", securityInput.securityHeader("x-replay-time").orElseThrow());
+                    assertEquals("nonce-replay-1001", securityInput.securityHeader("x-replay-nonce").orElseThrow());
+                    assertEquals("replay-app", securityInput.canonicalHeader("x-replay-app").orElseThrow());
+                    assertEquals("replay-key", securityInput.canonicalHeader("x-replay-key").orElseThrow());
+                    assertEquals("1783300000000", securityInput.canonicalHeader("x-replay-time").orElseThrow());
+                    assertEquals("nonce-replay-1001", securityInput.canonicalHeader("x-replay-nonce").orElseThrow());
+                });
+    }
+
+    @Test
     void usesCustomBrowserFingerprintResolverInRequestContext() {
         CocoBrowserFingerprintResolver resolver = request ->
                 new CocoBrowserFingerprint("custom-browser-fingerprint", Map.of("custom", "yes"));
@@ -1338,6 +1430,31 @@ class CocoWebAutoConfigurationTest {
 
             assertEquals("{\"sku\":\"COCO-STARTER\"}", downstreamBody.get());
         });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenRequestBodyExceedsMaxCacheBytes() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.request-body.mode=always",
+                        "coco.web.request-body.max-cache-bytes=4")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    request.setContent("{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8));
+                    request.addHeader("Accept-Language", "en-US");
+
+                    bodyFilter.doFilter(request, response, new MockFilterChain());
+
+                    assertEquals(413, response.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(413, body.get("code"));
+                    assertEquals("Request body exceeds the maximum allowed size.", body.get("message"));
+                });
     }
 
     @Test
@@ -1454,6 +1571,51 @@ class CocoWebAutoConfigurationTest {
                                             (signatureRequest, signatureResponse) ->
                                                     replayFilter.doFilter(signatureRequest, signatureResponse,
                                                             new MockFilterChain()))));
+
+                    assertEquals(200, firstResponse.getStatus());
+                    assertEquals(Boolean.TRUE, reachedBusiness.get());
+                    assertEquals(401, replayResponse.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(replayResponse.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(401, body.get("code"));
+                    assertEquals("Request replay has been detected.", body.get("message"));
+                });
+    }
+
+    @Test
+    void rejectsReplayedEncryptedRequestWithCustomReplayHeaders() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.replay.protect-encrypted-requests=true",
+                        "coco.web.replay.app-id-header-name=X-Replay-App",
+                        "coco.web.replay.key-id-header-name=X-Replay-Key",
+                        "coco.web.replay.timestamp-header-name=X-Replay-Time",
+                        "coco.web.replay.nonce-header-name=X-Replay-Nonce",
+                        "coco.web.encryption.encrypted-header-name=X-Crypto-Enabled")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    String timestamp = String.valueOf(System.currentTimeMillis());
+                    String nonce = "nonce-encrypted-replay-1001";
+                    MockHttpServletRequest firstRequest = encryptedReplayRequest("encrypted-replay-first",
+                            timestamp, nonce);
+                    MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+                    AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+
+                    traceFilter.doFilter(firstRequest, firstResponse, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse,
+                                    new MockFilterChain(new TraceCapturingServlet(() ->
+                                            reachedBusiness.set(true)))));
+
+                    MockHttpServletRequest replayRequest = encryptedReplayRequest("encrypted-replay-second",
+                            timestamp, nonce);
+                    replayRequest.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse replayResponse = new MockHttpServletResponse();
+
+                    traceFilter.doFilter(replayRequest, replayResponse, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
 
                     assertEquals(200, firstResponse.getStatus());
                     assertEquals(Boolean.TRUE, reachedBusiness.get());
@@ -1728,6 +1890,17 @@ class CocoWebAutoConfigurationTest {
         request.addHeader("X-Coco-App-Id", "sample-app");
         request.addHeader("X-Coco-IV", Base64.getEncoder().encodeToString(iv));
         request.addHeader("X-Coco-Algorithm", "AES-GCM");
+        return request;
+    }
+
+    private static MockHttpServletRequest encryptedReplayRequest(String traceId, String timestamp, String nonce) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.addHeader("X-Trace-Id", traceId);
+        request.addHeader("X-Crypto-Enabled", "true");
+        request.addHeader("X-Replay-App", "sample-app");
+        request.addHeader("X-Replay-Key", "key-1001");
+        request.addHeader("X-Replay-Time", timestamp);
+        request.addHeader("X-Replay-Nonce", nonce);
         return request;
     }
 

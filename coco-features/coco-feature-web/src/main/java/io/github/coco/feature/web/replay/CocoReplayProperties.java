@@ -22,6 +22,14 @@ public class CocoReplayProperties {
 
     private static final long DEFAULT_CLEANUP_INTERVAL_SECONDS = 60L;
 
+    private static final String DEFAULT_APP_ID_HEADER_NAME = "X-Coco-App-Id";
+
+    private static final String DEFAULT_KEY_ID_HEADER_NAME = "X-Coco-Key-Id";
+
+    private static final String DEFAULT_TIMESTAMP_HEADER_NAME = "X-Coco-Timestamp";
+
+    private static final String DEFAULT_NONCE_HEADER_NAME = "X-Coco-Nonce";
+
     private boolean enabled = true;
 
     private boolean required = false;
@@ -33,6 +41,14 @@ public class CocoReplayProperties {
     private boolean includeMethod = true;
 
     private boolean includePath = true;
+
+    private String appIdHeaderName = DEFAULT_APP_ID_HEADER_NAME;
+
+    private String keyIdHeaderName = DEFAULT_KEY_ID_HEADER_NAME;
+
+    private String timestampHeaderName = DEFAULT_TIMESTAMP_HEADER_NAME;
+
+    private String nonceHeaderName = DEFAULT_NONCE_HEADER_NAME;
 
     private long ttlSeconds = DEFAULT_TTL_SECONDS;
 
@@ -160,6 +176,86 @@ public class CocoReplayProperties {
 
     /**
      * <p>
+     * 返回防重放应用标识请求头名称。
+     * </p>
+     * @return 防重放应用标识请求头名称
+     */
+    public String getAppIdHeaderName() {
+        return this.appIdHeaderName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放应用标识请求头名称。
+     * </p>
+     * @param appIdHeaderName 防重放应用标识请求头名称
+     */
+    public void setAppIdHeaderName(String appIdHeaderName) {
+        this.appIdHeaderName = normalizeHeaderName(appIdHeaderName, DEFAULT_APP_ID_HEADER_NAME);
+    }
+
+    /**
+     * <p>
+     * 返回防重放密钥标识请求头名称。
+     * </p>
+     * @return 防重放密钥标识请求头名称
+     */
+    public String getKeyIdHeaderName() {
+        return this.keyIdHeaderName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放密钥标识请求头名称。
+     * </p>
+     * @param keyIdHeaderName 防重放密钥标识请求头名称
+     */
+    public void setKeyIdHeaderName(String keyIdHeaderName) {
+        this.keyIdHeaderName = normalizeHeaderName(keyIdHeaderName, DEFAULT_KEY_ID_HEADER_NAME);
+    }
+
+    /**
+     * <p>
+     * 返回防重放时间戳请求头名称。
+     * </p>
+     * @return 防重放时间戳请求头名称
+     */
+    public String getTimestampHeaderName() {
+        return this.timestampHeaderName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放时间戳请求头名称。
+     * </p>
+     * @param timestampHeaderName 防重放时间戳请求头名称
+     */
+    public void setTimestampHeaderName(String timestampHeaderName) {
+        this.timestampHeaderName = normalizeHeaderName(timestampHeaderName, DEFAULT_TIMESTAMP_HEADER_NAME);
+    }
+
+    /**
+     * <p>
+     * 返回防重放随机串请求头名称。
+     * </p>
+     * @return 防重放随机串请求头名称
+     */
+    public String getNonceHeaderName() {
+        return this.nonceHeaderName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放随机串请求头名称。
+     * </p>
+     * @param nonceHeaderName 防重放随机串请求头名称
+     */
+    public void setNonceHeaderName(String nonceHeaderName) {
+        this.nonceHeaderName = normalizeHeaderName(nonceHeaderName, DEFAULT_NONCE_HEADER_NAME);
+    }
+
+    /**
+     * <p>
      * 返回重放窗口秒数。
      * </p>
      * @return 重放窗口秒数
@@ -198,5 +294,9 @@ public class CocoReplayProperties {
         this.cleanupIntervalSeconds = cleanupIntervalSeconds <= 0
                 ? DEFAULT_CLEANUP_INTERVAL_SECONDS
                 : cleanupIntervalSeconds;
+    }
+
+    private static String normalizeHeaderName(String headerName, String defaultHeaderName) {
+        return headerName == null || headerName.isBlank() ? defaultHeaderName : headerName.trim();
     }
 }
