@@ -1,6 +1,7 @@
 package io.github.coco.feature.web;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -36,8 +37,15 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.trace.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.header-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.mdc-key\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.include-parameters\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.max-parameter-value-length\""));
+        assertTrue(content.contains("\"name\": \"coco.web.access-log.masked-parameter-names\""));
+        assertFalse(content.contains("\"name\": \"coco.web.access-log.level\""));
+        assertFalse(content.contains("\"name\": \"coco.web.access-log.style\""));
+        assertFalse(content.contains("\"name\": \"coco.web.access-log.logger-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
-        assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));
+        assertFalse(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));
     }
 }

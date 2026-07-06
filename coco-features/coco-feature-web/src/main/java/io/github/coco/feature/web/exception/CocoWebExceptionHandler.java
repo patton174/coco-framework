@@ -2,10 +2,18 @@ package io.github.coco.feature.web.exception;
 
 import java.util.Objects;
 
+import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoException;
+import io.github.coco.common.exception.type.CocoConflictException;
+import io.github.coco.common.exception.type.CocoForbiddenException;
+import io.github.coco.common.exception.type.CocoNotFoundException;
+import io.github.coco.common.exception.type.CocoRequestException;
+import io.github.coco.common.exception.type.CocoSystemException;
+import io.github.coco.common.exception.type.CocoUnauthorizedException;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.response.CocoApiResponse;
+import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -35,18 +43,22 @@ public class CocoWebExceptionHandler {
 
     private final CocoExceptionHttpStatusResolver httpStatusResolver;
 
+    private final CocoSystemCodeProvider codeProvider;
+
     /**
      * <p>
      * 创建 Coco Web 全局异常处理器。
      * </p>
      * @param messageService Coco 消息服务
      * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
      */
     public CocoWebExceptionHandler(CocoMessageService messageService,
-            CocoExceptionHttpStatusResolver httpStatusResolver) {
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider) {
         this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
         this.httpStatusResolver = Objects.requireNonNull(httpStatusResolver,
                 "httpStatusResolver must not be null");
+        this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
     }
 
     /**
@@ -64,9 +76,106 @@ public class CocoWebExceptionHandler {
                 "resolved http status must not be null");
         String message = this.messageService.resolve(checkedException.message());
         String traceId = CocoTraceContext.getOrCreateTraceId();
-        CocoApiResponse<Void> response = CocoApiResponse.error(checkedException.code(), message, traceId,
+        int code = checkedException.businessCode()
+                .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
+        CocoApiResponse<Void> response = CocoApiResponse.error(code, message, traceId,
                 resolvePath(request));
         return ResponseEntity.status(statusCode).body(response);
+    }
+
+    /**
+     * <p>
+     * 解析框架默认系统响应码。
+     * </p>
+     * <p>
+     * 解析顺序为类型化异常、Coco 内置消息编码、HTTP 状态兜底；业务自定义响应码由调用方提前处理。
+     * </p>
+     * @param exception Coco 异常
+     * @param statusCode 当前异常对应的 HTTP 状态码
+     * @return 系统响应码
+     */
+    private int resolveSystemCode(CocoException exception, HttpStatusCode statusCode) {
+        if (exception instanceof CocoRequestException) {
+            return this.codeProvider.invalidArgument();
+        }
+        if (exception instanceof CocoUnauthorizedException) {
+            return this.codeProvider.unauthorized();
+        }
+        if (exception instanceof CocoForbiddenException) {
+            return this.codeProvider.forbidden();
+        }
+        if (exception instanceof CocoNotFoundException) {
+            return this.codeProvider.notFound();
+        }
+        if (exception instanceof CocoConflictException) {
+            return this.codeProvider.conflict();
+        }
+        if (exception instanceof CocoSystemException) {
+            return this.codeProvider.internalError();
+        }
+        Integer messageCode = resolveSystemCodeByMessageCode(exception.messageCode());
+        if (messageCode != null) {
+            return messageCode;
+        }
+        return resolveSystemCodeByHttpStatus(statusCode);
+    }
+
+    /**
+     * <p>
+     * 根据 Coco 内置消息编码解析系统响应码。
+     * </p>
+     * @param messageCode 国际化消息编码
+     * @return 匹配到的系统响应码；未匹配时为空
+     */
+    private Integer resolveSystemCodeByMessageCode(String messageCode) {
+        if (CocoCommonErrorCode.INVALID_ARGUMENT.code().equals(messageCode)
+                || CocoCommonErrorCode.MISSING_MESSAGE_CODE.code().equals(messageCode)
+                || CocoCommonErrorCode.MISSING_ERROR_CODE.code().equals(messageCode)) {
+            return this.codeProvider.invalidArgument();
+        }
+        if (CocoCommonErrorCode.UNAUTHORIZED.code().equals(messageCode)) {
+            return this.codeProvider.unauthorized();
+        }
+        if (CocoCommonErrorCode.FORBIDDEN.code().equals(messageCode)) {
+            return this.codeProvider.forbidden();
+        }
+        if (CocoCommonErrorCode.NOT_FOUND.code().equals(messageCode)) {
+            return this.codeProvider.notFound();
+        }
+        if (CocoCommonErrorCode.CONFLICT.code().equals(messageCode)) {
+            return this.codeProvider.conflict();
+        }
+        if (CocoCommonErrorCode.UNKNOWN.code().equals(messageCode)
+                || CocoCommonErrorCode.INTERNAL_ERROR.code().equals(messageCode)) {
+            return this.codeProvider.internalError();
+        }
+        return null;
+    }
+
+    /**
+     * <p>
+     * 根据 HTTP 状态码兜底解析系统响应码。
+     * </p>
+     * @param statusCode HTTP 状态码
+     * @return 系统响应码
+     */
+    private int resolveSystemCodeByHttpStatus(HttpStatusCode statusCode) {
+        if (statusCode != null && statusCode.value() == 400) {
+            return this.codeProvider.invalidArgument();
+        }
+        if (statusCode != null && statusCode.value() == 401) {
+            return this.codeProvider.unauthorized();
+        }
+        if (statusCode != null && statusCode.value() == 403) {
+            return this.codeProvider.forbidden();
+        }
+        if (statusCode != null && statusCode.value() == 404) {
+            return this.codeProvider.notFound();
+        }
+        if (statusCode != null && statusCode.value() == 409) {
+            return this.codeProvider.conflict();
+        }
+        return this.codeProvider.internalError();
     }
 
     private static String resolvePath(WebRequest request) {

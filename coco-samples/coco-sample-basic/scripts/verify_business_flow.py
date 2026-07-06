@@ -150,29 +150,71 @@ def run_business_flow(base_url: str) -> None:
         base_url,
         "/sample/orders",
         {"buyerName": "Patton", "sku": "COCO-STARTER", "quantity": 99},
-        trace_id="python-stock-error",
+        trace_id="python-stock-error-zh",
+        accept_language="zh-CN",
     )
-    log_response("INSUFFICIENT_STOCK", "POST", "/sample/orders", insufficient)
+    log_response("INSUFFICIENT_STOCK_ZH", "POST", "/sample/orders", insufficient)
     assert_equal(insufficient.status, 409, "insufficient stock HTTP status")
     assert_equal(insufficient.body["success"], False, "insufficient stock success flag")
-    assert_equal(insufficient.body["code"], "sample.order.insufficient-stock", "insufficient stock code")
-    assert_equal(insufficient.body["traceId"], "python-stock-error", "insufficient stock trace")
-    log("  stock error: code=sample.order.insufficient-stock status=409")
+    assert_equal(insufficient.body["code"], 1004, "insufficient stock code")
+    assert_equal(
+        insufficient.body["message"],
+        "\u5546\u54c1 COCO-STARTER \u5e93\u5b58\u4e0d\u8db3\uff0c"
+        "\u5f53\u524d\u5e93\u5b58 3\uff0c\u8bf7\u6c42\u6570\u91cf 99",
+        "insufficient stock zh-CN message",
+    )
+    assert_equal(insufficient.body["traceId"], "python-stock-error-zh", "insufficient stock zh-CN trace")
+    log("  stock error zh-CN: code=1004 status=409")
+
+    english_insufficient = request_json(
+        base_url,
+        "/sample/orders",
+        {"buyerName": "Patton", "sku": "COCO-STARTER", "quantity": 99},
+        trace_id="python-stock-error-en",
+        accept_language="en-US",
+    )
+    log_response("INSUFFICIENT_STOCK_EN", "POST", "/sample/orders", english_insufficient)
+    assert_equal(english_insufficient.status, 409, "insufficient stock en-US HTTP status")
+    assert_equal(english_insufficient.body["success"], False, "insufficient stock en-US success flag")
+    assert_equal(english_insufficient.body["code"], 1004, "insufficient stock en-US code")
+    assert_equal(
+        english_insufficient.body["message"],
+        "Product COCO-STARTER has insufficient stock, current stock 3, requested quantity 99",
+        "insufficient stock en-US message",
+    )
+    assert_equal(english_insufficient.body["traceId"], "python-stock-error-en", "insufficient stock en-US trace")
+    log("  stock error en-US: code=1004 status=409")
 
 
-def request(method: str, base_url: str, path: str, trace_id: str) -> HttpResult:
+def request(
+    method: str,
+    base_url: str,
+    path: str,
+    trace_id: str,
+    accept_language: str | None = None,
+) -> HttpResult:
     req = urllib.request.Request(base_url + path, method=method)
     req.add_header("Accept", "application/json")
     req.add_header("X-Trace-Id", trace_id)
+    if accept_language:
+        req.add_header("Accept-Language", accept_language)
     return send(req)
 
 
-def request_json(base_url: str, path: str, payload: dict[str, Any], trace_id: str) -> HttpResult:
+def request_json(
+    base_url: str,
+    path: str,
+    payload: dict[str, Any],
+    trace_id: str,
+    accept_language: str | None = None,
+) -> HttpResult:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(base_url + path, method="POST", data=data)
     req.add_header("Accept", "application/json")
     req.add_header("Content-Type", "application/json")
     req.add_header("X-Trace-Id", trace_id)
+    if accept_language:
+        req.add_header("Accept-Language", accept_language)
     return send(req)
 
 
@@ -193,7 +235,8 @@ def assert_success(response: HttpResult, trace_id: str, path: str) -> None:
     assert_equal(response.status, 200, f"{path} HTTP status")
     assert_equal(response.headers.get("X-Trace-Id"), trace_id, f"{path} trace header")
     assert_equal(response.body["success"], True, f"{path} success flag")
-    assert_equal(response.body["code"], "coco.success", f"{path} response code")
+    assert_equal(response.body["code"], 200, f"{path} response code")
+    assert_equal(response.body["message"], "\u64cd\u4f5c\u6210\u529f", f"{path} response message")
     assert_equal(response.body["traceId"], trace_id, f"{path} response trace")
     assert_equal(response.body["path"], path, f"{path} response path")
 
@@ -211,7 +254,7 @@ def log_response(label: str, method: str, path: str, response: HttpResult) -> No
     log(
         f"{label} {method} {path} -> status={response.status} "
         f"code={response.body.get('code')} success={response.body.get('success')} "
-        f"traceId={response.body.get('traceId')}"
+        f"traceId={response.body.get('traceId')} message={response.body.get('message')}"
     )
 
 

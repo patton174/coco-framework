@@ -1,5 +1,6 @@
 package io.github.coco.feature.web;
 
+import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -29,6 +30,9 @@ public class CocoWebProperties {
 
     @NestedConfigurationProperty
     private CocoResponseWrapProperties responseWrap = new CocoResponseWrapProperties();
+
+    @NestedConfigurationProperty
+    private CocoAccessLogCaptureProperties accessLog = new CocoAccessLogCaptureProperties();
 
     /**
      * <p>
@@ -68,5 +72,25 @@ public class CocoWebProperties {
      */
     public void setResponseWrap(CocoResponseWrapProperties responseWrap) {
         this.responseWrap = responseWrap == null ? new CocoResponseWrapProperties() : responseWrap;
+    }
+
+    /**
+     * <p>
+     * 返回接口访问日志打印配置属性。
+     * </p>
+     * @return 接口访问日志打印配置属性
+     */
+    public CocoAccessLogCaptureProperties getAccessLog() {
+        return this.accessLog;
+    }
+
+    /**
+     * <p>
+     * 设置接口访问日志打印配置属性。
+     * </p>
+     * @param accessLog 接口访问日志打印配置属性
+     */
+    public void setAccessLog(CocoAccessLogCaptureProperties accessLog) {
+        this.accessLog = accessLog == null ? new CocoAccessLogCaptureProperties() : accessLog;
     }
 }

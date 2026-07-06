@@ -1,9 +1,9 @@
 package io.github.coco.feature.audit;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
-import io.github.coco.core.feature.ConditionalOnCocoFeature;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.audit.accesslog.NoOpCocoAccessLogRecorder;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;

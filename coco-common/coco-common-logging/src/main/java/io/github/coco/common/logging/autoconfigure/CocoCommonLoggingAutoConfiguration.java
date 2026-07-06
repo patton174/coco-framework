@@ -1,0 +1,121 @@
+package io.github.coco.common.logging.autoconfigure;
+
+import io.github.coco.common.logging.access.CocoAccessLogFormatter;
+import io.github.coco.common.logging.access.CocoAccessLogProperties;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
+import io.github.coco.common.logging.access.Slf4jCocoAccessLogRecorder;
+import io.github.coco.common.logging.core.AsyncCocoLogSink;
+import io.github.coco.common.logging.core.CocoLogHandleRegistrar;
+import io.github.coco.common.logging.core.CocoLogHandleRegistry;
+import io.github.coco.common.logging.core.CocoLogHandles;
+import io.github.coco.common.logging.core.CocoLogManager;
+import io.github.coco.common.logging.core.CocoLogSink;
+import io.github.coco.common.logging.core.CocoLoggingProperties;
+import io.github.coco.common.logging.core.Slf4jCocoLogSink;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+
+/**
+ * Coco 通用日志自动配置。
+ * <p>
+ * 注册日志句柄、默认日志输出器、日志管理器以及接口访问日志默认记录器。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-common-logging}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+@AutoConfiguration
+@EnableConfigurationProperties(CocoLoggingProperties.class)
+public class CocoCommonLoggingAutoConfiguration {
+
+    /**
+     * <p>
+     * 创建日志句柄注册表。
+     * </p>
+     * @param registrars 业务侧和框架模块提供的日志句柄注册器
+     * @return 日志句柄注册表
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoLogHandleRegistry cocoLogHandleRegistry(ObjectProvider<CocoLogHandleRegistrar> registrars) {
+        CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
+        CocoLogHandles.registerDefaults(registry);
+        registrars.orderedStream().forEach(registrar -> registrar.register(registry));
+        return registry;
+    }
+
+    /**
+     * <p>
+     * 创建默认日志输出器。
+     * </p>
+     * @param properties Coco 日志配置属性
+     * @return 日志输出器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoLogSink cocoLogSink(CocoLoggingProperties properties) {
+        CocoLogSink slf4jSink = new Slf4jCocoLogSink();
+        CocoLoggingProperties.AsyncProperties async = properties.getAsync();
+        if (!async.isEnabled()) {
+            return slf4jSink;
+        }
+        return new AsyncCocoLogSink(slf4jSink, async.getQueueCapacity());
+    }
+
+    /**
+     * <p>
+     * 创建日志管理器。
+     * </p>
+     * @param registry 日志句柄注册表
+     * @param sink 日志输出器
+     * @return 日志管理器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoLogManager cocoLogManager(CocoLogHandleRegistry registry, CocoLogSink sink) {
+        return new CocoLogManager(registry, sink);
+    }
+
+    /**
+     * <p>
+     * 创建默认接口访问日志格式化器。
+     * </p>
+     * @return 接口访问日志格式化器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoAccessLogFormatter cocoAccessLogFormatter() {
+        return new DefaultCocoAccessLogFormatter();
+    }
+
+    /**
+     * <p>
+     * 创建默认接口访问日志记录器。
+     * </p>
+     * @param properties Coco 日志配置属性
+     * @param formatter 接口访问日志格式化器
+     * @param logManager Coco 日志管理器
+     * @return 接口访问日志记录器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.logging.access-log", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    public CocoAccessLogRecorder cocoAccessLogRecorder(CocoLoggingProperties properties,
+            CocoAccessLogFormatter formatter, CocoLogManager logManager) {
+        CocoAccessLogProperties accessLogProperties = properties.getAccessLog();
+        return new Slf4jCocoAccessLogRecorder(accessLogProperties, formatter, logManager);
+    }
+}

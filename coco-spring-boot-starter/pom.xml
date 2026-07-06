@@ -22,7 +22,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-core</artifactId>
+            <artifactId>coco-common-context</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -34,7 +34,11 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-core-runtime</artifactId>
+            <artifactId>coco-common-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-feature-runtime</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -73,8 +77,8 @@
             <artifactId>coco-feature-codegen</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-autoconfigure</artifactId>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-spring-boot-autoconfigure</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -83,6 +87,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -41,8 +41,8 @@
         <module>coco-bom</module>
         <module>coco-api</module>
         <module>coco-common</module>
-        <module>coco-core</module>
         <module>coco-config</module>
+        <module>coco-spring-boot-autoconfigure</module>
         <module>coco-spring-boot-starter</module>
         <module>coco-features</module>
         <module>coco-maven-plugin</module>
@@ -88,7 +88,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-core</artifactId>
+                <artifactId>coco-common-context</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -103,7 +103,12 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-core-runtime</artifactId>
+                <artifactId>coco-common-logging</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-feature-runtime</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -159,6 +164,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-spring-boot-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-spring-boot-autoconfigure</artifactId>
                 <version>${revision}</version>
             </dependency>
         </dependencies>

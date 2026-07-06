@@ -32,7 +32,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-core</artifactId>
+                <artifactId>coco-common-context</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -47,7 +47,12 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-core-runtime</artifactId>
+                <artifactId>coco-common-logging</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-feature-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -58,6 +63,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-spring-boot-autoconfigure</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

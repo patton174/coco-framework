@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

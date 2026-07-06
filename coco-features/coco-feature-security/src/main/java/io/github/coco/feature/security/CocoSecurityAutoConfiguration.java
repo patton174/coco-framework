@@ -2,7 +2,7 @@ package io.github.coco.feature.security;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
-import io.github.coco.core.feature.ConditionalOnCocoFeature;
+import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;

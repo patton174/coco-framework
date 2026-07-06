@@ -11,14 +11,13 @@ The current stage builds the repository structure only. Concrete feature behavio
 - `coco-api`: public API aggregate modules.
 - `coco-api-core`: core public API contracts under `coco-api/coco-api-core`.
 - `coco-common`: common infrastructure aggregate modules.
-- `coco-common-core`: common contracts and lightweight runtime utilities.
+- `coco-common-context`: request context and TraceId infrastructure.
 - `coco-common-exception`: common exception contracts and assertion utilities.
 - `coco-common-i18n`: i18n message infrastructure; public contracts live under its `api` package.
-- `coco-core`: internal foundation aggregate modules.
-- `coco-core-runtime`: internal runtime foundations under `coco-core/coco-core-runtime`.
 - `coco-spring-boot-starter`: single starter dependency for business projects.
 - `coco-features`: standard feature aggregate modules.
 - `coco-feature-registry`: standard feature metadata artifact under `coco-features/coco-feature-registry`.
+- `coco-feature-runtime`: runtime feature condition support under `coco-features/coco-feature-runtime`.
 - `coco-feature-*`: feature implementation artifacts under `coco-features/coco-feature-*`.
 - `coco-maven-plugin`: build-time feature assembly plugin shell.
 - `coco-test`: shared test support shell.

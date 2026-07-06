@@ -2,8 +2,8 @@ package io.github.coco.feature.audit.accesslog;
 
 import java.util.Objects;
 
-import io.github.coco.common.accesslog.CocoAccessLog;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
+import io.github.coco.common.logging.access.CocoAccessLog;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 
 /**
  * 空操作 Coco 接口访问日志记录器。

@@ -8,14 +8,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.accesslog.CocoAccessLog;
-import io.github.coco.common.accesslog.CocoAccessLogRecorder;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.context.CocoRequestContext;
 import io.github.coco.common.context.CocoRequestContextHolder;
+import io.github.coco.common.exception.CocoBusinessCode;
+import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoCommonErrorCode;
 import io.github.coco.common.exception.CocoExceptions;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.common.logging.access.CocoAccessLog;
+import io.github.coco.common.logging.access.CocoAccessLogFormatter;
+import io.github.coco.common.logging.access.CocoAccessLogProperties;
+import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.common.logging.access.CocoAccessLogStyle;
+import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
@@ -23,6 +29,8 @@ import io.github.coco.feature.web.response.CocoApiResponse;
 import io.github.coco.feature.web.response.CocoIgnoreResponseWrap;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
+import io.github.coco.feature.web.response.CocoSystemCodeProvider;
+import io.github.coco.feature.web.response.CocoSystemCodes;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -32,6 +40,7 @@ import jakarta.servlet.ServletResponse;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -41,6 +50,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpOutputMessage;
@@ -55,6 +65,8 @@ import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.context.request.ServletWebRequest;
 
 /**
@@ -91,6 +103,8 @@ class CocoWebAutoConfigurationTest {
     void clearTraceContext() {
         CocoRequestContextHolder.clear();
         CocoTraceContext.clear();
+        LocaleContextHolder.resetLocaleContext();
+        RequestContextHolder.resetRequestAttributes();
         MDC.clear();
     }
 
@@ -129,8 +143,62 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void webModuleDoesNotCreateAccessLogPrinterByDefault() {
+        this.webContextRunner.run(context -> {
+            assertFalse(context.containsBean("cocoSlf4jAccessLogRecorder"));
+            assertFalse(context.getBeansOfType(CocoAccessLogFormatter.class).containsKey("cocoAccessLogFormatter"));
+        });
+    }
+
+    @Test
+    void disablesAccessLogEventPublicationByProperty() throws Exception {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        this.webContextRunner
+                .withPropertyValues("coco.web.access-log.enabled=false")
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "access-disabled");
+
+                    filter.doFilter(request, response, new MockFilterChain());
+
+                    assertNull(recorder.lastAccessLog());
+                });
+    }
+
+    @Test
     void registersLocalizedSuccessResponseMessage() {
         this.contextRunner.run(context -> {
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("操作成功", messageService.getMessage("coco.web.response.success"));
+        });
+    }
+
+    @Test
+    void resolvesWebMessageFromAcceptLanguageHeader() {
+        this.webContextRunner.run(context -> {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            request.addHeader("Accept-Language", "en-US");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+            LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals("Operation succeeded.", messageService.getMessage("coco.web.response.success"));
+        });
+    }
+
+    @Test
+    void fallsBackToCocoDefaultLocaleWhenAcceptLanguageHeaderIsMissing() {
+        this.webContextRunner.run(context -> {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+            LocaleContextHolder.setLocale(Locale.US);
+
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
             assertEquals("操作成功", messageService.getMessage("coco.web.response.success"));
@@ -159,7 +227,7 @@ class CocoWebAutoConfigurationTest {
             assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
             assertNotNull(body);
             assertFalse(body.success());
-            assertEquals("coco.error.invalid-argument", body.code());
+            assertEquals(400, body.code());
             assertEquals("参数不合法：name", body.message());
             assertEquals("trace-test", body.traceId());
             assertEquals("/api/users", body.path());
@@ -180,25 +248,26 @@ class CocoWebAutoConfigurationTest {
             assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
             assertNotNull(body);
             assertFalse(body.success());
-            assertEquals("coco.error.not-found", body.code());
+            assertEquals(404, body.code());
             assertEquals("资源不存在：user", body.message());
             assertEquals("/api/users/404", body.path());
         });
     }
 
     @Test
-    void rejectsBlankResponseCode() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new CocoApiResponse<>(false, " ", "message", null, "trace", "/api/users"));
+    void acceptsZeroResponseCode() {
+        CocoApiResponse<Void> response = new CocoApiResponse<>(true, 0, "message", null, "trace", "/api/users");
+
+        assertEquals(0, response.code());
     }
 
     @Test
     void createsSuccessResponseModel() {
         CocoApiResponse<String> response = CocoApiResponse.success(
-                "coco.success", "操作成功", "payload", "trace-id", "/api/users");
+                200, "操作成功", "payload", "trace-id", "/api/users");
 
         assertTrue(response.success());
-        assertEquals("coco.success", response.code());
+        assertEquals(200, response.code());
         assertEquals("操作成功", response.message());
         assertEquals("payload", response.data());
         assertEquals("trace-id", response.traceId());
@@ -210,13 +279,48 @@ class CocoWebAutoConfigurationTest {
         CocoWebProperties properties = new CocoWebProperties();
 
         assertTrue(properties.getResponseWrap().isEnabled());
-        assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
         assertEquals("coco.web.response.success", properties.getResponseWrap().getSuccessMessageCode());
 
         properties.setResponseWrap(null);
 
         assertTrue(properties.getResponseWrap().isEnabled());
-        assertEquals("coco.success", properties.getResponseWrap().getSuccessCode());
+    }
+
+    @Test
+    void accessLogPropertiesUseDefaultsAndResetNullNestedValue() {
+        CocoWebProperties properties = new CocoWebProperties();
+
+        assertTrue(properties.getAccessLog().isEnabled());
+        assertTrue(properties.getAccessLog().isIncludeParameters());
+        assertEquals(256, properties.getAccessLog().getMaxParameterValueLength());
+        assertTrue(properties.getAccessLog().getMaskedParameterNames().contains("token"));
+
+        properties.setAccessLog(null);
+
+        assertTrue(properties.getAccessLog().isEnabled());
+    }
+
+    @Test
+    void formatsAccessLogAsTextAndJson() {
+        CocoAccessLog accessLog = CocoAccessLog.of("trace-1001", "post", "/sample/orders",
+                201, 42L, true, null, "10.0.0.8", "PostmanRuntime/7.37",
+                "sku=COCO-STARTER&token=******",
+                Map.of("sku", List.of("COCO-STARTER"), "token", List.of("******")));
+        CocoAccessLogProperties properties = new CocoAccessLogProperties();
+        DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
+
+        assertEquals("▸ request  POST /sample/orders?sku=COCO-STARTER&token=****** | trace=trace-1001 "
+                        + "ip=10.0.0.8 ua=\"PostmanRuntime/7.37\" "
+                        + "params=\"sku=COCO-STARTER&token=******\" ◂ response 201 42ms success=true",
+                formatter.format(accessLog, properties));
+
+        properties.setStyle(CocoAccessLogStyle.JSON);
+
+        assertEquals("{\"traceId\":\"trace-1001\",\"method\":\"POST\",\"path\":\"/sample/orders\","
+                        + "\"clientIp\":\"10.0.0.8\",\"queryString\":\"sku=COCO-STARTER&token=******\","
+                        + "\"parameters\":{\"sku\":[\"COCO-STARTER\"],\"token\":[\"******\"]},"
+                        + "\"userAgent\":\"PostmanRuntime/7.37\",\"status\":201,\"durationMs\":42,\"success\":true}",
+                formatter.format(accessLog, properties));
     }
 
     @Test
@@ -234,7 +338,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(body instanceof CocoApiResponse<?>);
             CocoApiResponse<?> response = (CocoApiResponse<?>) body;
             assertTrue(response.success());
-            assertEquals("coco.success", response.code());
+            assertEquals(200, response.code());
             assertEquals("未知错误", response.message());
             assertEquals(Map.of("name", "Coco"), response.data());
             assertEquals("trace-wrap", response.traceId());
@@ -290,6 +394,58 @@ class CocoWebAutoConfigurationTest {
                             new ServletWebRequest(request));
 
                     assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+                });
+    }
+
+    @Test
+    void usesCustomSystemCodeProviderForDefaultSuccessAndExceptionCodes() throws Exception {
+        CocoSystemCodeProvider codeProvider = CocoSystemCodes.builder()
+                .success(0)
+                .invalidArgument(100400)
+                .notFound(100404)
+                .build();
+        this.webContextRunner
+                .withBean(CocoSystemCodeProvider.class, () -> codeProvider)
+                .run(context -> {
+                    CocoResponseWrapAdvice advice = responseWrapAdvice(context.getBean(CocoMessageService.class),
+                            context.getBean(CocoSystemCodeProvider.class));
+                    MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+                    ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+
+                    Object body = advice.beforeBodyWrite(Map.of("name", "Coco"), methodParameter("objectBody"),
+                            MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request,
+                            new ServletServerHttpResponse(new MockHttpServletResponse()));
+
+                    assertTrue(body instanceof CocoApiResponse<?>);
+                    assertEquals(0, ((CocoApiResponse<?>) body).code());
+
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                            CocoCommonErrorCode.NOT_FOUND.notFound("user"),
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/users/404")));
+
+                    assertNotNull(response.getBody());
+                    assertEquals(100404, response.getBody().code());
+                });
+    }
+
+    @Test
+    void businessCodeOverridesCustomSystemCodeProvider() {
+        CocoSystemCodeProvider codeProvider = CocoSystemCodes.builder()
+                .notFound(100404)
+                .build();
+        this.webContextRunner
+                .withBean(CocoSystemCodeProvider.class, () -> codeProvider)
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                            CocoBusinessExceptions.notFound(TestBusinessCode.ORDER_NOT_FOUND, "ORD-1001"),
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/orders/ORD-1001")));
+
+                    assertNotNull(response.getBody());
+                    assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+                    assertEquals(200001, response.getBody().code());
+                    assertEquals("资源不存在：ORD-1001", response.getBody().message());
                 });
     }
 
@@ -446,6 +602,11 @@ class CocoWebAutoConfigurationTest {
                     MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
                     MockHttpServletResponse response = new MockHttpServletResponse();
                     request.addHeader("X-Trace-Id", "access-trace");
+                    request.addHeader("X-Forwarded-For", " 10.0.0.8, 10.0.0.9 ");
+                    request.addHeader("User-Agent", "PostmanRuntime/7.37");
+                    request.setQueryString("name=Coco&token=abc");
+                    request.addParameter("name", "Coco");
+                    request.addParameter("token", "abc");
 
                     filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
                             response.setStatus(201))));
@@ -454,6 +615,11 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("access-trace", accessLog.traceId());
                     assertEquals("POST", accessLog.method().orElseThrow());
                     assertEquals("/api/users", accessLog.path().orElseThrow());
+                    assertEquals("10.0.0.8", accessLog.clientIp().orElseThrow());
+                    assertEquals("PostmanRuntime/7.37", accessLog.userAgent().orElseThrow());
+                    assertEquals("name=Coco&token=******", accessLog.queryString().orElseThrow());
+                    assertEquals(List.of("Coco"), accessLog.requestParameters().get("name"));
+                    assertEquals(List.of("******"), accessLog.requestParameters().get("token"));
                     assertEquals(201, accessLog.status());
                     assertTrue(accessLog.success());
                     assertTrue(accessLog.durationMillis() >= 0L);
@@ -509,9 +675,14 @@ class CocoWebAutoConfigurationTest {
     }
 
     private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService) {
+        return responseWrapAdvice(messageService, CocoSystemCodes.defaults());
+    }
+
+    private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService,
+            CocoSystemCodeProvider codeProvider) {
         CocoResponseWrapProperties properties = new CocoResponseWrapProperties();
         properties.setSuccessMessageCode("coco.error.unknown");
-        return new CocoResponseWrapAdvice(messageService, properties, new ObjectMapper());
+        return new CocoResponseWrapAdvice(messageService, properties, codeProvider, new ObjectMapper());
     }
 
     private static MethodParameter methodParameter(String methodName) throws NoSuchMethodException {
@@ -533,7 +704,7 @@ class CocoWebAutoConfigurationTest {
     }
 
     private CocoApiResponse<String> wrappedBody() {
-        return CocoApiResponse.success("coco.success", "操作成功", "hello", null, null);
+        return CocoApiResponse.success(200, "操作成功", "hello", null, null);
     }
 
     @CocoIgnoreResponseWrap
@@ -543,6 +714,30 @@ class CocoWebAutoConfigurationTest {
 
     private ResponseEntity<String> responseEntityBody() {
         return ResponseEntity.ok("hello");
+    }
+
+    private enum TestBusinessCode implements CocoBusinessCode {
+
+        ORDER_NOT_FOUND(200001, "coco.error.not-found");
+
+        private final int code;
+
+        private final String messageCode;
+
+        TestBusinessCode(int code, String messageCode) {
+            this.code = code;
+            this.messageCode = messageCode;
+        }
+
+        @Override
+        public int code() {
+            return this.code;
+        }
+
+        @Override
+        public String messageCode() {
+            return this.messageCode;
+        }
     }
 
     @CocoIgnoreResponseWrap

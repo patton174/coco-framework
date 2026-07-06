@@ -41,6 +41,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
 
     private final CocoResponseWrapProperties properties;
 
+    private final CocoSystemCodeProvider codeProvider;
+
     private final ObjectMapper objectMapper;
 
     /**
@@ -49,12 +51,14 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
      * </p>
      * @param messageService Coco 消息服务
      * @param properties 正常响应包装配置
+     * @param codeProvider 系统响应码提供器
      * @param objectMapper JSON 序列化器
      */
     public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
-            ObjectMapper objectMapper) {
+            CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper) {
         this.messageService = Objects.requireNonNull(messageService);
         this.properties = properties == null ? new CocoResponseWrapProperties() : properties;
+        this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper);
     }
 
@@ -93,7 +97,7 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
             return body;
         }
         CocoApiResponse<Object> wrapped = CocoApiResponse.success(
-                this.properties.getSuccessCode(),
+                this.codeProvider.success(),
                 this.messageService.getMessage(this.properties.getSuccessMessageCode()),
                 body,
                 CocoTraceContext.getOrCreateTraceId(),

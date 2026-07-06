@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import io.github.coco.common.exception.type.CocoConflictException;
@@ -109,6 +110,26 @@ class CocoExceptionTest {
     }
 
     @Test
+    void createsTypedExceptionFromBusinessCodeContract() {
+        CocoNotFoundException exception = CocoBusinessExceptions.notFound(TestBusinessCode.ORDER_NOT_FOUND, "ORD-1001");
+
+        assertEquals(1001, exception.businessCode().orElseThrow());
+        assertEquals("sample.order.not-found", exception.code());
+        assertEquals("sample.order.not-found", exception.defaultMessage());
+        assertArrayEquals(new Object[] {"ORD-1001"}, exception.args());
+    }
+
+    @Test
+    void createsTypedExceptionFromMessageCodeWithoutBusinessCode() {
+        CocoNotFoundException exception = CocoBusinessExceptions.notFound("sample.order.not-found", "ORD-1001");
+
+        assertTrue(exception.businessCode().isEmpty());
+        assertEquals("sample.order.not-found", exception.code());
+        assertEquals("sample.order.not-found", exception.defaultMessage());
+        assertArrayEquals(new Object[] {"ORD-1001"}, exception.args());
+    }
+
+    @Test
     void commonErrorCodeDefaultMessagesUseCodeFallbackOnly() {
         for (CocoCommonErrorCode errorCode : CocoCommonErrorCode.values()) {
             assertEquals(errorCode.code(), errorCode.defaultMessage());
@@ -197,5 +218,29 @@ class CocoExceptionTest {
         assertEquals("coco.error.invalid-argument", message.code());
         assertEquals("参数 {0} 不合法", message.defaultMessage());
         assertArrayEquals(new Object[] {"name"}, message.args());
+    }
+
+    private enum TestBusinessCode implements CocoBusinessCode {
+
+        ORDER_NOT_FOUND(1001, "sample.order.not-found");
+
+        private final int code;
+
+        private final String messageCode;
+
+        TestBusinessCode(int code, String messageCode) {
+            this.code = code;
+            this.messageCode = messageCode;
+        }
+
+        @Override
+        public int code() {
+            return this.code;
+        }
+
+        @Override
+        public String messageCode() {
+            return this.messageCode;
+        }
     }
 }
