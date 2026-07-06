@@ -2,7 +2,9 @@ package io.github.coco.feature.web.context;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -107,12 +109,32 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
     @Override
     public Map<String, List<String>> resolveRawParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        return parseRawQueryString(resolveRawQueryString(checkedRequest));
+    }
+
+    private static Map<String, List<String>> parseRawQueryString(String queryString) {
+        if (queryString == null || queryString.isBlank()) {
+            return Map.of();
+        }
         Map<String, List<String>> parameters = new LinkedHashMap<>();
-        checkedRequest.getParameterMap().forEach((name, values) -> parameters.put(name,
-                Arrays.stream(values == null ? new String[0] : values)
-                        .map(value -> value == null ? "" : value)
-                        .toList()));
-        return parameters;
+        for (String pair : queryString.split("&", -1)) {
+            if (pair == null || pair.isBlank()) {
+                continue;
+            }
+            int separatorIndex = pair.indexOf('=');
+            String name = separatorIndex < 0 ? pair : pair.substring(0, separatorIndex);
+            if (name.isBlank()) {
+                continue;
+            }
+            String value = separatorIndex < 0 ? "" : pair.substring(separatorIndex + 1);
+            parameters.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value);
+        }
+        if (parameters.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> copied = new LinkedHashMap<>();
+        parameters.forEach((name, values) -> copied.put(name, List.copyOf(values)));
+        return Collections.unmodifiableMap(copied);
     }
 
     private String sanitizeQueryPair(String pair) {

@@ -122,10 +122,14 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
     }
 
     private boolean shouldCache(HttpServletRequest request) {
-        return this.properties.isEnabled()
-                && isCacheMethod(request)
-                && isCacheableContentType(request)
-                && isTriggered(request);
+        if (!this.properties.isEnabled() || !isCacheMethod(request) || isExcludedContentType(request)) {
+            return false;
+        }
+        if (isTriggerHeaderPresent(request)) {
+            return true;
+        }
+        return CocoRequestBodyCachingMode.ALWAYS.equals(this.properties.getMode())
+                && isCacheableContentType(request);
     }
 
     private boolean isCacheMethod(HttpServletRequest request) {
@@ -138,11 +142,6 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         if (contentType == null) {
             return false;
         }
-        for (String excludedPrefix : this.properties.getExcludedContentTypePrefixes()) {
-            if (contentType.startsWith(excludedPrefix)) {
-                return false;
-            }
-        }
         for (String includedContentType : this.properties.getIncludedContentTypes()) {
             if (matchesMediaType(includedContentType, contentType)) {
                 return true;
@@ -151,10 +150,20 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         return false;
     }
 
-    private boolean isTriggered(HttpServletRequest request) {
-        if (CocoRequestBodyCachingMode.ALWAYS.equals(this.properties.getMode())) {
-            return true;
+    private boolean isExcludedContentType(HttpServletRequest request) {
+        String contentType = normalizeMediaType(request.getContentType());
+        if (contentType == null) {
+            return false;
         }
+        for (String excludedPrefix : this.properties.getExcludedContentTypePrefixes()) {
+            if (contentType.startsWith(excludedPrefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isTriggerHeaderPresent(HttpServletRequest request) {
         for (String headerName : this.triggerHeaderNames) {
             String value = request.getHeader(headerName);
             if (value != null && !value.isBlank()) {

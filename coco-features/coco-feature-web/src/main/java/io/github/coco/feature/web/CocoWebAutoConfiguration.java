@@ -232,7 +232,8 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
     public CocoWebRequestSecurityMetadataResolver cocoWebRequestSecurityMetadataResolver(CocoWebProperties properties) {
-        return new DefaultCocoWebRequestSecurityMetadataResolver(properties.getSignature(), properties.getEncryption());
+        return new DefaultCocoWebRequestSecurityMetadataResolver(properties.getSignature(), properties.getEncryption(),
+                properties.getReplay());
     }
 
     /**
@@ -510,7 +511,7 @@ public class CocoWebAutoConfiguration {
                 new CocoReplayFilter(properties.getReplay(), replayStore, replayKeyResolver, requestContextResolver,
                         securityMetadataResolver, exceptionResponseWriter));
         registration.setName("cocoReplayFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 4);
         return registration;
     }
 
@@ -540,7 +541,7 @@ public class CocoWebAutoConfiguration {
                 new CocoEncryptionFilter(properties.getEncryption(), keyResolver, requestDecryptor,
                         requestContextResolver, exceptionResponseWriter, securityMetadataResolver));
         registration.setName("cocoEncryptionFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 4);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
         return registration;
     }
 }

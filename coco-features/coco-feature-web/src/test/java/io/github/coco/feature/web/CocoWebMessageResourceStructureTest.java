@@ -50,6 +50,7 @@ class CocoWebMessageResourceStructureTest {
             "coco.web.signature.expired",
             "coco.web.signature.secret-not-found",
             "coco.web.signature.invalid",
+            "coco.web.signature.missing-body-hash",
             "coco.web.encryption.missing-encrypted",
             "coco.web.encryption.missing-app-id",
             "coco.web.encryption.missing-iv",

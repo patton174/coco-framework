@@ -1,9 +1,15 @@
 package io.github.coco.feature.web.context;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.StringJoiner;
 
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
+import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -139,16 +145,41 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
     @Override
     public CocoWebRequestSnapshot resolve(String traceId, HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        String method = checkedRequest.getMethod();
-        String path = resolvePath(checkedRequest);
-        CocoBrowserFingerprint browserFingerprint = this.browserFingerprintResolver.resolve(checkedRequest);
-        CocoWebRequestSecurityInput securityInput = this.securityInputResolver.resolve(checkedRequest, method, path);
-        return new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(checkedRequest),
-                this.clientIpResolver.resolve(checkedRequest), checkedRequest.getHeader("User-Agent"),
-                resolveLocale(checkedRequest),
-                checkedRequest.getScheme(), checkedRequest.getServerName(), checkedRequest.getServerPort(),
-                checkedRequest.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(checkedRequest),
-                this.requestParameterResolver.resolveParameters(checkedRequest), securityInput, browserFingerprint);
+        return CocoWebRequestSnapshotAttributes.get(checkedRequest)
+                .filter(snapshot -> reusable(snapshot, traceId, checkedRequest))
+                .orElseGet(() -> resolveAndCache(traceId, checkedRequest));
+    }
+
+    private CocoWebRequestSnapshot resolveAndCache(String traceId, HttpServletRequest request) {
+        String method = request.getMethod();
+        String path = resolvePath(request);
+        CocoBrowserFingerprint browserFingerprint = this.browserFingerprintResolver.resolve(request);
+        CocoWebRequestSecurityInput securityInput = this.securityInputResolver.resolve(request, method, path);
+        CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(request),
+                this.clientIpResolver.resolve(request), request.getHeader("User-Agent"),
+                resolveLocale(request),
+                request.getScheme(), request.getServerName(), request.getServerPort(),
+                request.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(request),
+                this.requestParameterResolver.resolveParameters(request), securityInput, browserFingerprint);
+        CocoWebRequestSnapshotAttributes.set(request, snapshot, headerFingerprint(request));
+        return snapshot;
+    }
+
+    private static boolean reusable(CocoWebRequestSnapshot snapshot, String traceId, HttpServletRequest request) {
+        return snapshot.traceId().equals(normalizeTraceId(traceId))
+                && Objects.equals(snapshot.method(), normalizeMethod(request.getMethod()))
+                && Objects.equals(snapshot.path(), resolvePath(request))
+                && CocoWebRequestSnapshotAttributes.headerFingerprint(request)
+                        .filter(fingerprint -> fingerprint.equals(headerFingerprint(request)))
+                        .isPresent()
+                && reusableBody(snapshot, request);
+    }
+
+    private static boolean reusableBody(CocoWebRequestSnapshot snapshot, HttpServletRequest request) {
+        return CocoCachedBodyHttpServletRequest.cachedBody(request)
+                .map(CocoCachedRequestBody::sha256)
+                .map(sha256 -> Objects.equals(sha256, snapshot.securityInput().bodySha256()))
+                .orElse(true);
     }
 
     private static String resolvePath(HttpServletRequest request) {
@@ -163,6 +194,30 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
     private static String resolveLocale(HttpServletRequest request) {
         Locale locale = request.getLocale();
         return locale == null ? null : locale.toLanguageTag();
+    }
+
+    private static String normalizeTraceId(String traceId) {
+        return traceId == null || traceId.isBlank() ? "" : traceId.trim();
+    }
+
+    private static String normalizeMethod(String method) {
+        return method == null || method.isBlank() ? null : method.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String headerFingerprint(HttpServletRequest request) {
+        List<String> names = Collections.list(request.getHeaderNames()).stream()
+                .filter(name -> name != null && !name.isBlank())
+                .map(name -> name.trim().toLowerCase(Locale.ROOT))
+                .sorted()
+                .toList();
+        StringJoiner joiner = new StringJoiner("|");
+        for (String name : names) {
+            List<String> values = new ArrayList<>(Collections.list(request.getHeaders(name)));
+            values.replaceAll(value -> value == null ? "" : value.trim());
+            Collections.sort(values);
+            joiner.add(name.length() + ":" + name + "=" + values.size() + ":" + String.join(",", values));
+        }
+        return joiner.toString();
     }
 
 }

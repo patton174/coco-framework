@@ -122,13 +122,14 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
         if (!encrypted) {
             throw CocoBusinessExceptions.unauthorized("coco.web.encryption.missing-encrypted");
         }
-        CocoEncryptedRequest encryptedRequest = resolveEncryptedRequest(request);
+        ResolvedEncryptedRequest resolvedRequest = resolveEncryptedRequest(request);
+        CocoEncryptedRequest encryptedRequest = resolvedRequest.request();
         validateRequiredFields(encryptedRequest);
         CocoEncryptionKey key = this.keyResolver.resolve(encryptedRequest)
                 .orElseThrow(() -> CocoBusinessExceptions.unauthorized("coco.web.encryption.key-not-found"));
         try {
             byte[] decryptedPayload = this.requestDecryptor.decrypt(new CocoRequestDecryptionContext(
-                    encryptedRequest, key));
+                    encryptedRequest, key, resolvedRequest.associatedData()));
             return new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(decryptedPayload));
         }
         catch (RuntimeException ex) {
@@ -136,7 +137,7 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
         }
     }
 
-    private CocoEncryptedRequest resolveEncryptedRequest(HttpServletRequest request) {
+    private ResolvedEncryptedRequest resolveEncryptedRequest(HttpServletRequest request) {
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(CocoTraceContext.getOrCreateTraceId(),
                 request);
         CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
@@ -144,13 +145,15 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
         byte[] payload = CocoCachedBodyHttpServletRequest.cachedBody(request)
                 .map(CocoCachedRequestBody::content)
                 .orElseGet(() -> readRawBody(request));
-        return new CocoEncryptedRequest(
+        CocoEncryptedRequest encryptedRequest = new CocoEncryptedRequest(
                 metadata.encryptionAppId(),
                 metadata.encryptionKeyId(),
                 metadata.encryptionIv(),
                 metadata.encryptionAlgorithm(),
                 metadata.encrypted(),
                 payload);
+        return new ResolvedEncryptedRequest(encryptedRequest,
+                CocoEncryptionAssociatedData.from(encryptedRequest, snapshot, metadata));
     }
 
     private static byte[] readRawBody(HttpServletRequest request) {
@@ -180,5 +183,18 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
     private boolean encrypted(HttpServletRequest request) {
         String encrypted = request.getHeader(this.properties.getEncryptedHeaderName());
         return encrypted != null && ("true".equalsIgnoreCase(encrypted.trim()) || "1".equals(encrypted.trim()));
+    }
+
+    private record ResolvedEncryptedRequest(CocoEncryptedRequest request, byte[] associatedData) {
+
+        private ResolvedEncryptedRequest {
+            request = Objects.requireNonNull(request, "request must not be null");
+            associatedData = associatedData == null ? new byte[0] : associatedData.clone();
+        }
+
+        @Override
+        public byte[] associatedData() {
+            return this.associatedData.clone();
+        }
     }
 }

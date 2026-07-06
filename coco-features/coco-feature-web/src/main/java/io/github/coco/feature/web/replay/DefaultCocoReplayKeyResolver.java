@@ -1,6 +1,7 @@
 package io.github.coco.feature.web.replay;
 
 import java.util.Objects;
+import java.util.Optional;
 
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
@@ -44,14 +45,18 @@ public final class DefaultCocoReplayKeyResolver implements CocoReplayKeyResolver
         CocoWebRequestSecurityMetadata checkedMetadata = Objects.requireNonNull(metadata, "metadata must not be null");
         return new CocoReplayKey(
                 checkedSnapshot.securityInput().securityHeader(this.properties.getAppIdHeaderName())
+                        .or(() -> Optional.ofNullable(checkedMetadata.replayAppId()))
                         .or(checkedMetadata::primaryAppId)
                         .orElse(null),
                 checkedSnapshot.securityInput().securityHeader(this.properties.getKeyIdHeaderName())
+                        .or(() -> Optional.ofNullable(checkedMetadata.replayKeyId()))
                         .or(checkedMetadata::primaryKeyId)
                         .orElse(null),
                 checkedSnapshot.securityInput().securityHeader(this.properties.getTimestampHeaderName())
+                        .or(() -> Optional.ofNullable(checkedMetadata.replayTimestamp()))
                         .orElse(checkedMetadata.signatureTimestamp()),
                 checkedSnapshot.securityInput().securityHeader(this.properties.getNonceHeaderName())
+                        .or(() -> Optional.ofNullable(checkedMetadata.replayNonce()))
                         .orElse(checkedMetadata.signatureNonce()),
                 this.properties.isIncludeMethod() ? checkedSnapshot.method() : null,
                 this.properties.isIncludePath() ? checkedSnapshot.path() : null);

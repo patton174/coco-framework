@@ -36,7 +36,7 @@ public class CocoReplayProperties {
 
     private boolean protectSignedRequests = true;
 
-    private boolean protectEncryptedRequests = false;
+    private boolean protectEncryptedRequests = true;
 
     private boolean includeMethod = true;
 

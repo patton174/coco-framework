@@ -1,5 +1,6 @@
 package io.github.coco.feature.web;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -7,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +29,21 @@ import org.junit.jupiter.api.Test;
  * @since 1.0.0
  */
 class CocoWebConfigurationMetadataTest {
+
+    @Test
+    void exposesAutoConfigurationImport() throws IOException {
+        InputStream imports = getClass().getResourceAsStream(
+                "/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports");
+
+        assertNotNull(imports);
+        String content = new String(imports.readAllBytes(), StandardCharsets.UTF_8);
+        List<String> autoConfigurations = content.lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .filter(line -> !line.startsWith("#"))
+                .toList();
+        assertEquals(List.of(CocoWebAutoConfiguration.class.getName()), autoConfigurations);
+    }
 
     @Test
     void exposesTracePropertyMetadata() throws IOException {
@@ -99,6 +116,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.replay.ttl-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.cleanup-interval-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.client-ip-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.trusted-proxy-cidrs\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.include-headers\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.included-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.masked-header-names\""));

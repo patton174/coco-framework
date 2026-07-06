@@ -54,7 +54,7 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
         }
         Map<String, String> headers = new LinkedHashMap<>();
         for (String headerName : this.properties.getIncludedHeaderNames()) {
-            String value = firstExistingHeaderValue(checkedRequest, headerName);
+            String value = existingHeaderValue(checkedRequest, headerName);
             if (value != null) {
                 headers.put(headerName, sanitizeHeaderValue(headerName, value));
             }
@@ -77,7 +77,7 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
             if (headerName == null || headerName.isBlank()) {
                 continue;
             }
-            String value = firstExistingHeaderValue(checkedRequest, headerName);
+            String value = existingHeaderValue(checkedRequest, headerName);
             if (value != null) {
                 headers.put(headerName.trim().toLowerCase(Locale.ROOT),
                         trimValue ? trimValue(value, this.properties.getMaxHeaderValueLength()) : value);
@@ -86,16 +86,16 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
         return headers;
     }
 
-    private static String firstExistingHeaderValue(HttpServletRequest request, String headerName) {
+    private static String existingHeaderValue(HttpServletRequest request, String headerName) {
         Enumeration<String> values = request.getHeaders(headerName);
         if (values == null) {
             return null;
         }
-        return enumerationAsStream(values)
+        List<String> normalizedValues = enumerationAsStream(values)
                 .map(DefaultCocoRequestHeaderResolver::normalizeString)
                 .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
+                .toList();
+        return normalizedValues.isEmpty() ? null : String.join(",", normalizedValues);
     }
 
     private String sanitizeHeaderValue(String name, String value) {

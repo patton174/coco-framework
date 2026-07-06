@@ -194,6 +194,7 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
             }
             return;
         }
+        validateBodyHash(request, snapshot);
         validateRequiredFields(signatureRequest);
         validateTimestamp(signatureRequest);
         CocoSignatureSecret secret = this.secretResolver.resolve(signatureRequest)
@@ -214,6 +215,30 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
                 metadata.signature(),
                 canonicalForm.text(),
                 canonicalForm.sha256());
+    }
+
+    private static void validateBodyHash(HttpServletRequest request, CocoWebRequestSnapshot snapshot) {
+        if (hasRequestBody(request) && !snapshot.securityInput().bodyCached()) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.signature.missing-body-hash");
+        }
+    }
+
+    private static boolean hasRequestBody(HttpServletRequest request) {
+        long contentLength = request.getContentLengthLong();
+        if (contentLength > 0L) {
+            return true;
+        }
+        String contentLengthHeader = request.getHeader("Content-Length");
+        if (contentLengthHeader != null && !contentLengthHeader.isBlank()) {
+            try {
+                return Long.parseLong(contentLengthHeader.trim()) > 0L;
+            }
+            catch (NumberFormatException ignored) {
+                return true;
+            }
+        }
+        String transferEncoding = request.getHeader("Transfer-Encoding");
+        return transferEncoding != null && !transferEncoding.isBlank();
     }
 
     private void validateRequiredFields(CocoSignatureRequest request) {

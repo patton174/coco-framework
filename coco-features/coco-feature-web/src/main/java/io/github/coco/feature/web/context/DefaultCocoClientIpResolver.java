@@ -1,5 +1,7 @@
 package io.github.coco.feature.web.context;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -41,16 +43,73 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
     @Override
     public String resolve(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        for (String headerName : this.properties.getClientIpHeaderNames()) {
-            String headerValue = checkedRequest.getHeader(headerName);
-            String clientIp = "Forwarded".equalsIgnoreCase(headerName)
-                    ? firstForwardedForValue(headerValue)
-                    : firstHeaderValue(headerValue);
-            if (isUsableClientIp(clientIp)) {
-                return clientIp;
+        String remoteAddr = normalizeClientIp(checkedRequest.getRemoteAddr());
+        if (isTrustedProxy(remoteAddr)) {
+            for (String headerName : this.properties.getClientIpHeaderNames()) {
+                String headerValue = checkedRequest.getHeader(headerName);
+                String clientIp = "Forwarded".equalsIgnoreCase(headerName)
+                        ? firstForwardedForValue(headerValue)
+                        : firstHeaderValue(headerValue);
+                if (clientIp != null) {
+                    return clientIp;
+                }
             }
         }
-        return normalizeString(checkedRequest.getRemoteAddr());
+        return remoteAddr;
+    }
+
+    private boolean isTrustedProxy(String remoteAddr) {
+        if (remoteAddr == null || this.properties.getTrustedProxyCidrs().isEmpty()) {
+            return false;
+        }
+        byte[] remoteAddress = parseIpAddress(remoteAddr);
+        if (remoteAddress == null) {
+            return false;
+        }
+        return this.properties.getTrustedProxyCidrs().stream()
+                .anyMatch(trustedProxy -> matchesTrustedProxy(remoteAddress, trustedProxy));
+    }
+
+    private static boolean matchesTrustedProxy(byte[] remoteAddress, String trustedProxy) {
+        String normalizedProxy = normalizeString(trustedProxy);
+        if (normalizedProxy == null) {
+            return false;
+        }
+        int separatorIndex = normalizedProxy.indexOf('/');
+        String addressPart = separatorIndex < 0 ? normalizedProxy : normalizedProxy.substring(0, separatorIndex);
+        byte[] trustedAddress = parseIpAddress(addressPart);
+        if (trustedAddress == null || trustedAddress.length != remoteAddress.length) {
+            return false;
+        }
+        int prefixLength = separatorIndex < 0
+                ? remoteAddress.length * Byte.SIZE
+                : parsePrefixLength(normalizedProxy.substring(separatorIndex + 1), remoteAddress.length * Byte.SIZE);
+        return prefixLength >= 0 && matchesPrefix(remoteAddress, trustedAddress, prefixLength);
+    }
+
+    private static boolean matchesPrefix(byte[] remoteAddress, byte[] trustedAddress, int prefixLength) {
+        int fullBytes = prefixLength / Byte.SIZE;
+        int remainingBits = prefixLength % Byte.SIZE;
+        for (int i = 0; i < fullBytes; i++) {
+            if (remoteAddress[i] != trustedAddress[i]) {
+                return false;
+            }
+        }
+        if (remainingBits == 0) {
+            return true;
+        }
+        int mask = 0xFF << (Byte.SIZE - remainingBits);
+        return (remoteAddress[fullBytes] & mask) == (trustedAddress[fullBytes] & mask);
+    }
+
+    private static int parsePrefixLength(String value, int maxPrefixLength) {
+        try {
+            int prefixLength = Integer.parseInt(value);
+            return prefixLength >= 0 && prefixLength <= maxPrefixLength ? prefixLength : -1;
+        }
+        catch (NumberFormatException ex) {
+            return -1;
+        }
     }
 
     private static String firstForwardedForValue(String headerValue) {
@@ -59,7 +118,8 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
         }
         return Arrays.stream(headerValue.split(","))
                 .map(DefaultCocoClientIpResolver::forwardedForValue)
-                .filter(DefaultCocoClientIpResolver::isUsableClientIp)
+                .map(DefaultCocoClientIpResolver::normalizeClientIp)
+                .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
     }
@@ -82,7 +142,8 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
         }
         return Arrays.stream(headerValue.split(","))
                 .map(DefaultCocoClientIpResolver::cleanClientIpToken)
-                .filter(DefaultCocoClientIpResolver::isUsableClientIp)
+                .map(DefaultCocoClientIpResolver::normalizeClientIp)
+                .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
     }
@@ -105,8 +166,54 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
         return normalized;
     }
 
-    private static boolean isUsableClientIp(String value) {
-        return value != null && !value.isBlank() && !"unknown".equalsIgnoreCase(value.trim());
+    private static String normalizeClientIp(String value) {
+        String normalized = normalizeString(value);
+        if (normalized == null || "unknown".equalsIgnoreCase(normalized) || normalized.startsWith("_")) {
+            return null;
+        }
+        return parseIpAddress(normalized) == null ? null : normalized;
+    }
+
+    private static byte[] parseIpAddress(String value) {
+        String normalized = normalizeString(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (isIpv4Literal(normalized)) {
+            return parseIpv4Address(normalized);
+        }
+        if (!normalized.contains(":") || !isIpv6LiteralCandidate(normalized)) {
+            return null;
+        }
+        try {
+            byte[] address = InetAddress.getByName(normalized).getAddress();
+            return address.length == 16 ? address : null;
+        }
+        catch (UnknownHostException ex) {
+            return null;
+        }
+    }
+
+    private static boolean isIpv4Literal(String value) {
+        return value.matches("\\d{1,3}(\\.\\d{1,3}){3}");
+    }
+
+    private static byte[] parseIpv4Address(String value) {
+        String[] parts = value.split("\\.");
+        byte[] address = new byte[4];
+        for (int i = 0; i < parts.length; i++) {
+            int part = Integer.parseInt(parts[i]);
+            if (part < 0 || part > 255) {
+                return null;
+            }
+            address[i] = (byte) part;
+        }
+        return address;
+    }
+
+    private static boolean isIpv6LiteralCandidate(String value) {
+        return value.chars().allMatch(character ->
+                Character.digit(character, 16) >= 0 || character == ':' || character == '.');
     }
 
     private static String normalizeString(String value) {

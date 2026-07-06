@@ -74,15 +74,16 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         CocoWebRequestSecurityInput input = Objects.requireNonNull(context.securityInput(),
                 "securityInput must not be null");
         StringBuilder builder = new StringBuilder();
-        appendLine(builder, "version", this.properties.getVersion(), this.properties.isIncludeVersion());
-        appendLine(builder, "purpose", context.purpose().name(), this.properties.isIncludePurpose());
-        appendLine(builder, "method", input.method(), this.properties.isIncludeMethod());
-        appendLine(builder, "path", input.path(), this.properties.isIncludePath());
-        appendLine(builder, "query", input.queryString(), this.properties.isIncludeQueryString());
-        appendHeaders(builder, input.canonicalHeaders());
+        boolean signature = context.purpose() == CocoWebRequestCanonicalizationPurpose.SIGNATURE;
+        appendLine(builder, "version", this.properties.getVersion(), signature || this.properties.isIncludeVersion());
+        appendLine(builder, "purpose", context.purpose().name(), signature || this.properties.isIncludePurpose());
+        appendLine(builder, "method", input.method(), signature || this.properties.isIncludeMethod());
+        appendLine(builder, "path", input.path(), signature || this.properties.isIncludePath());
+        appendLine(builder, "query", input.queryString(), signature || this.properties.isIncludeQueryString());
+        appendHeaders(builder, input.canonicalHeaders(), signature);
         appendParameters(builder, input.parameters());
-        appendLine(builder, "bodySha256", input.bodySha256(), this.properties.isIncludeBodySha256());
-        appendLine(builder, "bodyLength", input.bodyLength(), this.properties.isIncludeBodyLength());
+        appendLine(builder, "bodySha256", input.bodySha256(), signature || this.properties.isIncludeBodySha256());
+        appendLine(builder, "bodyLength", input.bodyLength(), signature || this.properties.isIncludeBodyLength());
         return builder.toString();
     }
 
@@ -98,13 +99,13 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         }
     }
 
-    private void appendHeaders(StringBuilder builder, Map<String, String> headers) {
-        if (!this.properties.isIncludeHeaders()) {
+    private void appendHeaders(StringBuilder builder, Map<String, String> headers, boolean forced) {
+        if (!forced && !this.properties.isIncludeHeaders()) {
             return;
         }
         builder.append("headers").append('\n');
         new TreeMap<>(headers).forEach((name, value) ->
-                builder.append(name).append(':').append(value(value)).append('\n'));
+                builder.append(value(name)).append(':').append(value(value)).append('\n'));
     }
 
     private void appendParameters(StringBuilder builder, Map<String, List<String>> parameters) {
@@ -113,7 +114,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         }
         builder.append("parameters").append('\n');
         new TreeMap<>(parameters).forEach((name, values) ->
-                builder.append(name).append('=')
+                builder.append(value(name)).append('=')
                         .append(String.join(this.properties.getParameterValueSeparator(), parameterValues(values)))
                         .append('\n'));
     }
@@ -123,11 +124,29 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         if (this.properties.isSortParameterValues()) {
             stream = stream.sorted();
         }
-        return stream.toList();
+        return stream.map(DefaultCocoWebRequestCanonicalizer::value).toList();
     }
 
     private static String value(String value) {
-        return value == null ? "" : value;
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char current = value.charAt(index);
+            switch (current) {
+                case '\\' -> builder.append("\\\\");
+                case '\n' -> builder.append("\\n");
+                case '\r' -> builder.append("\\r");
+                case ':' -> builder.append("\\:");
+                case '=' -> builder.append("\\=");
+                case ',' -> builder.append("\\,");
+                case ';' -> builder.append("\\;");
+                case '|' -> builder.append("\\|");
+                default -> builder.append(current);
+            }
+        }
+        return builder.toString();
     }
 
     private static String value(Long value) {

@@ -58,6 +58,7 @@ public final class AesGcmCocoRequestDecryptor implements CocoRequestDecryptor {
             Cipher cipher = Cipher.getInstance(JCA_TRANSFORMATION);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(checkedContext.key().value(), "AES"),
                     new GCMParameterSpec(this.properties.getGcmTagLengthBits(), iv));
+            cipher.updateAAD(checkedContext.associatedData());
             return cipher.doFinal(payload);
         }
         catch (GeneralSecurityException | IllegalArgumentException ex) {

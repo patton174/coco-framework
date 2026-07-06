@@ -58,6 +58,8 @@ public class CocoWebContextProperties {
 
     private List<String> clientIpHeaderNames = DEFAULT_CLIENT_IP_HEADER_NAMES;
 
+    private Set<String> trustedProxyCidrs = Set.of();
+
     private boolean includeHeaders = true;
 
     private Set<String> includedHeaderNames = DEFAULT_INCLUDED_HEADER_NAMES;
@@ -87,6 +89,36 @@ public class CocoWebContextProperties {
      */
     public List<String> getClientIpHeaderNames() {
         return this.clientIpHeaderNames;
+    }
+
+    /**
+     * <p>
+     * 返回可信代理 IP 或 CIDR 集合。
+     * </p>
+     * @return 可信代理 IP 或 CIDR 集合
+     */
+    public Set<String> getTrustedProxyCidrs() {
+        return this.trustedProxyCidrs;
+    }
+
+    /**
+     * <p>
+     * 设置可信代理 IP 或 CIDR 集合。
+     * </p>
+     * @param trustedProxyCidrs 可信代理 IP 或 CIDR 集合
+     */
+    public void setTrustedProxyCidrs(Set<String> trustedProxyCidrs) {
+        if (trustedProxyCidrs == null || trustedProxyCidrs.isEmpty()) {
+            this.trustedProxyCidrs = Set.of();
+            return;
+        }
+        Set<String> normalizedCidrs = new LinkedHashSet<>();
+        for (String cidr : trustedProxyCidrs) {
+            if (cidr != null && !cidr.isBlank()) {
+                normalizedCidrs.add(cidr.trim());
+            }
+        }
+        this.trustedProxyCidrs = normalizedCidrs.isEmpty() ? Set.of() : Set.copyOf(normalizedCidrs);
     }
 
     /**

@@ -4,12 +4,13 @@ import java.util.Objects;
 import java.util.Optional;
 
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
+import io.github.coco.feature.web.replay.CocoReplayProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
 
 /**
  * 默认 Coco Web 请求安全元数据解析器。
  * <p>
- * 按 Web 模块 Sign 和 AES 配置中的请求头名称，从安全输入中解析签名材料、加密材料和能力启用标记。
+ * 按 Web 模块签名、加密和防重放配置中的请求头名称，从安全输入中解析签名材料、加密材料和防重放材料。
  * </p>
  * <p>
  * 项目信息：
@@ -29,6 +30,8 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
 
     private final CocoEncryptionProperties encryptionProperties;
 
+    private final CocoReplayProperties replayProperties;
+
     /**
      * <p>
      * 创建默认请求安全元数据解析器。
@@ -38,8 +41,22 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
      */
     public DefaultCocoWebRequestSecurityMetadataResolver(CocoSignatureProperties signatureProperties,
             CocoEncryptionProperties encryptionProperties) {
+        this(signatureProperties, encryptionProperties, null);
+    }
+
+    /**
+     * <p>
+     * 创建默认请求安全元数据解析器。
+     * </p>
+     * @param signatureProperties 请求签名配置
+     * @param encryptionProperties 请求加密配置
+     * @param replayProperties 请求防重放配置
+     */
+    public DefaultCocoWebRequestSecurityMetadataResolver(CocoSignatureProperties signatureProperties,
+            CocoEncryptionProperties encryptionProperties, CocoReplayProperties replayProperties) {
         this.signatureProperties = signatureProperties == null ? new CocoSignatureProperties() : signatureProperties;
         this.encryptionProperties = encryptionProperties == null ? new CocoEncryptionProperties() : encryptionProperties;
+        this.replayProperties = replayProperties == null ? new CocoReplayProperties() : replayProperties;
     }
 
     /**
@@ -64,7 +81,11 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
                 checkedInput.securityHeader(this.encryptionProperties.getKeyIdHeaderName()).orElse(null),
                 checkedInput.securityHeader(this.encryptionProperties.getIvHeaderName()).orElse(null),
                 encryptionAlgorithm(checkedInput, encrypted),
-                encrypted);
+                encrypted,
+                checkedInput.securityHeader(this.replayProperties.getAppIdHeaderName()).orElse(null),
+                checkedInput.securityHeader(this.replayProperties.getKeyIdHeaderName()).orElse(null),
+                checkedInput.securityHeader(this.replayProperties.getTimestampHeaderName()).orElse(null),
+                checkedInput.securityHeader(this.replayProperties.getNonceHeaderName()).orElse(null));
     }
 
     private Optional<String> signatureHeader(CocoWebRequestSecurityInput input) {

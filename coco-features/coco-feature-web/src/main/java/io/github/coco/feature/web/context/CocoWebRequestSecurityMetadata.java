@@ -28,12 +28,16 @@ import java.util.Optional;
  * @param encryptionAlgorithm 加密算法
  * @param encrypted 请求是否声明为加密请求
  * @author patton174
+ * @param replayAppId 防重放应用标识
+ * @param replayKeyId 防重放密钥标识
+ * @param replayTimestamp 防重放时间戳
+ * @param replayNonce 防重放随机串
  * @since 1.0.0
  */
 public record CocoWebRequestSecurityMetadata(String signatureAppId, String signatureKeyId,
         String signatureTimestamp, String signatureNonce, String signatureAlgorithm, String signature, boolean signed,
         String encryptionAppId, String encryptionKeyId, String encryptionIv, String encryptionAlgorithm,
-        boolean encrypted) {
+        boolean encrypted, String replayAppId, String replayKeyId, String replayTimestamp, String replayNonce) {
 
     /**
      * <p>
@@ -51,6 +55,10 @@ public record CocoWebRequestSecurityMetadata(String signatureAppId, String signa
      * @param encryptionIv 加密初始向量
      * @param encryptionAlgorithm 加密算法
      * @param encrypted 请求是否声明为加密请求
+     * @param replayAppId 防重放应用标识
+     * @param replayKeyId 防重放密钥标识
+     * @param replayTimestamp 防重放时间戳
+     * @param replayNonce 防重放随机串
      */
     public CocoWebRequestSecurityMetadata {
         signatureAppId = normalizeOptional(signatureAppId);
@@ -64,6 +72,10 @@ public record CocoWebRequestSecurityMetadata(String signatureAppId, String signa
         encryptionKeyId = normalizeOptional(encryptionKeyId);
         encryptionIv = normalizeOptional(encryptionIv);
         encryptionAlgorithm = normalizeOptional(encryptionAlgorithm);
+        replayAppId = normalizeOptional(replayAppId);
+        replayKeyId = normalizeOptional(replayKeyId);
+        replayTimestamp = normalizeOptional(replayTimestamp);
+        replayNonce = normalizeOptional(replayNonce);
     }
 
     /**
@@ -74,7 +86,7 @@ public record CocoWebRequestSecurityMetadata(String signatureAppId, String signa
      */
     public static CocoWebRequestSecurityMetadata empty() {
         return new CocoWebRequestSecurityMetadata(null, null, null, null, null, null, false,
-                null, null, null, null, false);
+                null, null, null, null, false, null, null, null, null);
     }
 
     /**
@@ -84,7 +96,7 @@ public record CocoWebRequestSecurityMetadata(String signatureAppId, String signa
      * @return 优先可用的应用标识；未提供时为空
      */
     public Optional<String> primaryAppId() {
-        return Optional.ofNullable(firstNonBlank(this.signatureAppId, this.encryptionAppId));
+        return Optional.ofNullable(firstNonBlank(this.signatureAppId, this.encryptionAppId, this.replayAppId));
     }
 
     /**
@@ -94,11 +106,14 @@ public record CocoWebRequestSecurityMetadata(String signatureAppId, String signa
      * @return 优先可用的密钥标识；未提供时为空
      */
     public Optional<String> primaryKeyId() {
-        return Optional.ofNullable(firstNonBlank(this.signatureKeyId, this.encryptionKeyId));
+        return Optional.ofNullable(firstNonBlank(this.signatureKeyId, this.encryptionKeyId, this.replayKeyId));
     }
 
-    private static String firstNonBlank(String first, String second) {
-        return first != null ? first : second;
+    private static String firstNonBlank(String first, String second, String third) {
+        if (first != null) {
+            return first;
+        }
+        return second != null ? second : third;
     }
 
     private static String normalizeOptional(String value) {
