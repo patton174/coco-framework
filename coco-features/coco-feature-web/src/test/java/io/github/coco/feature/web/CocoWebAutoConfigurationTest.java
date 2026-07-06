@@ -30,6 +30,8 @@ import io.github.coco.feature.web.body.CocoRequestBodyCachingMode;
 import io.github.coco.feature.web.context.CocoBrowserFingerprint;
 import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.CocoClientIpResolver;
+import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
+import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
@@ -37,6 +39,8 @@ import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
+import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
+import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -58,6 +62,7 @@ import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -156,6 +161,8 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoWebExceptionHandler"));
             assertTrue(context.containsBean("cocoClientIpResolver"));
             assertTrue(context.containsBean("cocoBrowserFingerprintResolver"));
+            assertTrue(context.containsBean("cocoRequestHeaderResolver"));
+            assertTrue(context.containsBean("cocoRequestParameterResolver"));
             assertTrue(context.containsBean("cocoWebRequestCanonicalizer"));
             assertTrue(context.containsBean("cocoWebRequestContextResolver"));
             assertTrue(context.containsBean("cocoRequestBodyCachingFilterRegistration"));
@@ -934,6 +941,42 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void defaultRequestHeaderResolverSanitizesContextHeadersAndKeepsSelectedHeadersRaw() {
+        CocoWebProperties properties = new CocoWebProperties();
+        properties.getContext().setIncludedHeaderNames(Set.of("Authorization", "X-Name"));
+        properties.getContext().setMaskedHeaderNames(Set.of("Authorization"));
+        properties.getContext().setMaxHeaderValueLength(4);
+        CocoRequestHeaderResolver resolver = new DefaultCocoRequestHeaderResolver(properties.getContext());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+        request.addHeader("Authorization", "Bearer secret");
+        request.addHeader("X-Name", "Coconut");
+
+        Map<String, String> includedHeaders = resolver.resolveIncludedHeaders(request);
+        Map<String, String> selectedHeaders = resolver.resolveSelectedHeaders(request, Set.of("X-Name"), true);
+
+        assertEquals("******", includedHeaders.get("authorization"));
+        assertEquals("Coco...", includedHeaders.get("x-name"));
+        assertEquals("Coco...", selectedHeaders.get("x-name"));
+    }
+
+    @Test
+    void defaultRequestParameterResolverProvidesSanitizedAndRawViews() {
+        CocoWebProperties properties = new CocoWebProperties();
+        properties.getAccessLog().setMaxParameterValueLength(4);
+        CocoRequestParameterResolver resolver = new DefaultCocoRequestParameterResolver(properties.getAccessLog());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+        request.setQueryString("password=abcdef&name=Coconut");
+        request.addParameter("password", "abcdef");
+        request.addParameter("name", "Coconut");
+
+        assertEquals("password=******&name=Coco...", resolver.resolveQueryString(request));
+        assertEquals("password=abcdef&name=Coconut", resolver.resolveRawQueryString(request));
+        assertEquals(List.of("******"), resolver.resolveParameters(request).get("password"));
+        assertEquals(List.of("Coco..."), resolver.resolveParameters(request).get("name"));
+        assertEquals(List.of("abcdef"), resolver.resolveRawParameters(request).get("password"));
+    }
+
+    @Test
     void usesCustomClientIpResolverInRequestContext() {
         CocoClientIpResolver resolver = request -> "203.0.113.8";
         this.webContextRunner
@@ -947,6 +990,76 @@ class CocoWebAutoConfigurationTest {
 
                     assertEquals("203.0.113.8", snapshot.clientIp());
                     assertEquals("203.0.113.8", snapshot.toRequestContext().clientIp().orElseThrow());
+                });
+    }
+
+    @Test
+    void usesCustomRequestHeaderResolverInRequestContext() {
+        CocoRequestHeaderResolver resolver = new CocoRequestHeaderResolver() {
+
+            @Override
+            public Map<String, String> resolveIncludedHeaders(HttpServletRequest request) {
+                return Map.of("x-context", "visible");
+            }
+
+            @Override
+            public Map<String, String> resolveSelectedHeaders(HttpServletRequest request, Iterable<String> headerNames,
+                    boolean trimValue) {
+                return Map.of("x-selected", "selected-" + trimValue);
+            }
+        };
+        this.webContextRunner
+                .withBean(CocoRequestHeaderResolver.class, () -> resolver)
+                .run(context -> {
+                    CocoWebRequestContextResolver contextResolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+
+                    CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-header-trace", request);
+
+                    assertEquals("visible", snapshot.headers().get("x-context"));
+                    assertEquals("selected-false",
+                            snapshot.securityInput().securityHeader("x-selected").orElseThrow());
+                    assertEquals("selected-false",
+                            snapshot.securityInput().canonicalHeader("x-selected").orElseThrow());
+                });
+    }
+
+    @Test
+    void usesCustomRequestParameterResolverInRequestContext() {
+        CocoRequestParameterResolver resolver = new CocoRequestParameterResolver() {
+
+            @Override
+            public String resolveQueryString(HttpServletRequest request) {
+                return "clean=query";
+            }
+
+            @Override
+            public String resolveRawQueryString(HttpServletRequest request) {
+                return "raw=query";
+            }
+
+            @Override
+            public Map<String, List<String>> resolveParameters(HttpServletRequest request) {
+                return Map.of("clean", List.of("yes"));
+            }
+
+            @Override
+            public Map<String, List<String>> resolveRawParameters(HttpServletRequest request) {
+                return Map.of("raw", List.of("yes"));
+            }
+        };
+        this.webContextRunner
+                .withBean(CocoRequestParameterResolver.class, () -> resolver)
+                .run(context -> {
+                    CocoWebRequestContextResolver contextResolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+
+                    CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-parameter-trace", request);
+
+                    assertEquals("clean=query", snapshot.queryString());
+                    assertEquals(List.of("yes"), snapshot.parameters().get("clean"));
+                    assertEquals("raw=query", snapshot.securityInput().queryString());
+                    assertEquals(List.of("yes"), snapshot.securityInput().parameter("raw").orElseThrow());
                 });
     }
 

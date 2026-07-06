@@ -12,10 +12,14 @@ import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
 import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.CocoClientIpResolver;
+import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
+import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
+import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
+import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.encryption.AesGcmCocoRequestDecryptor;
@@ -162,11 +166,41 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco 请求头解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return 请求头解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoRequestHeaderResolver cocoRequestHeaderResolver(CocoWebProperties properties) {
+        return new DefaultCocoRequestHeaderResolver(properties.getContext());
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco 请求参数解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return 请求参数解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoRequestParameterResolver cocoRequestParameterResolver(CocoWebProperties properties) {
+        return new DefaultCocoRequestParameterResolver(properties.getAccessLog());
+    }
+
+    /**
+     * <p>
      * 创建默认 Coco Web 请求上下文解析器。
      * </p>
      * @param properties Coco Web 配置属性
      * @param clientIpResolver 客户端 IP 解析器
      * @param browserFingerprintResolver 浏览器指纹解析器
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestParameterResolver 请求参数解析器
      * @return Coco Web 请求上下文解析器
      */
     @Bean
@@ -174,9 +208,10 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoWebRequestContextResolver cocoWebRequestContextResolver(CocoWebProperties properties,
             CocoClientIpResolver clientIpResolver,
-            CocoBrowserFingerprintResolver browserFingerprintResolver) {
+            CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
+            CocoRequestParameterResolver requestParameterResolver) {
         return new DefaultCocoWebRequestContextResolver(properties.getContext(), properties.getAccessLog(),
-                clientIpResolver, browserFingerprintResolver);
+                clientIpResolver, browserFingerprintResolver, requestHeaderResolver, requestParameterResolver);
     }
 
     /**
