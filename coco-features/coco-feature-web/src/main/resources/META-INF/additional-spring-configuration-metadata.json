@@ -91,7 +91,7 @@
       "values": [
         {
           "value": "security-headers",
-          "description": "仅当请求包含签名、加密或防重放等安全触发头时缓存请求体。"
+          "description": "当请求包含签名、加密触发头，或命中签名、加密强制匹配规则时缓存请求体。"
         },
         {
           "value": "always",

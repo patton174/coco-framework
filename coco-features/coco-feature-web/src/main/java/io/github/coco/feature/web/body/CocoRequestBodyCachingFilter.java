@@ -7,6 +7,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
+import io.github.coco.feature.web.context.CocoWebRequestMatcher;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoPayloadTooLargeException;
@@ -43,6 +45,12 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
     private final CocoRequestBodyProperties properties;
 
     private final Set<String> triggerHeaderNames;
+
+    private final CocoSignatureProperties signatureProperties;
+
+    private final CocoEncryptionProperties encryptionProperties;
+
+    private final CocoWebRequestMatcher requestMatcher;
 
     private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
 
@@ -81,8 +89,27 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
             CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+        this(properties, signatureProperties, encryptionProperties, exceptionResponseWriter, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求体缓存过滤器。
+     * </p>
+     * @param properties 请求体缓存配置属性
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param requestMatcher Web 请求匹配器
+     */
+    public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter, CocoWebRequestMatcher requestMatcher) {
         this.properties = properties == null ? new CocoRequestBodyProperties() : properties;
-        this.triggerHeaderNames = triggerHeaderNames(this.properties, signatureProperties, encryptionProperties);
+        this.signatureProperties = signatureProperties == null ? new CocoSignatureProperties() : signatureProperties;
+        this.encryptionProperties = encryptionProperties == null ? new CocoEncryptionProperties() : encryptionProperties;
+        this.triggerHeaderNames = triggerHeaderNames(this.properties, this.signatureProperties, this.encryptionProperties);
+        this.requestMatcher = requestMatcher == null ? new DefaultCocoWebRequestMatcher() : requestMatcher;
         this.exceptionResponseWriter = exceptionResponseWriter;
     }
 
@@ -126,6 +153,9 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
             return false;
         }
         if (isTriggerHeaderPresent(request)) {
+            return true;
+        }
+        if (securityCapabilityRequiresBodyCaching(request)) {
             return true;
         }
         return CocoRequestBodyCachingMode.ALWAYS.equals(this.properties.getMode())
@@ -173,18 +203,34 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         return false;
     }
 
+    private boolean securityCapabilityRequiresBodyCaching(HttpServletRequest request) {
+        return signatureRequiresBodyCaching(request) || encryptionRequiresBodyCaching(request);
+    }
+
+    private boolean signatureRequiresBodyCaching(HttpServletRequest request) {
+        if (!this.signatureProperties.isEnabled()
+                || this.requestMatcher.matches(request, this.signatureProperties.getMatcher().getIgnored())) {
+            return false;
+        }
+        return this.signatureProperties.isRequired()
+                || this.requestMatcher.matches(request, this.signatureProperties.getMatcher().getRequired());
+    }
+
+    private boolean encryptionRequiresBodyCaching(HttpServletRequest request) {
+        if (!this.encryptionProperties.isEnabled()
+                || this.requestMatcher.matches(request, this.encryptionProperties.getMatcher().getIgnored())) {
+            return false;
+        }
+        return this.encryptionProperties.isRequired()
+                || this.requestMatcher.matches(request, this.encryptionProperties.getMatcher().getRequired());
+    }
+
     private static Set<String> triggerHeaderNames(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
         LinkedHashSet<String> headerNames = new LinkedHashSet<>(properties.getTriggerHeaderNames());
-        CocoSignatureProperties signature = signatureProperties == null
-                ? new CocoSignatureProperties()
-                : signatureProperties;
-        CocoEncryptionProperties encryption = encryptionProperties == null
-                ? new CocoEncryptionProperties()
-                : encryptionProperties;
-        add(headerNames, signature.getSignatureHeaderName());
-        add(headerNames, signature.getSignatureFallbackHeaderName());
-        add(headerNames, encryption.getEncryptedHeaderName());
+        add(headerNames, signatureProperties.getSignatureHeaderName());
+        add(headerNames, signatureProperties.getSignatureFallbackHeaderName());
+        add(headerNames, encryptionProperties.getEncryptedHeaderName());
         return Set.copyOf(headerNames);
     }
 

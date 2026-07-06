@@ -432,6 +432,7 @@ public class CocoWebAutoConfiguration {
      * </p>
      * @param properties Coco Web 配置属性
      * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param requestMatcher Web 请求匹配器
      * @return 请求体缓存过滤器注册器
      */
     @Bean
@@ -440,10 +441,11 @@ public class CocoWebAutoConfiguration {
             matchIfMissing = true)
     @ConditionalOnMissingBean(name = "cocoRequestBodyCachingFilterRegistration")
     public FilterRegistrationBean<CocoRequestBodyCachingFilter> cocoRequestBodyCachingFilterRegistration(
-            CocoWebProperties properties, CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+            CocoWebProperties properties, CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoWebRequestMatcher requestMatcher) {
         FilterRegistrationBean<CocoRequestBodyCachingFilter> registration = new FilterRegistrationBean<>(
                 new CocoRequestBodyCachingFilter(properties.getRequestBody(), properties.getSignature(),
-                        properties.getEncryption(), exceptionResponseWriter));
+                        properties.getEncryption(), exceptionResponseWriter, requestMatcher));
         registration.setName("cocoRequestBodyCachingFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

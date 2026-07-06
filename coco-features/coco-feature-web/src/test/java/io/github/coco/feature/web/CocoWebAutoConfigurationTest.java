@@ -1935,6 +1935,31 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void cachesRequestBodyWhenSignatureMatcherRequiresRequest() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.request-body.mode=security-headers",
+                        "coco.web.signature.matcher.required[0].methods[0]=POST",
+                        "coco.web.signature.matcher.required[0].path-patterns[0]=/secure/**")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/secure/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
+                    AtomicReference<String> cachedSha256 = new AtomicReference<>();
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    request.setContent(body);
+
+                    bodyFilter.doFilter(request, response, (wrappedRequest, wrappedResponse) ->
+                            cachedSha256.set(CocoCachedBodyHttpServletRequest.cachedBody(
+                                    (HttpServletRequest) wrappedRequest).orElseThrow().sha256()));
+
+                    assertEquals(sha256(body), cachedSha256.get());
+                });
+    }
+
+    @Test
     void ignoresSignatureWhenRequestMatcherIgnoresRequest() throws Exception {
         this.webContextRunner
                 .withPropertyValues(
@@ -1952,6 +1977,30 @@ class CocoWebAutoConfigurationTest {
 
                     assertEquals(200, response.getStatus());
                     assertEquals(Boolean.TRUE, reachedBusiness.get());
+                });
+    }
+
+    @Test
+    void skipsRequestBodyCacheWhenSignatureMatcherIgnoresGlobalRequiredRequest() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.request-body.mode=security-headers",
+                        "coco.web.signature.required=true",
+                        "coco.web.signature.matcher.ignored[0].path-patterns[0]=/public/**")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/public/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<Boolean> cached = new AtomicReference<>(true);
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    request.setContent("{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8));
+
+                    bodyFilter.doFilter(request, response, (wrappedRequest, wrappedResponse) ->
+                            cached.set(CocoCachedBodyHttpServletRequest.cachedBody(
+                                    (HttpServletRequest) wrappedRequest).isPresent()));
+
+                    assertEquals(Boolean.FALSE, cached.get());
                 });
     }
 
@@ -1976,6 +2025,31 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(Boolean.FALSE, body.get("success"));
                     assertEquals(401, body.get("code"));
                     assertEquals("Request encryption flag is missing.", body.get("message"));
+                });
+    }
+
+    @Test
+    void cachesRequestBodyWhenEncryptionMatcherRequiresRequest() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.request-body.mode=security-headers",
+                        "coco.web.encryption.matcher.required[0].methods[0]=POST",
+                        "coco.web.encryption.matcher.required[0].path-patterns[0]=/secure/**")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/secure/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    byte[] body = "encrypted-payload".getBytes(StandardCharsets.UTF_8);
+                    AtomicReference<String> cachedSha256 = new AtomicReference<>();
+                    request.setContentType("application/vnd.coco.raw");
+                    request.setContent(body);
+
+                    bodyFilter.doFilter(request, response, (wrappedRequest, wrappedResponse) ->
+                            cachedSha256.set(CocoCachedBodyHttpServletRequest.cachedBody(
+                                    (HttpServletRequest) wrappedRequest).orElseThrow().sha256()));
+
+                    assertEquals(sha256(body), cachedSha256.get());
                 });
     }
 

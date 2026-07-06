@@ -158,6 +158,8 @@ class CocoWebConfigurationMetadataTest {
         JsonNode metadata = configurationMetadata("/META-INF/additional-spring-configuration-metadata.json");
 
         assertHintValues(metadata, "coco.web.request-body.mode", "security-headers", "always");
+        assertHintDescriptionContains(metadata, "coco.web.request-body.mode", "security-headers",
+                "签名、加密强制匹配规则");
         assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "trace", "debug");
         assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v1", "coco-v2");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
@@ -211,6 +213,18 @@ class CocoWebConfigurationMetadataTest {
                 .map(value -> value.path("value").asText())
                 .toList();
         assertEquals(List.of(expectedValues), values);
+    }
+
+    private static void assertHintDescriptionContains(JsonNode metadata, String name,
+            String value, String expectedDescriptionPart) {
+        JsonNode hint = findNamedNode(metadata.path("hints"), name);
+        assertNotNull(hint, "missing hint: " + name);
+        JsonNode valueNode = StreamSupport.stream(hint.path("values").spliterator(), false)
+                .filter(candidate -> value.equals(candidate.path("value").asText()))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(valueNode, "missing hint value: " + name + "=" + value);
+        assertTrue(valueNode.path("description").asText().contains(expectedDescriptionPart));
     }
 
     private static void assertDeprecated(JsonNode metadata, String name, String replacement) {
