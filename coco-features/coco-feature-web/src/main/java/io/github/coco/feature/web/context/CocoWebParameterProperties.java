@@ -1,14 +1,15 @@
-package io.github.coco.feature.web.accesslog;
+package io.github.coco.feature.web.context;
 
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
+import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+
 /**
- * Coco Web 访问日志采集配置属性。
+ * Coco Web 请求参数配置属性。
  * <p>
- * 绑定 {@code coco.web.access-log} 命名空间，控制 Web 入口是否发布访问日志事件以及访问日志是否输出请求参数。
- * 参数脱敏和裁剪的主配置入口为 {@code coco.web.context.parameter}；本类保留参数字段用于兼容旧构造器。
+ * 控制 Web 请求上下文中的参数采集、脱敏和裁剪策略，不控制访问日志是否最终输出这些参数。
  * </p>
  * <p>
  * 项目信息：
@@ -21,14 +22,12 @@ import java.util.Set;
  * @author patton174
  * @since 1.0.0
  */
-public class CocoAccessLogCaptureProperties {
+public class CocoWebParameterProperties {
 
     private static final int DEFAULT_MAX_PARAMETER_VALUE_LENGTH = 256;
 
     private static final Set<String> DEFAULT_MASKED_PARAMETER_NAMES = Set.of(
             "password", "passwd", "pwd", "secret", "token", "access_token", "refresh_token", "authorization");
-
-    private boolean enabled = true;
 
     private boolean includeParameters = true;
 
@@ -38,27 +37,24 @@ public class CocoAccessLogCaptureProperties {
 
     /**
      * <p>
-     * 返回是否发布接口访问日志事件。
+     * 从旧访问日志参数配置创建请求参数配置。
      * </p>
-     * @return 启用时返回 {@code true}
+     * @param properties 访问日志采集配置属性
+     * @return 请求参数配置属性
      */
-    public boolean isEnabled() {
-        return this.enabled;
+    public static CocoWebParameterProperties fromAccessLog(CocoAccessLogCaptureProperties properties) {
+        CocoWebParameterProperties parameterProperties = new CocoWebParameterProperties();
+        if (properties != null) {
+            parameterProperties.setIncludeParameters(properties.isIncludeParameters());
+            parameterProperties.setMaxParameterValueLength(properties.getMaxParameterValueLength());
+            parameterProperties.setMaskedParameterNames(properties.getMaskedParameterNames());
+        }
+        return parameterProperties;
     }
 
     /**
      * <p>
-     * 设置是否发布接口访问日志事件。
-     * </p>
-     * @param enabled 是否启用
-     */
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
-
-    /**
-     * <p>
-     * 返回是否采集请求参数。
+     * 返回是否采集请求参数到 Web 请求上下文。
      * </p>
      * @return 采集请求参数时返回 {@code true}
      */
@@ -68,7 +64,7 @@ public class CocoAccessLogCaptureProperties {
 
     /**
      * <p>
-     * 设置是否采集请求参数。
+     * 设置是否采集请求参数到 Web 请求上下文。
      * </p>
      * @param includeParameters 是否采集请求参数
      */

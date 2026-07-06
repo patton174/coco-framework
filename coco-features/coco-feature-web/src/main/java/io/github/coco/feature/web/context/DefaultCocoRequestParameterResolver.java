@@ -15,7 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 /**
  * 默认 Coco 请求参数解析器。
  * <p>
- * 基于访问日志采集配置解析查询字符串和请求参数，普通上下文视图会执行脱敏和裁剪，安全输入视图保留原始参数。
+ * 基于 Web 请求参数配置解析查询字符串和请求参数，普通上下文视图会执行脱敏和裁剪，安全输入视图保留原始参数。
  * </p>
  * <p>
  * 项目信息：
@@ -32,16 +32,26 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
 
     private static final String MASKED_VALUE = "******";
 
-    private final CocoAccessLogCaptureProperties properties;
+    private final CocoWebParameterProperties properties;
+
+    /**
+     * <p>
+     * 使用旧访问日志参数配置创建默认 Coco 请求参数解析器。
+     * </p>
+     * @param properties 访问日志采集配置属性
+     */
+    public DefaultCocoRequestParameterResolver(CocoAccessLogCaptureProperties properties) {
+        this(CocoWebParameterProperties.fromAccessLog(properties));
+    }
 
     /**
      * <p>
      * 创建默认 Coco 请求参数解析器。
      * </p>
-     * @param properties 访问日志采集配置属性
+     * @param properties Web 请求参数配置属性
      */
-    public DefaultCocoRequestParameterResolver(CocoAccessLogCaptureProperties properties) {
-        this.properties = properties == null ? new CocoAccessLogCaptureProperties() : properties;
+    public DefaultCocoRequestParameterResolver(CocoWebParameterProperties properties) {
+        this.properties = properties == null ? new CocoWebParameterProperties() : properties;
     }
 
     /**

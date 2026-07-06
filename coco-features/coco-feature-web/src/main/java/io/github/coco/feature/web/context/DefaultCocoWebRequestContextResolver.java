@@ -112,9 +112,9 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
             CocoRequestParameterResolver requestParameterResolver,
             CocoWebRequestSecurityInputResolver securityInputResolver) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
-        CocoAccessLogCaptureProperties logProperties = accessLogProperties == null
-                ? new CocoAccessLogCaptureProperties()
-                : accessLogProperties;
+        CocoWebParameterProperties parameterProperties = accessLogProperties == null
+                ? contextProperties.getParameter()
+                : CocoWebParameterProperties.fromAccessLog(accessLogProperties);
         this.clientIpResolver = clientIpResolver == null
                 ? new DefaultCocoClientIpResolver(contextProperties)
                 : clientIpResolver;
@@ -125,7 +125,7 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
                 ? new DefaultCocoRequestHeaderResolver(contextProperties)
                 : requestHeaderResolver;
         this.requestParameterResolver = requestParameterResolver == null
-                ? new DefaultCocoRequestParameterResolver(logProperties)
+                ? new DefaultCocoRequestParameterResolver(parameterProperties)
                 : requestParameterResolver;
         this.securityInputResolver = securityInputResolver == null
                 ? new DefaultCocoWebRequestSecurityInputResolver(contextProperties, this.requestHeaderResolver,

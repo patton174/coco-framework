@@ -65,7 +65,7 @@ import org.springframework.core.Ordered;
 /**
  * Coco Web 功能自动配置。
  * <p>
- * 负责为 Web 功能模块注册国际化消息资源、统一响应包装处理器、统一异常响应处理器、异常 HTTP 状态解析器和 Trace 过滤器。
+ * 负责为 Web 功能模块注册国际化消息资源、统一响应、统一异常、Trace、访问日志、请求上下文、签名、加密和防重放相关基础设施。
  * </p>
  * <p>
  * 项目信息：
@@ -198,7 +198,7 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
     public CocoRequestParameterResolver cocoRequestParameterResolver(CocoWebProperties properties) {
-        return new DefaultCocoRequestParameterResolver(properties.getAccessLog());
+        return new DefaultCocoRequestParameterResolver(properties.getContext().getParameter());
     }
 
     /**

@@ -3,6 +3,7 @@ package io.github.coco.feature.web.trace;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -248,8 +249,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
                 failure == null ? null : failure.getClass().getName(),
                 requestSnapshot.clientIp(),
                 requestSnapshot.userAgent(),
-                requestSnapshot.queryString(),
-                requestSnapshot.parameters());
+                this.accessLogProperties.isIncludeParameters() ? requestSnapshot.queryString() : null,
+                this.accessLogProperties.isIncludeParameters() ? requestSnapshot.parameters() : Map.of());
         for (CocoAccessLogRecorder recorder : this.accessLogRecorders) {
             try {
                 recorder.record(accessLog);

@@ -3,7 +3,7 @@ package io.github.coco.feature.web.context;
 /**
  * Coco Web 请求规范化器。
  * <p>
- * 将请求安全输入转换为稳定文本，供后续 Sign 签名和验签能力使用。
+ * 将请求规范化上下文转换为稳定文本，供后续 Sign 签名、AES、防重放和浏览器指纹等能力使用。
  * </p>
  * <p>
  * 项目信息：
@@ -25,9 +25,7 @@ public interface CocoWebRequestCanonicalizer {
      * @param context 请求规范化上下文
      * @return 规范化请求文本
      */
-    default CocoWebRequestCanonicalForm canonicalize(CocoWebRequestCanonicalizationContext context) {
-        return canonicalize(context == null ? CocoWebRequestSecurityInput.empty() : context.securityInput());
-    }
+    CocoWebRequestCanonicalForm canonicalize(CocoWebRequestCanonicalizationContext context);
 
     /**
      * <p>
@@ -36,5 +34,7 @@ public interface CocoWebRequestCanonicalizer {
      * @param input 请求安全输入
      * @return 规范化请求文本
      */
-    CocoWebRequestCanonicalForm canonicalize(CocoWebRequestSecurityInput input);
+    default CocoWebRequestCanonicalForm canonicalize(CocoWebRequestSecurityInput input) {
+        return canonicalize(CocoWebRequestCanonicalizationContext.of(input));
+    }
 }

@@ -44,6 +44,7 @@ import io.github.coco.feature.web.context.CocoWebRequestSecurityInputResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.CocoWebParameterProperties;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
@@ -432,6 +433,9 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getContext().getCanonicalHeaderNames().contains("x-coco-sign-algorithm"));
         assertTrue(properties.getContext().getFingerprintHeaderNames().contains("sec-ch-ua"));
         assertEquals(256, properties.getContext().getMaxHeaderValueLength());
+        assertTrue(properties.getContext().getParameter().isIncludeParameters());
+        assertEquals(256, properties.getContext().getParameter().getMaxParameterValueLength());
+        assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("token"));
         assertEquals("coco-v1", properties.getContext().getCanonicalization().getVersion());
         assertFalse(properties.getContext().getCanonicalization().isIncludeVersion());
         assertFalse(properties.getContext().getCanonicalization().isIncludePurpose());
@@ -939,7 +943,7 @@ class CocoWebAutoConfigurationTest {
                 .withPropertyValues(
                         "coco.web.context.included-header-names=authorization,accept-language",
                         "coco.web.context.max-header-value-length=8",
-                        "coco.web.access-log.max-parameter-value-length=4")
+                        "coco.web.context.parameter.max-parameter-value-length=4")
                 .run(context -> {
                     CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
                             FilterRegistrationBean.class));
@@ -1140,9 +1144,9 @@ class CocoWebAutoConfigurationTest {
 
     @Test
     void defaultRequestParameterResolverProvidesSanitizedAndRawViews() {
-        CocoWebProperties properties = new CocoWebProperties();
-        properties.getAccessLog().setMaxParameterValueLength(4);
-        CocoRequestParameterResolver resolver = new DefaultCocoRequestParameterResolver(properties.getAccessLog());
+        CocoWebParameterProperties properties = new CocoWebParameterProperties();
+        properties.setMaxParameterValueLength(4);
+        CocoRequestParameterResolver resolver = new DefaultCocoRequestParameterResolver(properties);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
         request.setQueryString("password=abcdef&name=Coconut");
         request.addParameter("password", "abcdef");
@@ -1789,6 +1793,34 @@ class CocoWebAutoConfigurationTest {
                     assertTrue(accessLog.success());
                     assertTrue(accessLog.durationMillis() >= 0L);
                     assertTrue(accessLog.exceptionType().isEmpty());
+                });
+    }
+
+    @Test
+    void accessLogParameterSwitchDoesNotDisableRequestContextParameters() throws Exception {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        this.webContextRunner
+                .withPropertyValues("coco.web.access-log.include-parameters=false")
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "access-no-params");
+                    request.setQueryString("name=Coco&token=abc");
+                    request.addParameter("name", "Coco");
+                    request.addParameter("token", "abc");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                        CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                        assertEquals("Coco", requestContext.parameter("name").orElseThrow());
+                        assertEquals("******", requestContext.parameter("token").orElseThrow());
+                    })));
+
+                    CocoAccessLog accessLog = recorder.lastAccessLog();
+                    assertTrue(accessLog.queryString().isEmpty());
+                    assertTrue(accessLog.requestParameters().isEmpty());
                 });
     }
 

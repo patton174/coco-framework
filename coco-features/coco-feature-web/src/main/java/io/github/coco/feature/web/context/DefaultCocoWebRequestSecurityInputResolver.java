@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
@@ -95,7 +94,7 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
                 ? new DefaultCocoRequestHeaderResolver(contextProperties)
                 : requestHeaderResolver;
         this.requestParameterResolver = requestParameterResolver == null
-                ? new DefaultCocoRequestParameterResolver(new CocoAccessLogCaptureProperties())
+                ? new DefaultCocoRequestParameterResolver(new CocoWebParameterProperties())
                 : requestParameterResolver;
     }
 

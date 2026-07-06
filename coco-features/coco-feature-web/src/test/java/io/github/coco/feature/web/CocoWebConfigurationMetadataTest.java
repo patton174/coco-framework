@@ -106,6 +106,9 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.canonical-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.fingerprint-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.max-header-value-length\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.include-parameters\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.max-parameter-value-length\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.masked-parameter-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.version\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-version\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-purpose\""));

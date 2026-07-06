@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 /**
  * Coco Web 请求上下文配置属性。
  * <p>
- * 控制 Web 入口解析客户端 IP、请求头和上下文属性的策略；请求参数值清洗策略复用访问日志采集配置。
+ * 控制 Web 入口解析客户端 IP、请求头、请求参数、浏览器指纹和规范化输入的策略。
  * </p>
  * <p>
  * 项目信息：
@@ -71,6 +71,9 @@ public class CocoWebContextProperties {
     private Set<String> fingerprintHeaderNames = DEFAULT_FINGERPRINT_HEADER_NAMES;
 
     private int maxHeaderValueLength = DEFAULT_MAX_HEADER_VALUE_LENGTH;
+
+    @NestedConfigurationProperty
+    private CocoWebParameterProperties parameter = new CocoWebParameterProperties();
 
     @NestedConfigurationProperty
     private CocoWebRequestCanonicalizationProperties canonicalization =
@@ -247,6 +250,26 @@ public class CocoWebContextProperties {
         this.maxHeaderValueLength = maxHeaderValueLength <= 0
                 ? DEFAULT_MAX_HEADER_VALUE_LENGTH
                 : maxHeaderValueLength;
+    }
+
+    /**
+     * <p>
+     * 返回 Web 请求参数配置属性。
+     * </p>
+     * @return Web 请求参数配置属性
+     */
+    public CocoWebParameterProperties getParameter() {
+        return this.parameter;
+    }
+
+    /**
+     * <p>
+     * 设置 Web 请求参数配置属性。
+     * </p>
+     * @param parameter Web 请求参数配置属性
+     */
+    public void setParameter(CocoWebParameterProperties parameter) {
+        this.parameter = parameter == null ? new CocoWebParameterProperties() : parameter;
     }
 
     /**
