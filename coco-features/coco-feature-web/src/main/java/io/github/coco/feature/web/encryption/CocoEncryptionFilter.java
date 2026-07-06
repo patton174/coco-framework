@@ -2,7 +2,10 @@ package io.github.coco.feature.web.encryption;
 
 import java.io.IOException;
 import java.util.Objects;
+import java.util.Optional;
 
+import io.github.coco.common.context.CocoRequestContext;
+import io.github.coco.common.context.CocoRequestContextHolder;
 import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.trace.CocoTraceContext;
@@ -13,6 +16,7 @@ import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
@@ -109,12 +113,19 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+        Optional<CocoRequestContext> previousContext = CocoRequestContextHolder.current();
+        Optional<String> previousTraceId = CocoTraceContext.currentTraceId();
         try {
             HttpServletRequest decryptedRequest = decryptRequest(request, encrypted);
+            CocoWebRequestSnapshot effectiveSnapshot = resolveEffectiveRequestSnapshot(decryptedRequest);
+            CocoRequestContextHolder.set(effectiveSnapshot.toRequestContext());
             filterChain.doFilter(decryptedRequest, response);
         }
         catch (CocoException ex) {
             this.exceptionResponseWriter.write(ex, request, response);
+        }
+        finally {
+            restoreRequestContext(previousContext, previousTraceId);
         }
     }
 
@@ -154,6 +165,38 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
                 payload);
         return new ResolvedEncryptedRequest(encryptedRequest,
                 CocoEncryptionAssociatedData.from(encryptedRequest, snapshot, metadata));
+    }
+
+    /**
+     * <p>
+     * 解析解密后业务实际可见的请求快照。
+     * </p>
+     * <p>
+     * 解密会替换请求体，因此需要清理旧快照并基于明文请求体重新解析上下文，供业务、日志和审计能力读取一致视图。
+     * </p>
+     * @param request 已解密请求
+     * @return 解密后请求快照
+     */
+    private CocoWebRequestSnapshot resolveEffectiveRequestSnapshot(HttpServletRequest request) {
+        CocoWebRequestSnapshotAttributes.clear(request);
+        return this.requestContextResolver.resolve(CocoTraceContext.getOrCreateTraceId(), request);
+    }
+
+    /**
+     * <p>
+     * 恢复进入解密过滤器前的请求上下文。
+     * </p>
+     * @param previousContext 之前的请求上下文
+     * @param previousTraceId 之前的 TraceId
+     */
+    private static void restoreRequestContext(Optional<CocoRequestContext> previousContext,
+            Optional<String> previousTraceId) {
+        if (previousContext.isPresent()) {
+            CocoRequestContextHolder.set(previousContext.get());
+            return;
+        }
+        CocoRequestContextHolder.clear();
+        previousTraceId.ifPresent(CocoTraceContext::setTraceId);
     }
 
     private static byte[] readRawBody(HttpServletRequest request) {

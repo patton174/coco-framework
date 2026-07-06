@@ -23,6 +23,7 @@ import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.CocoAccessLogStyle;
 import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
@@ -75,6 +76,7 @@ import io.github.coco.feature.web.response.CocoSystemCodes;
 import io.github.coco.feature.web.signature.CocoSignatureFilter;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
+import io.github.coco.feature.web.trace.CocoTraceProperties;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
@@ -2036,9 +2038,11 @@ class CocoWebAutoConfigurationTest {
     @Test
     void decryptsEncryptedJsonRequestBeforeBusinessServlet() throws Exception {
         byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
         this.webContextRunner
                 .withPropertyValues("coco.web.encryption.keys.sample-app="
                         + Base64.getEncoder().encodeToString(key))
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
                 .run(context -> {
                     CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
                             context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
@@ -2055,10 +2059,23 @@ class CocoWebAutoConfigurationTest {
                             traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
                                     encryptionFilter.doFilter(traceRequest, traceResponse,
                                             new MockFilterChain(new BodyReadingServlet(downstreamBody, () -> {
+                                                CocoRequestContext requestContext =
+                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                assertEquals(sha256(plainBody),
+                                                        requestContext.requestBodySha256().orElseThrow());
+                                                assertEquals("sample-app",
+                                                        requestContext.securityAppId().orElseThrow());
+                                                assertTrue(requestContext.requestEncrypted());
                                             })))));
 
                     assertEquals(200, response.getStatus());
                     assertEquals("{\"sku\":\"COCO-STARTER\"}", downstreamBody.get());
+                    CocoWebRequestSnapshot effectiveSnapshot =
+                            CocoWebRequestSnapshotAttributes.get(request).orElseThrow();
+                    assertEquals(sha256(plainBody), effectiveSnapshot.securityInput().bodySha256());
+                    assertEquals("sample-app", effectiveSnapshot.securityMetadata().primaryAppId().orElseThrow());
+                    assertTrue(effectiveSnapshot.securityMetadata().encrypted());
+                    assertEquals("encrypted-body-trace", recorder.lastAccessLog().traceId());
                 });
     }
 
@@ -2219,6 +2236,34 @@ class CocoWebAutoConfigurationTest {
                     assertTrue(accessLog.durationMillis() >= 0L);
                     assertTrue(accessLog.exceptionType().isEmpty());
                 });
+    }
+
+    @Test
+    void recordsAccessLogWithLatestRequestSnapshot() throws Exception {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        CocoTraceProperties traceProperties = new CocoTraceProperties();
+        CocoAccessLogCaptureProperties accessLogProperties = new CocoAccessLogCaptureProperties();
+        CocoWebRequestSnapshot initialSnapshot = new CocoWebRequestSnapshot("latest-snapshot-trace",
+                "POST", "/initial", null, "127.0.0.1", "agent", "zh-CN",
+                "http", "example.test", 8080, null, Map.of(), Map.of());
+        CocoWebRequestSnapshot effectiveSnapshot = new CocoWebRequestSnapshot("latest-snapshot-trace",
+                "POST", "/effective", "stage=decrypted", "127.0.0.2", "agent", "zh-CN",
+                "http", "example.test", 8080, null, Map.of(), Map.of("stage", List.of("decrypted")));
+        CocoWebRequestContextResolver resolver = (traceId, request) -> initialSnapshot;
+        CocoTraceFilter filter = new CocoTraceFilter(traceProperties, List.of(recorder), accessLogProperties,
+                resolver);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        request.addHeader("X-Trace-Id", "latest-snapshot-trace");
+
+        filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                CocoWebRequestSnapshotAttributes.set(request, effectiveSnapshot))));
+
+        CocoAccessLog accessLog = recorder.lastAccessLog();
+        assertEquals("/effective", accessLog.path().orElseThrow());
+        assertEquals("127.0.0.2", accessLog.clientIp().orElseThrow());
+        assertEquals("stage=decrypted", accessLog.queryString().orElseThrow());
+        assertEquals(List.of("decrypted"), accessLog.requestParameters().get("stage"));
     }
 
     @Test

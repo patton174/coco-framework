@@ -15,6 +15,7 @@ import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -161,7 +162,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             throw ex;
         }
         finally {
-            recordAccessLog(requestSnapshot, response.getStatus(), elapsedMillis(startNanos), failure);
+            recordAccessLog(latestRequestSnapshot(request, requestSnapshot), response.getStatus(),
+                    elapsedMillis(startNanos), failure);
             restoreMdcValue(previousMdcValue);
             CocoRequestContextHolder.clear();
         }
@@ -270,5 +272,21 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
      */
     private static long elapsedMillis(long startNanos) {
         return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
+    }
+
+    /**
+     * <p>
+     * 返回当前请求上的最新请求快照。
+     * </p>
+     * <p>
+     * 后续过滤器可能会刷新请求快照，例如 AES 解密后会将请求体从密文切换为业务可见的明文，因此访问日志应优先使用最新快照。
+     * </p>
+     * @param request 当前 HTTP 请求
+     * @param fallbackSnapshot 兜底请求快照
+     * @return 最新请求快照；不存在时返回兜底快照
+     */
+    private static CocoWebRequestSnapshot latestRequestSnapshot(HttpServletRequest request,
+            CocoWebRequestSnapshot fallbackSnapshot) {
+        return CocoWebRequestSnapshotAttributes.get(request).orElse(fallbackSnapshot);
     }
 }
