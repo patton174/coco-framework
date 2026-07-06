@@ -87,6 +87,7 @@ import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -990,6 +991,57 @@ class CocoWebAutoConfigurationTest {
 
             assertTrue(CocoRequestContextHolder.current().isEmpty());
             assertNull(MDC.get("traceId"));
+                });
+    }
+
+    @Test
+    void doesNotCollectRequestCookiesByDefault() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            request.addHeader("X-Trace-Id", "cookie-default-trace");
+            request.setCookies(new Cookie("COCO_TRACE", "cookie-trace"));
+
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                assertTrue(requestContext.cookie("COCO_TRACE").isEmpty());
+            })));
+        });
+    }
+
+    @Test
+    void resolvesIncludedRequestCookiesIntoRequestContext() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.context.included-cookie-names=COCO_TRACE,SESSION,theme",
+                        "coco.web.context.max-cookie-value-length=4")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "cookie-context-trace");
+                    request.setCookies(
+                            new Cookie("COCO_TRACE", "incoming-trace-cookie"),
+                            new Cookie("SESSION", "secret-session"),
+                            new Cookie("theme", "dark-theme"),
+                            new Cookie("ignored", "ignored-value"));
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                        CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                        assertEquals("inco...", requestContext.cookie("COCO_TRACE").orElseThrow());
+                        assertEquals("******", requestContext.cookie("SESSION").orElseThrow());
+                        assertEquals("dark...", requestContext.cookie("theme").orElseThrow());
+                        assertTrue(requestContext.cookie("ignored").isEmpty());
+                    })));
+
+                    CocoWebRequestSnapshot snapshot = CocoWebRequestSnapshotAttributes.get(request).orElseThrow();
+                    assertEquals("inco...", snapshot.cookies().get("COCO_TRACE"));
+                    assertEquals("******", snapshot.cookies().get("SESSION"));
+                    assertEquals("dark...", snapshot.cookies().get("theme"));
+                    assertFalse(snapshot.cookies().containsKey("ignored"));
                 });
     }
 

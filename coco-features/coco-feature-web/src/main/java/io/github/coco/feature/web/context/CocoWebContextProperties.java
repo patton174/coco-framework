@@ -27,6 +27,8 @@ public class CocoWebContextProperties {
 
     private static final int DEFAULT_MAX_HEADER_VALUE_LENGTH = 256;
 
+    private static final int DEFAULT_MAX_COOKIE_VALUE_LENGTH = 128;
+
     private static final List<String> DEFAULT_CLIENT_IP_HEADER_NAMES = List.of(
             "Forwarded",
             "X-Forwarded-For",
@@ -41,6 +43,9 @@ public class CocoWebContextProperties {
 
     private static final Set<String> DEFAULT_MASKED_HEADER_NAMES = Set.of(
             "authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token");
+
+    private static final Set<String> DEFAULT_MASKED_COOKIE_NAMES = Set.of(
+            "jsessionid", "session", "sessionid", "token", "access_token", "refresh_token");
 
     private static final Set<String> DEFAULT_SECURITY_HEADER_NAMES = Set.of(
             "content-md5", "content-type", "x-coco-app-id", "x-coco-timestamp", "x-coco-nonce",
@@ -73,6 +78,12 @@ public class CocoWebContextProperties {
     private Set<String> fingerprintHeaderNames = DEFAULT_FINGERPRINT_HEADER_NAMES;
 
     private int maxHeaderValueLength = DEFAULT_MAX_HEADER_VALUE_LENGTH;
+
+    private Set<String> includedCookieNames = Set.of();
+
+    private Set<String> maskedCookieNames = DEFAULT_MASKED_COOKIE_NAMES;
+
+    private int maxCookieValueLength = DEFAULT_MAX_COOKIE_VALUE_LENGTH;
 
     @NestedConfigurationProperty
     private CocoWebParameterProperties parameter = new CocoWebParameterProperties();
@@ -286,6 +297,68 @@ public class CocoWebContextProperties {
 
     /**
      * <p>
+     * 返回允许写入请求上下文的 Cookie 名称。
+     * </p>
+     * @return Cookie 名称集合
+     */
+    public Set<String> getIncludedCookieNames() {
+        return this.includedCookieNames;
+    }
+
+    /**
+     * <p>
+     * 设置允许写入请求上下文的 Cookie 名称。
+     * </p>
+     * @param includedCookieNames Cookie 名称集合
+     */
+    public void setIncludedCookieNames(Set<String> includedCookieNames) {
+        this.includedCookieNames = normalizeCookieNames(includedCookieNames, Set.of());
+    }
+
+    /**
+     * <p>
+     * 返回需要掩码的 Cookie 名称。
+     * </p>
+     * @return Cookie 名称集合
+     */
+    public Set<String> getMaskedCookieNames() {
+        return this.maskedCookieNames;
+    }
+
+    /**
+     * <p>
+     * 设置需要掩码的 Cookie 名称。
+     * </p>
+     * @param maskedCookieNames Cookie 名称集合
+     */
+    public void setMaskedCookieNames(Set<String> maskedCookieNames) {
+        this.maskedCookieNames = normalizeCookieNames(maskedCookieNames, DEFAULT_MASKED_COOKIE_NAMES);
+    }
+
+    /**
+     * <p>
+     * 返回单个 Cookie 值最大采集长度。
+     * </p>
+     * @return 单个 Cookie 值最大采集长度
+     */
+    public int getMaxCookieValueLength() {
+        return this.maxCookieValueLength;
+    }
+
+    /**
+     * <p>
+     * 设置单个 Cookie 值最大采集长度。
+     * </p>
+     * @param maxCookieValueLength 单个 Cookie 值最大采集长度
+     */
+    public void setMaxCookieValueLength(int maxCookieValueLength) {
+        this.maxCookieValueLength = maxCookieValueLength <= 0
+                ? DEFAULT_MAX_COOKIE_VALUE_LENGTH
+                : maxCookieValueLength;
+    }
+
+    /**
+     * <p>
      * 返回 Web 请求参数配置属性。
      * </p>
      * @return Web 请求参数配置属性
@@ -334,6 +407,19 @@ public class CocoWebContextProperties {
         for (String name : headerNames) {
             if (name != null && !name.isBlank()) {
                 normalizedNames.add(name.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return normalizedNames.isEmpty() ? defaults : Set.copyOf(normalizedNames);
+    }
+
+    private static Set<String> normalizeCookieNames(Set<String> cookieNames, Set<String> defaults) {
+        if (cookieNames == null || cookieNames.isEmpty()) {
+            return defaults;
+        }
+        Set<String> normalizedNames = new LinkedHashSet<>();
+        for (String name : cookieNames) {
+            if (name != null && !name.isBlank()) {
+                normalizedNames.add(name.trim());
             }
         }
         return normalizedNames.isEmpty() ? defaults : Set.copyOf(normalizedNames);

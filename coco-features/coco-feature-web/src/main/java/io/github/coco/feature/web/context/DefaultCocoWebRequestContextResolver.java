@@ -38,6 +38,8 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
 
     private final CocoRequestHeaderResolver requestHeaderResolver;
 
+    private final CocoRequestCookieResolver requestCookieResolver;
+
     private final CocoRequestParameterResolver requestParameterResolver;
 
     private final CocoWebRequestSecurityInputResolver securityInputResolver;
@@ -144,6 +146,30 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
             CocoRequestParameterResolver requestParameterResolver,
             CocoWebRequestSecurityInputResolver securityInputResolver,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
+        this(properties, accessLogProperties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
+                null, requestParameterResolver, securityInputResolver, securityMetadataResolver);
+    }
+
+    /**
+     * <p>
+     * 创建默认请求上下文解析器。
+     * </p>
+     * @param properties Web 请求上下文配置
+     * @param accessLogProperties 访问日志采集配置
+     * @param clientIpResolver 客户端 IP 解析器
+     * @param browserFingerprintResolver 浏览器指纹解析器
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver Cookie 解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param securityInputResolver 请求安全输入解析器
+     * @param securityMetadataResolver 请求安全元数据解析器
+     */
+    public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
+            CocoAccessLogCaptureProperties accessLogProperties, CocoClientIpResolver clientIpResolver,
+            CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
+            CocoRequestCookieResolver requestCookieResolver, CocoRequestParameterResolver requestParameterResolver,
+            CocoWebRequestSecurityInputResolver securityInputResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
         CocoWebParameterProperties parameterProperties = accessLogProperties == null
                 ? contextProperties.getParameter()
@@ -157,6 +183,9 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         this.requestHeaderResolver = requestHeaderResolver == null
                 ? new DefaultCocoRequestHeaderResolver(contextProperties)
                 : requestHeaderResolver;
+        this.requestCookieResolver = requestCookieResolver == null
+                ? new DefaultCocoRequestCookieResolver(contextProperties)
+                : requestCookieResolver;
         this.requestParameterResolver = requestParameterResolver == null
                 ? new DefaultCocoRequestParameterResolver(parameterProperties)
                 : requestParameterResolver;
@@ -191,12 +220,13 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         Map<String, List<String>> parameters = this.requestParameterResolver.resolveParameters(request);
         Map<String, List<String>> queryParameters = this.requestParameterResolver.resolveQueryParameters(request);
         Map<String, List<String>> payloadParameters = this.requestParameterResolver.resolvePayloadParameters(request);
+        Map<String, String> cookies = this.requestCookieResolver.resolveIncludedCookies(request);
         CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(request),
                 clientIpResolution.clientIp(), request.getHeader("User-Agent"),
                 resolveLocale(request),
                 request.getScheme(), request.getServerName(), request.getServerPort(),
                 request.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(request),
-                parameters, queryParameters, payloadParameters, securityInput, requestBody, securityMetadata,
+                cookies, parameters, queryParameters, payloadParameters, securityInput, requestBody, securityMetadata,
                 browserFingerprint, clientIpResolution);
         CocoWebRequestSnapshotAttributes.set(request, snapshot, headerFingerprint(request));
         return snapshot;

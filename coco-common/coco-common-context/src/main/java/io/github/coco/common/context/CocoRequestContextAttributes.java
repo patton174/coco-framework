@@ -156,6 +156,11 @@ public final class CocoRequestContextAttributes {
     public static final String HEADER_PREFIX = "header.";
 
     /**
+     * Cookie 属性键前缀。
+     */
+    public static final String COOKIE_PREFIX = "cookie.";
+
+    /**
      * 请求参数属性键前缀。
      */
     public static final String PARAMETER_PREFIX = "parameter.";
@@ -182,6 +187,17 @@ public final class CocoRequestContextAttributes {
      */
     public static String header(String name) {
         return HEADER_PREFIX + normalizeHeaderName(name);
+    }
+
+    /**
+     * <p>
+     * 创建 Cookie 上下文属性键。
+     * </p>
+     * @param name Cookie 名称
+     * @return Cookie 上下文属性键
+     */
+    public static String cookie(String name) {
+        return COOKIE_PREFIX + normalizeSegment(name);
     }
 
     /**

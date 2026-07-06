@@ -14,6 +14,7 @@ import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
 import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.CocoClientIpResolver;
+import io.github.coco.feature.web.context.CocoRequestCookieResolver;
 import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
@@ -23,6 +24,7 @@ import io.github.coco.feature.web.context.CocoWebRequestSecurityInputResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
+import io.github.coco.feature.web.context.DefaultCocoRequestCookieResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
@@ -195,6 +197,20 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco 请求 Cookie 解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return 请求 Cookie 解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoRequestCookieResolver cocoRequestCookieResolver(CocoWebProperties properties) {
+        return new DefaultCocoRequestCookieResolver(properties.getContext());
+    }
+
+    /**
+     * <p>
      * 创建默认 Coco 请求体参数解析器。
      * </p>
      * @param properties Coco Web 配置属性
@@ -283,12 +299,13 @@ public class CocoWebAutoConfiguration {
     public CocoWebRequestContextResolver cocoWebRequestContextResolver(CocoWebProperties properties,
             CocoClientIpResolver clientIpResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
+            CocoRequestCookieResolver requestCookieResolver,
             CocoRequestParameterResolver requestParameterResolver,
             CocoWebRequestSecurityInputResolver securityInputResolver,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
         return new DefaultCocoWebRequestContextResolver(properties.getContext(), properties.getAccessLog(),
-                clientIpResolver, browserFingerprintResolver, requestHeaderResolver, requestParameterResolver,
-                securityInputResolver, securityMetadataResolver);
+                clientIpResolver, browserFingerprintResolver, requestHeaderResolver, requestCookieResolver,
+                requestParameterResolver, securityInputResolver, securityMetadataResolver);
     }
 
     /**

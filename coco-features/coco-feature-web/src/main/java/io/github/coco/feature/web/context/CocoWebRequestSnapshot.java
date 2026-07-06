@@ -36,6 +36,7 @@ import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
  * @param port 请求端口
  * @param contentType 请求内容类型
  * @param headers 请求头快照
+ * @param cookies Cookie 快照
  * @param parameters 请求参数快照
  * @param queryParameters 查询参数快照
  * @param payloadParameters 请求体参数快照
@@ -49,8 +50,9 @@ import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
  */
 public record CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
         String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
-        String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
-        Map<String, List<String>> queryParameters, Map<String, List<String>> payloadParameters,
+        String contentType, Map<String, String> headers, Map<String, String> cookies,
+        Map<String, List<String>> parameters, Map<String, List<String>> queryParameters,
+        Map<String, List<String>> payloadParameters,
         CocoWebRequestSecurityInput securityInput, CocoRequestBodyMetadata requestBody,
         CocoWebRequestSecurityMetadata securityMetadata, CocoBrowserFingerprint browserFingerprint,
         CocoClientIpResolution clientIpResolution) {
@@ -77,7 +79,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
             String contentType, Map<String, String> headers, Map<String, List<String>> parameters) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, Map.of(), Map.of(),
+                contentType, headers, Map.of(), parameters, Map.of(), Map.of(),
                 new CocoWebRequestSecurityInput(method, path, null, Map.of(), Map.of(), Map.of(), null),
                 CocoRequestBodyMetadata.empty(), CocoWebRequestSecurityMetadata.empty(), CocoBrowserFingerprint.empty(),
                 CocoClientIpResolution.custom(clientIp));
@@ -108,7 +110,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
             CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, Map.of(), Map.of(), securityInput, null,
+                contentType, headers, Map.of(), parameters, Map.of(), Map.of(), securityInput, null,
                 CocoWebRequestSecurityMetadata.empty(),
                 browserFingerprint,
                 CocoClientIpResolution.custom(clientIp));
@@ -141,7 +143,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint,
             CocoClientIpResolution clientIpResolution) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, Map.of(), Map.of(), securityInput, null,
+                contentType, headers, Map.of(), parameters, Map.of(), Map.of(), securityInput, null,
                 CocoWebRequestSecurityMetadata.empty(),
                 browserFingerprint, clientIpResolution);
     }
@@ -174,7 +176,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             CocoWebRequestSecurityInput securityInput, CocoWebRequestSecurityMetadata securityMetadata,
             CocoBrowserFingerprint browserFingerprint, CocoClientIpResolution clientIpResolution) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, Map.of(), Map.of(), securityInput, null, securityMetadata,
+                contentType, headers, Map.of(), parameters, Map.of(), Map.of(), securityInput, null, securityMetadata,
                 browserFingerprint,
                 clientIpResolution);
     }
@@ -195,6 +197,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
      * @param port 请求端口
      * @param contentType 请求内容类型
      * @param headers 请求头快照
+     * @param cookies Cookie 快照
      * @param parameters 请求参数快照
      * @param queryParameters 查询参数快照
      * @param payloadParameters 请求体参数快照
@@ -217,6 +220,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         host = normalizeOptional(host);
         contentType = normalizeOptional(contentType);
         headers = copyHeaders(headers);
+        cookies = copyCookies(cookies);
         parameters = copyParameters(parameters);
         queryParameters = copyParameters(queryParameters);
         payloadParameters = copyParameters(payloadParameters);
@@ -279,6 +283,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
                 this.securityMetadata.encryptionAlgorithm());
         this.headers.forEach((name, value) ->
                 putIfPresent(attributes, CocoRequestContextAttributes.header(name), value));
+        this.cookies.forEach((name, value) ->
+                putIfPresent(attributes, CocoRequestContextAttributes.cookie(name), value));
         this.parameters.forEach((name, values) ->
                 putIfPresent(attributes, CocoRequestContextAttributes.parameter(name), String.join(",", values)));
         this.queryParameters.forEach((name, values) ->
@@ -325,6 +331,21 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             String normalizedValue = normalizeOptional(value);
             if (normalizedName != null && normalizedValue != null) {
                 copied.put(normalizedName.toLowerCase(Locale.ROOT), normalizedValue);
+            }
+        });
+        return Collections.unmodifiableMap(copied);
+    }
+
+    private static Map<String, String> copyCookies(Map<String, String> cookies) {
+        if (cookies == null || cookies.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> copied = new LinkedHashMap<>();
+        cookies.forEach((name, value) -> {
+            String normalizedName = normalizeOptional(name);
+            String normalizedValue = normalizeOptional(value);
+            if (normalizedName != null && normalizedValue != null) {
+                copied.put(normalizedName, normalizedValue);
             }
         });
         return Collections.unmodifiableMap(copied);

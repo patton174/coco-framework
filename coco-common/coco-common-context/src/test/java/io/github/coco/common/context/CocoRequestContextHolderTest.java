@@ -63,6 +63,7 @@ class CocoRequestContextHolderTest {
                         entry(CocoRequestContextAttributes.SIGNATURE_ALGORITHM, " HMAC-SHA256 "),
                         entry(CocoRequestContextAttributes.ENCRYPTION_ALGORITHM, " AES-GCM "),
                         entry(CocoRequestContextAttributes.header("Accept-Language"), " zh-CN "),
+                        entry(CocoRequestContextAttributes.cookie("COCO_TRACE"), " trace-cookie "),
                         entry(CocoRequestContextAttributes.parameter("name"), " Coco "),
                         entry(CocoRequestContextAttributes.queryParameter("q"), " web "),
                         entry(CocoRequestContextAttributes.payloadParameter("sku"), " COCO-STARTER ")));
@@ -97,6 +98,7 @@ class CocoRequestContextHolderTest {
         assertEquals("HMAC-SHA256", current.signatureAlgorithm().orElseThrow());
         assertEquals("AES-GCM", current.encryptionAlgorithm().orElseThrow());
         assertEquals("zh-CN", current.header("accept-language").orElseThrow());
+        assertEquals("trace-cookie", current.cookie("COCO_TRACE").orElseThrow());
         assertEquals("Coco", current.parameter("name").orElseThrow());
         assertEquals("web", current.queryParameter("q").orElseThrow());
         assertEquals("COCO-STARTER", current.payloadParameter("sku").orElseThrow());

@@ -377,6 +377,20 @@ public final class CocoRequestContext {
 
     /**
      * <p>
+     * 返回 Cookie 上下文属性。
+     * </p>
+     * @param name Cookie 名称
+     * @return Cookie 值；未设置时为空
+     */
+    public Optional<String> cookie(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return attribute(CocoRequestContextAttributes.cookie(name));
+    }
+
+    /**
+     * <p>
      * 返回请求参数上下文属性。
      * </p>
      * @param name 请求参数名称
