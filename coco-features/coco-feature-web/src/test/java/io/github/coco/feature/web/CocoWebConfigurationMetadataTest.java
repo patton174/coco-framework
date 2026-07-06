@@ -102,6 +102,18 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.canonical-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.fingerprint-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.max-header-value-length\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.version\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-version\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-purpose\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-method\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-path\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-query-string\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-headers\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-parameters\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-body-sha256\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-body-length\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.sort-parameter-values\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.parameter-value-separator\""));
         assertTrue(content.contains("\"name\": \"coco.web.response.metadata-mode\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));

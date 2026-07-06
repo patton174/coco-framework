@@ -263,12 +263,13 @@ public class CocoWebAutoConfiguration {
      * <p>
      * 创建默认 Coco Web 请求规范化器。
      * </p>
+     * @param properties Coco Web 配置属性
      * @return Coco Web 请求规范化器
      */
     @Bean
     @ConditionalOnMissingBean
-    public CocoWebRequestCanonicalizer cocoWebRequestCanonicalizer() {
-        return new DefaultCocoWebRequestCanonicalizer();
+    public CocoWebRequestCanonicalizer cocoWebRequestCanonicalizer(CocoWebProperties properties) {
+        return new DefaultCocoWebRequestCanonicalizer(properties.getContext().getCanonicalization());
     }
 
     /**

@@ -20,6 +20,17 @@ public interface CocoWebRequestCanonicalizer {
 
     /**
      * <p>
+     * 创建指定用途下的规范化请求文本。
+     * </p>
+     * @param context 请求规范化上下文
+     * @return 规范化请求文本
+     */
+    default CocoWebRequestCanonicalForm canonicalize(CocoWebRequestCanonicalizationContext context) {
+        return canonicalize(context == null ? CocoWebRequestSecurityInput.empty() : context.securityInput());
+    }
+
+    /**
+     * <p>
      * 创建规范化请求文本。
      * </p>
      * @param input 请求安全输入

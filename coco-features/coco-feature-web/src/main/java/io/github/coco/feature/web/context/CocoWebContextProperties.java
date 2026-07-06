@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
+
 /**
  * Coco Web 请求上下文配置属性。
  * <p>
@@ -69,6 +71,10 @@ public class CocoWebContextProperties {
     private Set<String> fingerprintHeaderNames = DEFAULT_FINGERPRINT_HEADER_NAMES;
 
     private int maxHeaderValueLength = DEFAULT_MAX_HEADER_VALUE_LENGTH;
+
+    @NestedConfigurationProperty
+    private CocoWebRequestCanonicalizationProperties canonicalization =
+            new CocoWebRequestCanonicalizationProperties();
 
     /**
      * <p>
@@ -241,6 +247,28 @@ public class CocoWebContextProperties {
         this.maxHeaderValueLength = maxHeaderValueLength <= 0
                 ? DEFAULT_MAX_HEADER_VALUE_LENGTH
                 : maxHeaderValueLength;
+    }
+
+    /**
+     * <p>
+     * 返回 Web 请求规范化配置属性。
+     * </p>
+     * @return Web 请求规范化配置属性
+     */
+    public CocoWebRequestCanonicalizationProperties getCanonicalization() {
+        return this.canonicalization;
+    }
+
+    /**
+     * <p>
+     * 设置 Web 请求规范化配置属性。
+     * </p>
+     * @param canonicalization Web 请求规范化配置属性
+     */
+    public void setCanonicalization(CocoWebRequestCanonicalizationProperties canonicalization) {
+        this.canonicalization = canonicalization == null
+                ? new CocoWebRequestCanonicalizationProperties()
+                : canonicalization;
     }
 
     private static Set<String> normalizeHeaderNames(Set<String> headerNames, Set<String> defaults) {

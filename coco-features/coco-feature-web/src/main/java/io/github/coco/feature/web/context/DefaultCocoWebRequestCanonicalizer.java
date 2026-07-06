@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 
 /**
  * Coco Web 默认请求规范化器。
@@ -27,39 +28,102 @@ import java.util.TreeMap;
  */
 public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestCanonicalizer {
 
+    private final CocoWebRequestCanonicalizationProperties properties;
+
+    /**
+     * <p>
+     * 创建默认请求规范化器。
+     * </p>
+     */
+    public DefaultCocoWebRequestCanonicalizer() {
+        this(null);
+    }
+
+    /**
+     * <p>
+     * 创建默认请求规范化器。
+     * </p>
+     * @param properties 请求规范化配置属性
+     */
+    public DefaultCocoWebRequestCanonicalizer(CocoWebRequestCanonicalizationProperties properties) {
+        this.properties = properties == null ? new CocoWebRequestCanonicalizationProperties() : properties;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoWebRequestCanonicalForm canonicalize(CocoWebRequestCanonicalizationContext context) {
+        CocoWebRequestCanonicalizationContext checkedContext = context == null
+                ? CocoWebRequestCanonicalizationContext.of(CocoWebRequestSecurityInput.empty())
+                : context;
+        String text = canonicalText(checkedContext);
+        return new CocoWebRequestCanonicalForm(text, sha256(text));
+    }
+
     /**
      * {@inheritDoc}
      */
     @Override
     public CocoWebRequestCanonicalForm canonicalize(CocoWebRequestSecurityInput input) {
         CocoWebRequestSecurityInput checkedInput = Objects.requireNonNull(input, "input must not be null");
-        String text = canonicalText(checkedInput);
-        return new CocoWebRequestCanonicalForm(text, sha256(text));
+        return canonicalize(CocoWebRequestCanonicalizationContext.of(checkedInput));
     }
 
-    private static String canonicalText(CocoWebRequestSecurityInput input) {
+    private String canonicalText(CocoWebRequestCanonicalizationContext context) {
+        CocoWebRequestSecurityInput input = Objects.requireNonNull(context.securityInput(),
+                "securityInput must not be null");
         StringBuilder builder = new StringBuilder();
-        builder.append("method=").append(value(input.method())).append('\n');
-        builder.append("path=").append(value(input.path())).append('\n');
-        builder.append("query=").append(value(input.queryString())).append('\n');
+        appendLine(builder, "version", this.properties.getVersion(), this.properties.isIncludeVersion());
+        appendLine(builder, "purpose", context.purpose().name(), this.properties.isIncludePurpose());
+        appendLine(builder, "method", input.method(), this.properties.isIncludeMethod());
+        appendLine(builder, "path", input.path(), this.properties.isIncludePath());
+        appendLine(builder, "query", input.queryString(), this.properties.isIncludeQueryString());
         appendHeaders(builder, input.canonicalHeaders());
         appendParameters(builder, input.parameters());
-        builder.append("bodySha256=").append(value(input.bodySha256())).append('\n');
-        builder.append("bodyLength=").append(value(input.bodyLength())).append('\n');
+        appendLine(builder, "bodySha256", input.bodySha256(), this.properties.isIncludeBodySha256());
+        appendLine(builder, "bodyLength", input.bodyLength(), this.properties.isIncludeBodyLength());
         return builder.toString();
     }
 
-    private static void appendHeaders(StringBuilder builder, Map<String, String> headers) {
+    private static void appendLine(StringBuilder builder, String name, String value, boolean included) {
+        if (included) {
+            builder.append(name).append('=').append(value(value)).append('\n');
+        }
+    }
+
+    private static void appendLine(StringBuilder builder, String name, Long value, boolean included) {
+        if (included) {
+            builder.append(name).append('=').append(value(value)).append('\n');
+        }
+    }
+
+    private void appendHeaders(StringBuilder builder, Map<String, String> headers) {
+        if (!this.properties.isIncludeHeaders()) {
+            return;
+        }
         builder.append("headers").append('\n');
         new TreeMap<>(headers).forEach((name, value) ->
                 builder.append(name).append(':').append(value(value)).append('\n'));
     }
 
-    private static void appendParameters(StringBuilder builder, Map<String, List<String>> parameters) {
+    private void appendParameters(StringBuilder builder, Map<String, List<String>> parameters) {
+        if (!this.properties.isIncludeParameters()) {
+            return;
+        }
         builder.append("parameters").append('\n');
         new TreeMap<>(parameters).forEach((name, values) ->
-                builder.append(name).append('=').append(String.join(",", values.stream().sorted().toList()))
+                builder.append(name).append('=')
+                        .append(String.join(this.properties.getParameterValueSeparator(), parameterValues(values)))
                         .append('\n'));
+    }
+
+    private List<String> parameterValues(List<String> values) {
+        Stream<String> stream = values.stream();
+        if (this.properties.isSortParameterValues()) {
+            stream = stream.sorted();
+        }
+        return stream.toList();
     }
 
     private static String value(String value) {

@@ -9,6 +9,8 @@ import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationContext;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationPurpose;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
@@ -181,8 +183,10 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
         CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
-        CocoWebRequestCanonicalForm canonicalForm = this.requestCanonicalizer.canonicalize(securityInput);
         CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(securityInput);
+        CocoWebRequestCanonicalForm canonicalForm = this.requestCanonicalizer.canonicalize(
+                CocoWebRequestCanonicalizationContext.of(CocoWebRequestCanonicalizationPurpose.SIGNATURE,
+                        snapshot, metadata));
         CocoSignatureRequest signatureRequest = resolveSignatureRequest(metadata, canonicalForm);
         if (!signatureRequest.signed()) {
             if (this.properties.isRequired() || signatureExpected) {

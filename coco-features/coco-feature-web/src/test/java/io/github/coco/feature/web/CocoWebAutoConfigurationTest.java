@@ -34,6 +34,9 @@ import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationContext;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationProperties;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationPurpose;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
@@ -45,6 +48,7 @@ import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
@@ -424,6 +428,18 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getContext().getCanonicalHeaderNames().contains("x-coco-sign-algorithm"));
         assertTrue(properties.getContext().getFingerprintHeaderNames().contains("sec-ch-ua"));
         assertEquals(256, properties.getContext().getMaxHeaderValueLength());
+        assertEquals("coco-v1", properties.getContext().getCanonicalization().getVersion());
+        assertFalse(properties.getContext().getCanonicalization().isIncludeVersion());
+        assertFalse(properties.getContext().getCanonicalization().isIncludePurpose());
+        assertTrue(properties.getContext().getCanonicalization().isIncludeMethod());
+        assertTrue(properties.getContext().getCanonicalization().isIncludePath());
+        assertTrue(properties.getContext().getCanonicalization().isIncludeQueryString());
+        assertTrue(properties.getContext().getCanonicalization().isIncludeHeaders());
+        assertTrue(properties.getContext().getCanonicalization().isIncludeParameters());
+        assertTrue(properties.getContext().getCanonicalization().isIncludeBodySha256());
+        assertTrue(properties.getContext().getCanonicalization().isIncludeBodyLength());
+        assertTrue(properties.getContext().getCanonicalization().isSortParameterValues());
+        assertEquals(",", properties.getContext().getCanonicalization().getParameterValueSeparator());
 
         properties.setAccessLog(null);
         properties.setRequestBody(null);
@@ -935,6 +951,84 @@ class CocoWebAutoConfigurationTest {
             assertTrue(canonicalForm.text().contains("bodyLength=" + body.length));
             assertTrue(canonicalForm.sha256().length() == 64);
         });
+    }
+
+    @Test
+    void defaultRequestCanonicalizerBuildsStableTextAndDigest() {
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("post", "/api/orders",
+                "tag=b&tag=a&sku=COCO-STARTER",
+                Map.of("tag", List.of("b", "a"), "sku", List.of("COCO-STARTER")),
+                Map.of(), Map.of("x-coco-timestamp", "1783300000000", "content-type", "application/json"),
+                "body-digest", 12L, true);
+
+        CocoWebRequestCanonicalForm canonicalForm = new DefaultCocoWebRequestCanonicalizer().canonicalize(input);
+
+        String expectedText = "method=POST\n"
+                + "path=/api/orders\n"
+                + "query=tag=b&tag=a&sku=COCO-STARTER\n"
+                + "headers\n"
+                + "content-type:application/json\n"
+                + "x-coco-timestamp:1783300000000\n"
+                + "parameters\n"
+                + "sku=COCO-STARTER\n"
+                + "tag=a,b\n"
+                + "bodySha256=body-digest\n"
+                + "bodyLength=12\n";
+        assertEquals(expectedText, canonicalForm.text());
+        assertEquals(sha256(expectedText), canonicalForm.sha256());
+    }
+
+    @Test
+    void requestCanonicalizerCanIncludeVersionAndPurpose() {
+        CocoWebRequestCanonicalizationProperties properties = new CocoWebRequestCanonicalizationProperties();
+        properties.setVersion("coco-v2");
+        properties.setIncludeVersion(true);
+        properties.setIncludePurpose(true);
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders", null,
+                Map.of(), Map.of(), Map.of(), null, null, false);
+        CocoWebRequestCanonicalizationContext canonicalizationContext = new CocoWebRequestCanonicalizationContext(
+                CocoWebRequestCanonicalizationPurpose.SIGNATURE, input, null, CocoBrowserFingerprint.empty());
+
+        CocoWebRequestCanonicalForm canonicalForm = new DefaultCocoWebRequestCanonicalizer(properties)
+                .canonicalize(canonicalizationContext);
+
+        assertTrue(canonicalForm.text().startsWith("version=coco-v2\npurpose=SIGNATURE\n"));
+        assertEquals(sha256(canonicalForm.text()), canonicalForm.sha256());
+    }
+
+    @Test
+    void customizesCanonicalFormFromConfiguration() {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.context.canonicalization.version=coco-v2",
+                        "coco.web.context.canonicalization.include-version=true",
+                        "coco.web.context.canonicalization.include-purpose=true",
+                        "coco.web.context.canonicalization.include-query-string=false",
+                        "coco.web.context.canonicalization.include-headers=false",
+                        "coco.web.context.canonicalization.include-body-length=false",
+                        "coco.web.context.canonicalization.sort-parameter-values=false",
+                        "coco.web.context.canonicalization.parameter-value-separator=;")
+                .run(context -> {
+                    CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+                    CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                            "sku=COCO-STARTER&tag=b&tag=a",
+                            Map.of("tag", List.of("b", "a"), "sku", List.of("COCO-STARTER")),
+                            Map.of(), Map.of("x-coco-timestamp", "1783300000000"), "body-digest", 12L, true);
+
+                    CocoWebRequestCanonicalForm canonicalForm = canonicalizer.canonicalize(input);
+
+                    assertTrue(canonicalForm.text().contains("version=coco-v2"));
+                    assertTrue(canonicalForm.text().contains("purpose=GENERAL"));
+                    assertTrue(canonicalForm.text().contains("method=POST"));
+                    assertTrue(canonicalForm.text().contains("path=/api/orders"));
+                    assertFalse(canonicalForm.text().contains("query="));
+                    assertFalse(canonicalForm.text().contains("headers"));
+                    assertTrue(canonicalForm.text().contains("parameters"));
+                    assertTrue(canonicalForm.text().contains("tag=b;a"));
+                    assertTrue(canonicalForm.text().contains("bodySha256=body-digest"));
+                    assertFalse(canonicalForm.text().contains("bodyLength="));
+                    assertEquals(64, canonicalForm.sha256().length());
+                });
     }
 
     @Test
@@ -1550,6 +1644,10 @@ class CocoWebAutoConfigurationTest {
         catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 algorithm is not available", ex);
         }
+    }
+
+    private static String sha256(String content) {
+        return sha256(content.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String hmacSha256Hex(String text, String secret) {
