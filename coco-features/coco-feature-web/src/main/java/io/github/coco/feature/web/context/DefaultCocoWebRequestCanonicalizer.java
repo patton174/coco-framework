@@ -28,6 +28,8 @@ import java.util.stream.Stream;
  */
 public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestCanonicalizer {
 
+    private static final String FRAMED_PARAMETER_VERSION = "coco-v2";
+
     private final CocoWebRequestCanonicalizationProperties properties;
 
     /**
@@ -126,18 +128,52 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
             return;
         }
         builder.append("parameters").append('\n');
-        new TreeMap<>(parameters).forEach((name, values) ->
-                builder.append(value(name)).append('=')
-                        .append(String.join(this.properties.getParameterValueSeparator(), parameterValues(values)))
-                        .append('\n'));
+        if (usesFramedParameterValues()) {
+            new TreeMap<>(parameters).forEach((name, values) -> appendFramedParameterValues(builder, name, values));
+            return;
+        }
+        new TreeMap<>(parameters).forEach((name, values) -> appendDelimitedParameterValues(builder, name, values));
+    }
+
+    private void appendDelimitedParameterValues(StringBuilder builder, String name, List<String> values) {
+        builder.append(value(name)).append('=')
+                .append(String.join(this.properties.getParameterValueSeparator(), parameterValues(values)))
+                .append('\n');
+    }
+
+    private void appendFramedParameterValues(StringBuilder builder, String name, List<String> values) {
+        List<String> safeValues = orderedParameterValues(values);
+        String parameterName = value(name);
+        builder.append(parameterName).append('#').append(safeValues.size()).append('\n');
+        for (int index = 0; index < safeValues.size(); index++) {
+            builder.append(parameterName)
+                    .append('[')
+                    .append(index)
+                    .append("]=")
+                    .append(framedValue(safeValues.get(index)))
+                    .append('\n');
+        }
     }
 
     private List<String> parameterValues(List<String> values) {
-        Stream<String> stream = values.stream();
+        return orderedParameterValues(values).stream()
+                .map(DefaultCocoWebRequestCanonicalizer::value)
+                .toList();
+    }
+
+    private List<String> orderedParameterValues(List<String> values) {
+        List<String> safeValues = values == null || values.isEmpty()
+                ? List.of("")
+                : values.stream().map(current -> current == null ? "" : current).toList();
+        Stream<String> stream = safeValues.stream();
         if (this.properties.isSortParameterValues()) {
             stream = stream.sorted();
         }
-        return stream.map(DefaultCocoWebRequestCanonicalizer::value).toList();
+        return stream.toList();
+    }
+
+    private boolean usesFramedParameterValues() {
+        return FRAMED_PARAMETER_VERSION.equalsIgnoreCase(this.properties.getVersion());
     }
 
     private static String value(String value) {

@@ -159,6 +159,7 @@ class CocoWebConfigurationMetadataTest {
 
         assertHintValues(metadata, "coco.web.request-body.mode", "security-headers", "always");
         assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "trace", "debug");
+        assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v1", "coco-v2");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.payload-encoding", "base64", "hex", "utf8", "raw");

@@ -1183,6 +1183,59 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void requestCanonicalizerUsesFramedParametersForV2() {
+        CocoWebRequestCanonicalizationProperties properties = new CocoWebRequestCanonicalizationProperties();
+        properties.setVersion("coco-v2");
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                "tag=a&tag=a%3Bb&tag=a%7Cb",
+                Map.of("tag", List.of("a|b", "a;b", "a"), "empty", List.of("")),
+                Map.of(), Map.of(), null, null, false);
+
+        CocoWebRequestCanonicalForm canonicalForm = new DefaultCocoWebRequestCanonicalizer(properties)
+                .canonicalize(input);
+
+        assertTrue(canonicalForm.text().contains("parameters\n"));
+        assertTrue(canonicalForm.text().contains("empty#1\n"));
+        assertTrue(canonicalForm.text().contains("empty[0]=0:\n"));
+        assertTrue(canonicalForm.text().contains("tag#3\n"));
+        assertTrue(canonicalForm.text().contains("tag[0]=1:a\n"));
+        assertTrue(canonicalForm.text().contains("tag[1]=4:a\\;b\n"));
+        assertTrue(canonicalForm.text().contains("tag[2]=4:a\\|b\n"));
+        assertEquals(sha256(canonicalForm.text()), canonicalForm.sha256());
+    }
+
+    @Test
+    void requestCanonicalizerV2SeparatesValuesWithoutParameterSeparatorAmbiguity() {
+        CocoWebRequestCanonicalizationProperties delimitedProperties =
+                parameterOnlyCanonicalizationProperties("coco-v1");
+        delimitedProperties.setParameterValueSeparator("a");
+        CocoWebRequestCanonicalizationProperties framedProperties =
+                parameterOnlyCanonicalizationProperties("coco-v2");
+        framedProperties.setParameterValueSeparator("a");
+        CocoWebRequestSecurityInput singleValue = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                null, Map.of("tag", List.of("a")), Map.of(), Map.of(), null, null, false);
+        CocoWebRequestSecurityInput twoEmptyValues = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                null, Map.of("tag", List.of("", "")), Map.of(), Map.of(), null, null, false);
+
+        String delimitedSingleValueText = new DefaultCocoWebRequestCanonicalizer(delimitedProperties)
+                .canonicalize(singleValue).text();
+        String delimitedTwoEmptyValuesText = new DefaultCocoWebRequestCanonicalizer(delimitedProperties)
+                .canonicalize(twoEmptyValues).text();
+        String framedSingleValueText = new DefaultCocoWebRequestCanonicalizer(framedProperties)
+                .canonicalize(singleValue).text();
+        String framedTwoEmptyValuesText = new DefaultCocoWebRequestCanonicalizer(framedProperties)
+                .canonicalize(twoEmptyValues).text();
+
+        assertEquals(delimitedSingleValueText, delimitedTwoEmptyValuesText);
+        assertTrue(framedSingleValueText.contains("tag#1\n"));
+        assertTrue(framedSingleValueText.contains("tag[0]=1:a\n"));
+        assertTrue(framedTwoEmptyValuesText.contains("tag#2\n"));
+        assertTrue(framedTwoEmptyValuesText.contains("tag[0]=0:\n"));
+        assertTrue(framedTwoEmptyValuesText.contains("tag[1]=0:\n"));
+        assertFalse(framedSingleValueText.equals(framedTwoEmptyValuesText));
+    }
+
+    @Test
     void defaultRequestCanonicalizerFramesMultiValueHeaders() {
         CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders",
                 null, Map.of(), Map.of(), Map.of("x-name", "Coconut,Runtime"), null, null, false,
@@ -1243,7 +1296,10 @@ class CocoWebAutoConfigurationTest {
                     assertFalse(canonicalForm.text().contains("query="));
                     assertFalse(canonicalForm.text().contains("headers"));
                     assertTrue(canonicalForm.text().contains("parameters"));
-                    assertTrue(canonicalForm.text().contains("tag=b;a"));
+                    assertTrue(canonicalForm.text().contains("tag#2\n"));
+                    assertTrue(canonicalForm.text().contains("tag[0]=1:b\n"));
+                    assertTrue(canonicalForm.text().contains("tag[1]=1:a\n"));
+                    assertFalse(canonicalForm.text().contains("tag=b;a"));
                     assertTrue(canonicalForm.text().contains("bodySha256=body-digest"));
                     assertFalse(canonicalForm.text().contains("bodyLength="));
                     assertEquals(64, canonicalForm.sha256().length());
@@ -2412,6 +2468,18 @@ class CocoWebAutoConfigurationTest {
 
     private static CocoEncryptionFilter encryptionFilter(FilterRegistrationBean<?> registrationBean) {
         return (CocoEncryptionFilter) registrationBean.getFilter();
+    }
+
+    private static CocoWebRequestCanonicalizationProperties parameterOnlyCanonicalizationProperties(String version) {
+        CocoWebRequestCanonicalizationProperties properties = new CocoWebRequestCanonicalizationProperties();
+        properties.setVersion(version);
+        properties.setIncludeMethod(false);
+        properties.setIncludePath(false);
+        properties.setIncludeQueryString(false);
+        properties.setIncludeHeaders(false);
+        properties.setIncludeBodySha256(false);
+        properties.setIncludeBodyLength(false);
+        return properties;
     }
 
     private static MockHttpServletRequest signedRequest(org.springframework.context.ApplicationContext context,

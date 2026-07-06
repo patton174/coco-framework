@@ -57,6 +57,19 @@
       ]
     },
     {
+      "name": "coco.web.context.canonicalization.version",
+      "values": [
+        {
+          "value": "coco-v1",
+          "description": "保持 1.x 兼容的请求参数分隔符规范化格式。"
+        },
+        {
+          "value": "coco-v2",
+          "description": "使用带数量和长度前缀的请求参数规范化格式，适合签名、加密和防重放场景。"
+        }
+      ]
+    },
+    {
       "name": "coco.web.encryption.key-encoding",
       "values": [
         {
