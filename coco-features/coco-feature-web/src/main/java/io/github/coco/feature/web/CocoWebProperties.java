@@ -3,6 +3,7 @@ package io.github.coco.feature.web;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoRequestBodyProperties;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
+import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
@@ -46,6 +47,9 @@ public class CocoWebProperties {
 
     @NestedConfigurationProperty
     private CocoSignatureProperties signature = new CocoSignatureProperties();
+
+    @NestedConfigurationProperty
+    private CocoEncryptionProperties encryption = new CocoEncryptionProperties();
 
     @NestedConfigurationProperty
     private CocoWebContextProperties context = new CocoWebContextProperties();
@@ -168,6 +172,26 @@ public class CocoWebProperties {
      */
     public void setSignature(CocoSignatureProperties signature) {
         this.signature = signature == null ? new CocoSignatureProperties() : signature;
+    }
+
+    /**
+     * <p>
+     * 返回请求加密配置属性。
+     * </p>
+     * @return 请求加密配置属性
+     */
+    public CocoEncryptionProperties getEncryption() {
+        return this.encryption;
+    }
+
+    /**
+     * <p>
+     * 设置请求加密配置属性。
+     * </p>
+     * @param encryption 请求加密配置属性
+     */
+    public void setEncryption(CocoEncryptionProperties encryption) {
+        this.encryption = encryption == null ? new CocoEncryptionProperties() : encryption;
     }
 
     /**

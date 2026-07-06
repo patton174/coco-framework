@@ -31,6 +31,8 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
+import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoApiResponse;
@@ -55,7 +57,10 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import javax.crypto.Cipher;
 import javax.crypto.Mac;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.util.HexFormat;
 import java.util.List;
@@ -149,6 +154,10 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoSignatureSecretResolver"));
             assertTrue(context.containsBean("cocoSignatureVerifier"));
             assertTrue(context.containsBean("cocoSignatureFilterRegistration"));
+            assertTrue(context.containsBean("cocoEncryptionKeyResolver"));
+            assertTrue(context.containsBean("cocoRequestDecryptor"));
+            assertTrue(context.containsBean("cocoFilterExceptionResponseWriter"));
+            assertTrue(context.containsBean("cocoEncryptionFilterRegistration"));
         });
     }
 
@@ -355,6 +364,18 @@ class CocoWebAutoConfigurationTest {
         assertEquals("X-Coco-Sign-Algorithm", properties.getSignature().getAlgorithmHeaderName());
         assertEquals("HMAC-SHA256", properties.getSignature().getDefaultAlgorithm());
         assertEquals(300L, properties.getSignature().getMaxClockSkewSeconds());
+        assertTrue(properties.getEncryption().isEnabled());
+        assertFalse(properties.getEncryption().isRequired());
+        assertEquals("X-Coco-Encrypted", properties.getEncryption().getEncryptedHeaderName());
+        assertEquals("X-Coco-App-Id", properties.getEncryption().getAppIdHeaderName());
+        assertEquals("X-Coco-Key-Id", properties.getEncryption().getKeyIdHeaderName());
+        assertEquals("X-Coco-IV", properties.getEncryption().getIvHeaderName());
+        assertEquals("X-Coco-Algorithm", properties.getEncryption().getAlgorithmHeaderName());
+        assertEquals("AES-GCM", properties.getEncryption().getDefaultAlgorithm());
+        assertEquals(CocoCryptoTextEncoding.BASE64, properties.getEncryption().getKeyEncoding());
+        assertEquals(CocoCryptoTextEncoding.BASE64, properties.getEncryption().getIvEncoding());
+        assertEquals(CocoCryptoTextEncoding.BASE64, properties.getEncryption().getPayloadEncoding());
+        assertEquals(128, properties.getEncryption().getGcmTagLengthBits());
         assertTrue(properties.getContext().isIncludeHeaders());
         assertTrue(properties.getContext().getClientIpHeaderNames().contains("X-Forwarded-For"));
         assertTrue(properties.getContext().getIncludedHeaderNames().contains("user-agent"));
@@ -369,11 +390,13 @@ class CocoWebAutoConfigurationTest {
         properties.setAccessLog(null);
         properties.setRequestBody(null);
         properties.setSignature(null);
+        properties.setEncryption(null);
         properties.setContext(null);
 
         assertTrue(properties.getAccessLog().isEnabled());
         assertTrue(properties.getRequestBody().isEnabled());
         assertTrue(properties.getSignature().isEnabled());
+        assertTrue(properties.getEncryption().isEnabled());
         assertTrue(properties.getContext().isIncludeHeaders());
     }
 
@@ -957,6 +980,72 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void decryptsEncryptedJsonRequestBeforeBusinessServlet() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    byte[] plainBody = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
+                    MockHttpServletRequest request = encryptedRequest(plainBody, key, "encrypted-body-trace");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<String> downstreamBody = new AtomicReference<>();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new BodyReadingServlet(downstreamBody, () -> {
+                                            })))));
+
+                    assertEquals(200, response.getStatus());
+                    assertEquals("{\"sku\":\"COCO-STARTER\"}", downstreamBody.get());
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenEncryptedPayloadIsInvalid() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    request.setContent("invalid-ciphertext".getBytes(StandardCharsets.UTF_8));
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Trace-Id", "invalid-encrypted-body");
+                    request.addHeader("X-Coco-Encrypted", "true");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-IV", Base64.getEncoder()
+                            .encodeToString("123456789012".getBytes(StandardCharsets.UTF_8)));
+                    request.addHeader("X-Coco-Algorithm", "AES-GCM");
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertEquals(401, response.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(401, body.get("code"));
+                    assertEquals("Request encryption payload is invalid.", body.get("message"));
+                });
+    }
+
+    @Test
     void usesCustomWebRequestContextResolver() throws Exception {
         CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
         CocoWebRequestContextResolver resolver = (traceId, request) -> new CocoWebRequestSnapshot(traceId,
@@ -1081,6 +1170,10 @@ class CocoWebAutoConfigurationTest {
         return (CocoSignatureFilter) registrationBean.getFilter();
     }
 
+    private static CocoEncryptionFilter encryptionFilter(FilterRegistrationBean<?> registrationBean) {
+        return (CocoEncryptionFilter) registrationBean.getFilter();
+    }
+
     private static MockHttpServletRequest signedRequest(org.springframework.context.ApplicationContext context,
             String traceId, String secret) {
         CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
@@ -1099,6 +1192,30 @@ class CocoWebAutoConfigurationTest {
         String canonicalText = canonicalizer.canonicalize(snapshot.securityInput()).text();
         request.addHeader("X-Coco-Sign", hmacSha256Hex(canonicalText, secret));
         return request;
+    }
+
+    private static MockHttpServletRequest encryptedRequest(byte[] plainBody, byte[] key, String traceId) {
+        byte[] iv = "123456789012".getBytes(StandardCharsets.UTF_8);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(Base64.getEncoder().encode(aesGcmEncrypt(plainBody, key, iv)));
+        request.addHeader("X-Trace-Id", traceId);
+        request.addHeader("X-Coco-Encrypted", "true");
+        request.addHeader("X-Coco-App-Id", "sample-app");
+        request.addHeader("X-Coco-IV", Base64.getEncoder().encodeToString(iv));
+        request.addHeader("X-Coco-Algorithm", "AES-GCM");
+        return request;
+    }
+
+    private static byte[] aesGcmEncrypt(byte[] plainBody, byte[] key, byte[] iv) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, iv));
+            return cipher.doFinal(plainBody);
+        }
+        catch (Exception ex) {
+            throw new IllegalStateException("AES-GCM encryption failed", ex);
+        }
     }
 
     private static String sha256(byte[] content) {

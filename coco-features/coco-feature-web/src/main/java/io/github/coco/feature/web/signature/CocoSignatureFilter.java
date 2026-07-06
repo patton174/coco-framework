@@ -1,12 +1,10 @@
 package io.github.coco.feature.web.signature;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.trace.CocoTraceContext;
@@ -15,17 +13,11 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
-import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
+import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.context.request.RequestAttributes;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
-import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -56,9 +48,7 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
 
     private final CocoWebRequestCanonicalizer requestCanonicalizer;
 
-    private final CocoWebExceptionHandler exceptionHandler;
-
-    private final ObjectMapper objectMapper;
+    private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
 
     private final Clock clock;
 
@@ -71,15 +61,13 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
      * @param signatureVerifier 请求签名验证器
      * @param requestContextResolver Web 请求上下文解析器
      * @param requestCanonicalizer Web 请求规范化器
-     * @param exceptionHandler Coco Web 全局异常处理器
-     * @param objectMapper JSON 序列化器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
      */
     public CocoSignatureFilter(CocoSignatureProperties properties, CocoSignatureSecretResolver secretResolver,
             CocoSignatureVerifier signatureVerifier, CocoWebRequestContextResolver requestContextResolver,
-            CocoWebRequestCanonicalizer requestCanonicalizer, CocoWebExceptionHandler exceptionHandler,
-            ObjectMapper objectMapper) {
+            CocoWebRequestCanonicalizer requestCanonicalizer, CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         this(properties, secretResolver, signatureVerifier, requestContextResolver, requestCanonicalizer,
-                exceptionHandler, objectMapper, Clock.systemUTC());
+                exceptionResponseWriter, Clock.systemUTC());
     }
 
     /**
@@ -91,14 +79,13 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
      * @param signatureVerifier 请求签名验证器
      * @param requestContextResolver Web 请求上下文解析器
      * @param requestCanonicalizer Web 请求规范化器
-     * @param exceptionHandler Coco Web 全局异常处理器
-     * @param objectMapper JSON 序列化器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
      * @param clock 时钟
      */
     public CocoSignatureFilter(CocoSignatureProperties properties, CocoSignatureSecretResolver secretResolver,
             CocoSignatureVerifier signatureVerifier, CocoWebRequestContextResolver requestContextResolver,
-            CocoWebRequestCanonicalizer requestCanonicalizer, CocoWebExceptionHandler exceptionHandler,
-            ObjectMapper objectMapper, Clock clock) {
+            CocoWebRequestCanonicalizer requestCanonicalizer, CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            Clock clock) {
         this.properties = properties == null ? new CocoSignatureProperties() : properties;
         this.secretResolver = Objects.requireNonNull(secretResolver, "secretResolver must not be null");
         this.signatureVerifier = Objects.requireNonNull(signatureVerifier, "signatureVerifier must not be null");
@@ -106,8 +93,8 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
                 "requestContextResolver must not be null");
         this.requestCanonicalizer = Objects.requireNonNull(requestCanonicalizer,
                 "requestCanonicalizer must not be null");
-        this.exceptionHandler = Objects.requireNonNull(exceptionHandler, "exceptionHandler must not be null");
-        this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
+        this.exceptionResponseWriter = Objects.requireNonNull(exceptionResponseWriter,
+                "exceptionResponseWriter must not be null");
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
@@ -130,7 +117,7 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
             verifyRequest(request, signatureExpected);
         }
         catch (CocoException ex) {
-            writeErrorResponse(ex, request, response);
+            this.exceptionResponseWriter.write(ex, request, response);
             return;
         }
         filterChain.doFilter(request, response);
@@ -218,28 +205,4 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         }
     }
 
-    private void writeErrorResponse(CocoException exception, HttpServletRequest request,
-            HttpServletResponse response) throws IOException {
-        if (response.isCommitted()) {
-            throw exception;
-        }
-        RequestAttributes previousAttributes = RequestContextHolder.getRequestAttributes();
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request, response));
-        try {
-            ResponseEntity<Object> entity = this.exceptionHandler.handleCocoException(exception,
-                    new ServletWebRequest(request, response));
-            response.setStatus(entity.getStatusCode().value());
-            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            this.objectMapper.writeValue(response.getOutputStream(), entity.getBody());
-        }
-        finally {
-            if (previousAttributes == null) {
-                RequestContextHolder.resetRequestAttributes();
-            }
-            else {
-                RequestContextHolder.setRequestAttributes(previousAttributes);
-            }
-        }
-    }
 }

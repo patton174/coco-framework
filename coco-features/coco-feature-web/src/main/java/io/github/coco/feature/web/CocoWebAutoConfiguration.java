@@ -14,7 +14,13 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
+import io.github.coco.feature.web.encryption.AesGcmCocoRequestDecryptor;
+import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
+import io.github.coco.feature.web.encryption.CocoEncryptionKeyResolver;
+import io.github.coco.feature.web.encryption.CocoRequestDecryptor;
+import io.github.coco.feature.web.encryption.PropertiesCocoEncryptionKeyResolver;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
+import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
@@ -175,6 +181,32 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco AES 解密密钥解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return AES 解密密钥解析器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoEncryptionKeyResolver cocoEncryptionKeyResolver(CocoWebProperties properties) {
+        return new PropertiesCocoEncryptionKeyResolver(properties.getEncryption());
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco 请求解密器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return 请求解密器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoRequestDecryptor cocoRequestDecryptor(CocoWebProperties properties) {
+        return new AesGcmCocoRequestDecryptor(properties.getEncryption());
+    }
+
+    /**
+     * <p>
      * 创建 Coco Web 全局异常处理器。
      * </p>
      * @param messageService Coco 消息服务
@@ -190,6 +222,22 @@ public class CocoWebAutoConfiguration {
             CocoWebProperties properties, CocoResponseBodyFactory responseBodyFactory) {
         return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider,
                 properties.getResponse(), responseBodyFactory);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 过滤器异常响应写出器。
+     * </p>
+     * @param exceptionHandler Coco Web 全局异常处理器
+     * @param objectMapper JSON 序列化器提供器
+     * @return 过滤器异常响应写出器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoFilterExceptionResponseWriter cocoFilterExceptionResponseWriter(
+            CocoWebExceptionHandler exceptionHandler, ObjectProvider<ObjectMapper> objectMapper) {
+        return new CocoFilterExceptionResponseWriter(exceptionHandler, objectMapper.getIfAvailable(ObjectMapper::new));
     }
 
     /**
@@ -267,8 +315,7 @@ public class CocoWebAutoConfiguration {
      * @param signatureVerifier 请求签名验证器
      * @param requestContextResolver Web 请求上下文解析器
      * @param requestCanonicalizer Web 请求规范化器
-     * @param exceptionHandler Coco Web 全局异常处理器
-     * @param objectMapper JSON 序列化器提供器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
      * @return 请求签名过滤器注册器
      */
     @Bean
@@ -279,13 +326,40 @@ public class CocoWebAutoConfiguration {
     public FilterRegistrationBean<CocoSignatureFilter> cocoSignatureFilterRegistration(CocoWebProperties properties,
             CocoSignatureSecretResolver secretResolver, CocoSignatureVerifier signatureVerifier,
             CocoWebRequestContextResolver requestContextResolver, CocoWebRequestCanonicalizer requestCanonicalizer,
-            CocoWebExceptionHandler exceptionHandler, ObjectProvider<ObjectMapper> objectMapper) {
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         FilterRegistrationBean<CocoSignatureFilter> registration = new FilterRegistrationBean<>(
                 new CocoSignatureFilter(properties.getSignature(), secretResolver, signatureVerifier,
-                        requestContextResolver, requestCanonicalizer, exceptionHandler,
-                        objectMapper.getIfAvailable(ObjectMapper::new)));
+                        requestContextResolver, requestCanonicalizer, exceptionResponseWriter));
         registration.setName("cocoSignatureFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 2);
+        return registration;
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求解密过滤器注册器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param keyResolver AES 解密密钥解析器
+     * @param requestDecryptor 请求解密器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @return 请求解密过滤器注册器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnProperty(prefix = "coco.web.encryption", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean(name = "cocoEncryptionFilterRegistration")
+    public FilterRegistrationBean<CocoEncryptionFilter> cocoEncryptionFilterRegistration(CocoWebProperties properties,
+            CocoEncryptionKeyResolver keyResolver, CocoRequestDecryptor requestDecryptor,
+            CocoWebRequestContextResolver requestContextResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+        FilterRegistrationBean<CocoEncryptionFilter> registration = new FilterRegistrationBean<>(
+                new CocoEncryptionFilter(properties.getEncryption(), keyResolver, requestDecryptor,
+                        requestContextResolver, exceptionResponseWriter));
+        registration.setName("cocoEncryptionFilter");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
         return registration;
     }
 }
