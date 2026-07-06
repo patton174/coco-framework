@@ -37,7 +37,11 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
 
     private final Set<String> canonicalHeaderNames;
 
+    private final Set<String> canonicalCookieNames;
+
     private final CocoRequestHeaderResolver requestHeaderResolver;
+
+    private final CocoRequestCookieResolver requestCookieResolver;
 
     private final CocoRequestParameterResolver requestParameterResolver;
 
@@ -86,14 +90,38 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
             CocoRequestHeaderResolver requestHeaderResolver, CocoRequestParameterResolver requestParameterResolver,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
             CocoReplayProperties replayProperties) {
+        this(properties, requestHeaderResolver, null, requestParameterResolver, signatureProperties,
+                encryptionProperties, replayProperties);
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco Web 请求安全输入解析器。
+     * </p>
+     * @param properties Web 请求上下文配置属性
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver 请求 Cookie 解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param replayProperties 防重放配置属性
+     */
+    public DefaultCocoWebRequestSecurityInputResolver(CocoWebContextProperties properties,
+            CocoRequestHeaderResolver requestHeaderResolver, CocoRequestCookieResolver requestCookieResolver,
+            CocoRequestParameterResolver requestParameterResolver, CocoSignatureProperties signatureProperties,
+            CocoEncryptionProperties encryptionProperties, CocoReplayProperties replayProperties) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
         this.securityHeaderNames = securityHeaderNames(contextProperties, signatureProperties, encryptionProperties,
                 replayProperties);
         this.canonicalHeaderNames = canonicalHeaderNames(contextProperties, signatureProperties, encryptionProperties,
                 replayProperties);
+        this.canonicalCookieNames = contextProperties.getCanonicalCookieNames();
         this.requestHeaderResolver = requestHeaderResolver == null
                 ? new DefaultCocoRequestHeaderResolver(contextProperties)
                 : requestHeaderResolver;
+        this.requestCookieResolver = requestCookieResolver == null
+                ? new DefaultCocoRequestCookieResolver(contextProperties)
+                : requestCookieResolver;
         this.requestParameterResolver = requestParameterResolver == null
                 ? new DefaultCocoRequestParameterResolver(new CocoWebParameterProperties())
                 : requestParameterResolver;
@@ -117,11 +145,14 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
                 checkedRequest,
                 this.canonicalHeaderNames, false);
         Map<String, String> canonicalHeaders = joinHeaders(canonicalHeaderValues);
+        Map<String, String> canonicalCookies = this.requestCookieResolver.resolveSelectedCookies(checkedRequest,
+                this.canonicalCookieNames, false);
         CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
                 .orElse(CocoCachedRequestBody.empty());
         return new CocoWebRequestSecurityInput(method, path, rawQueryString, rawParameters, rawQueryParameters,
                 rawPayloadParameters, securityHeaders, canonicalHeaders, cachedBody.sha256(),
-                cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached(), canonicalHeaderValues);
+                cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached(), canonicalHeaderValues,
+                canonicalCookies);
     }
 
     private static Set<String> securityHeaderNames(CocoWebContextProperties properties,

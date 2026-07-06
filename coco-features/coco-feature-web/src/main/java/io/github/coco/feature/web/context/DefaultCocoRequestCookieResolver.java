@@ -2,9 +2,11 @@ package io.github.coco.feature.web.context;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -65,6 +67,31 @@ public final class DefaultCocoRequestCookieResolver implements CocoRequestCookie
         return resolvedCookies.isEmpty() ? Map.of() : Collections.unmodifiableMap(resolvedCookies);
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, String> resolveSelectedCookies(HttpServletRequest request, Set<String> cookieNames,
+            boolean trimValue) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        Set<String> selectedCookieNames = normalizeCookieNames(cookieNames);
+        if (selectedCookieNames.isEmpty()) {
+            return Map.of();
+        }
+        Cookie[] cookies = checkedRequest.getCookies();
+        if (cookies == null || cookies.length == 0) {
+            return Map.of();
+        }
+        Map<String, String> resolvedCookies = new LinkedHashMap<>();
+        for (Cookie cookie : cookies) {
+            String name = normalizeString(cookie == null ? null : cookie.getName());
+            if (name != null && selectedCookieNames.contains(name) && !resolvedCookies.containsKey(name)) {
+                resolvedCookies.put(name, rawCookieValue(cookie.getValue(), trimValue));
+            }
+        }
+        return resolvedCookies.isEmpty() ? Map.of() : Collections.unmodifiableMap(resolvedCookies);
+    }
+
     private String sanitizeCookieValue(String name, String value) {
         if (this.properties.getMaskedCookieNames().contains(name)
                 || this.properties.getMaskedCookieNames().contains(name.toLowerCase(Locale.ROOT))) {
@@ -79,6 +106,30 @@ public final class DefaultCocoRequestCookieResolver implements CocoRequestCookie
             return "";
         }
         return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
+    }
+
+    private String rawCookieValue(String value, boolean trimValue) {
+        String normalized = value == null ? "" : value.trim();
+        if (!trimValue) {
+            return normalized;
+        }
+        return normalized.length() <= this.properties.getMaxCookieValueLength()
+                ? normalized
+                : normalized.substring(0, this.properties.getMaxCookieValueLength()) + "...";
+    }
+
+    private static Set<String> normalizeCookieNames(Set<String> cookieNames) {
+        if (cookieNames == null || cookieNames.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> normalizedNames = new LinkedHashSet<>();
+        for (String name : cookieNames) {
+            String normalizedName = normalizeString(name);
+            if (normalizedName != null) {
+                normalizedNames.add(normalizedName);
+            }
+        }
+        return normalizedNames.isEmpty() ? Set.of() : Set.copyOf(normalizedNames);
     }
 
     private static String normalizeString(String value) {

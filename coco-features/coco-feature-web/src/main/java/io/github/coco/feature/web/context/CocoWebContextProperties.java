@@ -81,6 +81,8 @@ public class CocoWebContextProperties {
 
     private Set<String> includedCookieNames = Set.of();
 
+    private Set<String> canonicalCookieNames = Set.of();
+
     private Set<String> maskedCookieNames = DEFAULT_MASKED_COOKIE_NAMES;
 
     private int maxCookieValueLength = DEFAULT_MAX_COOKIE_VALUE_LENGTH;
@@ -313,6 +315,26 @@ public class CocoWebContextProperties {
      */
     public void setIncludedCookieNames(Set<String> includedCookieNames) {
         this.includedCookieNames = normalizeCookieNames(includedCookieNames, Set.of());
+    }
+
+    /**
+     * <p>
+     * 返回默认参与签名规范化的 Cookie 名称。
+     * </p>
+     * @return 默认参与签名规范化的 Cookie 名称集合
+     */
+    public Set<String> getCanonicalCookieNames() {
+        return this.canonicalCookieNames;
+    }
+
+    /**
+     * <p>
+     * 设置默认参与签名规范化的 Cookie 名称。
+     * </p>
+     * @param canonicalCookieNames 默认参与签名规范化的 Cookie 名称集合
+     */
+    public void setCanonicalCookieNames(Set<String> canonicalCookieNames) {
+        this.canonicalCookieNames = normalizeCookieNames(canonicalCookieNames, Set.of());
     }
 
     /**

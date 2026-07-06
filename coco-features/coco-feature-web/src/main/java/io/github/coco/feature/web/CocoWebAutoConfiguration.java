@@ -251,6 +251,7 @@ public class CocoWebAutoConfiguration {
      * </p>
      * @param properties Coco Web 配置属性
      * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver 请求 Cookie 解析器
      * @param requestParameterResolver 请求参数解析器
      * @return Web 请求安全输入解析器
      */
@@ -259,9 +260,10 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoWebRequestSecurityInputResolver cocoWebRequestSecurityInputResolver(CocoWebProperties properties,
             CocoRequestHeaderResolver requestHeaderResolver,
+            CocoRequestCookieResolver requestCookieResolver,
             CocoRequestParameterResolver requestParameterResolver) {
         return new DefaultCocoWebRequestSecurityInputResolver(properties.getContext(), requestHeaderResolver,
-                requestParameterResolver, properties.getSignature(), properties.getEncryption(),
+                requestCookieResolver, requestParameterResolver, properties.getSignature(), properties.getEncryption(),
                 properties.getReplay());
     }
 

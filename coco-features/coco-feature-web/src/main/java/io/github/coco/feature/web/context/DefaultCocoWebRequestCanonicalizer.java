@@ -83,6 +83,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         appendLine(builder, "path", input.path(), signature || this.properties.isIncludePath());
         appendLine(builder, "query", input.queryString(), signature || this.properties.isIncludeQueryString());
         appendHeaders(builder, input.canonicalHeaderValues(), signature);
+        appendCookies(builder, input.canonicalCookies(), signature);
         appendParameters(builder, input);
         appendLine(builder, "bodySha256", input.bodySha256(), signature || this.properties.isIncludeBodySha256());
         appendLine(builder, "bodyLength", input.bodyLength(), signature || this.properties.isIncludeBodyLength());
@@ -121,6 +122,17 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
                     .append(framedValue(safeValues.get(index)))
                     .append('\n');
         }
+    }
+
+    private void appendCookies(StringBuilder builder, Map<String, String> cookies, boolean forced) {
+        if (cookies == null || cookies.isEmpty() || (!forced && !this.properties.isIncludeCookies())) {
+            return;
+        }
+        builder.append("cookies").append('\n');
+        new TreeMap<>(cookies).forEach((name, cookieValue) -> builder.append(value(name))
+                .append('=')
+                .append(framedValue(cookieValue))
+                .append('\n'));
     }
 
     private void appendParameters(StringBuilder builder, CocoWebRequestSecurityInput input) {

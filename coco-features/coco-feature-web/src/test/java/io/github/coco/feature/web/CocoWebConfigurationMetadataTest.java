@@ -130,6 +130,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.masked-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.security-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonical-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonical-cookie-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.fingerprint-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.max-header-value-length\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.included-cookie-names\""));
@@ -149,6 +150,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-path\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-query-string\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-headers\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-cookies\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-parameters\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-parameter-sources\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-body-sha256\""));

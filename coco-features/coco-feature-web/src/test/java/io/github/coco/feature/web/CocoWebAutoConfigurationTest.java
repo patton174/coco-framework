@@ -1046,6 +1046,34 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void resolvesCanonicalRequestCookiesIntoSecurityInput() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.canonical-cookie-names=SESSION,theme")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "cookie-security-trace");
+                    request.setCookies(
+                            new Cookie("SESSION", "secret-session"),
+                            new Cookie("theme", "dark-theme"),
+                            new Cookie("ignored", "ignored-value"));
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
+                        CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
+                        assertTrue(requestContext.cookie("SESSION").isEmpty());
+                    })));
+
+                    CocoWebRequestSnapshot snapshot = CocoWebRequestSnapshotAttributes.get(request).orElseThrow();
+                    assertEquals("secret-session", snapshot.securityInput().canonicalCookie("SESSION").orElseThrow());
+                    assertEquals("dark-theme", snapshot.securityInput().canonicalCookie("theme").orElseThrow());
+                    assertTrue(snapshot.securityInput().canonicalCookie("ignored").isEmpty());
+                    assertTrue(snapshot.cookies().isEmpty());
+                });
+    }
+
+    @Test
     void generatesTraceIdWhenRequestHeaderIsMissing() throws Exception {
         this.webContextRunner.run(context -> {
             CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
@@ -1491,6 +1519,29 @@ class CocoWebAutoConfigurationTest {
         assertTrue(canonicalForm.text().contains("x-name[1]=7:Runtime"));
         assertTrue(canonicalForm.text().contains("x-comma#1"));
         assertTrue(canonicalForm.text().contains("x-comma[0]=16:Coconut\\,Runtime"));
+    }
+
+    @Test
+    void requestCanonicalizerIncludesCanonicalCookiesWhenEnabledOrSigning() {
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                null, Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), null, null, false,
+                Map.of(), Map.of("SESSION", "secret-session", "theme", "dark=blue"));
+        CocoWebRequestCanonicalizationProperties generalProperties = new CocoWebRequestCanonicalizationProperties();
+        generalProperties.setIncludeCookies(true);
+
+        CocoWebRequestCanonicalForm generalForm =
+                new DefaultCocoWebRequestCanonicalizer(generalProperties).canonicalize(input);
+        CocoWebRequestCanonicalForm signatureForm = new DefaultCocoWebRequestCanonicalizer()
+                .canonicalize(new CocoWebRequestCanonicalizationContext(
+                        CocoWebRequestCanonicalizationPurpose.SIGNATURE, input, null,
+                        CocoBrowserFingerprint.empty()));
+
+        assertTrue(generalForm.text().contains("cookies\n"));
+        assertTrue(generalForm.text().contains("SESSION=14:secret-session\n"));
+        assertTrue(generalForm.text().contains("theme=10:dark\\=blue\n"));
+        assertTrue(signatureForm.text().contains("cookies\n"));
+        assertEquals(sha256(generalForm.text()), generalForm.sha256());
+        assertEquals(sha256(signatureForm.text()), signatureForm.sha256());
     }
 
     @Test

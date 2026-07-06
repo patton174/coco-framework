@@ -36,6 +36,8 @@ public class CocoWebRequestCanonicalizationProperties {
 
     private boolean includeHeaders = true;
 
+    private boolean includeCookies = false;
+
     private boolean includeParameters = true;
 
     private boolean includeParameterSources = true;
@@ -186,6 +188,26 @@ public class CocoWebRequestCanonicalizationProperties {
      */
     public void setIncludeHeaders(boolean includeHeaders) {
         this.includeHeaders = includeHeaders;
+    }
+
+    /**
+     * <p>
+     * 返回是否将规范化 Cookie 写入规范化文本。
+     * </p>
+     * @return 写入时返回 {@code true}
+     */
+    public boolean isIncludeCookies() {
+        return this.includeCookies;
+    }
+
+    /**
+     * <p>
+     * 设置是否将规范化 Cookie 写入规范化文本。
+     * </p>
+     * @param includeCookies 是否写入规范化 Cookie
+     */
+    public void setIncludeCookies(boolean includeCookies) {
+        this.includeCookies = includeCookies;
     }
 
     /**
