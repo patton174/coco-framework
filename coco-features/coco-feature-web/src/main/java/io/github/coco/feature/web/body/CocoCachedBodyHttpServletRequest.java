@@ -38,6 +38,18 @@ public final class CocoCachedBodyHttpServletRequest extends HttpServletRequestWr
     public static final String ATTRIBUTE_NAME = CocoCachedBodyHttpServletRequest.class.getName()
             + ".cachedRequestBody";
 
+    /**
+     * 传输态请求体属性名。
+     */
+    public static final String TRANSPORT_ATTRIBUTE_NAME = CocoCachedBodyHttpServletRequest.class.getName()
+            + ".transportRequestBody";
+
+    /**
+     * 业务态请求体属性名。
+     */
+    public static final String EFFECTIVE_ATTRIBUTE_NAME = CocoCachedBodyHttpServletRequest.class.getName()
+            + ".effectiveRequestBody";
+
     private final CocoCachedRequestBody cachedRequestBody;
 
     /**
@@ -52,6 +64,10 @@ public final class CocoCachedBodyHttpServletRequest extends HttpServletRequestWr
         super(Objects.requireNonNull(request, "request must not be null"));
         this.cachedRequestBody = cachedRequestBody == null ? CocoCachedRequestBody.empty() : cachedRequestBody;
         setAttribute(ATTRIBUTE_NAME, this.cachedRequestBody);
+        setAttribute(EFFECTIVE_ATTRIBUTE_NAME, this.cachedRequestBody);
+        if (this.cachedRequestBody.cached() && cachedAttribute(request, TRANSPORT_ATTRIBUTE_NAME).isEmpty()) {
+            setAttribute(TRANSPORT_ATTRIBUTE_NAME, this.cachedRequestBody);
+        }
     }
 
     /**
@@ -62,6 +78,29 @@ public final class CocoCachedBodyHttpServletRequest extends HttpServletRequestWr
      * @return 已缓存请求体；未缓存时为空
      */
     public static Optional<CocoCachedRequestBody> cachedBody(HttpServletRequest request) {
+        return effectiveBody(request);
+    }
+
+    /**
+     * <p>
+     * 从当前请求中读取传输态请求体。
+     * </p>
+     * @param request 当前请求
+     * @return 传输态请求体；未缓存时为空
+     */
+    public static Optional<CocoCachedRequestBody> transportBody(HttpServletRequest request) {
+        return cachedAttribute(request, TRANSPORT_ATTRIBUTE_NAME)
+                .or(() -> effectiveBody(request));
+    }
+
+    /**
+     * <p>
+     * 从当前请求中读取业务态请求体。
+     * </p>
+     * @param request 当前请求
+     * @return 业务态请求体；未缓存时为空
+     */
+    public static Optional<CocoCachedRequestBody> effectiveBody(HttpServletRequest request) {
         if (request == null) {
             return Optional.empty();
         }
@@ -69,7 +108,29 @@ public final class CocoCachedBodyHttpServletRequest extends HttpServletRequestWr
                 && cachedRequest.cachedRequestBody.cached()) {
             return Optional.of(cachedRequest.cachedRequestBody);
         }
-        Object attribute = request.getAttribute(ATTRIBUTE_NAME);
+        return cachedAttribute(request, EFFECTIVE_ATTRIBUTE_NAME)
+                .or(() -> cachedAttribute(request, ATTRIBUTE_NAME));
+    }
+
+    /**
+     * <p>
+     * 清理当前请求上的请求体缓存属性。
+     * </p>
+     * @param request 当前请求
+     */
+    public static void clear(HttpServletRequest request) {
+        if (request != null) {
+            request.removeAttribute(ATTRIBUTE_NAME);
+            request.removeAttribute(TRANSPORT_ATTRIBUTE_NAME);
+            request.removeAttribute(EFFECTIVE_ATTRIBUTE_NAME);
+        }
+    }
+
+    private static Optional<CocoCachedRequestBody> cachedAttribute(HttpServletRequest request, String attributeName) {
+        if (request == null) {
+            return Optional.empty();
+        }
+        Object attribute = request.getAttribute(attributeName);
         if (attribute instanceof CocoCachedRequestBody cachedBody && cachedBody.cached()) {
             return Optional.of(cachedBody);
         }

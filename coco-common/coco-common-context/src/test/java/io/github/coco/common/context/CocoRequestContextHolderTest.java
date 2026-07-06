@@ -50,6 +50,11 @@ class CocoRequestContextHolderTest {
                         entry(CocoRequestContextAttributes.LOCALE, " zh-CN "),
                         entry(CocoRequestContextAttributes.BROWSER_FINGERPRINT, " fp-001 "),
                         entry(CocoRequestContextAttributes.REQUEST_BODY_SHA256, " body-sha-001 "),
+                        entry(CocoRequestContextAttributes.REQUEST_BODY_TRANSPORT_SHA256, " transport-sha-001 "),
+                        entry(CocoRequestContextAttributes.REQUEST_BODY_EFFECTIVE_SHA256, " effective-sha-001 "),
+                        entry(CocoRequestContextAttributes.REQUEST_BODY_TRANSPORT_LENGTH, " 256 "),
+                        entry(CocoRequestContextAttributes.REQUEST_BODY_EFFECTIVE_LENGTH, " 128 "),
+                        entry(CocoRequestContextAttributes.REQUEST_BODY_STAGE, " decrypted "),
                         entry(CocoRequestContextAttributes.SECURITY_APP_ID, " app-001 "),
                         entry(CocoRequestContextAttributes.SECURITY_KEY_ID, " key-001 "),
                         entry(CocoRequestContextAttributes.REQUEST_SIGNED, " true "),
@@ -77,6 +82,11 @@ class CocoRequestContextHolderTest {
         assertEquals("zh-CN", current.locale().orElseThrow());
         assertEquals("fp-001", current.browserFingerprint().orElseThrow());
         assertEquals("body-sha-001", current.requestBodySha256().orElseThrow());
+        assertEquals("transport-sha-001", current.requestBodyTransportSha256().orElseThrow());
+        assertEquals("effective-sha-001", current.requestBodyEffectiveSha256().orElseThrow());
+        assertEquals(256L, current.requestBodyTransportLength().orElseThrow());
+        assertEquals(128L, current.requestBodyEffectiveLength().orElseThrow());
+        assertEquals("decrypted", current.requestBodyStage().orElseThrow());
         assertEquals("app-001", current.securityAppId().orElseThrow());
         assertEquals("key-001", current.securityKeyId().orElseThrow());
         assertTrue(current.requestSigned());
@@ -115,6 +125,16 @@ class CocoRequestContextHolderTest {
         assertEquals("boom", exception.getMessage());
         assertEquals("outer", CocoRequestContextHolder.current().orElseThrow().traceId());
         assertEquals("outer", CocoTraceContext.currentTraceId().orElseThrow());
+    }
+
+    @Test
+    void requestContextIgnoresInvalidRequestBodyLength() {
+        CocoRequestContext context = CocoRequestContext.of("trace-001", "POST", "/api/users", Map.of(
+                CocoRequestContextAttributes.REQUEST_BODY_TRANSPORT_LENGTH, "NaN",
+                CocoRequestContextAttributes.REQUEST_BODY_EFFECTIVE_LENGTH, "broken"));
+
+        assertTrue(context.requestBodyTransportLength().isEmpty());
+        assertTrue(context.requestBodyEffectiveLength().isEmpty());
     }
 
     @Test

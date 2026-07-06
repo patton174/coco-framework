@@ -1124,6 +1124,11 @@ class CocoWebAutoConfigurationTest {
             assertEquals(snapshot.browserFingerprint().value(),
                     snapshot.toRequestContext().browserFingerprint().orElseThrow());
             assertEquals(sha256(body), snapshot.toRequestContext().requestBodySha256().orElseThrow());
+            assertEquals("transport", snapshot.toRequestContext().requestBodyStage().orElseThrow());
+            assertEquals(sha256(body), snapshot.toRequestContext().requestBodyTransportSha256().orElseThrow());
+            assertEquals(sha256(body), snapshot.toRequestContext().requestBodyEffectiveSha256().orElseThrow());
+            assertEquals(body.length, snapshot.toRequestContext().requestBodyTransportLength().orElseThrow());
+            assertEquals(body.length, snapshot.toRequestContext().requestBodyEffectiveLength().orElseThrow());
             assertTrue(canonicalForm.text().contains("method=POST"));
             assertTrue(canonicalForm.text().contains("path=/api/orders"));
             assertTrue(canonicalForm.text().contains("x-coco-timestamp[0]=13:1783300000000"));
@@ -2063,6 +2068,13 @@ class CocoWebAutoConfigurationTest {
                                                         CocoRequestContextHolder.current().orElseThrow();
                                                 assertEquals(sha256(plainBody),
                                                         requestContext.requestBodySha256().orElseThrow());
+                                                assertEquals("decrypted",
+                                                        requestContext.requestBodyStage().orElseThrow());
+                                                assertEquals(sha256(plainBody),
+                                                        requestContext.requestBodyEffectiveSha256().orElseThrow());
+                                                assertTrue(requestContext.requestBodyTransportSha256().isPresent());
+                                                assertFalse(sha256(plainBody).equals(
+                                                        requestContext.requestBodyTransportSha256().orElseThrow()));
                                                 assertEquals("sample-app",
                                                         requestContext.securityAppId().orElseThrow());
                                                 assertTrue(requestContext.requestEncrypted());
@@ -2072,7 +2084,13 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("{\"sku\":\"COCO-STARTER\"}", downstreamBody.get());
                     CocoWebRequestSnapshot effectiveSnapshot =
                             CocoWebRequestSnapshotAttributes.get(request).orElseThrow();
+                    String transportSha256 = CocoCachedBodyHttpServletRequest.transportBody(request)
+                            .orElseThrow()
+                            .sha256();
                     assertEquals(sha256(plainBody), effectiveSnapshot.securityInput().bodySha256());
+                    assertEquals("decrypted", effectiveSnapshot.requestBody().stage().id());
+                    assertEquals(transportSha256, effectiveSnapshot.requestBody().transportSha256());
+                    assertEquals(sha256(plainBody), effectiveSnapshot.requestBody().effectiveSha256());
                     assertEquals("sample-app", effectiveSnapshot.securityMetadata().primaryAppId().orElseThrow());
                     assertTrue(effectiveSnapshot.securityMetadata().encrypted());
                     assertEquals("encrypted-body-trace", recorder.lastAccessLog().traceId());
@@ -2385,7 +2403,7 @@ class CocoWebAutoConfigurationTest {
         String canonicalText = canonicalizer.canonicalize(CocoWebRequestCanonicalizationContext.of(
                 CocoWebRequestCanonicalizationPurpose.SIGNATURE, snapshot, null)).text();
         CocoWebRequestSnapshotAttributes.clear(request);
-        request.removeAttribute(CocoCachedBodyHttpServletRequest.ATTRIBUTE_NAME);
+        CocoCachedBodyHttpServletRequest.clear(request);
         request.addHeader("X-Coco-Sign", hmacSha256Hex(canonicalText, secret));
         return request;
     }

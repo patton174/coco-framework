@@ -10,6 +10,7 @@ import java.util.StringJoiner;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
+import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -184,13 +185,14 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         CocoClientIpResolution clientIpResolution = this.clientIpResolver.resolveResolution(request);
         CocoBrowserFingerprint browserFingerprint = this.browserFingerprintResolver.resolve(request);
         CocoWebRequestSecurityInput securityInput = this.securityInputResolver.resolve(request, method, path);
+        CocoRequestBodyMetadata requestBody = CocoRequestBodyMetadata.from(request);
         CocoWebRequestSecurityMetadata securityMetadata = this.securityMetadataResolver.resolve(securityInput);
         CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(request),
                 clientIpResolution.clientIp(), request.getHeader("User-Agent"),
                 resolveLocale(request),
                 request.getScheme(), request.getServerName(), request.getServerPort(),
                 request.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(request),
-                this.requestParameterResolver.resolveParameters(request), securityInput, securityMetadata,
+                this.requestParameterResolver.resolveParameters(request), securityInput, requestBody, securityMetadata,
                 browserFingerprint, clientIpResolution);
         CocoWebRequestSnapshotAttributes.set(request, snapshot, headerFingerprint(request));
         return snapshot;

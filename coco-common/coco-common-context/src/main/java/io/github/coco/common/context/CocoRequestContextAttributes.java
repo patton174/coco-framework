@@ -91,6 +91,31 @@ public final class CocoRequestContextAttributes {
     public static final String REQUEST_BODY_SHA256 = "requestBodySha256";
 
     /**
+     * 传输态请求体 SHA-256 摘要属性键。
+     */
+    public static final String REQUEST_BODY_TRANSPORT_SHA256 = "requestBodyTransportSha256";
+
+    /**
+     * 业务态请求体 SHA-256 摘要属性键。
+     */
+    public static final String REQUEST_BODY_EFFECTIVE_SHA256 = "requestBodyEffectiveSha256";
+
+    /**
+     * 传输态请求体长度属性键。
+     */
+    public static final String REQUEST_BODY_TRANSPORT_LENGTH = "requestBodyTransportLength";
+
+    /**
+     * 业务态请求体长度属性键。
+     */
+    public static final String REQUEST_BODY_EFFECTIVE_LENGTH = "requestBodyEffectiveLength";
+
+    /**
+     * 请求体阶段属性键。
+     */
+    public static final String REQUEST_BODY_STAGE = "requestBodyStage";
+
+    /**
      * 请求安全应用标识属性键。
      */
     public static final String SECURITY_APP_ID = "securityAppId";

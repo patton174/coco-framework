@@ -236,6 +236,57 @@ public final class CocoRequestContext {
 
     /**
      * <p>
+     * 返回传输态请求体 SHA-256 摘要。
+     * </p>
+     * @return 传输态请求体 SHA-256 摘要；未设置时为空
+     */
+    public Optional<String> requestBodyTransportSha256() {
+        return attribute(CocoRequestContextAttributes.REQUEST_BODY_TRANSPORT_SHA256);
+    }
+
+    /**
+     * <p>
+     * 返回业务态请求体 SHA-256 摘要。
+     * </p>
+     * @return 业务态请求体 SHA-256 摘要；未设置时为空
+     */
+    public Optional<String> requestBodyEffectiveSha256() {
+        return attribute(CocoRequestContextAttributes.REQUEST_BODY_EFFECTIVE_SHA256)
+                .or(this::requestBodySha256);
+    }
+
+    /**
+     * <p>
+     * 返回传输态请求体长度。
+     * </p>
+     * @return 传输态请求体长度；未设置时为空
+     */
+    public Optional<Long> requestBodyTransportLength() {
+        return longAttribute(CocoRequestContextAttributes.REQUEST_BODY_TRANSPORT_LENGTH);
+    }
+
+    /**
+     * <p>
+     * 返回业务态请求体长度。
+     * </p>
+     * @return 业务态请求体长度；未设置时为空
+     */
+    public Optional<Long> requestBodyEffectiveLength() {
+        return longAttribute(CocoRequestContextAttributes.REQUEST_BODY_EFFECTIVE_LENGTH);
+    }
+
+    /**
+     * <p>
+     * 返回请求体阶段。
+     * </p>
+     * @return 请求体阶段；未设置时为空
+     */
+    public Optional<String> requestBodyStage() {
+        return attribute(CocoRequestContextAttributes.REQUEST_BODY_STAGE);
+    }
+
+    /**
+     * <p>
      * 返回请求安全应用标识。
      * </p>
      * @return 请求安全应用标识；未设置时为空
@@ -336,6 +387,19 @@ public final class CocoRequestContext {
             return Optional.empty();
         }
         return attribute(CocoRequestContextAttributes.parameter(name));
+    }
+
+    private Optional<Long> longAttribute(String name) {
+        return attribute(name).flatMap(CocoRequestContext::parseLong);
+    }
+
+    private static Optional<Long> parseLong(String value) {
+        try {
+            return Optional.of(Long.parseLong(value));
+        }
+        catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
     }
 
     private static String requireTraceId(String traceId) {
