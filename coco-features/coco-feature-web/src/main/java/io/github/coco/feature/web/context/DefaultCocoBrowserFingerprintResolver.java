@@ -1,0 +1,97 @@
+package io.github.coco.feature.web.context;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Stream;
+
+import jakarta.servlet.http.HttpServletRequest;
+
+/**
+ * 默认 Coco 浏览器指纹解析器。
+ * <p>
+ * 基于 {@link CocoWebContextProperties#getFingerprintHeaderNames()} 配置的请求头采集浏览器信号，并生成稳定摘要。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-feature-web}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+public final class DefaultCocoBrowserFingerprintResolver implements CocoBrowserFingerprintResolver {
+
+    private final CocoWebContextProperties properties;
+
+    /**
+     * <p>
+     * 创建默认 Coco 浏览器指纹解析器。
+     * </p>
+     * @param properties Web 请求上下文配置属性
+     */
+    public DefaultCocoBrowserFingerprintResolver(CocoWebContextProperties properties) {
+        this.properties = properties == null ? new CocoWebContextProperties() : properties;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoBrowserFingerprint resolve(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        Map<String, String> signals = new LinkedHashMap<>();
+        for (String headerName : this.properties.getFingerprintHeaderNames()) {
+            if (headerName == null || headerName.isBlank()) {
+                continue;
+            }
+            String value = firstExistingHeaderValue(checkedRequest, headerName);
+            if (value != null) {
+                signals.put(headerName.trim().toLowerCase(Locale.ROOT),
+                        trimValue(value, this.properties.getMaxHeaderValueLength()));
+            }
+        }
+        return CocoBrowserFingerprint.from(signals);
+    }
+
+    private static String firstExistingHeaderValue(HttpServletRequest request, String headerName) {
+        Enumeration<String> values = request.getHeaders(headerName);
+        if (values == null) {
+            return null;
+        }
+        return enumerationAsStream(values)
+                .map(DefaultCocoBrowserFingerprintResolver::normalizeString)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static Stream<String> enumerationAsStream(Enumeration<String> values) {
+        if (values == null) {
+            return Stream.empty();
+        }
+        ArrayList<String> copied = new ArrayList<>();
+        while (values.hasMoreElements()) {
+            copied.add(values.nextElement());
+        }
+        return copied.stream();
+    }
+
+    private static String normalizeString(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String trimValue(String value, int maxLength) {
+        String normalized = normalizeString(value);
+        if (normalized == null) {
+            return "";
+        }
+        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
+    }
+}

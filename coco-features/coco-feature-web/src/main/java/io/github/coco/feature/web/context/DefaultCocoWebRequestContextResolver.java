@@ -41,6 +41,10 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
 
     private final CocoAccessLogCaptureProperties accessLogProperties;
 
+    private final CocoClientIpResolver clientIpResolver;
+
+    private final CocoBrowserFingerprintResolver browserFingerprintResolver;
+
     /**
      * <p>
      * 创建默认请求上下文解析器。
@@ -50,10 +54,46 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      */
     public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
             CocoAccessLogCaptureProperties accessLogProperties) {
-        this.properties = properties == null ? new CocoWebContextProperties() : properties;
+        this(properties, accessLogProperties, null);
+    }
+
+    /**
+     * <p>
+     * 创建默认请求上下文解析器。
+     * </p>
+     * @param properties Web 请求上下文配置
+     * @param accessLogProperties 访问日志采集配置
+     * @param browserFingerprintResolver 浏览器指纹解析器
+     */
+    public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
+            CocoAccessLogCaptureProperties accessLogProperties,
+            CocoBrowserFingerprintResolver browserFingerprintResolver) {
+        this(properties, accessLogProperties, null, browserFingerprintResolver);
+    }
+
+    /**
+     * <p>
+     * 创建默认请求上下文解析器。
+     * </p>
+     * @param properties Web 请求上下文配置
+     * @param accessLogProperties 访问日志采集配置
+     * @param clientIpResolver 客户端 IP 解析器
+     * @param browserFingerprintResolver 浏览器指纹解析器
+     */
+    public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
+            CocoAccessLogCaptureProperties accessLogProperties, CocoClientIpResolver clientIpResolver,
+            CocoBrowserFingerprintResolver browserFingerprintResolver) {
+        CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
+        this.properties = contextProperties;
         this.accessLogProperties = accessLogProperties == null
                 ? new CocoAccessLogCaptureProperties()
                 : accessLogProperties;
+        this.clientIpResolver = clientIpResolver == null
+                ? new DefaultCocoClientIpResolver(contextProperties)
+                : clientIpResolver;
+        this.browserFingerprintResolver = browserFingerprintResolver == null
+                ? new DefaultCocoBrowserFingerprintResolver(contextProperties)
+                : browserFingerprintResolver;
     }
 
     /**
@@ -70,15 +110,15 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
                 this.properties.getSecurityHeaderNames(), false);
         Map<String, String> canonicalHeaders = resolveSelectedHeaders(checkedRequest,
                 this.properties.getCanonicalHeaderNames(), false);
-        CocoBrowserFingerprint browserFingerprint = CocoBrowserFingerprint.from(resolveSelectedHeaders(checkedRequest,
-                this.properties.getFingerprintHeaderNames(), true));
+        CocoBrowserFingerprint browserFingerprint = this.browserFingerprintResolver.resolve(checkedRequest);
         CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
                 .orElse(CocoCachedRequestBody.empty());
         CocoWebRequestSecurityInput securityInput = new CocoWebRequestSecurityInput(method, path, rawQueryString,
                 rawParameters, securityHeaders, canonicalHeaders, cachedBody.sha256(),
                 cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached());
         return new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(checkedRequest),
-                resolveClientIp(checkedRequest), checkedRequest.getHeader("User-Agent"), resolveLocale(checkedRequest),
+                this.clientIpResolver.resolve(checkedRequest), checkedRequest.getHeader("User-Agent"),
+                resolveLocale(checkedRequest),
                 checkedRequest.getScheme(), checkedRequest.getServerName(), checkedRequest.getServerPort(),
                 checkedRequest.getContentType(), resolveHeaders(checkedRequest), resolveParameters(checkedRequest),
                 securityInput, browserFingerprint);
@@ -87,75 +127,6 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
     private static String resolvePath(HttpServletRequest request) {
         String requestUri = request.getRequestURI();
         return requestUri == null || requestUri.isBlank() ? null : requestUri;
-    }
-
-    private String resolveClientIp(HttpServletRequest request) {
-        for (String headerName : this.properties.getClientIpHeaderNames()) {
-            String headerValue = request.getHeader(headerName);
-            String clientIp = "Forwarded".equalsIgnoreCase(headerName)
-                    ? firstForwardedForValue(headerValue)
-                    : firstHeaderValue(headerValue);
-            if (isUsableClientIp(clientIp)) {
-                return clientIp;
-            }
-        }
-        return normalizeString(request.getRemoteAddr());
-    }
-
-    private static String firstForwardedForValue(String headerValue) {
-        if (headerValue == null || headerValue.isBlank()) {
-            return null;
-        }
-        return Arrays.stream(headerValue.split(","))
-                .map(DefaultCocoWebRequestContextResolver::forwardedForValue)
-                .filter(DefaultCocoWebRequestContextResolver::isUsableClientIp)
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static String forwardedForValue(String segment) {
-        if (segment == null || segment.isBlank()) {
-            return null;
-        }
-        return Arrays.stream(segment.split(";"))
-                .map(String::trim)
-                .filter(part -> part.regionMatches(true, 0, "for=", 0, 4))
-                .map(part -> cleanClientIpToken(part.substring(4)))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static String firstHeaderValue(String headerValue) {
-        if (headerValue == null || headerValue.isBlank()) {
-            return null;
-        }
-        return Arrays.stream(headerValue.split(","))
-                .map(DefaultCocoWebRequestContextResolver::cleanClientIpToken)
-                .filter(DefaultCocoWebRequestContextResolver::isUsableClientIp)
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static String cleanClientIpToken(String value) {
-        String normalized = normalizeString(value);
-        if (normalized == null) {
-            return null;
-        }
-        if (normalized.length() >= 2 && normalized.startsWith("\"") && normalized.endsWith("\"")) {
-            normalized = normalized.substring(1, normalized.length() - 1).trim();
-        }
-        if (normalized.startsWith("[") && normalized.contains("]")) {
-            return normalized.substring(1, normalized.indexOf(']'));
-        }
-        int portIndex = normalized.lastIndexOf(':');
-        if (portIndex > 0 && normalized.indexOf(':') == portIndex) {
-            return normalized.substring(0, portIndex);
-        }
-        return normalized;
-    }
-
-    private static boolean isUsableClientIp(String value) {
-        return value != null && !value.isBlank() && !"unknown".equalsIgnoreCase(value.trim());
     }
 
     private String resolveQueryString(HttpServletRequest request) {

@@ -27,10 +27,16 @@ import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingMode;
+import io.github.coco.feature.web.context.CocoBrowserFingerprint;
+import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
+import io.github.coco.feature.web.context.CocoClientIpResolver;
+import io.github.coco.feature.web.context.CocoWebContextProperties;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
+import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -58,15 +64,16 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
-import javax.crypto.Cipher;
-import javax.crypto.Mac;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.crypto.Cipher;
+import javax.crypto.Mac;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
@@ -147,6 +154,8 @@ class CocoWebAutoConfigurationTest {
         this.webContextRunner.run(context -> {
             assertTrue(context.containsBean("cocoExceptionHttpStatusResolver"));
             assertTrue(context.containsBean("cocoWebExceptionHandler"));
+            assertTrue(context.containsBean("cocoClientIpResolver"));
+            assertTrue(context.containsBean("cocoBrowserFingerprintResolver"));
             assertTrue(context.containsBean("cocoWebRequestCanonicalizer"));
             assertTrue(context.containsBean("cocoWebRequestContextResolver"));
             assertTrue(context.containsBean("cocoRequestBodyCachingFilterRegistration"));
@@ -895,6 +904,69 @@ class CocoWebAutoConfigurationTest {
             assertTrue(canonicalForm.text().contains("bodyLength=" + body.length));
             assertTrue(canonicalForm.sha256().length() == 64);
         });
+    }
+
+    @Test
+    void defaultClientIpResolverParsesForwardedHeaders() {
+        CocoClientIpResolver resolver = new DefaultCocoClientIpResolver(new CocoWebContextProperties());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+        request.addHeader("Forwarded", "for=\"[2001:db8:cafe::17]:4711\";proto=https");
+        request.addHeader("X-Forwarded-For", "10.0.0.8");
+
+        assertEquals("2001:db8:cafe::17", resolver.resolve(request));
+    }
+
+    @Test
+    void defaultBrowserFingerprintResolverUsesConfiguredHeaderSignals() {
+        CocoWebProperties properties = new CocoWebProperties();
+        properties.getContext().setFingerprintHeaderNames(Set.of("User-Agent", "Sec-CH-UA"));
+        properties.getContext().setMaxHeaderValueLength(8);
+        CocoBrowserFingerprintResolver resolver = new DefaultCocoBrowserFingerprintResolver(properties.getContext());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+        request.addHeader("User-Agent", " Chrome/126 ");
+        request.addHeader("Sec-CH-UA", "\"Chromium\";v=\"126\"");
+
+        CocoBrowserFingerprint fingerprint = resolver.resolve(request);
+
+        assertNotNull(fingerprint.value());
+        assertEquals("Chrome/1...", fingerprint.signals().get("user-agent"));
+        assertEquals("\"Chromiu...", fingerprint.signals().get("sec-ch-ua"));
+    }
+
+    @Test
+    void usesCustomClientIpResolverInRequestContext() {
+        CocoClientIpResolver resolver = request -> "203.0.113.8";
+        this.webContextRunner
+                .withBean(CocoClientIpResolver.class, () -> resolver)
+                .run(context -> {
+                    CocoWebRequestContextResolver contextResolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    request.addHeader("X-Forwarded-For", "10.0.0.8");
+
+                    CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-ip-trace", request);
+
+                    assertEquals("203.0.113.8", snapshot.clientIp());
+                    assertEquals("203.0.113.8", snapshot.toRequestContext().clientIp().orElseThrow());
+                });
+    }
+
+    @Test
+    void usesCustomBrowserFingerprintResolverInRequestContext() {
+        CocoBrowserFingerprintResolver resolver = request ->
+                new CocoBrowserFingerprint("custom-browser-fingerprint", Map.of("custom", "yes"));
+        this.webContextRunner
+                .withBean(CocoBrowserFingerprintResolver.class, () -> resolver)
+                .run(context -> {
+                    CocoWebRequestContextResolver contextResolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+
+                    CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-fingerprint-trace", request);
+
+                    assertEquals("custom-browser-fingerprint", snapshot.browserFingerprint().value());
+                    assertEquals("custom-browser-fingerprint",
+                            snapshot.toRequestContext().browserFingerprint().orElseThrow());
+                    assertEquals("yes", snapshot.browserFingerprint().signals().get("custom"));
+                });
     }
 
     @Test
