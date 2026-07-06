@@ -11,8 +11,11 @@ import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -48,6 +51,8 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
 
     private final CocoWebRequestCanonicalizer requestCanonicalizer;
 
+    private final CocoWebRequestSecurityMetadataResolver securityMetadataResolver;
+
     private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
 
     private final Clock clock;
@@ -67,7 +72,7 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
             CocoSignatureVerifier signatureVerifier, CocoWebRequestContextResolver requestContextResolver,
             CocoWebRequestCanonicalizer requestCanonicalizer, CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         this(properties, secretResolver, signatureVerifier, requestContextResolver, requestCanonicalizer,
-                exceptionResponseWriter, Clock.systemUTC());
+                exceptionResponseWriter, null, Clock.systemUTC());
     }
 
     /**
@@ -86,6 +91,47 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
             CocoSignatureVerifier signatureVerifier, CocoWebRequestContextResolver requestContextResolver,
             CocoWebRequestCanonicalizer requestCanonicalizer, CocoFilterExceptionResponseWriter exceptionResponseWriter,
             Clock clock) {
+        this(properties, secretResolver, signatureVerifier, requestContextResolver, requestCanonicalizer,
+                exceptionResponseWriter, null, clock);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求签名过滤器。
+     * </p>
+     * @param properties 请求签名配置属性
+     * @param secretResolver 请求签名密钥解析器
+     * @param signatureVerifier 请求签名验证器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param requestCanonicalizer Web 请求规范化器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param securityMetadataResolver 请求安全元数据解析器
+     */
+    public CocoSignatureFilter(CocoSignatureProperties properties, CocoSignatureSecretResolver secretResolver,
+            CocoSignatureVerifier signatureVerifier, CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestCanonicalizer requestCanonicalizer, CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
+        this(properties, secretResolver, signatureVerifier, requestContextResolver, requestCanonicalizer,
+                exceptionResponseWriter, securityMetadataResolver, Clock.systemUTC());
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求签名过滤器。
+     * </p>
+     * @param properties 请求签名配置属性
+     * @param secretResolver 请求签名密钥解析器
+     * @param signatureVerifier 请求签名验证器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param requestCanonicalizer Web 请求规范化器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param securityMetadataResolver 请求安全元数据解析器
+     * @param clock 时钟
+     */
+    public CocoSignatureFilter(CocoSignatureProperties properties, CocoSignatureSecretResolver secretResolver,
+            CocoSignatureVerifier signatureVerifier, CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestCanonicalizer requestCanonicalizer, CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver, Clock clock) {
         this.properties = properties == null ? new CocoSignatureProperties() : properties;
         this.secretResolver = Objects.requireNonNull(secretResolver, "secretResolver must not be null");
         this.signatureVerifier = Objects.requireNonNull(signatureVerifier, "signatureVerifier must not be null");
@@ -93,6 +139,9 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
                 "requestContextResolver must not be null");
         this.requestCanonicalizer = Objects.requireNonNull(requestCanonicalizer,
                 "requestCanonicalizer must not be null");
+        this.securityMetadataResolver = securityMetadataResolver == null
+                ? new DefaultCocoWebRequestSecurityMetadataResolver(this.properties, null)
+                : securityMetadataResolver;
         this.exceptionResponseWriter = Objects.requireNonNull(exceptionResponseWriter,
                 "exceptionResponseWriter must not be null");
         this.clock = clock == null ? Clock.systemUTC() : clock;
@@ -133,7 +182,8 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
         CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
         CocoWebRequestCanonicalForm canonicalForm = this.requestCanonicalizer.canonicalize(securityInput);
-        CocoSignatureRequest signatureRequest = resolveSignatureRequest(securityInput, canonicalForm);
+        CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(securityInput);
+        CocoSignatureRequest signatureRequest = resolveSignatureRequest(metadata, canonicalForm);
         if (!signatureRequest.signed()) {
             if (this.properties.isRequired() || signatureExpected) {
                 throw CocoBusinessExceptions.unauthorized("coco.web.signature.missing-signature");
@@ -149,20 +199,15 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         }
     }
 
-    private CocoSignatureRequest resolveSignatureRequest(CocoWebRequestSecurityInput input,
+    private CocoSignatureRequest resolveSignatureRequest(CocoWebRequestSecurityMetadata metadata,
             CocoWebRequestCanonicalForm canonicalForm) {
-        String signature = input.securityHeader(this.properties.getSignatureHeaderName())
-                .or(() -> input.securityHeader(this.properties.getSignatureFallbackHeaderName()))
-                .orElse(null);
-        String algorithm = input.securityHeader(this.properties.getAlgorithmHeaderName())
-                .orElse(this.properties.getDefaultAlgorithm());
         return new CocoSignatureRequest(
-                input.securityHeader(this.properties.getAppIdHeaderName()).orElse(null),
-                input.securityHeader(this.properties.getKeyIdHeaderName()).orElse(null),
-                input.securityHeader(this.properties.getTimestampHeaderName()).orElse(null),
-                input.securityHeader(this.properties.getNonceHeaderName()).orElse(null),
-                algorithm,
-                signature,
+                metadata.signatureAppId(),
+                metadata.signatureKeyId(),
+                metadata.signatureTimestamp(),
+                metadata.signatureNonce(),
+                metadata.signatureAlgorithm(),
+                metadata.signature(),
                 canonicalForm.text(),
                 canonicalForm.sha256());
     }

@@ -9,8 +9,11 @@ import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -44,6 +47,8 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
 
     private final CocoWebRequestContextResolver requestContextResolver;
 
+    private final CocoWebRequestSecurityMetadataResolver securityMetadataResolver;
+
     private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
 
     /**
@@ -59,11 +64,32 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
     public CocoEncryptionFilter(CocoEncryptionProperties properties, CocoEncryptionKeyResolver keyResolver,
             CocoRequestDecryptor requestDecryptor, CocoWebRequestContextResolver requestContextResolver,
             CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+        this(properties, keyResolver, requestDecryptor, requestContextResolver, exceptionResponseWriter, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求解密过滤器。
+     * </p>
+     * @param properties 请求加密配置属性
+     * @param keyResolver AES 解密密钥解析器
+     * @param requestDecryptor 请求解密器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param securityMetadataResolver 请求安全元数据解析器
+     */
+    public CocoEncryptionFilter(CocoEncryptionProperties properties, CocoEncryptionKeyResolver keyResolver,
+            CocoRequestDecryptor requestDecryptor, CocoWebRequestContextResolver requestContextResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
         this.properties = properties == null ? new CocoEncryptionProperties() : properties;
         this.keyResolver = Objects.requireNonNull(keyResolver, "keyResolver must not be null");
         this.requestDecryptor = Objects.requireNonNull(requestDecryptor, "requestDecryptor must not be null");
         this.requestContextResolver = Objects.requireNonNull(requestContextResolver,
                 "requestContextResolver must not be null");
+        this.securityMetadataResolver = securityMetadataResolver == null
+                ? new DefaultCocoWebRequestSecurityMetadataResolver(null, this.properties)
+                : securityMetadataResolver;
         this.exceptionResponseWriter = Objects.requireNonNull(exceptionResponseWriter,
                 "exceptionResponseWriter must not be null");
     }
@@ -114,16 +140,16 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(CocoTraceContext.getOrCreateTraceId(),
                 request);
         CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
+        CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(securityInput);
         byte[] payload = CocoCachedBodyHttpServletRequest.cachedBody(request)
                 .map(CocoCachedRequestBody::content)
                 .orElseGet(() -> readRawBody(request));
         return new CocoEncryptedRequest(
-                securityInput.securityHeader(this.properties.getAppIdHeaderName()).orElse(null),
-                securityInput.securityHeader(this.properties.getKeyIdHeaderName()).orElse(null),
-                securityInput.securityHeader(this.properties.getIvHeaderName()).orElse(null),
-                securityInput.securityHeader(this.properties.getAlgorithmHeaderName())
-                        .orElse(this.properties.getDefaultAlgorithm()),
-                true,
+                metadata.encryptionAppId(),
+                metadata.encryptionKeyId(),
+                metadata.encryptionIv(),
+                metadata.encryptionAlgorithm(),
+                metadata.encrypted(),
                 payload);
     }
 

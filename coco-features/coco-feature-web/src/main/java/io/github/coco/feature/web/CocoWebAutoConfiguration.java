@@ -17,6 +17,7 @@ import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
@@ -24,6 +25,7 @@ import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.encryption.AesGcmCocoRequestDecryptor;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.encryption.CocoEncryptionKeyResolver;
@@ -211,6 +213,20 @@ public class CocoWebAutoConfiguration {
             CocoRequestParameterResolver requestParameterResolver) {
         return new DefaultCocoWebRequestSecurityInputResolver(properties.getContext(), requestHeaderResolver,
                 requestParameterResolver);
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco Web 请求安全元数据解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return Web 请求安全元数据解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoWebRequestSecurityMetadataResolver cocoWebRequestSecurityMetadataResolver(CocoWebProperties properties) {
+        return new DefaultCocoWebRequestSecurityMetadataResolver(properties.getSignature(), properties.getEncryption());
     }
 
     /**
@@ -411,6 +427,7 @@ public class CocoWebAutoConfiguration {
      * @param signatureVerifier 请求签名验证器
      * @param requestContextResolver Web 请求上下文解析器
      * @param requestCanonicalizer Web 请求规范化器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
      * @param exceptionResponseWriter 过滤器异常响应写出器
      * @return 请求签名过滤器注册器
      */
@@ -422,10 +439,12 @@ public class CocoWebAutoConfiguration {
     public FilterRegistrationBean<CocoSignatureFilter> cocoSignatureFilterRegistration(CocoWebProperties properties,
             CocoSignatureSecretResolver secretResolver, CocoSignatureVerifier signatureVerifier,
             CocoWebRequestContextResolver requestContextResolver, CocoWebRequestCanonicalizer requestCanonicalizer,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
             CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         FilterRegistrationBean<CocoSignatureFilter> registration = new FilterRegistrationBean<>(
                 new CocoSignatureFilter(properties.getSignature(), secretResolver, signatureVerifier,
-                        requestContextResolver, requestCanonicalizer, exceptionResponseWriter));
+                        requestContextResolver, requestCanonicalizer, exceptionResponseWriter,
+                        securityMetadataResolver));
         registration.setName("cocoSignatureFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 2);
         return registration;
@@ -439,6 +458,7 @@ public class CocoWebAutoConfiguration {
      * @param keyResolver AES 解密密钥解析器
      * @param requestDecryptor 请求解密器
      * @param requestContextResolver Web 请求上下文解析器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
      * @param exceptionResponseWriter 过滤器异常响应写出器
      * @return 请求解密过滤器注册器
      */
@@ -450,10 +470,11 @@ public class CocoWebAutoConfiguration {
     public FilterRegistrationBean<CocoEncryptionFilter> cocoEncryptionFilterRegistration(CocoWebProperties properties,
             CocoEncryptionKeyResolver keyResolver, CocoRequestDecryptor requestDecryptor,
             CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
             CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         FilterRegistrationBean<CocoEncryptionFilter> registration = new FilterRegistrationBean<>(
                 new CocoEncryptionFilter(properties.getEncryption(), keyResolver, requestDecryptor,
-                        requestContextResolver, exceptionResponseWriter));
+                        requestContextResolver, exceptionResponseWriter, securityMetadataResolver));
         registration.setName("cocoEncryptionFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
         return registration;

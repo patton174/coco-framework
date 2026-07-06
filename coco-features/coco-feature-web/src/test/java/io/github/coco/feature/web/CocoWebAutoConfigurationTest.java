@@ -38,13 +38,17 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
+import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoApiResponse;
@@ -58,6 +62,7 @@ import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.CocoSystemCodes;
 import io.github.coco.feature.web.signature.CocoSignatureFilter;
+import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -166,6 +171,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoRequestHeaderResolver"));
             assertTrue(context.containsBean("cocoRequestParameterResolver"));
             assertTrue(context.containsBean("cocoWebRequestSecurityInputResolver"));
+            assertTrue(context.containsBean("cocoWebRequestSecurityMetadataResolver"));
             assertTrue(context.containsBean("cocoWebRequestCanonicalizer"));
             assertTrue(context.containsBean("cocoWebRequestContextResolver"));
             assertTrue(context.containsBean("cocoRequestBodyCachingFilterRegistration"));
@@ -1087,6 +1093,39 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(11L, snapshot.securityInput().bodyLength());
                     assertTrue(snapshot.securityInput().bodyCached());
                 });
+    }
+
+    @Test
+    void resolvesSecurityMetadataFromSecurityInput() {
+        CocoWebRequestSecurityMetadataResolver resolver = new DefaultCocoWebRequestSecurityMetadataResolver(
+                new CocoSignatureProperties(), new CocoEncryptionProperties());
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders", null, Map.of(),
+                Map.of(
+                        "x-coco-app-id", "sample-app",
+                        "x-coco-key-id", "key-1001",
+                        "x-coco-timestamp", "1700000000000",
+                        "x-coco-nonce", "nonce-1001",
+                        "x-coco-sign", "signature-1001",
+                        "x-coco-encrypted", "true",
+                        "x-coco-iv", "iv-1001"),
+                Map.of(), null, null, false);
+
+        CocoWebRequestSecurityMetadata metadata = resolver.resolve(input);
+
+        assertEquals("sample-app", metadata.signatureAppId());
+        assertEquals("key-1001", metadata.signatureKeyId());
+        assertEquals("1700000000000", metadata.signatureTimestamp());
+        assertEquals("nonce-1001", metadata.signatureNonce());
+        assertEquals("HMAC-SHA256", metadata.signatureAlgorithm());
+        assertEquals("signature-1001", metadata.signature());
+        assertTrue(metadata.signed());
+        assertEquals("sample-app", metadata.encryptionAppId());
+        assertEquals("key-1001", metadata.encryptionKeyId());
+        assertEquals("iv-1001", metadata.encryptionIv());
+        assertEquals("AES-GCM", metadata.encryptionAlgorithm());
+        assertTrue(metadata.encrypted());
+        assertEquals("sample-app", metadata.primaryAppId().orElseThrow());
+        assertEquals("key-1001", metadata.primaryKeyId().orElseThrow());
     }
 
     @Test
