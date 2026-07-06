@@ -6,10 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
@@ -90,5 +92,14 @@ class CocoNodeLogRendererBootstrapTest {
                 CocoNodeLogRendererBootstrap.RESOURCE_PATH)) {
             assertNotNull(input);
         }
+    }
+
+    @Test
+    void locatesRendererScriptFromWorkspaceSourceTree(@TempDir Path tempDir) throws Exception {
+        Path script = tempDir.resolve("tools/coco-log-renderer/bin/coco-log-renderer.mjs");
+        Files.createDirectories(script.getParent());
+        Files.writeString(script, "console.log('coco');");
+
+        assertEquals(script, CocoNodeLogRendererBootstrap.findLocalRendererScript(tempDir));
     }
 }

@@ -36,6 +36,13 @@ public final class CocoNodeLogRendererBootstrap {
 
     static final String RESOURCE_PATH = "/META-INF/coco/coco-log-renderer.mjs";
 
+    private static final String SOURCE_RESOURCE_PATH = "src/main/resources/META-INF/coco/coco-log-renderer.mjs";
+
+    private static final String WORKSPACE_TOOL_PATH = "tools/coco-log-renderer/bin/coco-log-renderer.mjs";
+
+    private static final String WORKSPACE_RESOURCE_PATH =
+            "coco-spring-boot-autoconfigure/src/main/resources/META-INF/coco/coco-log-renderer.mjs";
+
     private static final AtomicBoolean INSTALLED = new AtomicBoolean();
 
     private CocoNodeLogRendererBootstrap() {
@@ -122,14 +129,42 @@ public final class CocoNodeLogRendererBootstrap {
 
     private static Path extractRendererScript() throws IOException {
         try (InputStream input = CocoNodeLogRendererBootstrap.class.getResourceAsStream(RESOURCE_PATH)) {
-            if (input == null) {
-                throw new IllegalStateException("Coco Node log renderer resource not found: " + RESOURCE_PATH);
+            if (input != null) {
+                Path script = Files.createTempFile("coco-log-renderer-", ".mjs");
+                Files.copy(input, script, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                script.toFile().deleteOnExit();
+                return script;
             }
-            Path script = Files.createTempFile("coco-log-renderer-", ".mjs");
-            Files.copy(input, script, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            script.toFile().deleteOnExit();
-            return script;
         }
+        Path localScript = findLocalRendererScript(Path.of(System.getProperty("user.dir", ".")));
+        if (localScript != null) {
+            return localScript;
+        }
+        throw new IllegalStateException("Coco Node log renderer resource not found: " + RESOURCE_PATH);
+    }
+
+    static Path findLocalRendererScript(Path workingDirectory) {
+        Path current = workingDirectory == null ? Path.of(".") : workingDirectory.toAbsolutePath().normalize();
+        for (int i = 0; i < 6 && current != null; i++) {
+            Path script = firstExisting(
+                    current.resolve(WORKSPACE_TOOL_PATH),
+                    current.resolve(WORKSPACE_RESOURCE_PATH),
+                    current.resolve(SOURCE_RESOURCE_PATH));
+            if (script != null) {
+                return script;
+            }
+            current = current.getParent();
+        }
+        return null;
+    }
+
+    private static Path firstExisting(Path... candidates) {
+        for (Path candidate : candidates) {
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private static Process startRenderer(Environment environment, Path rendererScript) throws IOException {
