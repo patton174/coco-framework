@@ -111,8 +111,10 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
     public CocoWebExceptionHandler cocoWebExceptionHandler(CocoMessageService messageService,
-            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider) {
-        return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider);
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
+            CocoWebProperties properties) {
+        return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider,
+                properties.getResponse());
     }
 
     /**
@@ -133,7 +135,7 @@ public class CocoWebAutoConfiguration {
     public CocoResponseWrapAdvice cocoResponseWrapAdvice(CocoMessageService messageService,
             CocoWebProperties properties, CocoSystemCodeProvider codeProvider, ObjectProvider<ObjectMapper> objectMapper) {
         return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(),
-                codeProvider, objectMapper.getIfAvailable(ObjectMapper::new));
+                codeProvider, objectMapper.getIfAvailable(ObjectMapper::new), properties.getResponse());
     }
 
     /**

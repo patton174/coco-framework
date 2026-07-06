@@ -45,6 +45,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
 
     private final ObjectMapper objectMapper;
 
+    private final CocoResponseProperties responseProperties;
+
     /**
      * <p>
      * 创建正常响应包装处理器。
@@ -56,10 +58,27 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
      */
     public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
             CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper) {
+        this(messageService, properties, codeProvider, objectMapper, new CocoResponseProperties());
+    }
+
+    /**
+     * <p>
+     * 创建正常响应包装处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param properties 正常响应包装配置
+     * @param codeProvider 系统响应码提供器
+     * @param objectMapper JSON 序列化器
+     * @param responseProperties 统一响应配置
+     */
+    public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
+            CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
+            CocoResponseProperties responseProperties) {
         this.messageService = Objects.requireNonNull(messageService);
         this.properties = properties == null ? new CocoResponseWrapProperties() : properties;
         this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper);
+        this.responseProperties = responseProperties == null ? new CocoResponseProperties() : responseProperties;
     }
 
     /**
@@ -96,12 +115,13 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
         if (isSkippedBody(body)) {
             return body;
         }
+        CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
+                resolveTraceIdForBody(), resolvePath(request));
         CocoApiResponse<Object> wrapped = CocoApiResponse.success(
                 this.codeProvider.success(),
                 this.messageService.getMessage(this.properties.getSuccessMessageCode()),
                 body,
-                CocoTraceContext.getOrCreateTraceId(),
-                resolvePath(request));
+                metadata);
         if (StringHttpMessageConverter.class.isAssignableFrom(selectedConverterType)) {
             return writeJson(wrapped);
         }
@@ -142,5 +162,12 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
         }
         String path = request.getURI().getPath();
         return path == null || path.isBlank() ? null : path;
+    }
+
+    private String resolveTraceIdForBody() {
+        if (!this.responseProperties.getMetadataMode().includesTraceId()) {
+            return null;
+        }
+        return CocoTraceContext.getOrCreateTraceId();
     }
 }

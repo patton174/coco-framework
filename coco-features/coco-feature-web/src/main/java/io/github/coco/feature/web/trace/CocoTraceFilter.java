@@ -21,6 +21,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -44,6 +46,22 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     private final String headerName;
 
     private final String mdcKey;
+
+    private final boolean responseHeaderEnabled;
+
+    private final boolean responseCookieEnabled;
+
+    private final String cookieName;
+
+    private final String cookiePath;
+
+    private final int cookieMaxAge;
+
+    private final boolean cookieHttpOnly;
+
+    private final boolean cookieSecure;
+
+    private final String cookieSameSite;
 
     private final List<CocoAccessLogRecorder> accessLogRecorders;
 
@@ -85,6 +103,14 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         CocoTraceProperties checkedProperties = Objects.requireNonNull(properties, "properties must not be null");
         this.headerName = checkedProperties.getHeaderName();
         this.mdcKey = checkedProperties.getMdcKey();
+        this.responseHeaderEnabled = checkedProperties.isResponseHeaderEnabled();
+        this.responseCookieEnabled = checkedProperties.isResponseCookieEnabled();
+        this.cookieName = checkedProperties.getCookieName();
+        this.cookiePath = checkedProperties.getCookiePath();
+        this.cookieMaxAge = checkedProperties.getCookieMaxAge();
+        this.cookieHttpOnly = checkedProperties.isCookieHttpOnly();
+        this.cookieSecure = checkedProperties.isCookieSecure();
+        this.cookieSameSite = checkedProperties.getCookieSameSite();
         this.accessLogRecorders = accessLogRecorders == null ? List.of() : List.copyOf(accessLogRecorders);
         this.accessLogProperties = accessLogProperties == null
                 ? new CocoAccessLogCaptureProperties()
@@ -103,7 +129,7 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         CocoRequestContext requestContext = CocoRequestContext.of(traceId, request.getMethod(), resolvePath(request));
         CocoRequestContextHolder.set(requestContext);
         MDC.put(this.mdcKey, traceId);
-        response.setHeader(this.headerName, traceId);
+        writeTraceResponse(response, traceId);
         Throwable failure = null;
         try {
             filterChain.doFilter(request, response);
@@ -135,6 +161,36 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             return CocoTraceContext.getOrCreateTraceId();
         }
         return requestTraceId.trim();
+    }
+
+    /**
+     * <p>
+     * 按配置将 TraceId 写入响应通道。
+     * </p>
+     * @param response 当前 HTTP 响应
+     * @param traceId 当前请求 TraceId
+     */
+    private void writeTraceResponse(HttpServletResponse response, String traceId) {
+        if (this.responseHeaderEnabled) {
+            response.setHeader(this.headerName, traceId);
+        }
+        if (this.responseCookieEnabled) {
+            response.addHeader(HttpHeaders.SET_COOKIE, buildTraceCookie(traceId));
+        }
+    }
+
+    private String buildTraceCookie(String traceId) {
+        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(this.cookieName, traceId)
+                .path(this.cookiePath)
+                .httpOnly(this.cookieHttpOnly)
+                .secure(this.cookieSecure);
+        if (this.cookieMaxAge >= 0) {
+            builder.maxAge(this.cookieMaxAge);
+        }
+        if (this.cookieSameSite != null && !this.cookieSameSite.isBlank()) {
+            builder.sameSite(this.cookieSameSite);
+        }
+        return builder.build().toString();
     }
 
     private static String resolvePath(HttpServletRequest request) {

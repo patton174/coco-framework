@@ -37,6 +37,14 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.trace.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.header-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.mdc-key\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.response-header-enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.response-cookie-enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-path\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-max-age\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-http-only\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-secure\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-same-site\""));
         assertTrue(content.contains("\"name\": \"coco.web.access-log.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.access-log.include-parameters\""));
         assertTrue(content.contains("\"name\": \"coco.web.access-log.max-parameter-value-length\""));
@@ -44,6 +52,7 @@ class CocoWebConfigurationMetadataTest {
         assertFalse(content.contains("\"name\": \"coco.web.access-log.level\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.style\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.logger-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.response.metadata-mode\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));
         assertFalse(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));

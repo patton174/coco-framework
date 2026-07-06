@@ -1,6 +1,7 @@
 package io.github.coco.feature.web;
 
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -29,6 +30,9 @@ public class CocoWebProperties {
     private CocoTraceProperties trace = new CocoTraceProperties();
 
     @NestedConfigurationProperty
+    private CocoResponseProperties response = new CocoResponseProperties();
+
+    @NestedConfigurationProperty
     private CocoResponseWrapProperties responseWrap = new CocoResponseWrapProperties();
 
     @NestedConfigurationProperty
@@ -52,6 +56,26 @@ public class CocoWebProperties {
      */
     public void setTrace(CocoTraceProperties trace) {
         this.trace = trace == null ? new CocoTraceProperties() : trace;
+    }
+
+    /**
+     * <p>
+     * 返回统一响应配置属性。
+     * </p>
+     * @return 统一响应配置属性
+     */
+    public CocoResponseProperties getResponse() {
+        return this.response;
+    }
+
+    /**
+     * <p>
+     * 设置统一响应配置属性。
+     * </p>
+     * @param response 统一响应配置属性
+     */
+    public void setResponse(CocoResponseProperties response) {
+        this.response = response == null ? new CocoResponseProperties() : response;
     }
 
     /**

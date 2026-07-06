@@ -13,6 +13,8 @@ import io.github.coco.common.exception.type.CocoUnauthorizedException;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.response.CocoApiResponse;
+import io.github.coco.feature.web.response.CocoResponseMetadata;
+import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -45,6 +47,8 @@ public class CocoWebExceptionHandler {
 
     private final CocoSystemCodeProvider codeProvider;
 
+    private final CocoResponseProperties responseProperties;
+
     /**
      * <p>
      * 创建 Coco Web 全局异常处理器。
@@ -55,10 +59,26 @@ public class CocoWebExceptionHandler {
      */
     public CocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider) {
+        this(messageService, httpStatusResolver, codeProvider, new CocoResponseProperties());
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 全局异常处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
+     * @param responseProperties 统一响应配置
+     */
+    public CocoWebExceptionHandler(CocoMessageService messageService,
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
+            CocoResponseProperties responseProperties) {
         this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
         this.httpStatusResolver = Objects.requireNonNull(httpStatusResolver,
                 "httpStatusResolver must not be null");
         this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
+        this.responseProperties = responseProperties == null ? new CocoResponseProperties() : responseProperties;
     }
 
     /**
@@ -75,11 +95,11 @@ public class CocoWebExceptionHandler {
         HttpStatusCode statusCode = Objects.requireNonNull(this.httpStatusResolver.resolve(checkedException),
                 "resolved http status must not be null");
         String message = this.messageService.resolve(checkedException.message());
-        String traceId = CocoTraceContext.getOrCreateTraceId();
         int code = checkedException.businessCode()
                 .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
-        CocoApiResponse<Void> response = CocoApiResponse.error(code, message, traceId,
-                resolvePath(request));
+        CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
+                resolveTraceIdForBody(), resolvePath(request));
+        CocoApiResponse<Void> response = CocoApiResponse.error(code, message, metadata);
         return ResponseEntity.status(statusCode).body(response);
     }
 
@@ -194,5 +214,12 @@ public class CocoWebExceptionHandler {
         int pathStart = start + prefix.length();
         int pathEnd = description.indexOf(';', pathStart);
         return pathEnd < 0 ? description.substring(pathStart) : description.substring(pathStart, pathEnd);
+    }
+
+    private String resolveTraceIdForBody() {
+        if (!this.responseProperties.getMetadataMode().includesTraceId()) {
+            return null;
+        }
+        return CocoTraceContext.getOrCreateTraceId();
     }
 }

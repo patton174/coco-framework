@@ -85,8 +85,8 @@ class CocoSampleBasicApplicationTest {
         assertTrue(response.body().path("success").booleanValue());
         assertEquals(200, response.body().path("code").intValue());
         assertEquals("操作成功", response.body().path("message").textValue());
-        assertEquals("products-trace", response.body().path("traceId").textValue());
-        assertEquals("/sample/products", response.body().path("path").textValue());
+        assertTrue(response.body().path("traceId").isMissingNode());
+        assertTrue(response.body().path("path").isMissingNode());
         assertEquals("COCO-STARTER", response.body().path("data").get(0).path("sku").textValue());
         assertEquals(5, response.body().path("data").get(0).path("availableStock").intValue());
     }
@@ -135,8 +135,9 @@ class CocoSampleBasicApplicationTest {
         assertEquals(1004, response.body().path("code").intValue());
         assertEquals("商品 COCO-STARTER 库存不足，当前库存 5，请求数量 99",
                 response.body().path("message").textValue());
-        assertEquals("stock-error-trace", response.body().path("traceId").textValue());
-        assertEquals("/sample/orders", response.body().path("path").textValue());
+        assertTrue(response.body().path("traceId").isMissingNode());
+        assertTrue(response.body().path("path").isMissingNode());
+        assertEquals("stock-error-trace", response.header("X-Trace-Id"));
 
         SampleHttpResponse englishResponse = post("/sample/orders", "stock-error-en-trace", "en-US",
                 Map.of("buyerName", "Patton", "sku", "COCO-STARTER", "quantity", 99));
@@ -146,8 +147,9 @@ class CocoSampleBasicApplicationTest {
         assertEquals(1004, englishResponse.body().path("code").intValue());
         assertEquals("Product COCO-STARTER has insufficient stock, current stock 5, requested quantity 99",
                 englishResponse.body().path("message").textValue());
-        assertEquals("stock-error-en-trace", englishResponse.body().path("traceId").textValue());
-        assertEquals("/sample/orders", englishResponse.body().path("path").textValue());
+        assertTrue(englishResponse.body().path("traceId").isMissingNode());
+        assertTrue(englishResponse.body().path("path").isMissingNode());
+        assertEquals("stock-error-en-trace", englishResponse.header("X-Trace-Id"));
     }
 
     /**

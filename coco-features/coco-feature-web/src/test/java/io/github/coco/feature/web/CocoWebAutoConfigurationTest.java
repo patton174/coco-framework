@@ -27,6 +27,8 @@ import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoApiResponse;
 import io.github.coco.feature.web.response.CocoIgnoreResponseWrap;
+import io.github.coco.feature.web.response.CocoResponseMetadataMode;
+import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
@@ -229,9 +231,29 @@ class CocoWebAutoConfigurationTest {
             assertFalse(body.success());
             assertEquals(400, body.code());
             assertEquals("参数不合法：name", body.message());
-            assertEquals("trace-test", body.traceId());
-            assertEquals("/api/users", body.path());
+            assertNull(body.traceId());
+            assertNull(body.path());
         });
+    }
+
+    @Test
+    void returnsTraceMetadataInErrorResponseWhenDebugModeIsEnabled() {
+        CocoTraceContext.setTraceId("trace-test");
+        this.webContextRunner
+                .withPropertyValues("coco.web.response.metadata-mode=debug")
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+
+                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                            CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"),
+                            new ServletWebRequest(request));
+
+                    CocoApiResponse<Void> body = response.getBody();
+                    assertNotNull(body);
+                    assertEquals("trace-test", body.traceId());
+                    assertEquals("/api/users", body.path());
+                });
     }
 
     @Test
@@ -250,7 +272,8 @@ class CocoWebAutoConfigurationTest {
             assertFalse(body.success());
             assertEquals(404, body.code());
             assertEquals("资源不存在：user", body.message());
-            assertEquals("/api/users/404", body.path());
+            assertNull(body.traceId());
+            assertNull(body.path());
         });
     }
 
@@ -263,26 +286,28 @@ class CocoWebAutoConfigurationTest {
 
     @Test
     void createsSuccessResponseModel() {
-        CocoApiResponse<String> response = CocoApiResponse.success(
-                200, "操作成功", "payload", "trace-id", "/api/users");
+        CocoApiResponse<String> response = CocoApiResponse.success(200, "操作成功", "payload");
 
         assertTrue(response.success());
         assertEquals(200, response.code());
         assertEquals("操作成功", response.message());
         assertEquals("payload", response.data());
-        assertEquals("trace-id", response.traceId());
-        assertEquals("/api/users", response.path());
+        assertNull(response.traceId());
+        assertNull(response.path());
     }
 
     @Test
-    void responseWrapPropertiesUseDefaultsAndResetNullNestedValue() {
+    void responsePropertiesUseDefaultsAndResetNullNestedValue() {
         CocoWebProperties properties = new CocoWebProperties();
 
+        assertEquals(CocoResponseMetadataMode.NONE, properties.getResponse().getMetadataMode());
         assertTrue(properties.getResponseWrap().isEnabled());
         assertEquals("coco.web.response.success", properties.getResponseWrap().getSuccessMessageCode());
 
+        properties.setResponse(null);
         properties.setResponseWrap(null);
 
+        assertEquals(CocoResponseMetadataMode.NONE, properties.getResponse().getMetadataMode());
         assertTrue(properties.getResponseWrap().isEnabled());
     }
 
@@ -341,8 +366,29 @@ class CocoWebAutoConfigurationTest {
             assertEquals(200, response.code());
             assertEquals("未知错误", response.message());
             assertEquals(Map.of("name", "Coco"), response.data());
-            assertEquals("trace-wrap", response.traceId());
-            assertEquals("/api/users", response.path());
+            assertNull(response.traceId());
+            assertNull(response.path());
+        });
+    }
+
+    @Test
+    void wrapsObjectResponseBodyWithDebugMetadata() throws Exception {
+        CocoTraceContext.setTraceId("trace-wrap");
+        this.webContextRunner
+                .withPropertyValues("coco.web.response.metadata-mode=debug")
+                .run(context -> {
+                    CocoResponseWrapAdvice advice = context.getBean(CocoResponseWrapAdvice.class);
+                    MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+                    ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+
+                    Object body = advice.beforeBodyWrite(Map.of("name", "Coco"), methodParameter("objectBody"),
+                            MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request,
+                            new ServletServerHttpResponse(new MockHttpServletResponse()));
+
+                    assertTrue(body instanceof CocoApiResponse<?>);
+                    CocoApiResponse<?> response = (CocoApiResponse<?>) body;
+                    assertEquals("trace-wrap", response.traceId());
+                    assertEquals("/api/users", response.path());
         });
     }
 
@@ -360,7 +406,8 @@ class CocoWebAutoConfigurationTest {
             assertTrue(body instanceof String);
             assertTrue(((String) body).contains("\"success\":true"));
             assertTrue(((String) body).contains("\"data\":\"hello\""));
-            assertTrue(((String) body).contains("\"path\":\"/api/text\""));
+            assertFalse(((String) body).contains("\"traceId\""));
+            assertFalse(((String) body).contains("\"path\""));
         });
     }
 
@@ -493,6 +540,51 @@ class CocoWebAutoConfigurationTest {
             assertTrue(CocoRequestContextHolder.current().isEmpty());
             assertTrue(CocoTraceContext.currentTraceId().isEmpty());
         });
+    }
+
+    @Test
+    void skipsTraceResponseHeaderWhenConfigured() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.trace.response-header-enabled=false")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "incoming-trace");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                            assertEquals("incoming-trace", CocoTraceContext.currentTraceId().orElseThrow()))));
+
+                    assertNull(response.getHeader("X-Trace-Id"));
+                    assertTrue(CocoTraceContext.currentTraceId().isEmpty());
+                });
+    }
+
+    @Test
+    void writesTraceIdToCookieWhenConfigured() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.trace.response-cookie-enabled=true",
+                        "coco.web.trace.cookie-name=COCO_TRACE",
+                        "coco.web.trace.cookie-path=/sample",
+                        "coco.web.trace.cookie-max-age=60")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "cookie-trace");
+
+                    filter.doFilter(request, response, new MockFilterChain());
+
+                    String cookie = response.getHeader("Set-Cookie");
+                    assertNotNull(cookie);
+                    assertTrue(cookie.contains("COCO_TRACE=cookie-trace"));
+                    assertTrue(cookie.contains("Path=/sample"));
+                    assertTrue(cookie.contains("Max-Age=60"));
+                    assertTrue(cookie.contains("SameSite=Lax"));
+                });
     }
 
     @Test
@@ -680,9 +772,15 @@ class CocoWebAutoConfigurationTest {
 
     private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService,
             CocoSystemCodeProvider codeProvider) {
+        return responseWrapAdvice(messageService, codeProvider, new CocoResponseProperties());
+    }
+
+    private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService,
+            CocoSystemCodeProvider codeProvider, CocoResponseProperties responseProperties) {
         CocoResponseWrapProperties properties = new CocoResponseWrapProperties();
         properties.setSuccessMessageCode("coco.error.unknown");
-        return new CocoResponseWrapAdvice(messageService, properties, codeProvider, new ObjectMapper());
+        return new CocoResponseWrapAdvice(messageService, properties, codeProvider, new ObjectMapper(),
+                responseProperties);
     }
 
     private static MethodParameter methodParameter(String methodName) throws NoSuchMethodException {
@@ -704,7 +802,7 @@ class CocoWebAutoConfigurationTest {
     }
 
     private CocoApiResponse<String> wrappedBody() {
-        return CocoApiResponse.success(200, "操作成功", "hello", null, null);
+        return CocoApiResponse.success(200, "操作成功", "hello");
     }
 
     @CocoIgnoreResponseWrap

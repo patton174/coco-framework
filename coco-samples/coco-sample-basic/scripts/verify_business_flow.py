@@ -163,7 +163,9 @@ def run_business_flow(base_url: str) -> None:
         "\u5f53\u524d\u5e93\u5b58 3\uff0c\u8bf7\u6c42\u6570\u91cf 99",
         "insufficient stock zh-CN message",
     )
-    assert_equal(insufficient.body["traceId"], "python-stock-error-zh", "insufficient stock zh-CN trace")
+    assert_equal(insufficient.headers.get("X-Trace-Id"), "python-stock-error-zh", "insufficient stock zh-CN trace")
+    assert_missing(insufficient.body, "traceId", "insufficient stock zh-CN body trace")
+    assert_missing(insufficient.body, "path", "insufficient stock zh-CN body path")
     log("  stock error zh-CN: code=1004 status=409")
 
     english_insufficient = request_json(
@@ -182,7 +184,13 @@ def run_business_flow(base_url: str) -> None:
         "Product COCO-STARTER has insufficient stock, current stock 3, requested quantity 99",
         "insufficient stock en-US message",
     )
-    assert_equal(english_insufficient.body["traceId"], "python-stock-error-en", "insufficient stock en-US trace")
+    assert_equal(
+        english_insufficient.headers.get("X-Trace-Id"),
+        "python-stock-error-en",
+        "insufficient stock en-US trace",
+    )
+    assert_missing(english_insufficient.body, "traceId", "insufficient stock en-US body trace")
+    assert_missing(english_insufficient.body, "path", "insufficient stock en-US body path")
     log("  stock error en-US: code=1004 status=409")
 
 
@@ -237,13 +245,18 @@ def assert_success(response: HttpResult, trace_id: str, path: str) -> None:
     assert_equal(response.body["success"], True, f"{path} success flag")
     assert_equal(response.body["code"], 200, f"{path} response code")
     assert_equal(response.body["message"], "\u64cd\u4f5c\u6210\u529f", f"{path} response message")
-    assert_equal(response.body["traceId"], trace_id, f"{path} response trace")
-    assert_equal(response.body["path"], path, f"{path} response path")
+    assert_missing(response.body, "traceId", f"{path} response body trace")
+    assert_missing(response.body, "path", f"{path} response body path")
 
 
 def assert_equal(actual: Any, expected: Any, label: str) -> None:
     if actual != expected:
         raise AssertionError(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def assert_missing(body: dict[str, Any], key: str, label: str) -> None:
+    if key in body:
+        raise AssertionError(f"{label}: expected missing key {key!r}, got {body[key]!r}")
 
 
 def log(message: str) -> None:
@@ -254,7 +267,7 @@ def log_response(label: str, method: str, path: str, response: HttpResult) -> No
     log(
         f"{label} {method} {path} -> status={response.status} "
         f"code={response.body.get('code')} success={response.body.get('success')} "
-        f"traceId={response.body.get('traceId')} message={response.body.get('message')}"
+        f"traceId={response.headers.get('X-Trace-Id')} message={response.body.get('message')}"
     )
 
 
