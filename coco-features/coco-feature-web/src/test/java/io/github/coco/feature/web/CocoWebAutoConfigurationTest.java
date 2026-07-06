@@ -119,9 +119,11 @@ import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.validation.BindException;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 /**
  * Coco Web 功能自动配置测试。
@@ -364,6 +366,60 @@ class CocoWebAutoConfigurationTest {
             assertEquals("资源不存在：user", body.message());
             assertNull(body.traceId());
             assertNull(body.path());
+        });
+    }
+
+    @Test
+    void returnsHttpStatusFromBuiltInMessageCodeForUntypedCocoException() {
+        this.webContextRunner.run(context -> {
+            CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+
+            ResponseEntity<Object> unauthorized = handler.handleCocoException(
+                    CocoCommonErrorCode.UNAUTHORIZED.exception(),
+                    new ServletWebRequest(request));
+            ResponseEntity<Object> forbidden = handler.handleCocoException(
+                    CocoCommonErrorCode.FORBIDDEN.exception(),
+                    new ServletWebRequest(request));
+            ResponseEntity<Object> notFound = handler.handleCocoException(
+                    CocoCommonErrorCode.NOT_FOUND.exception("user"),
+                    new ServletWebRequest(request));
+            ResponseEntity<Object> internalError = handler.handleCocoException(
+                    CocoCommonErrorCode.INTERNAL_ERROR.exception(),
+                    new ServletWebRequest(request));
+
+            assertEquals(HttpStatus.UNAUTHORIZED, unauthorized.getStatusCode());
+            assertEquals(401, apiBody(unauthorized).code());
+            assertEquals(HttpStatus.FORBIDDEN, forbidden.getStatusCode());
+            assertEquals(403, apiBody(forbidden).code());
+            assertEquals(HttpStatus.NOT_FOUND, notFound.getStatusCode());
+            assertEquals(404, apiBody(notFound).code());
+            assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, internalError.getStatusCode());
+            assertEquals(500, apiBody(internalError).code());
+        });
+    }
+
+    @Test
+    void returnsLocalizedWebMessagesForSpringMvcExceptions() {
+        this.webContextRunner.run(context -> {
+            CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
+
+            ResponseEntity<Object> badRequest = handler.handleBadRequestException(
+                    new BindException(new Object(), "request"),
+                    new ServletWebRequest(request));
+            ResponseEntity<Object> methodNotAllowed = handler.handleMethodNotAllowedException(
+                    new HttpRequestMethodNotSupportedException("TRACE"),
+                    new ServletWebRequest(request));
+
+            assertEquals(HttpStatus.BAD_REQUEST, badRequest.getStatusCode());
+            assertEquals(400, apiBody(badRequest).code());
+            assertEquals("请求参数不合法。", apiBody(badRequest).message());
+            assertFalse(apiBody(badRequest).message().contains("request"));
+            assertEquals(HttpStatus.METHOD_NOT_ALLOWED, methodNotAllowed.getStatusCode());
+            assertEquals(400, apiBody(methodNotAllowed).code());
+            assertEquals("请求方法不支持。", apiBody(methodNotAllowed).message());
+            assertFalse(apiBody(methodNotAllowed).message().contains("method"));
         });
     }
 
@@ -624,7 +680,7 @@ class CocoWebAutoConfigurationTest {
             assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
             assertFalse(body.success());
             assertEquals(400, body.code());
-            assertEquals("参数不合法：request", body.message());
+            assertEquals("请求参数不合法。", body.message());
         });
     }
 

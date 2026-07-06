@@ -41,6 +41,8 @@ class CocoWebMessageResourceStructureTest {
     private static final Set<String> WEB_MESSAGE_CODES = Set.of(
             "coco.feature.web.ready",
             "coco.web.response.success",
+            "coco.web.error.bad-request",
+            "coco.web.error.method-not-allowed",
             "coco.web.request-body.payload-too-large",
             "coco.web.signature.missing-signature",
             "coco.web.signature.missing-app-id",
@@ -111,6 +113,10 @@ class CocoWebMessageResourceStructureTest {
             assertEquals("请求体超过允许的最大大小。",
                     messageService.getMessage("coco.web.request-body.payload-too-large",
                             Locale.SIMPLIFIED_CHINESE));
+            assertEquals("Invalid request.",
+                    messageService.getMessage("coco.web.error.bad-request", Locale.US));
+            assertEquals("请求参数不合法。",
+                    messageService.getMessage("coco.web.error.bad-request", Locale.SIMPLIFIED_CHINESE));
             assertEquals("Request replay has been detected.",
                     messageService.getMessage("coco.web.replay.detected", Locale.US));
             assertEquals("检测到重复请求。",

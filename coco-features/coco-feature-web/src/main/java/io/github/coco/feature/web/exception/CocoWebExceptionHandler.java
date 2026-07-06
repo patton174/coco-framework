@@ -51,6 +51,10 @@ import org.springframework.web.context.request.WebRequest;
 @RestControllerAdvice
 public class CocoWebExceptionHandler {
 
+    private static final String BAD_REQUEST_MESSAGE_CODE = "coco.web.error.bad-request";
+
+    private static final String METHOD_NOT_ALLOWED_MESSAGE_CODE = "coco.web.error.method-not-allowed";
+
     private final CocoMessageService messageService;
 
     private final CocoExceptionHttpStatusResolver httpStatusResolver;
@@ -148,7 +152,7 @@ public class CocoWebExceptionHandler {
     })
     public ResponseEntity<Object> handleBadRequestException(Exception exception, WebRequest request) {
         Objects.requireNonNull(exception, "exception must not be null");
-        String message = this.messageService.getMessage(CocoCommonErrorCode.INVALID_ARGUMENT, "request");
+        String message = this.messageService.getMessage(BAD_REQUEST_MESSAGE_CODE);
         return error(HttpStatus.BAD_REQUEST, this.codeProvider.invalidArgument(), message, request);
     }
 
@@ -179,7 +183,7 @@ public class CocoWebExceptionHandler {
     public ResponseEntity<Object> handleMethodNotAllowedException(
             HttpRequestMethodNotSupportedException exception, WebRequest request) {
         Objects.requireNonNull(exception, "exception must not be null");
-        String message = this.messageService.getMessage(CocoCommonErrorCode.INVALID_ARGUMENT, "method");
+        String message = this.messageService.getMessage(METHOD_NOT_ALLOWED_MESSAGE_CODE);
         return error(HttpStatus.METHOD_NOT_ALLOWED, this.codeProvider.invalidArgument(), message, request);
     }
 
