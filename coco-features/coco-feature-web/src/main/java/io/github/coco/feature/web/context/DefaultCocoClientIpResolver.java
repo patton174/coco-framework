@@ -140,6 +140,7 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
                 .map(String::trim)
                 .filter(part -> part.regionMatches(true, 0, "for=", 0, 4))
                 .map(part -> cleanClientIpToken(part.substring(4)))
+                .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
     }
@@ -165,13 +166,35 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
             normalized = normalized.substring(1, normalized.length() - 1).trim();
         }
         if (normalized.startsWith("[") && normalized.contains("]")) {
-            return normalized.substring(1, normalized.indexOf(']'));
+            int closingIndex = normalized.indexOf(']');
+            String suffix = normalized.substring(closingIndex + 1).trim();
+            if (suffix.isEmpty()) {
+                return normalized.substring(1, closingIndex);
+            }
+            if (suffix.startsWith(":") && isValidPort(suffix.substring(1))) {
+                return normalized.substring(1, closingIndex);
+            }
+            return null;
         }
         int portIndex = normalized.lastIndexOf(':');
         if (portIndex > 0 && normalized.indexOf(':') == portIndex) {
-            return normalized.substring(0, portIndex);
+            String port = normalized.substring(portIndex + 1);
+            return isValidPort(port) ? normalized.substring(0, portIndex) : null;
         }
         return normalized;
+    }
+
+    private static boolean isValidPort(String value) {
+        if (value == null || value.isBlank() || value.length() > 5) {
+            return false;
+        }
+        try {
+            int port = Integer.parseInt(value);
+            return port >= 0 && port <= 65535;
+        }
+        catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     private static String normalizeClientIp(String value) {

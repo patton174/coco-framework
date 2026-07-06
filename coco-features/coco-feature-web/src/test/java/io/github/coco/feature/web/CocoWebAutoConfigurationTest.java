@@ -1335,6 +1335,24 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void defaultClientIpResolverRejectsMalformedForwardedPorts() {
+        CocoWebContextProperties properties = new CocoWebContextProperties();
+        properties.setTrustedProxyCidrs(Set.of("127.0.0.1"));
+        CocoClientIpResolver resolver = new DefaultCocoClientIpResolver(properties);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("Forwarded", "for=\"[2001:db8:cafe::17]bad\", for=10.0.0.8:https");
+        request.addHeader("X-Forwarded-For", "10.0.0.9:8443");
+
+        CocoClientIpResolution resolution = resolver.resolveResolution(request);
+
+        assertEquals("10.0.0.9", resolution.clientIp());
+        assertEquals(CocoClientIpSource.FORWARDED_HEADER, resolution.source());
+        assertEquals("X-Forwarded-For", resolution.sourceHeaderName());
+        assertTrue(resolution.trustedProxy());
+    }
+
+    @Test
     void defaultBrowserFingerprintResolverUsesConfiguredHeaderSignals() {
         CocoWebProperties properties = new CocoWebProperties();
         properties.getContext().setFingerprintHeaderNames(Set.of("User-Agent", "Sec-CH-UA"));
