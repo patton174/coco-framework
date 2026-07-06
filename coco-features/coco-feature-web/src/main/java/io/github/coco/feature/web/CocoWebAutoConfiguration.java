@@ -217,7 +217,7 @@ public class CocoWebAutoConfiguration {
             CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestParameterResolver requestParameterResolver) {
         return new DefaultCocoWebRequestSecurityInputResolver(properties.getContext(), requestHeaderResolver,
-                requestParameterResolver);
+                requestParameterResolver, properties.getSignature(), properties.getEncryption());
     }
 
     /**
@@ -422,7 +422,8 @@ public class CocoWebAutoConfiguration {
     public FilterRegistrationBean<CocoRequestBodyCachingFilter> cocoRequestBodyCachingFilterRegistration(
             CocoWebProperties properties) {
         FilterRegistrationBean<CocoRequestBodyCachingFilter> registration = new FilterRegistrationBean<>(
-                new CocoRequestBodyCachingFilter(properties.getRequestBody()));
+                new CocoRequestBodyCachingFilter(properties.getRequestBody(), properties.getSignature(),
+                        properties.getEncryption()));
         registration.setName("cocoRequestBodyCachingFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

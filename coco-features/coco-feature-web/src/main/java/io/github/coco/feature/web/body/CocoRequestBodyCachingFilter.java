@@ -2,9 +2,13 @@ package io.github.coco.feature.web.body;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 
+import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
+import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletInputStream;
@@ -36,6 +40,8 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     private final CocoRequestBodyProperties properties;
 
+    private final Set<String> triggerHeaderNames;
+
     /**
      * <p>
      * 创建 Coco 请求体缓存过滤器。
@@ -43,7 +49,21 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
      * @param properties 请求体缓存配置属性
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties) {
+        this(properties, null, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求体缓存过滤器。
+     * </p>
+     * @param properties 请求体缓存配置属性
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     */
+    public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
         this.properties = properties == null ? new CocoRequestBodyProperties() : properties;
+        this.triggerHeaderNames = triggerHeaderNames(this.properties, signatureProperties, encryptionProperties);
     }
 
     /**
@@ -104,13 +124,37 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         if (CocoRequestBodyCachingMode.ALWAYS.equals(this.properties.getMode())) {
             return true;
         }
-        for (String headerName : this.properties.getTriggerHeaderNames()) {
+        for (String headerName : this.triggerHeaderNames) {
             String value = request.getHeader(headerName);
             if (value != null && !value.isBlank()) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static Set<String> triggerHeaderNames(CocoRequestBodyProperties properties,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
+        LinkedHashSet<String> headerNames = new LinkedHashSet<>(properties.getTriggerHeaderNames());
+        CocoSignatureProperties signature = signatureProperties == null
+                ? new CocoSignatureProperties()
+                : signatureProperties;
+        CocoEncryptionProperties encryption = encryptionProperties == null
+                ? new CocoEncryptionProperties()
+                : encryptionProperties;
+        add(headerNames, signature.getSignatureHeaderName());
+        add(headerNames, signature.getSignatureFallbackHeaderName());
+        add(headerNames, encryption.getEncryptedHeaderName());
+        return Set.copyOf(headerNames);
+    }
+
+    private static void add(Set<String> headerNames, String headerName) {
+        String normalizedName = headerName == null || headerName.isBlank()
+                ? null
+                : headerName.trim().toLowerCase(Locale.ROOT);
+        if (normalizedName != null) {
+            headerNames.add(normalizedName);
+        }
     }
 
     private boolean isKnownOversized(HttpServletRequest request) {

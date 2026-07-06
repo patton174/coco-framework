@@ -1238,6 +1238,63 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void includesCustomSecurityHeaderNamesInSecurityInputAutomatically() {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.signature.app-id-header-name=X-Sign-App",
+                        "coco.web.signature.key-id-header-name=X-Sign-Key",
+                        "coco.web.signature.timestamp-header-name=X-Sign-Time",
+                        "coco.web.signature.nonce-header-name=X-Sign-Nonce",
+                        "coco.web.signature.signature-header-name=X-Signature",
+                        "coco.web.signature.algorithm-header-name=X-Sign-Alg",
+                        "coco.web.encryption.encrypted-header-name=X-Crypto-Enabled",
+                        "coco.web.encryption.app-id-header-name=X-Crypto-App",
+                        "coco.web.encryption.key-id-header-name=X-Crypto-Key",
+                        "coco.web.encryption.iv-header-name=X-Crypto-IV",
+                        "coco.web.encryption.algorithm-header-name=X-Crypto-Alg")
+                .run(context -> {
+                    CocoWebRequestContextResolver requestResolver =
+                            context.getBean(CocoWebRequestContextResolver.class);
+                    CocoWebRequestSecurityMetadataResolver metadataResolver =
+                            context.getBean(CocoWebRequestSecurityMetadataResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Sign-App", "sign-app");
+                    request.addHeader("X-Sign-Key", "sign-key");
+                    request.addHeader("X-Sign-Time", "1783300000000");
+                    request.addHeader("X-Sign-Nonce", "nonce-1001");
+                    request.addHeader("X-Signature", "signature-1001");
+                    request.addHeader("X-Sign-Alg", "HMAC-SHA256");
+                    request.addHeader("X-Crypto-Enabled", "1");
+                    request.addHeader("X-Crypto-App", "crypto-app");
+                    request.addHeader("X-Crypto-Key", "crypto-key");
+                    request.addHeader("X-Crypto-IV", "iv-1001");
+                    request.addHeader("X-Crypto-Alg", "AES-GCM");
+
+                    CocoWebRequestSnapshot snapshot = requestResolver.resolve("custom-security-headers", request);
+                    CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
+                    CocoWebRequestSecurityMetadata metadata = metadataResolver.resolve(securityInput);
+
+                    assertEquals("signature-1001", securityInput.securityHeader("x-signature").orElseThrow());
+                    assertEquals("1", securityInput.securityHeader("x-crypto-enabled").orElseThrow());
+                    assertEquals("1783300000000", securityInput.canonicalHeader("x-sign-time").orElseThrow());
+                    assertEquals("iv-1001", securityInput.canonicalHeader("x-crypto-iv").orElseThrow());
+                    assertTrue(securityInput.canonicalHeader("x-signature").isEmpty());
+                    assertTrue(securityInput.canonicalHeader("x-crypto-enabled").isEmpty());
+                    assertEquals("sign-app", metadata.signatureAppId());
+                    assertEquals("sign-key", metadata.signatureKeyId());
+                    assertEquals("1783300000000", metadata.signatureTimestamp());
+                    assertEquals("nonce-1001", metadata.signatureNonce());
+                    assertEquals("signature-1001", metadata.signature());
+                    assertTrue(metadata.signed());
+                    assertEquals("crypto-app", metadata.encryptionAppId());
+                    assertEquals("crypto-key", metadata.encryptionKeyId());
+                    assertEquals("iv-1001", metadata.encryptionIv());
+                    assertEquals("AES-GCM", metadata.encryptionAlgorithm());
+                    assertTrue(metadata.encrypted());
+                });
+    }
+
+    @Test
     void usesCustomBrowserFingerprintResolverInRequestContext() {
         CocoBrowserFingerprintResolver resolver = request ->
                 new CocoBrowserFingerprint("custom-browser-fingerprint", Map.of("custom", "yes"));
@@ -1297,6 +1354,55 @@ class CocoWebAutoConfigurationTest {
                     MockHttpServletRequest request = signedRequest(context, "valid-signature", "sample-secret");
                     MockHttpServletResponse response = new MockHttpServletResponse();
                     AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new TraceCapturingServlet(() ->
+                                                    reachedBusiness.set(true))))));
+
+                    assertEquals(200, response.getStatus());
+                    assertEquals(Boolean.TRUE, reachedBusiness.get());
+                });
+    }
+
+    @Test
+    void verifiesSignedRequestWithCustomHeaderNames() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.signature.secrets.sample-app=sample-secret",
+                        "coco.web.signature.app-id-header-name=X-App",
+                        "coco.web.signature.key-id-header-name=X-Key",
+                        "coco.web.signature.timestamp-header-name=X-Time",
+                        "coco.web.signature.nonce-header-name=X-Nonce",
+                        "coco.web.signature.signature-header-name=X-Signature",
+                        "coco.web.signature.algorithm-header-name=X-Algorithm")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    CocoWebRequestContextResolver requestResolver =
+                            context.getBean(CocoWebRequestContextResolver.class);
+                    CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/custom-signature");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+                    byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    request.setContent(body);
+                    request.addHeader("X-Trace-Id", "custom-signature");
+                    request.addHeader("X-App", "sample-app");
+                    request.addHeader("X-Key", "key-1001");
+                    request.addHeader("X-Time", String.valueOf(System.currentTimeMillis()));
+                    request.addHeader("X-Nonce", "nonce-custom-1001");
+                    request.addHeader("X-Algorithm", "HMAC-SHA256");
+                    CocoWebRequestSnapshot snapshot = requestResolver.resolve("custom-signature",
+                            new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+                    String canonicalText = canonicalizer.canonicalize(snapshot.securityInput()).text();
+                    request.addHeader("X-Signature", hmacSha256Hex(canonicalText, "sample-secret"));
 
                     bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
                             traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
