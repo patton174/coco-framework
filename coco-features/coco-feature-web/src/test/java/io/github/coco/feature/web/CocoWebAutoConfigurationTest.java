@@ -36,6 +36,8 @@ import io.github.coco.feature.web.context.CocoWebContextProperties;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.context.CocoWebRequestSecurityInputResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
@@ -163,6 +165,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoBrowserFingerprintResolver"));
             assertTrue(context.containsBean("cocoRequestHeaderResolver"));
             assertTrue(context.containsBean("cocoRequestParameterResolver"));
+            assertTrue(context.containsBean("cocoWebRequestSecurityInputResolver"));
             assertTrue(context.containsBean("cocoWebRequestCanonicalizer"));
             assertTrue(context.containsBean("cocoWebRequestContextResolver"));
             assertTrue(context.containsBean("cocoRequestBodyCachingFilterRegistration"));
@@ -1060,6 +1063,29 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(List.of("yes"), snapshot.parameters().get("clean"));
                     assertEquals("raw=query", snapshot.securityInput().queryString());
                     assertEquals(List.of("yes"), snapshot.securityInput().parameter("raw").orElseThrow());
+                });
+    }
+
+    @Test
+    void usesCustomSecurityInputResolverInRequestContext() {
+        CocoWebRequestSecurityInputResolver resolver = (request, method, path) -> new CocoWebRequestSecurityInput(
+                method, path, "secure=query", Map.of("secure", List.of("yes")),
+                Map.of("x-secure", "header"), Map.of("x-canonical", "header"), "body-sha256", 11L, true);
+        this.webContextRunner
+                .withBean(CocoWebRequestSecurityInputResolver.class, () -> resolver)
+                .run(context -> {
+                    CocoWebRequestContextResolver contextResolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
+
+                    CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-security-input-trace", request);
+
+                    assertEquals("secure=query", snapshot.securityInput().queryString());
+                    assertEquals(List.of("yes"), snapshot.securityInput().parameter("secure").orElseThrow());
+                    assertEquals("header", snapshot.securityInput().securityHeader("x-secure").orElseThrow());
+                    assertEquals("header", snapshot.securityInput().canonicalHeader("x-canonical").orElseThrow());
+                    assertEquals("body-sha256", snapshot.securityInput().bodySha256());
+                    assertEquals(11L, snapshot.securityInput().bodyLength());
+                    assertTrue(snapshot.securityInput().bodyCached());
                 });
     }
 
