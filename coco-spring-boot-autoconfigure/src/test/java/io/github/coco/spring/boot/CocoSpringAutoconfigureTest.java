@@ -71,11 +71,13 @@ class CocoSpringAutoconfigureTest {
         String rendered = banner.render("9.9.9", "4.1.0");
 
         assertEquals(String.join(System.lineSeparator(),
-                "coco spring",
-                "  fast web framework",
+                "◆ coco spring",
+                "◇ fast web framework",
                 "",
-                "  version     9.9.9",
-                "  spring boot 4.1.0"), rendered);
+                "   version     9.9.9",
+                "   spring boot 4.1.0"), rendered);
+        assertTrue(rendered.contains("◆"));
+        assertTrue(rendered.contains("◇"));
         assertFalse(rendered.contains("::"));
         assertFalse(rendered.contains("+"));
         assertFalse(rendered.contains("|"));
@@ -95,9 +97,10 @@ class CocoSpringAutoconfigureTest {
 
         String rendered = output.toString(StandardCharsets.UTF_8);
         assertTrue(rendered.contains("coco spring"));
-        assertTrue(rendered.contains("  fast web framework"));
-        assertTrue(rendered.contains("  version     "));
-        assertTrue(rendered.contains("  spring boot "));
+        assertTrue(rendered.contains("◆"));
+        assertTrue(rendered.contains("◇ fast web framework"));
+        assertTrue(rendered.contains("   version     "));
+        assertTrue(rendered.contains("   spring boot "));
         assertFalse(rendered.contains("::"));
         assertFalse(rendered.contains("+"));
         assertFalse(rendered.contains("|"));
@@ -117,8 +120,8 @@ class CocoSpringAutoconfigureTest {
         assertEquals("ERROR", environment.getProperty("logging.level.org.springframework"));
         assertEquals("WARN", environment.getProperty("logging.level.org.apache.catalina"));
         assertTrue(environment.getProperty("logging.pattern.console").contains("%highlight(%-5level)"));
-        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(coco){cyan}"));
-        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(%-10.10logger{0}){magenta}"));
+        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(COCO){cyan}"));
+        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(%logger{32}){magenta}"));
     }
 
     private static final class TestApplication {

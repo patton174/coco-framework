@@ -90,7 +90,8 @@ class CocoAutoConfigurationTest {
 
             assertTrue(loggingProperties.isEnabled());
             assertTrue(loggingProperties.isQuietSpring());
-            assertTrue(loggingProperties.getConsolePattern().contains("%clr(coco){cyan}"));
+            assertTrue(loggingProperties.getConsolePattern().contains("%clr(COCO){cyan}"));
+            assertTrue(loggingProperties.getConsolePattern().contains("%clr(%logger{32}){magenta}"));
         });
     }
 

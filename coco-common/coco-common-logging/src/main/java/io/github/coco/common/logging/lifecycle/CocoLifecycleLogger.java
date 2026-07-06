@@ -131,10 +131,14 @@ public final class CocoLifecycleLogger {
     public String failedMessage(ConfigurableApplicationContext context, Throwable exception) {
         String application = context == null ? "unknown" : context.getId();
         String exceptionName = exception == null ? "unknown" : exception.getClass().getName();
+        String message = exception == null || exception.getMessage() == null || exception.getMessage().isBlank()
+                ? "unknown"
+                : exception.getMessage();
         return String.join(System.lineSeparator(),
                 "◂ failed",
-                "  app      " + application,
-                "  exception " + exceptionName);
+                "  app       " + application,
+                "  exception " + exceptionName,
+                "  message   " + message);
     }
 
     private static long durationMillis(Duration duration) {

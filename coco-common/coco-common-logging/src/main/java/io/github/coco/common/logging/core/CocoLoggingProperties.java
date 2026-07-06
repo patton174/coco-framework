@@ -28,8 +28,8 @@ public class CocoLoggingProperties {
      * Coco 默认控制台日志格式。
      */
     public static final String DEFAULT_CONSOLE_PATTERN = "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} "
-            + "%highlight(%-5level) %clr(coco){cyan} %clr(%-10.10logger{0}){magenta} "
-            + "%clr([%15.15thread]){faint} %msg%n%wEx";
+            + "%highlight(%-5level) %clr(COCO){cyan} %clr(%logger{32}){magenta} "
+            + "%clr([%thread]){faint} : %msg%n%wEx";
 
     private boolean enabled = true;
 

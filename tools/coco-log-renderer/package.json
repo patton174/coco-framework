@@ -1,0 +1,15 @@
+{
+  "name": "@patton174/coco-log-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "coco-log-renderer": "./bin/coco-log-renderer.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

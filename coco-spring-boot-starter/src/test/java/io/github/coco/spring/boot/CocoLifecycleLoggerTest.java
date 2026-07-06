@@ -60,4 +60,19 @@ class CocoLifecycleLoggerTest {
         assertTrue(message.contains(System.lineSeparator() + "  pid      "));
         assertTrue(message.contains(System.lineSeparator() + "  workdir  \""));
     }
+
+    @Test
+    void formatsFailedMessageWithExceptionMessage() {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.setId("sample");
+        CocoLifecycleLogger logger = new CocoLifecycleLogger();
+
+        String message = logger.failedMessage(context, new IllegalStateException("port already in use"));
+
+        assertEquals(String.join(System.lineSeparator(),
+                "◂ failed",
+                "  app       sample",
+                "  exception java.lang.IllegalStateException",
+                "  message   port already in use"), message);
+    }
 }

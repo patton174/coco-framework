@@ -2,6 +2,7 @@ package io.github.coco.sample.basic.interfaces.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -167,6 +168,15 @@ class CocoSampleBasicApplicationTest {
         assertEquals("/sample/products", accessLog.path().orElse(null));
         assertEquals(200, accessLog.status());
         assertTrue(accessLog.success());
+    }
+
+    @Test
+    void exposesApplicationMessageBundles() {
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+
+        assertNotNull(classLoader.getResource("messages.properties"));
+        assertNotNull(classLoader.getResource("messages_zh_CN.properties"));
+        assertNotNull(classLoader.getResource("messages_en_US.properties"));
     }
 
     /**

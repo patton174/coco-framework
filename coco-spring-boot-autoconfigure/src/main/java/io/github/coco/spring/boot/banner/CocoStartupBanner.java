@@ -51,11 +51,11 @@ public final class CocoStartupBanner {
      */
     public String render(String detectedVersion, String springBootVersion) {
         return String.join(System.lineSeparator(),
-                this.properties.getTitle(),
-                "  fast web framework",
+                "◆ " + this.properties.getTitle(),
+                "◇ fast web framework",
                 "",
-                "  version     " + resolveVersion(detectedVersion),
-                "  spring boot " + resolveSpringBootVersion(springBootVersion));
+                "   version     " + resolveVersion(detectedVersion),
+                "   spring boot " + resolveSpringBootVersion(springBootVersion));
     }
 
     private String resolveVersion(String detectedVersion) {

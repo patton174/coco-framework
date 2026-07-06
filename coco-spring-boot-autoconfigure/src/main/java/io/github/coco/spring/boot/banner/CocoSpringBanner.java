@@ -1,6 +1,7 @@
 package io.github.coco.spring.boot.banner;
 
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringBootVersion;
@@ -39,7 +40,20 @@ public final class CocoSpringBanner implements Banner {
         properties.setVersion(environment.getProperty("coco.banner.version"));
 
         CocoStartupBanner banner = new CocoStartupBanner(properties);
-        out.println(banner.render(resolveVersion(environment), SpringBootVersion.getVersion()));
+        printUtf8(out, banner.render(resolveVersion(environment), SpringBootVersion.getVersion()));
+    }
+
+    /**
+     * <p>
+     * 使用 UTF-8 字节写出 banner，避免 Windows 控制台默认编码导致 Unicode 标识乱码。
+     * </p>
+     * @param out Spring Boot 提供的 banner 输出流
+     * @param text banner 文本
+     */
+    private static void printUtf8(PrintStream out, String text) {
+        byte[] content = (text + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
+        out.write(content, 0, content.length);
+        out.flush();
     }
 
     private static String resolveVersion(Environment environment) {

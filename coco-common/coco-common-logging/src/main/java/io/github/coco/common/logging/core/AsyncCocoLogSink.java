@@ -61,6 +61,10 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
     @Override
     public void log(CocoLogRecord record) {
         CocoLogRecord checkedRecord = Objects.requireNonNull(record, "record must not be null");
+        if (requiresSynchronousWrite(checkedRecord)) {
+            this.delegate.log(checkedRecord);
+            return;
+        }
         if (!this.running) {
             this.delegate.log(checkedRecord);
             return;
@@ -115,5 +119,9 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
 
     private static boolean isImportant(CocoLogLevel level) {
         return level == CocoLogLevel.WARN || level == CocoLogLevel.ERROR;
+    }
+
+    private static boolean requiresSynchronousWrite(CocoLogRecord record) {
+        return record.level() == CocoLogLevel.ERROR || record.failure().isPresent();
     }
 }
