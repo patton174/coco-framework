@@ -3,6 +3,7 @@ package io.github.coco.spring.boot.banner;
 import java.time.Duration;
 
 import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
+import io.github.coco.spring.boot.logging.CocoNodeLogRendererBootstrap;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.SpringApplicationRunListener;
@@ -49,6 +50,9 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
     @Override
     public void environmentPrepared(ConfigurableBootstrapContext bootstrapContext,
             ConfigurableEnvironment environment) {
+        if (environment.getProperty("coco.logging.enabled", Boolean.class, true)) {
+            CocoNodeLogRendererBootstrap.install(environment);
+        }
         if (environment.getProperty("coco.banner.enabled", Boolean.class, true)
                 && !environment.containsProperty("spring.banner.location")) {
             this.application.setBanner(new CocoSpringBanner());

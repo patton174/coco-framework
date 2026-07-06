@@ -59,10 +59,8 @@ public final class CocoStartupBanner {
                 "                                                            _|                                          _|  ",
                 "                                                            _|                                      _|_|    ",
                 "",
-                "     " + this.properties.getTitle(),
-                "     fast web framework",
-                "     version     " + resolveVersion(detectedVersion),
-                "     spring boot " + resolveSpringBootVersion(springBootVersion));
+                "：：coco " + resolveVersion(detectedVersion),
+                "：：spring boot " + resolveSpringBootVersion(springBootVersion));
     }
 
     private String resolveVersion(String detectedVersion) {

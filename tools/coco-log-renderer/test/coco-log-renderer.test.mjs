@@ -13,8 +13,10 @@ test('renders coco log line compactly without colors', () => {
 test('keeps lightweight unicode banner readable', () => {
   assert.equal(renderLine('   _|_|_|                _|_|_|                    _|_|_|                         _|                        ', { colors: false }),
     '   _|_|_|                _|_|_|                    _|_|_|                         _|                        ');
-  assert.equal(renderLine('     version     1.0.0-SNAPSHOT', { colors: false }),
-    '     version     1.0.0-SNAPSHOT');
+  assert.equal(renderLine('：：coco 1.0.0-SNAPSHOT', { colors: false }),
+    '：：coco 1.0.0-SNAPSHOT');
+  assert.equal(renderLine('：：spring boot 4.1.0', { colors: false }),
+    '：：spring boot 4.1.0');
 });
 
 test('keeps stack trace lines visible', () => {

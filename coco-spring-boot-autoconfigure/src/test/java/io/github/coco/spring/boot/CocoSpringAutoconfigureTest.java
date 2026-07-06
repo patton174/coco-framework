@@ -79,12 +79,12 @@ class CocoSpringAutoconfigureTest {
                 "                                                            _|                                          _|  ",
                 "                                                            _|                                      _|_|    ",
                 "",
-                "     coco spring",
-                "     fast web framework",
-                "     version     9.9.9",
-                "     spring boot 4.1.0"), rendered);
+                "：：coco 9.9.9",
+                "：：spring boot 4.1.0"), rendered);
         assertTrue(rendered.contains("_|_|_|                _|_|_|"));
         assertTrue(rendered.contains("_|_|_|     _|_|_|"));
+        assertTrue(rendered.contains("：：coco 9.9.9"));
+        assertTrue(rendered.contains("：：spring boot 4.1.0"));
         assertFalse(rendered.contains("::"));
         assertFalse(rendered.contains("+"));
         assertFalse(rendered.contains("Author"));
@@ -102,11 +102,10 @@ class CocoSpringAutoconfigureTest {
                 new PrintStream(output, true, StandardCharsets.UTF_8));
 
         String rendered = output.toString(StandardCharsets.UTF_8);
-        assertTrue(rendered.contains("coco spring"));
         assertTrue(rendered.contains("_|_|_|                _|_|_|"));
-        assertTrue(rendered.contains("     fast web framework"));
-        assertTrue(rendered.contains("     version     "));
-        assertTrue(rendered.contains("     spring boot "));
+        assertTrue(rendered.contains("：：coco "));
+        assertTrue(rendered.contains("：：spring boot "));
+        assertFalse(rendered.contains("fast web framework"));
         assertFalse(rendered.contains("::"));
         assertFalse(rendered.contains("+"));
         assertFalse(rendered.contains("____          _"));

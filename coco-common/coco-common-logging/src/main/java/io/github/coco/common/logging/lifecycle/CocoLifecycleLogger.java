@@ -4,6 +4,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.OptionalInt;
 
 import io.github.coco.common.logging.core.CocoLogHandles;
@@ -57,7 +58,8 @@ public final class CocoLifecycleLogger {
      * @param timeTaken 启动耗时
      */
     public void started(ConfigurableApplicationContext context, Duration timeTaken) {
-        this.logManager.info(CocoLogHandles.LIFECYCLE, startedMessage(context, timeTaken));
+        startedMessages(context, timeTaken)
+                .forEach(message -> this.logManager.info(CocoLogHandles.LIFECYCLE, message));
     }
 
     /**
@@ -91,14 +93,24 @@ public final class CocoLifecycleLogger {
      * @return 应用上下文启动完成事件日志文本
      */
     public String startedMessage(ConfigurableApplicationContext context, Duration timeTaken) {
-        return String.join(System.lineSeparator(),
-                "▸ startup",
-                "  app      " + context.getId(),
-                "  profiles " + activeProfiles(context),
-                "  time     " + durationMillis(timeTaken) + "ms",
-                "  java     " + System.getProperty("java.version"),
-                "  pid      " + ProcessHandle.current().pid(),
-                "  workdir  \"" + escape(System.getProperty("user.dir")) + "\"");
+        return String.join(System.lineSeparator(), startedMessages(context, timeTaken));
+    }
+
+    /**
+     * <p>
+     * 创建应用上下文启动完成事件日志文本列表。
+     * </p>
+     * @param context 应用上下文
+     * @param timeTaken 启动耗时
+     * @return 应用上下文启动完成事件日志文本列表
+     */
+    public List<String> startedMessages(ConfigurableApplicationContext context, Duration timeTaken) {
+        return List.of(
+                "app " + context.getId(),
+                "profiles " + activeProfiles(context),
+                "time " + durationMillis(timeTaken) + "ms",
+                "java " + System.getProperty("java.version"),
+                "pid " + ProcessHandle.current().pid());
     }
 
     /**
@@ -110,13 +122,11 @@ public final class CocoLifecycleLogger {
      * @return 启动完成事件日志文本
      */
     public String readyMessage(ConfigurableApplicationContext context, Duration timeTaken) {
-        StringBuilder message = new StringBuilder(String.join(System.lineSeparator(),
-                "◂ ready",
-                "  app      " + context.getId(),
-                "  profiles " + activeProfiles(context),
-                "  time     " + durationMillis(timeTaken) + "ms"));
-        resolvePort(context).ifPresent(port -> message.append(System.lineSeparator())
-                .append("  port     ").append(port));
+        StringBuilder message = new StringBuilder("◂ ready")
+                .append(" app=").append(context.getId())
+                .append(" profiles=").append(activeProfiles(context))
+                .append(" time=").append(durationMillis(timeTaken)).append("ms");
+        resolvePort(context).ifPresent(port -> message.append(" port=").append(port));
         return message.toString();
     }
 
@@ -170,9 +180,5 @@ public final class CocoLifecycleLogger {
                 .filter(profile -> profile != null && !profile.isBlank())
                 .map(String::trim)
                 .toList());
-    }
-
-    private static String escape(String value) {
-        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

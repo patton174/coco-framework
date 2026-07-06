@@ -109,6 +109,7 @@ function renderLogLine(match, colors) {
 function isBannerLine(line) {
   const trimmed = line.trimStart();
   return trimmed.startsWith('_|')
+    || line.startsWith('：：')
     || line.startsWith('  ╔')
     || line.startsWith('  ║')
     || line.startsWith('  ╚')

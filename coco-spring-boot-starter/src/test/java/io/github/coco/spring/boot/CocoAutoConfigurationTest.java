@@ -113,8 +113,9 @@ class CocoAutoConfigurationTest {
 
         String rendered = banner.render("9.9.9");
 
-        assertTrue(rendered.contains("coco spring"));
-        assertTrue(rendered.contains("9.9.9"));
+        assertTrue(rendered.contains("：：coco 9.9.9"));
+        assertTrue(rendered.contains("：：spring boot "));
+        assertFalse(rendered.contains("fast web framework"));
         assertFalse(rendered.contains("╭"));
         assertFalse(rendered.contains("│"));
         assertFalse(rendered.contains("Author"));

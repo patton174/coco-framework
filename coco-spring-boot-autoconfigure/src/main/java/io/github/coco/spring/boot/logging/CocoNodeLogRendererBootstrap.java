@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,7 +32,7 @@ import org.springframework.core.env.Environment;
  * @author patton174
  * @since 1.0.0
  */
-final class CocoNodeLogRendererBootstrap {
+public final class CocoNodeLogRendererBootstrap {
 
     static final String RESOURCE_PATH = "/META-INF/coco/coco-log-renderer.mjs";
 
@@ -46,7 +47,7 @@ final class CocoNodeLogRendererBootstrap {
      * </p>
      * @param environment Spring 环境
      */
-    static void install(Environment environment) {
+    public static void install(Environment environment) {
         if (!shouldInstall(environment, System.getProperty("sun.java.command"))) {
             return;
         }
@@ -88,8 +89,12 @@ final class CocoNodeLogRendererBootstrap {
     }
 
     static List<String> rendererCommand(Environment environment, Path rendererScript) {
+        return rendererCommand(environment, rendererScript, nodeCommand(environment));
+    }
+
+    private static List<String> rendererCommand(Environment environment, Path rendererScript, String nodeCommand) {
         List<String> command = new ArrayList<>();
-        command.add(nodeCommand(environment));
+        command.add(nodeCommand);
         command.add(rendererScript.toString());
 
         String color = colorMode(environment);
@@ -128,7 +133,67 @@ final class CocoNodeLogRendererBootstrap {
     }
 
     private static Process startRenderer(Environment environment, Path rendererScript) throws IOException {
-        return new ProcessBuilder(rendererCommand(environment, rendererScript)).start();
+        List<String> command = rendererCommand(environment, rendererScript);
+        try {
+            return new ProcessBuilder(command).start();
+        }
+        catch (IOException ex) {
+            String fallbackNodeCommand = fallbackNodeCommand(environment);
+            if (fallbackNodeCommand == null) {
+                throw ex;
+            }
+            try {
+                return new ProcessBuilder(rendererCommand(environment, rendererScript, fallbackNodeCommand)).start();
+            }
+            catch (IOException fallbackEx) {
+                ex.addSuppressed(fallbackEx);
+                throw ex;
+            }
+        }
+    }
+
+    private static String fallbackNodeCommand(Environment environment) {
+        String configuredCommand = nodeCommand(environment);
+        if (!"node".equalsIgnoreCase(configuredCommand)) {
+            return null;
+        }
+        return findExistingNodeExecutable();
+    }
+
+    private static String findExistingNodeExecutable() {
+        List<Path> candidates = new ArrayList<>();
+        addNodeCandidate(candidates, System.getenv("COCO_NODE_COMMAND"));
+        addNodeCandidate(candidates, System.getenv("ProgramFiles") + "\\nodejs");
+        addNodeCandidate(candidates, System.getenv("ProgramFiles(x86)") + "\\nodejs");
+        addNodeCandidate(candidates, System.getenv("LOCALAPPDATA") + "\\Programs\\nodejs");
+        addNodeCandidate(candidates, "D:\\Program Files\\nodejs");
+        addNodeCandidate(candidates, "D:\\Programs\\nodejs");
+        for (Path candidate : candidates) {
+            if (Files.isRegularFile(candidate)) {
+                return candidate.toString();
+            }
+        }
+        return null;
+    }
+
+    private static void addNodeCandidate(List<Path> candidates, String value) {
+        if (value == null || value.isBlank() || value.contains("null")) {
+            return;
+        }
+        try {
+            Path candidate = Path.of(value.trim());
+            if (Files.isDirectory(candidate)) {
+                candidate = candidate.resolve(isWindows() ? "node.exe" : "node");
+            }
+            candidates.add(candidate);
+        }
+        catch (InvalidPathException ex) {
+            // Node 渲染器是可选增强，忽略不可解析的候选路径。
+        }
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 
     private static void pipe(InputStream input, OutputStream output, String threadName) {
