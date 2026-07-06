@@ -43,6 +43,7 @@ import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.CocoSystemCodes;
+import io.github.coco.feature.web.signature.CocoSignatureFilter;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -54,6 +55,8 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -143,6 +146,9 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoWebRequestContextResolver"));
             assertTrue(context.containsBean("cocoRequestBodyCachingFilterRegistration"));
             assertTrue(context.containsBean("cocoTraceFilterRegistration"));
+            assertTrue(context.containsBean("cocoSignatureSecretResolver"));
+            assertTrue(context.containsBean("cocoSignatureVerifier"));
+            assertTrue(context.containsBean("cocoSignatureFilterRegistration"));
         });
     }
 
@@ -342,21 +348,32 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getRequestBody().getTriggerHeaderNames().contains("x-coco-sign"));
         assertTrue(properties.getRequestBody().getIncludedContentTypes().contains("application/json"));
         assertTrue(properties.getRequestBody().getExcludedContentTypePrefixes().contains("multipart/"));
+        assertTrue(properties.getSignature().isEnabled());
+        assertFalse(properties.getSignature().isRequired());
+        assertEquals("X-Coco-App-Id", properties.getSignature().getAppIdHeaderName());
+        assertEquals("X-Coco-Sign", properties.getSignature().getSignatureHeaderName());
+        assertEquals("X-Coco-Sign-Algorithm", properties.getSignature().getAlgorithmHeaderName());
+        assertEquals("HMAC-SHA256", properties.getSignature().getDefaultAlgorithm());
+        assertEquals(300L, properties.getSignature().getMaxClockSkewSeconds());
         assertTrue(properties.getContext().isIncludeHeaders());
         assertTrue(properties.getContext().getClientIpHeaderNames().contains("X-Forwarded-For"));
         assertTrue(properties.getContext().getIncludedHeaderNames().contains("user-agent"));
         assertTrue(properties.getContext().getMaskedHeaderNames().contains("authorization"));
         assertTrue(properties.getContext().getSecurityHeaderNames().contains("x-coco-sign"));
+        assertTrue(properties.getContext().getSecurityHeaderNames().contains("x-coco-sign-algorithm"));
         assertTrue(properties.getContext().getCanonicalHeaderNames().contains("x-coco-timestamp"));
+        assertTrue(properties.getContext().getCanonicalHeaderNames().contains("x-coco-sign-algorithm"));
         assertTrue(properties.getContext().getFingerprintHeaderNames().contains("sec-ch-ua"));
         assertEquals(256, properties.getContext().getMaxHeaderValueLength());
 
         properties.setAccessLog(null);
         properties.setRequestBody(null);
+        properties.setSignature(null);
         properties.setContext(null);
 
         assertTrue(properties.getAccessLog().isEnabled());
         assertTrue(properties.getRequestBody().isEnabled());
+        assertTrue(properties.getSignature().isEnabled());
         assertTrue(properties.getContext().isIncludeHeaders());
     }
 
@@ -885,6 +902,61 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void verifiesSignedJsonRequestBeforeBusinessServlet() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "valid-signature", "sample-secret");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new TraceCapturingServlet(() ->
+                                                    reachedBusiness.set(true))))));
+
+                    assertEquals(200, response.getStatus());
+                    assertEquals(Boolean.TRUE, reachedBusiness.get());
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureIsInvalid() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "invalid-signature", "sample-secret");
+                    request.removeHeader("X-Coco-Sign");
+                    request.addHeader("X-Coco-Sign", "bad-signature");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertEquals(401, response.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(401, body.get("code"));
+                    assertEquals("Request signature is invalid.", body.get("message"));
+                });
+    }
+
+    @Test
     void usesCustomWebRequestContextResolver() throws Exception {
         CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
         CocoWebRequestContextResolver resolver = (traceId, request) -> new CocoWebRequestSnapshot(traceId,
@@ -1005,6 +1077,30 @@ class CocoWebAutoConfigurationTest {
         return (CocoRequestBodyCachingFilter) registrationBean.getFilter();
     }
 
+    private static CocoSignatureFilter signatureFilter(FilterRegistrationBean<?> registrationBean) {
+        return (CocoSignatureFilter) registrationBean.getFilter();
+    }
+
+    private static MockHttpServletRequest signedRequest(org.springframework.context.ApplicationContext context,
+            String traceId, String secret) {
+        CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+        CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+        byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(body);
+        request.addHeader("X-Trace-Id", traceId);
+        request.addHeader("X-Coco-App-Id", "sample-app");
+        request.addHeader("X-Coco-Timestamp", String.valueOf(System.currentTimeMillis()));
+        request.addHeader("X-Coco-Nonce", "nonce-1001");
+        request.addHeader("X-Coco-Sign-Algorithm", "HMAC-SHA256");
+        CocoWebRequestSnapshot snapshot = resolver.resolve(traceId,
+                new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+        String canonicalText = canonicalizer.canonicalize(snapshot.securityInput()).text();
+        request.addHeader("X-Coco-Sign", hmacSha256Hex(canonicalText, secret));
+        return request;
+    }
+
     private static String sha256(byte[] content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -1012,6 +1108,17 @@ class CocoWebAutoConfigurationTest {
         }
         catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 algorithm is not available", ex);
+        }
+    }
+
+    private static String hmacSha256Hex(String text, String secret) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal(text.getBytes(StandardCharsets.UTF_8)));
+        }
+        catch (Exception ex) {
+            throw new IllegalStateException("HMAC-SHA256 failed", ex);
         }
     }
 

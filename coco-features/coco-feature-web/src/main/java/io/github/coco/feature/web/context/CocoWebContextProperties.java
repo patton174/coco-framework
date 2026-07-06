@@ -43,11 +43,11 @@ public class CocoWebContextProperties {
     private static final Set<String> DEFAULT_SECURITY_HEADER_NAMES = Set.of(
             "content-md5", "content-type", "x-coco-app-id", "x-coco-timestamp", "x-coco-nonce",
             "x-coco-sign", "x-coco-signature", "x-coco-encrypted", "x-coco-key-id", "x-coco-iv",
-            "x-coco-algorithm");
+            "x-coco-algorithm", "x-coco-sign-algorithm");
 
     private static final Set<String> DEFAULT_CANONICAL_HEADER_NAMES = Set.of(
             "content-md5", "content-type", "x-coco-app-id", "x-coco-timestamp", "x-coco-nonce",
-            "x-coco-key-id", "x-coco-iv", "x-coco-algorithm");
+            "x-coco-key-id", "x-coco-iv", "x-coco-algorithm", "x-coco-sign-algorithm");
 
     private static final Set<String> DEFAULT_FINGERPRINT_HEADER_NAMES = Set.of(
             "user-agent", "accept", "accept-language", "dnt", "sec-ch-ua", "sec-ch-ua-mobile",

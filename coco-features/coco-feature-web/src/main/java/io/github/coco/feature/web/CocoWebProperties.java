@@ -5,6 +5,7 @@ import io.github.coco.feature.web.body.CocoRequestBodyProperties;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
+import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -42,6 +43,9 @@ public class CocoWebProperties {
 
     @NestedConfigurationProperty
     private CocoRequestBodyProperties requestBody = new CocoRequestBodyProperties();
+
+    @NestedConfigurationProperty
+    private CocoSignatureProperties signature = new CocoSignatureProperties();
 
     @NestedConfigurationProperty
     private CocoWebContextProperties context = new CocoWebContextProperties();
@@ -144,6 +148,26 @@ public class CocoWebProperties {
      */
     public void setRequestBody(CocoRequestBodyProperties requestBody) {
         this.requestBody = requestBody == null ? new CocoRequestBodyProperties() : requestBody;
+    }
+
+    /**
+     * <p>
+     * 返回请求签名配置属性。
+     * </p>
+     * @return 请求签名配置属性
+     */
+    public CocoSignatureProperties getSignature() {
+        return this.signature;
+    }
+
+    /**
+     * <p>
+     * 设置请求签名配置属性。
+     * </p>
+     * @param signature 请求签名配置属性
+     */
+    public void setSignature(CocoSignatureProperties signature) {
+        this.signature = signature == null ? new CocoSignatureProperties() : signature;
     }
 
     /**
