@@ -64,25 +64,24 @@ class CocoSpringAutoconfigureTest {
     }
 
     @Test
-    void rendersLeanCocoSpringBannerWithoutFrame() {
+    void rendersUnicodeCocoSpringBannerWithoutFrame() {
         CocoBannerProperties properties = new CocoBannerProperties();
         CocoStartupBanner banner = new CocoStartupBanner(properties);
 
         String rendered = banner.render("9.9.9", "4.1.0");
 
         assertEquals(String.join(System.lineSeparator(),
-                "   _|_|_|                _|_|_|                    _|_|_|                         _|                        ",
-                " _|           _|_|     _|           _|_|         _|         _|_|_|     _|  _|_|        _|_|_|       _|_|_|  ",
-                " _|         _|    _|   _|         _|    _|         _|_|     _|    _|   _|_|       _|   _|    _|   _|    _|  ",
-                " _|         _|    _|   _|         _|    _|             _|   _|    _|   _|         _|   _|    _|   _|    _|  ",
-                "   _|_|_|     _|_|       _|_|_|     _|_|         _|_|_|     _|_|_|     _|         _|   _|    _|     _|_|_|  ",
-                "                                                            _|                                          _|  ",
-                "                                                            _|                                      _|_|    ",
+                " ██████╗ ██████╗  ██████╗ ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ",
+                "██╔════╝██╔═══██╗██╔════╝██╔═══██╗      ██╔════╝██╔══██╗██╔══██╗██║████╗  ██║██╔════╝ ",
+                "██║     ██║   ██║██║     ██║   ██║█████╗███████╗██████╔╝██████╔╝██║██╔██╗ ██║██║  ███╗",
+                "██║     ██║   ██║██║     ██║   ██║╚════╝╚════██║██╔═══╝ ██╔══██╗██║██║╚██╗██║██║   ██║",
+                "╚██████╗╚██████╔╝╚██████╗╚██████╔╝      ███████║██║     ██║  ██║██║██║ ╚████║╚██████╔╝",
+                " ╚═════╝ ╚═════╝  ╚═════╝ ╚═════╝       ╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ",
                 "",
                 "：：coco 9.9.9",
                 "：：spring boot 4.1.0"), rendered);
-        assertTrue(rendered.contains("_|_|_|                _|_|_|"));
-        assertTrue(rendered.contains("_|_|_|     _|_|_|"));
+        assertTrue(rendered.contains("██████╗ ██████╗"));
+        assertTrue(rendered.contains("█████╗███████╗"));
         assertTrue(rendered.contains("：：coco 9.9.9"));
         assertTrue(rendered.contains("：：spring boot 4.1.0"));
         assertFalse(rendered.contains("::"));
@@ -102,7 +101,7 @@ class CocoSpringAutoconfigureTest {
                 new PrintStream(output, true, StandardCharsets.UTF_8));
 
         String rendered = output.toString(StandardCharsets.UTF_8);
-        assertTrue(rendered.contains("_|_|_|                _|_|_|"));
+        assertTrue(rendered.contains("██████╗ ██████╗"));
         assertTrue(rendered.contains("：：coco "));
         assertTrue(rendered.contains("：：spring boot "));
         assertFalse(rendered.contains("fast web framework"));
