@@ -91,6 +91,41 @@ public final class CocoRequestContextAttributes {
     public static final String REQUEST_BODY_SHA256 = "requestBodySha256";
 
     /**
+     * 请求安全应用标识属性键。
+     */
+    public static final String SECURITY_APP_ID = "securityAppId";
+
+    /**
+     * 请求安全密钥标识属性键。
+     */
+    public static final String SECURITY_KEY_ID = "securityKeyId";
+
+    /**
+     * 请求是否已签名属性键。
+     */
+    public static final String REQUEST_SIGNED = "requestSigned";
+
+    /**
+     * 请求是否已加密属性键。
+     */
+    public static final String REQUEST_ENCRYPTED = "requestEncrypted";
+
+    /**
+     * 请求是否带有防重放材料属性键。
+     */
+    public static final String REQUEST_REPLAY_PROTECTED = "requestReplayProtected";
+
+    /**
+     * 请求签名算法属性键。
+     */
+    public static final String SIGNATURE_ALGORITHM = "signatureAlgorithm";
+
+    /**
+     * 请求加密算法属性键。
+     */
+    public static final String ENCRYPTION_ALGORITHM = "encryptionAlgorithm";
+
+    /**
      * 请求头属性键前缀。
      */
     public static final String HEADER_PREFIX = "header.";

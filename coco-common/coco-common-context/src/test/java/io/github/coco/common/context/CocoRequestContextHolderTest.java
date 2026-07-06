@@ -50,6 +50,13 @@ class CocoRequestContextHolderTest {
                         entry(CocoRequestContextAttributes.LOCALE, " zh-CN "),
                         entry(CocoRequestContextAttributes.BROWSER_FINGERPRINT, " fp-001 "),
                         entry(CocoRequestContextAttributes.REQUEST_BODY_SHA256, " body-sha-001 "),
+                        entry(CocoRequestContextAttributes.SECURITY_APP_ID, " app-001 "),
+                        entry(CocoRequestContextAttributes.SECURITY_KEY_ID, " key-001 "),
+                        entry(CocoRequestContextAttributes.REQUEST_SIGNED, " true "),
+                        entry(CocoRequestContextAttributes.REQUEST_ENCRYPTED, " true "),
+                        entry(CocoRequestContextAttributes.REQUEST_REPLAY_PROTECTED, " true "),
+                        entry(CocoRequestContextAttributes.SIGNATURE_ALGORITHM, " HMAC-SHA256 "),
+                        entry(CocoRequestContextAttributes.ENCRYPTION_ALGORITHM, " AES-GCM "),
                         entry(CocoRequestContextAttributes.header("Accept-Language"), " zh-CN "),
                         entry(CocoRequestContextAttributes.parameter("name"), " Coco ")));
 
@@ -70,6 +77,13 @@ class CocoRequestContextHolderTest {
         assertEquals("zh-CN", current.locale().orElseThrow());
         assertEquals("fp-001", current.browserFingerprint().orElseThrow());
         assertEquals("body-sha-001", current.requestBodySha256().orElseThrow());
+        assertEquals("app-001", current.securityAppId().orElseThrow());
+        assertEquals("key-001", current.securityKeyId().orElseThrow());
+        assertTrue(current.requestSigned());
+        assertTrue(current.requestEncrypted());
+        assertTrue(current.requestReplayProtected());
+        assertEquals("HMAC-SHA256", current.signatureAlgorithm().orElseThrow());
+        assertEquals("AES-GCM", current.encryptionAlgorithm().orElseThrow());
         assertEquals("zh-CN", current.header("accept-language").orElseThrow());
         assertEquals("Coco", current.parameter("name").orElseThrow());
         assertEquals("trace-001", CocoTraceContext.currentTraceId().orElseThrow());

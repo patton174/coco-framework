@@ -236,6 +236,82 @@ public final class CocoRequestContext {
 
     /**
      * <p>
+     * 返回请求安全应用标识。
+     * </p>
+     * @return 请求安全应用标识；未设置时为空
+     */
+    public Optional<String> securityAppId() {
+        return attribute(CocoRequestContextAttributes.SECURITY_APP_ID);
+    }
+
+    /**
+     * <p>
+     * 返回请求安全密钥标识。
+     * </p>
+     * @return 请求安全密钥标识；未设置时为空
+     */
+    public Optional<String> securityKeyId() {
+        return attribute(CocoRequestContextAttributes.SECURITY_KEY_ID);
+    }
+
+    /**
+     * <p>
+     * 返回请求是否已签名。
+     * </p>
+     * @return 已签名时返回 {@code true}
+     */
+    public boolean requestSigned() {
+        return attribute(CocoRequestContextAttributes.REQUEST_SIGNED)
+                .map(Boolean::parseBoolean)
+                .orElse(false);
+    }
+
+    /**
+     * <p>
+     * 返回请求是否已加密。
+     * </p>
+     * @return 已加密时返回 {@code true}
+     */
+    public boolean requestEncrypted() {
+        return attribute(CocoRequestContextAttributes.REQUEST_ENCRYPTED)
+                .map(Boolean::parseBoolean)
+                .orElse(false);
+    }
+
+    /**
+     * <p>
+     * 返回请求是否带有防重放材料。
+     * </p>
+     * @return 带有防重放材料时返回 {@code true}
+     */
+    public boolean requestReplayProtected() {
+        return attribute(CocoRequestContextAttributes.REQUEST_REPLAY_PROTECTED)
+                .map(Boolean::parseBoolean)
+                .orElse(false);
+    }
+
+    /**
+     * <p>
+     * 返回请求签名算法。
+     * </p>
+     * @return 请求签名算法；未设置时为空
+     */
+    public Optional<String> signatureAlgorithm() {
+        return attribute(CocoRequestContextAttributes.SIGNATURE_ALGORITHM);
+    }
+
+    /**
+     * <p>
+     * 返回请求加密算法。
+     * </p>
+     * @return 请求加密算法；未设置时为空
+     */
+    public Optional<String> encryptionAlgorithm() {
+        return attribute(CocoRequestContextAttributes.ENCRYPTION_ALGORITHM);
+    }
+
+    /**
+     * <p>
      * 返回请求头上下文属性。
      * </p>
      * @param name 请求头名称

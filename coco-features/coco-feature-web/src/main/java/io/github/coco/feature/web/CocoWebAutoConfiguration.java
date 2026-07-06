@@ -246,6 +246,7 @@ public class CocoWebAutoConfiguration {
      * @param requestHeaderResolver 请求头解析器
      * @param requestParameterResolver 请求参数解析器
      * @param securityInputResolver Web 请求安全输入解析器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
      * @return Coco Web 请求上下文解析器
      */
     @Bean
@@ -255,10 +256,11 @@ public class CocoWebAutoConfiguration {
             CocoClientIpResolver clientIpResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestParameterResolver requestParameterResolver,
-            CocoWebRequestSecurityInputResolver securityInputResolver) {
+            CocoWebRequestSecurityInputResolver securityInputResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
         return new DefaultCocoWebRequestContextResolver(properties.getContext(), properties.getAccessLog(),
                 clientIpResolver, browserFingerprintResolver, requestHeaderResolver, requestParameterResolver,
-                securityInputResolver);
+                securityInputResolver, securityMetadataResolver);
     }
 
     /**

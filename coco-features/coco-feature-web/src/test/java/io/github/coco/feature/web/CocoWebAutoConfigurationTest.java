@@ -912,6 +912,14 @@ class CocoWebAutoConfigurationTest {
             request.addHeader("X-Forwarded-For", " 10.0.0.8, 10.0.0.9 ");
             request.addHeader("User-Agent", "PostmanRuntime/7.37");
             request.addHeader("Accept-Language", "zh-CN");
+            request.addHeader("X-Coco-App-Id", "sample-app");
+            request.addHeader("X-Coco-Key-Id", "key-001");
+            request.addHeader("X-Coco-Sign", "sign-value");
+            request.addHeader("X-Coco-Sign-Algorithm", "HMAC-SHA256");
+            request.addHeader("X-Coco-Encrypted", "true");
+            request.addHeader("X-Coco-Algorithm", "AES-GCM");
+            request.addHeader("X-Coco-Timestamp", "1783300000000");
+            request.addHeader("X-Coco-Nonce", "nonce-1001");
             request.setContentType("application/json");
             request.setScheme("https");
             request.setServerName("api.example.test");
@@ -939,6 +947,13 @@ class CocoWebAutoConfigurationTest {
                 assertEquals("8443", requestContext.attribute("port").orElseThrow());
                 assertEquals("application/json", requestContext.attribute("contentType").orElseThrow());
                 assertTrue(requestContext.browserFingerprint().orElseThrow().length() == 64);
+                assertEquals("sample-app", requestContext.securityAppId().orElseThrow());
+                assertEquals("key-001", requestContext.securityKeyId().orElseThrow());
+                assertTrue(requestContext.requestSigned());
+                assertTrue(requestContext.requestEncrypted());
+                assertTrue(requestContext.requestReplayProtected());
+                assertEquals("HMAC-SHA256", requestContext.signatureAlgorithm().orElseThrow());
+                assertEquals("AES-GCM", requestContext.encryptionAlgorithm().orElseThrow());
                 assertTrue(requestContext.header("accept-language").orElseThrow().contains("zh-cn"));
                 assertEquals("Coco", requestContext.parameter("name").orElseThrow());
                 assertEquals("******", requestContext.parameter("token").orElseThrow());
@@ -1093,6 +1108,16 @@ class CocoWebAutoConfigurationTest {
             assertEquals(sha256(body), snapshot.securityInput().bodySha256());
             assertEquals(body.length, snapshot.securityInput().bodyLength());
             assertTrue(snapshot.securityInput().bodyCached());
+            assertEquals("sample-app", snapshot.securityMetadata().primaryAppId().orElseThrow());
+            assertEquals("key-1", snapshot.securityMetadata().primaryKeyId().orElseThrow());
+            assertTrue(snapshot.securityMetadata().signed());
+            assertTrue(snapshot.securityMetadata().encrypted());
+            assertTrue(snapshot.securityMetadata().replayProtected());
+            assertEquals("HMAC-SHA256", snapshot.toRequestContext().signatureAlgorithm().orElseThrow());
+            assertEquals("AES/GCM/NoPadding", snapshot.toRequestContext().encryptionAlgorithm().orElseThrow());
+            assertTrue(snapshot.toRequestContext().requestSigned());
+            assertTrue(snapshot.toRequestContext().requestEncrypted());
+            assertTrue(snapshot.toRequestContext().requestReplayProtected());
             assertTrue(snapshot.browserFingerprint().value().length() == 64);
             assertEquals(snapshot.browserFingerprint().value(),
                     snapshot.toRequestContext().browserFingerprint().orElseThrow());
@@ -1625,6 +1650,10 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("iv-1001", metadata.encryptionIv());
                     assertEquals("AES-GCM", metadata.encryptionAlgorithm());
                     assertTrue(metadata.encrypted());
+                    assertEquals("sign-app", snapshot.securityMetadata().primaryAppId().orElseThrow());
+                    assertEquals("sign-key", snapshot.securityMetadata().primaryKeyId().orElseThrow());
+                    assertTrue(snapshot.securityMetadata().signed());
+                    assertTrue(snapshot.securityMetadata().encrypted());
                 });
     }
 
@@ -1665,6 +1694,10 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("nonce-replay-1001", metadata.replayNonce());
                     assertEquals("replay-app", metadata.primaryAppId().orElseThrow());
                     assertEquals("replay-key", metadata.primaryKeyId().orElseThrow());
+                    assertTrue(metadata.replayProtected());
+                    assertEquals("replay-app", snapshot.securityMetadata().primaryAppId().orElseThrow());
+                    assertEquals("replay-key", snapshot.securityMetadata().primaryKeyId().orElseThrow());
+                    assertTrue(snapshot.securityMetadata().replayProtected());
                 });
     }
 

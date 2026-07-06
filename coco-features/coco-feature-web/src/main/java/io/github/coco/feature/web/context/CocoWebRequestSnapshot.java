@@ -37,6 +37,7 @@ import io.github.coco.common.context.CocoRequestContextAttributes;
  * @param headers 请求头快照
  * @param parameters 请求参数快照
  * @param securityInput 请求安全输入
+ * @param securityMetadata 请求安全元数据
  * @param browserFingerprint 浏览器指纹
  * @param clientIpResolution 客户端 IP 解析结果
  * @author patton174
@@ -45,7 +46,8 @@ import io.github.coco.common.context.CocoRequestContextAttributes;
 public record CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
         String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
         String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
-        CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint,
+        CocoWebRequestSecurityInput securityInput, CocoWebRequestSecurityMetadata securityMetadata,
+        CocoBrowserFingerprint browserFingerprint,
         CocoClientIpResolution clientIpResolution) {
 
     /**
@@ -72,7 +74,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
                 contentType, headers, parameters,
                 new CocoWebRequestSecurityInput(method, path, null, Map.of(), Map.of(), Map.of(), null),
-                CocoBrowserFingerprint.empty(), CocoClientIpResolution.custom(clientIp));
+                CocoWebRequestSecurityMetadata.empty(), CocoBrowserFingerprint.empty(),
+                CocoClientIpResolution.custom(clientIp));
     }
 
     /**
@@ -100,8 +103,40 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
             CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint) {
         this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
-                contentType, headers, parameters, securityInput, browserFingerprint,
+                contentType, headers, parameters, securityInput, CocoWebRequestSecurityMetadata.empty(),
+                browserFingerprint,
                 CocoClientIpResolution.custom(clientIp));
+    }
+
+    /**
+     * <p>
+     * 创建 Web 请求快照。
+     * </p>
+     * @param traceId TraceId
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 查询字符串
+     * @param clientIp 客户端 IP
+     * @param userAgent User-Agent
+     * @param locale 请求语言
+     * @param scheme 请求协议
+     * @param host 请求主机
+     * @param port 请求端口
+     * @param contentType 请求内容类型
+     * @param headers 请求头快照
+     * @param parameters 请求参数快照
+     * @param securityInput 请求安全输入
+     * @param browserFingerprint 浏览器指纹
+     * @param clientIpResolution 客户端 IP 解析结果
+     */
+    public CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
+            String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
+            String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
+            CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint,
+            CocoClientIpResolution clientIpResolution) {
+        this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
+                contentType, headers, parameters, securityInput, CocoWebRequestSecurityMetadata.empty(),
+                browserFingerprint, clientIpResolution);
     }
 
     /**
@@ -122,6 +157,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
      * @param headers 请求头快照
      * @param parameters 请求参数快照
      * @param securityInput 请求安全输入
+     * @param securityMetadata 请求安全元数据
      * @param browserFingerprint 浏览器指纹
      * @param clientIpResolution 客户端 IP 解析结果
      */
@@ -140,6 +176,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         headers = copyHeaders(headers);
         parameters = copyParameters(parameters);
         securityInput = securityInput == null ? CocoWebRequestSecurityInput.empty() : securityInput;
+        securityMetadata = securityMetadata == null ? CocoWebRequestSecurityMetadata.empty() : securityMetadata;
         browserFingerprint = browserFingerprint == null ? CocoBrowserFingerprint.empty() : browserFingerprint;
     }
 
@@ -168,6 +205,20 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         putIfPresent(attributes, CocoRequestContextAttributes.CONTENT_TYPE, this.contentType);
         putIfPresent(attributes, CocoRequestContextAttributes.BROWSER_FINGERPRINT, this.browserFingerprint.value());
         putIfPresent(attributes, CocoRequestContextAttributes.REQUEST_BODY_SHA256, this.securityInput.bodySha256());
+        this.securityMetadata.primaryAppId()
+                .ifPresent(appId -> putIfPresent(attributes, CocoRequestContextAttributes.SECURITY_APP_ID, appId));
+        this.securityMetadata.primaryKeyId()
+                .ifPresent(keyId -> putIfPresent(attributes, CocoRequestContextAttributes.SECURITY_KEY_ID, keyId));
+        putIfPresent(attributes, CocoRequestContextAttributes.REQUEST_SIGNED,
+                Boolean.toString(this.securityMetadata.signed()));
+        putIfPresent(attributes, CocoRequestContextAttributes.REQUEST_ENCRYPTED,
+                Boolean.toString(this.securityMetadata.encrypted()));
+        putIfPresent(attributes, CocoRequestContextAttributes.REQUEST_REPLAY_PROTECTED,
+                Boolean.toString(this.securityMetadata.replayProtected()));
+        putIfPresent(attributes, CocoRequestContextAttributes.SIGNATURE_ALGORITHM,
+                this.securityMetadata.signatureAlgorithm());
+        putIfPresent(attributes, CocoRequestContextAttributes.ENCRYPTION_ALGORITHM,
+                this.securityMetadata.encryptionAlgorithm());
         this.headers.forEach((name, value) ->
                 putIfPresent(attributes, CocoRequestContextAttributes.header(name), value));
         this.parameters.forEach((name, values) ->

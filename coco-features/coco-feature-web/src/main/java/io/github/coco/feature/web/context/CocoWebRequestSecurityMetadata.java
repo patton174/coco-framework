@@ -109,6 +109,16 @@ public record CocoWebRequestSecurityMetadata(String signatureAppId, String signa
         return Optional.ofNullable(firstNonBlank(this.signatureKeyId, this.encryptionKeyId, this.replayKeyId));
     }
 
+    /**
+     * <p>
+     * 返回请求是否携带防重放材料。
+     * </p>
+     * @return 请求携带防重放时间戳或随机串时返回 {@code true}
+     */
+    public boolean replayProtected() {
+        return this.replayTimestamp != null || this.replayNonce != null;
+    }
+
     private static String firstNonBlank(String first, String second, String third) {
         if (first != null) {
             return first;
