@@ -56,6 +56,9 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.include-headers\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.included-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.masked-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.security-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.canonical-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.fingerprint-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.max-header-value-length\""));
         assertTrue(content.contains("\"name\": \"coco.web.response.metadata-mode\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));

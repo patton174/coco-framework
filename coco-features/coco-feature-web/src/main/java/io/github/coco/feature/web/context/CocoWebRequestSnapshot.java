@@ -36,12 +36,42 @@ import io.github.coco.common.context.CocoRequestContextAttributes;
  * @param contentType 请求内容类型
  * @param headers 请求头快照
  * @param parameters 请求参数快照
+ * @param securityInput 请求安全输入
+ * @param browserFingerprint 浏览器指纹
  * @author patton174
  * @since 1.0.0
  */
 public record CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
         String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
-        String contentType, Map<String, String> headers, Map<String, List<String>> parameters) {
+        String contentType, Map<String, String> headers, Map<String, List<String>> parameters,
+        CocoWebRequestSecurityInput securityInput, CocoBrowserFingerprint browserFingerprint) {
+
+    /**
+     * <p>
+     * 创建 Web 请求快照。
+     * </p>
+     * @param traceId TraceId
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 查询字符串
+     * @param clientIp 客户端 IP
+     * @param userAgent User-Agent
+     * @param locale 请求语言
+     * @param scheme 请求协议
+     * @param host 请求主机
+     * @param port 请求端口
+     * @param contentType 请求内容类型
+     * @param headers 请求头快照
+     * @param parameters 请求参数快照
+     */
+    public CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
+            String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
+            String contentType, Map<String, String> headers, Map<String, List<String>> parameters) {
+        this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
+                contentType, headers, parameters,
+                new CocoWebRequestSecurityInput(method, path, null, Map.of(), Map.of(), Map.of(), null),
+                CocoBrowserFingerprint.empty());
+    }
 
     /**
      * <p>
@@ -60,6 +90,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
      * @param contentType 请求内容类型
      * @param headers 请求头快照
      * @param parameters 请求参数快照
+     * @param securityInput 请求安全输入
+     * @param browserFingerprint 浏览器指纹
      */
     public CocoWebRequestSnapshot {
         traceId = requireTraceId(traceId);
@@ -74,6 +106,8 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         contentType = normalizeOptional(contentType);
         headers = copyHeaders(headers);
         parameters = copyParameters(parameters);
+        securityInput = securityInput == null ? CocoWebRequestSecurityInput.empty() : securityInput;
+        browserFingerprint = browserFingerprint == null ? CocoBrowserFingerprint.empty() : browserFingerprint;
     }
 
     /**
@@ -92,6 +126,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         putIfPresent(attributes, CocoRequestContextAttributes.HOST, this.host);
         putIfPresent(attributes, CocoRequestContextAttributes.PORT, this.port == null ? null : this.port.toString());
         putIfPresent(attributes, CocoRequestContextAttributes.CONTENT_TYPE, this.contentType);
+        putIfPresent(attributes, CocoRequestContextAttributes.BROWSER_FINGERPRINT, this.browserFingerprint.value());
         this.headers.forEach((name, value) ->
                 putIfPresent(attributes, CocoRequestContextAttributes.header(name), value));
         this.parameters.forEach((name, values) ->

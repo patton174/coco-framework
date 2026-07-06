@@ -9,7 +9,9 @@ import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
@@ -126,6 +128,18 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoWebRequestContextResolver cocoWebRequestContextResolver(CocoWebProperties properties) {
         return new DefaultCocoWebRequestContextResolver(properties.getContext(), properties.getAccessLog());
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco Web 请求规范化器。
+     * </p>
+     * @return Coco Web 请求规范化器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoWebRequestCanonicalizer cocoWebRequestCanonicalizer() {
+        return new DefaultCocoWebRequestCanonicalizer();
     }
 
     /**

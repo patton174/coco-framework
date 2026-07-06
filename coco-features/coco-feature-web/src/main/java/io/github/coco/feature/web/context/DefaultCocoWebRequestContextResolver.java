@@ -60,11 +60,23 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
     @Override
     public CocoWebRequestSnapshot resolve(String traceId, HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        return new CocoWebRequestSnapshot(traceId, checkedRequest.getMethod(), resolvePath(checkedRequest),
-                resolveQueryString(checkedRequest), resolveClientIp(checkedRequest),
-                checkedRequest.getHeader("User-Agent"), resolveLocale(checkedRequest), checkedRequest.getScheme(),
-                checkedRequest.getServerName(), checkedRequest.getServerPort(), checkedRequest.getContentType(),
-                resolveHeaders(checkedRequest), resolveParameters(checkedRequest));
+        String method = checkedRequest.getMethod();
+        String path = resolvePath(checkedRequest);
+        String rawQueryString = normalizeString(checkedRequest.getQueryString());
+        Map<String, List<String>> rawParameters = resolveRawParameters(checkedRequest);
+        Map<String, String> securityHeaders = resolveSelectedHeaders(checkedRequest,
+                this.properties.getSecurityHeaderNames(), false);
+        Map<String, String> canonicalHeaders = resolveSelectedHeaders(checkedRequest,
+                this.properties.getCanonicalHeaderNames(), false);
+        CocoBrowserFingerprint browserFingerprint = CocoBrowserFingerprint.from(resolveSelectedHeaders(checkedRequest,
+                this.properties.getFingerprintHeaderNames(), true));
+        CocoWebRequestSecurityInput securityInput = new CocoWebRequestSecurityInput(method, path, rawQueryString,
+                rawParameters, securityHeaders, canonicalHeaders, null);
+        return new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(checkedRequest),
+                resolveClientIp(checkedRequest), checkedRequest.getHeader("User-Agent"), resolveLocale(checkedRequest),
+                checkedRequest.getScheme(), checkedRequest.getServerName(), checkedRequest.getServerPort(),
+                checkedRequest.getContentType(), resolveHeaders(checkedRequest), resolveParameters(checkedRequest),
+                securityInput, browserFingerprint);
     }
 
     private static String resolvePath(HttpServletRequest request) {
@@ -178,6 +190,15 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         return parameters;
     }
 
+    private static Map<String, List<String>> resolveRawParameters(HttpServletRequest request) {
+        Map<String, List<String>> parameters = new LinkedHashMap<>();
+        request.getParameterMap().forEach((name, values) -> parameters.put(name,
+                Arrays.stream(values == null ? new String[0] : values)
+                        .map(value -> value == null ? "" : value)
+                        .toList()));
+        return parameters;
+    }
+
     private String sanitizeParameterValue(String name, String value) {
         if (isMaskedParameterName(name)) {
             return MASKED_VALUE;
@@ -203,6 +224,25 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
             String value = firstExistingHeaderValue(request, headerName);
             if (value != null) {
                 headers.put(headerName, sanitizeHeaderValue(headerName, value));
+            }
+        }
+        return headers;
+    }
+
+    private Map<String, String> resolveSelectedHeaders(HttpServletRequest request, Iterable<String> headerNames,
+            boolean trimValue) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (headerNames == null) {
+            return headers;
+        }
+        for (String headerName : headerNames) {
+            if (headerName == null || headerName.isBlank()) {
+                continue;
+            }
+            String value = firstExistingHeaderValue(request, headerName);
+            if (value != null) {
+                headers.put(headerName.trim().toLowerCase(Locale.ROOT),
+                        trimValue ? trimValue(value, this.properties.getMaxHeaderValueLength()) : value);
             }
         }
         return headers;

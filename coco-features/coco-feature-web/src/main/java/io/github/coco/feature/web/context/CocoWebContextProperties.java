@@ -40,6 +40,20 @@ public class CocoWebContextProperties {
     private static final Set<String> DEFAULT_MASKED_HEADER_NAMES = Set.of(
             "authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token");
 
+    private static final Set<String> DEFAULT_SECURITY_HEADER_NAMES = Set.of(
+            "content-md5", "content-type", "x-coco-app-id", "x-coco-timestamp", "x-coco-nonce",
+            "x-coco-sign", "x-coco-signature", "x-coco-encrypted", "x-coco-key-id", "x-coco-iv",
+            "x-coco-algorithm");
+
+    private static final Set<String> DEFAULT_CANONICAL_HEADER_NAMES = Set.of(
+            "content-md5", "content-type", "x-coco-app-id", "x-coco-timestamp", "x-coco-nonce",
+            "x-coco-key-id", "x-coco-iv", "x-coco-algorithm");
+
+    private static final Set<String> DEFAULT_FINGERPRINT_HEADER_NAMES = Set.of(
+            "user-agent", "accept", "accept-language", "dnt", "sec-ch-ua", "sec-ch-ua-mobile",
+            "sec-ch-ua-platform", "sec-ch-ua-platform-version", "sec-ch-ua-arch", "sec-ch-ua-bitness",
+            "sec-ch-ua-model", "sec-ch-ua-full-version-list");
+
     private List<String> clientIpHeaderNames = DEFAULT_CLIENT_IP_HEADER_NAMES;
 
     private boolean includeHeaders = true;
@@ -47,6 +61,12 @@ public class CocoWebContextProperties {
     private Set<String> includedHeaderNames = DEFAULT_INCLUDED_HEADER_NAMES;
 
     private Set<String> maskedHeaderNames = DEFAULT_MASKED_HEADER_NAMES;
+
+    private Set<String> securityHeaderNames = DEFAULT_SECURITY_HEADER_NAMES;
+
+    private Set<String> canonicalHeaderNames = DEFAULT_CANONICAL_HEADER_NAMES;
+
+    private Set<String> fingerprintHeaderNames = DEFAULT_FINGERPRINT_HEADER_NAMES;
 
     private int maxHeaderValueLength = DEFAULT_MAX_HEADER_VALUE_LENGTH;
 
@@ -139,6 +159,66 @@ public class CocoWebContextProperties {
      */
     public void setMaskedHeaderNames(Set<String> maskedHeaderNames) {
         this.maskedHeaderNames = normalizeHeaderNames(maskedHeaderNames, DEFAULT_MASKED_HEADER_NAMES);
+    }
+
+    /**
+     * <p>
+     * 返回安全能力相关请求头名称。
+     * </p>
+     * @return 安全能力相关请求头名称集合
+     */
+    public Set<String> getSecurityHeaderNames() {
+        return this.securityHeaderNames;
+    }
+
+    /**
+     * <p>
+     * 设置安全能力相关请求头名称。
+     * </p>
+     * @param securityHeaderNames 安全能力相关请求头名称集合
+     */
+    public void setSecurityHeaderNames(Set<String> securityHeaderNames) {
+        this.securityHeaderNames = normalizeHeaderNames(securityHeaderNames, DEFAULT_SECURITY_HEADER_NAMES);
+    }
+
+    /**
+     * <p>
+     * 返回默认参与签名规范化的请求头名称。
+     * </p>
+     * @return 默认参与签名规范化的请求头名称集合
+     */
+    public Set<String> getCanonicalHeaderNames() {
+        return this.canonicalHeaderNames;
+    }
+
+    /**
+     * <p>
+     * 设置默认参与签名规范化的请求头名称。
+     * </p>
+     * @param canonicalHeaderNames 默认参与签名规范化的请求头名称集合
+     */
+    public void setCanonicalHeaderNames(Set<String> canonicalHeaderNames) {
+        this.canonicalHeaderNames = normalizeHeaderNames(canonicalHeaderNames, DEFAULT_CANONICAL_HEADER_NAMES);
+    }
+
+    /**
+     * <p>
+     * 返回参与浏览器指纹生成的请求头名称。
+     * </p>
+     * @return 参与浏览器指纹生成的请求头名称集合
+     */
+    public Set<String> getFingerprintHeaderNames() {
+        return this.fingerprintHeaderNames;
+    }
+
+    /**
+     * <p>
+     * 设置参与浏览器指纹生成的请求头名称。
+     * </p>
+     * @param fingerprintHeaderNames 参与浏览器指纹生成的请求头名称集合
+     */
+    public void setFingerprintHeaderNames(Set<String> fingerprintHeaderNames) {
+        this.fingerprintHeaderNames = normalizeHeaderNames(fingerprintHeaderNames, DEFAULT_FINGERPRINT_HEADER_NAMES);
     }
 
     /**

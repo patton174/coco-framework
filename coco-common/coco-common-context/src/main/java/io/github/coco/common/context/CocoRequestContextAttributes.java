@@ -61,6 +61,11 @@ public final class CocoRequestContextAttributes {
     public static final String CONTENT_TYPE = "contentType";
 
     /**
+     * 浏览器指纹属性键。
+     */
+    public static final String BROWSER_FINGERPRINT = "browserFingerprint";
+
+    /**
      * 请求头属性键前缀。
      */
     public static final String HEADER_PREFIX = "header.";

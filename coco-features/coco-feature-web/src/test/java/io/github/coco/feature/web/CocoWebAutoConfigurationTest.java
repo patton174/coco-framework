@@ -23,6 +23,8 @@ import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.CocoAccessLogStyle;
 import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -129,6 +131,7 @@ class CocoWebAutoConfigurationTest {
         this.webContextRunner.run(context -> {
             assertTrue(context.containsBean("cocoExceptionHttpStatusResolver"));
             assertTrue(context.containsBean("cocoWebExceptionHandler"));
+            assertTrue(context.containsBean("cocoWebRequestCanonicalizer"));
             assertTrue(context.containsBean("cocoWebRequestContextResolver"));
             assertTrue(context.containsBean("cocoTraceFilterRegistration"));
         });
@@ -327,6 +330,9 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getContext().getClientIpHeaderNames().contains("X-Forwarded-For"));
         assertTrue(properties.getContext().getIncludedHeaderNames().contains("user-agent"));
         assertTrue(properties.getContext().getMaskedHeaderNames().contains("authorization"));
+        assertTrue(properties.getContext().getSecurityHeaderNames().contains("x-coco-sign"));
+        assertTrue(properties.getContext().getCanonicalHeaderNames().contains("x-coco-timestamp"));
+        assertTrue(properties.getContext().getFingerprintHeaderNames().contains("sec-ch-ua"));
         assertEquals(256, properties.getContext().getMaxHeaderValueLength());
 
         properties.setAccessLog(null);
@@ -666,6 +672,7 @@ class CocoWebAutoConfigurationTest {
                 assertEquals("api.example.test", requestContext.attribute("host").orElseThrow());
                 assertEquals("8443", requestContext.attribute("port").orElseThrow());
                 assertEquals("application/json", requestContext.attribute("contentType").orElseThrow());
+                assertTrue(requestContext.browserFingerprint().orElseThrow().length() == 64);
                 assertTrue(requestContext.header("accept-language").orElseThrow().contains("zh-cn"));
                 assertEquals("Coco", requestContext.parameter("name").orElseThrow());
                 assertEquals("******", requestContext.parameter("token").orElseThrow());
@@ -781,6 +788,47 @@ class CocoWebAutoConfigurationTest {
                         assertEquals("Coco...", requestContext.parameter("name").orElseThrow());
                     })));
                 });
+    }
+
+    @Test
+    void resolvesSecurityInputFingerprintAndCanonicalForm() {
+        this.webContextRunner.run(context -> {
+            CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+            CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+            request.setQueryString("sku=COCO-STARTER&token=abc");
+            request.addParameter("sku", "COCO-STARTER");
+            request.addParameter("token", "abc");
+            request.addHeader("Content-Type", "application/json");
+            request.addHeader("X-Coco-App-Id", "sample-app");
+            request.addHeader("X-Coco-Timestamp", "1783300000000");
+            request.addHeader("X-Coco-Nonce", "nonce-1001");
+            request.addHeader("X-Coco-Sign", "sign-value");
+            request.addHeader("X-Coco-Encrypted", "true");
+            request.addHeader("X-Coco-Key-Id", "key-1");
+            request.addHeader("X-Coco-IV", "iv-1");
+            request.addHeader("X-Coco-Algorithm", "AES/GCM/NoPadding");
+            request.addHeader("User-Agent", "Chrome/126");
+            request.addHeader("Sec-CH-UA", "\"Chromium\";v=\"126\"");
+            request.addHeader("Sec-CH-UA-Platform", "\"Windows\"");
+
+            CocoWebRequestSnapshot snapshot = resolver.resolve("security-trace", request);
+            CocoWebRequestCanonicalForm canonicalForm = canonicalizer.canonicalize(snapshot.securityInput());
+
+            assertEquals("sign-value", snapshot.securityInput().securityHeader("x-coco-sign").orElseThrow());
+            assertEquals("true", snapshot.securityInput().securityHeader("x-coco-encrypted").orElseThrow());
+            assertEquals("1783300000000",
+                    snapshot.securityInput().canonicalHeader("x-coco-timestamp").orElseThrow());
+            assertEquals(List.of("COCO-STARTER"), snapshot.securityInput().parameter("sku").orElseThrow());
+            assertEquals("sku=COCO-STARTER&token=abc", snapshot.securityInput().queryString());
+            assertTrue(snapshot.browserFingerprint().value().length() == 64);
+            assertEquals(snapshot.browserFingerprint().value(),
+                    snapshot.toRequestContext().browserFingerprint().orElseThrow());
+            assertTrue(canonicalForm.text().contains("method=POST"));
+            assertTrue(canonicalForm.text().contains("path=/api/orders"));
+            assertTrue(canonicalForm.text().contains("x-coco-timestamp:1783300000000"));
+            assertTrue(canonicalForm.sha256().length() == 64);
+        });
     }
 
     @Test

@@ -174,6 +174,16 @@ public final class CocoRequestContext {
 
     /**
      * <p>
+     * 返回浏览器指纹。
+     * </p>
+     * @return 浏览器指纹；未设置时为空
+     */
+    public Optional<String> browserFingerprint() {
+        return attribute(CocoRequestContextAttributes.BROWSER_FINGERPRINT);
+    }
+
+    /**
+     * <p>
      * 返回请求头上下文属性。
      * </p>
      * @param name 请求头名称

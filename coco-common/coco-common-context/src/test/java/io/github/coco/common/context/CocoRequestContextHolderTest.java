@@ -42,6 +42,7 @@ class CocoRequestContextHolderTest {
                         CocoRequestContextAttributes.USER_AGENT, " PostmanRuntime/7.37 ",
                         CocoRequestContextAttributes.QUERY_STRING, " name=Coco ",
                         CocoRequestContextAttributes.LOCALE, " zh-CN ",
+                        CocoRequestContextAttributes.BROWSER_FINGERPRINT, " fp-001 ",
                         CocoRequestContextAttributes.header("Accept-Language"), " zh-CN ",
                         CocoRequestContextAttributes.parameter("name"), " Coco "));
 
@@ -56,6 +57,7 @@ class CocoRequestContextHolderTest {
         assertEquals("PostmanRuntime/7.37", current.userAgent().orElseThrow());
         assertEquals("name=Coco", current.queryString().orElseThrow());
         assertEquals("zh-CN", current.locale().orElseThrow());
+        assertEquals("fp-001", current.browserFingerprint().orElseThrow());
         assertEquals("zh-CN", current.header("accept-language").orElseThrow());
         assertEquals("Coco", current.parameter("name").orElseThrow());
         assertEquals("trace-001", CocoTraceContext.currentTraceId().orElseThrow());
