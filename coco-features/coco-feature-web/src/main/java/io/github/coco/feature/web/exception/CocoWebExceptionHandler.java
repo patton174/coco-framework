@@ -12,10 +12,12 @@ import io.github.coco.common.exception.type.CocoSystemException;
 import io.github.coco.common.exception.type.CocoUnauthorizedException;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
-import io.github.coco.feature.web.response.CocoApiResponse;
+import io.github.coco.feature.web.response.CocoResponseBodyFactory;
 import io.github.coco.feature.web.response.CocoResponseMetadata;
+import io.github.coco.feature.web.response.CocoResponsePayload;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
+import io.github.coco.feature.web.response.DefaultCocoResponseBodyFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -49,6 +51,8 @@ public class CocoWebExceptionHandler {
 
     private final CocoResponseProperties responseProperties;
 
+    private final CocoResponseBodyFactory responseBodyFactory;
+
     /**
      * <p>
      * 创建 Coco Web 全局异常处理器。
@@ -74,11 +78,30 @@ public class CocoWebExceptionHandler {
     public CocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties) {
+        this(messageService, httpStatusResolver, codeProvider, responseProperties,
+                new DefaultCocoResponseBodyFactory());
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 全局异常处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
+     * @param responseProperties 统一响应配置
+     * @param responseBodyFactory 响应体工厂
+     */
+    public CocoWebExceptionHandler(CocoMessageService messageService,
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
+            CocoResponseProperties responseProperties, CocoResponseBodyFactory responseBodyFactory) {
         this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
         this.httpStatusResolver = Objects.requireNonNull(httpStatusResolver,
                 "httpStatusResolver must not be null");
         this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
         this.responseProperties = responseProperties == null ? new CocoResponseProperties() : responseProperties;
+        this.responseBodyFactory = Objects.requireNonNull(responseBodyFactory,
+                "responseBodyFactory must not be null");
     }
 
     /**
@@ -90,7 +113,7 @@ public class CocoWebExceptionHandler {
      * @return 统一异常响应实体
      */
     @ExceptionHandler(CocoException.class)
-    public ResponseEntity<CocoApiResponse<Void>> handleCocoException(CocoException exception, WebRequest request) {
+    public ResponseEntity<Object> handleCocoException(CocoException exception, WebRequest request) {
         CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");
         HttpStatusCode statusCode = Objects.requireNonNull(this.httpStatusResolver.resolve(checkedException),
                 "resolved http status must not be null");
@@ -99,7 +122,7 @@ public class CocoWebExceptionHandler {
                 .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
         CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
                 resolveTraceIdForBody(), resolvePath(request));
-        CocoApiResponse<Void> response = CocoApiResponse.error(code, message, metadata);
+        Object response = this.responseBodyFactory.error(CocoResponsePayload.error(code, message, metadata));
         return ResponseEntity.status(statusCode).body(response);
     }
 

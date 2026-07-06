@@ -21,7 +21,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 /**
  * Coco Web 正常响应包装处理器。
  * <p>
- * 在 Spring MVC 写出响应体前，将普通业务返回值包装为 {@link CocoApiResponse}，并保留显式跳过、文件下载和已经包装的响应。
+ * 在 Spring MVC 写出响应体前，将普通业务返回值包装为统一响应体，并保留显式跳过、文件下载和已经包装的响应。
  * </p>
  * <p>
  * 项目信息：
@@ -46,6 +46,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
     private final ObjectMapper objectMapper;
 
     private final CocoResponseProperties responseProperties;
+
+    private final CocoResponseBodyFactory responseBodyFactory;
 
     /**
      * <p>
@@ -74,11 +76,31 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
     public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
             CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
             CocoResponseProperties responseProperties) {
+        this(messageService, properties, codeProvider, objectMapper, responseProperties,
+                new DefaultCocoResponseBodyFactory());
+    }
+
+    /**
+     * <p>
+     * 创建正常响应包装处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param properties 正常响应包装配置
+     * @param codeProvider 系统响应码提供器
+     * @param objectMapper JSON 序列化器
+     * @param responseProperties 统一响应配置
+     * @param responseBodyFactory 响应体工厂
+     */
+    public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
+            CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
+            CocoResponseProperties responseProperties, CocoResponseBodyFactory responseBodyFactory) {
         this.messageService = Objects.requireNonNull(messageService);
         this.properties = properties == null ? new CocoResponseWrapProperties() : properties;
         this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper);
         this.responseProperties = responseProperties == null ? new CocoResponseProperties() : responseProperties;
+        this.responseBodyFactory = Objects.requireNonNull(responseBodyFactory,
+                "responseBodyFactory must not be null");
     }
 
     /**
@@ -117,11 +139,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
         }
         CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
                 resolveTraceIdForBody(), resolvePath(request));
-        CocoApiResponse<Object> wrapped = CocoApiResponse.success(
-                this.codeProvider.success(),
-                this.messageService.getMessage(this.properties.getSuccessMessageCode()),
-                body,
-                metadata);
+        Object wrapped = this.responseBodyFactory.success(CocoResponsePayload.success(this.codeProvider.success(),
+                this.messageService.getMessage(this.properties.getSuccessMessageCode()), body, metadata));
         if (StringHttpMessageConverter.class.isAssignableFrom(selectedConverterType)) {
             return writeJson(wrapped);
         }
@@ -148,7 +167,7 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
                 || body instanceof byte[];
     }
 
-    private String writeJson(CocoApiResponse<?> response) {
+    private String writeJson(Object response) {
         try {
             return this.objectMapper.writeValueAsString(response);
         } catch (JsonProcessingException ex) {

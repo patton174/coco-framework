@@ -13,9 +13,11 @@ import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
+import io.github.coco.feature.web.response.CocoResponseBodyFactory;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.CocoSystemCodes;
+import io.github.coco.feature.web.response.DefaultCocoResponseBodyFactory;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -100,6 +102,18 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco 响应体工厂。
+     * </p>
+     * @return Coco 响应体工厂
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoResponseBodyFactory cocoResponseBodyFactory() {
+        return new DefaultCocoResponseBodyFactory();
+    }
+
+    /**
+     * <p>
      * 创建 Coco Web 全局异常处理器。
      * </p>
      * @param messageService Coco 消息服务
@@ -112,9 +126,9 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoWebExceptionHandler cocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
-            CocoWebProperties properties) {
+            CocoWebProperties properties, CocoResponseBodyFactory responseBodyFactory) {
         return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider,
-                properties.getResponse());
+                properties.getResponse(), responseBodyFactory);
     }
 
     /**
@@ -133,9 +147,11 @@ public class CocoWebAutoConfiguration {
             matchIfMissing = true)
     @ConditionalOnMissingBean
     public CocoResponseWrapAdvice cocoResponseWrapAdvice(CocoMessageService messageService,
-            CocoWebProperties properties, CocoSystemCodeProvider codeProvider, ObjectProvider<ObjectMapper> objectMapper) {
+            CocoWebProperties properties, CocoSystemCodeProvider codeProvider, ObjectProvider<ObjectMapper> objectMapper,
+            CocoResponseBodyFactory responseBodyFactory) {
         return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(),
-                codeProvider, objectMapper.getIfAvailable(ObjectMapper::new), properties.getResponse());
+                codeProvider, objectMapper.getIfAvailable(ObjectMapper::new), properties.getResponse(),
+                responseBodyFactory);
     }
 
     /**

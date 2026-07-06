@@ -27,7 +27,9 @@ import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoApiResponse;
 import io.github.coco.feature.web.response.CocoIgnoreResponseWrap;
+import io.github.coco.feature.web.response.CocoResponseBodyFactory;
 import io.github.coco.feature.web.response.CocoResponseMetadataMode;
+import io.github.coco.feature.web.response.CocoResponsePayload;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
@@ -132,7 +134,9 @@ class CocoWebAutoConfigurationTest {
     @Test
     void createsResponseWrapAdviceByDefault() {
         this.webContextRunner.run(context -> {
+            assertTrue(context.containsBean("cocoResponseBodyFactory"));
             assertTrue(context.containsBean("cocoResponseWrapAdvice"));
+            assertNotNull(context.getBean(CocoResponseBodyFactory.class));
             assertNotNull(context.getBean(CocoResponseWrapAdvice.class));
         });
     }
@@ -221,13 +225,12 @@ class CocoWebAutoConfigurationTest {
             CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
 
-            ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+            ResponseEntity<Object> response = handler.handleCocoException(
                     CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"),
                     new ServletWebRequest(request));
 
-            CocoApiResponse<Void> body = response.getBody();
+            CocoApiResponse<?> body = apiBody(response);
             assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-            assertNotNull(body);
             assertFalse(body.success());
             assertEquals(400, body.code());
             assertEquals("参数不合法：name", body.message());
@@ -245,12 +248,11 @@ class CocoWebAutoConfigurationTest {
                     CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
                     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
 
-                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                    ResponseEntity<Object> response = handler.handleCocoException(
                             CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"),
                             new ServletWebRequest(request));
 
-                    CocoApiResponse<Void> body = response.getBody();
-                    assertNotNull(body);
+                    CocoApiResponse<?> body = apiBody(response);
                     assertEquals("trace-test", body.traceId());
                     assertEquals("/api/users", body.path());
                 });
@@ -262,13 +264,12 @@ class CocoWebAutoConfigurationTest {
             CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users/404");
 
-            ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+            ResponseEntity<Object> response = handler.handleCocoException(
                     CocoCommonErrorCode.NOT_FOUND.notFound("user"),
                     new ServletWebRequest(request));
 
-            CocoApiResponse<Void> body = response.getBody();
+            CocoApiResponse<?> body = apiBody(response);
             assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-            assertNotNull(body);
             assertFalse(body.success());
             assertEquals(404, body.code());
             assertEquals("资源不存在：user", body.message());
@@ -436,7 +437,7 @@ class CocoWebAutoConfigurationTest {
                     CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
                     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
 
-                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                    ResponseEntity<Object> response = handler.handleCocoException(
                             CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"),
                             new ServletWebRequest(request));
 
@@ -467,12 +468,47 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(0, ((CocoApiResponse<?>) body).code());
 
                     CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
-                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                    ResponseEntity<Object> response = handler.handleCocoException(
                             CocoCommonErrorCode.NOT_FOUND.notFound("user"),
                             new ServletWebRequest(new MockHttpServletRequest("GET", "/api/users/404")));
 
-                    assertNotNull(response.getBody());
-                    assertEquals(100404, response.getBody().code());
+                    assertEquals(100404, apiBody(response).code());
+                });
+    }
+
+    @Test
+    void usesCustomResponseBodyFactoryForSuccessAndErrorBodies() throws Exception {
+        CocoResponseBodyFactory responseBodyFactory = new CocoResponseBodyFactory() {
+
+            @Override
+            public Object success(CocoResponsePayload<?> payload) {
+                return Map.of("ok", payload.success(), "status", payload.code(), "result", payload.data());
+            }
+
+            @Override
+            public Object error(CocoResponsePayload<?> payload) {
+                return Map.of("ok", payload.success(), "status", payload.code(), "error", payload.message());
+            }
+        };
+        this.webContextRunner
+                .withBean(CocoResponseBodyFactory.class, () -> responseBodyFactory)
+                .run(context -> {
+                    CocoResponseWrapAdvice advice = context.getBean(CocoResponseWrapAdvice.class);
+                    MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+                    ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+
+                    Object body = advice.beforeBodyWrite(Map.of("name", "Coco"), methodParameter("objectBody"),
+                            MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request,
+                            new ServletServerHttpResponse(new MockHttpServletResponse()));
+
+                    assertEquals(Map.of("ok", true, "status", 200, "result", Map.of("name", "Coco")), body);
+
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<Object> error = handler.handleCocoException(
+                            CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"),
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/users")));
+
+                    assertEquals(Map.of("ok", false, "status", 400, "error", "参数不合法：name"), error.getBody());
                 });
     }
 
@@ -485,14 +521,14 @@ class CocoWebAutoConfigurationTest {
                 .withBean(CocoSystemCodeProvider.class, () -> codeProvider)
                 .run(context -> {
                     CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
-                    ResponseEntity<CocoApiResponse<Void>> response = handler.handleCocoException(
+                    ResponseEntity<Object> response = handler.handleCocoException(
                             CocoBusinessExceptions.notFound(TestBusinessCode.ORDER_NOT_FOUND, "ORD-1001"),
                             new ServletWebRequest(new MockHttpServletRequest("GET", "/api/orders/ORD-1001")));
 
-                    assertNotNull(response.getBody());
+                    CocoApiResponse<?> body = apiBody(response);
                     assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-                    assertEquals(200001, response.getBody().code());
-                    assertEquals("资源不存在：ORD-1001", response.getBody().message());
+                    assertEquals(200001, body.code());
+                    assertEquals("资源不存在：ORD-1001", body.message());
                 });
     }
 
@@ -764,6 +800,12 @@ class CocoWebAutoConfigurationTest {
 
     private static CocoTraceFilter traceFilter(FilterRegistrationBean<?> registrationBean) {
         return (CocoTraceFilter) registrationBean.getFilter();
+    }
+
+    private static CocoApiResponse<?> apiBody(ResponseEntity<Object> response) {
+        Object body = response.getBody();
+        assertTrue(body instanceof CocoApiResponse<?>);
+        return (CocoApiResponse<?>) body;
     }
 
     private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService) {
