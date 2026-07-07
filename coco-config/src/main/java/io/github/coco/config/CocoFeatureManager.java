@@ -45,5 +45,5 @@ public interface CocoFeatureManager {
      * </p>
      * @return 禁用功能集合
      */
-    Set<CocoFeature> excludedFeatures();
+    Set<CocoFeature> disabledFeatures();
 }

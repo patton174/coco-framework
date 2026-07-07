@@ -1,5 +1,6 @@
 package io.github.coco.common.logging.access;
 
+import java.util.List;
 import java.util.Objects;
 
 import io.github.coco.common.logging.core.CocoLogHandles;
@@ -53,7 +54,31 @@ public final class Slf4jCocoAccessLogRecorder implements CocoAccessLogRecorder {
         if (!this.properties.isEnabled() || !this.properties.getLevel().enabled()) {
             return;
         }
-        this.logManager.log(CocoLogHandles.ACCESS, this.properties.getLevel(),
-                this.formatter.format(accessLog, this.properties), null);
+        List<String> entries = this.formatter.formatEntries(accessLog, this.properties);
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        int lastPrintableIndex = lastPrintableIndex(entries);
+        for (int index = 0; index < entries.size(); index++) {
+            String entry = entries.get(index);
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            Throwable failure = index == lastPrintableIndex ? accessLog.failure().orElse(null) : null;
+            this.logManager.log(CocoLogHandles.ACCESS, this.properties.getLevel(), entry, failure);
+        }
+    }
+
+    private static int lastPrintableIndex(List<String> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return -1;
+        }
+        for (int index = entries.size() - 1; index >= 0; index--) {
+            String entry = entries.get(index);
+            if (entry != null && !entry.isBlank()) {
+                return index;
+            }
+        }
+        return -1;
     }
 }

@@ -36,7 +36,7 @@ public final class CocoRuntimeFeatureResolver {
      * </p>
      * <p>
      * 方法会优先读取构建期清单；当清单不存在时，再从 Spring 环境中的
-     * {@code coco.features.enabled}、{@code coco.features.disabled} 和 {@code coco.features.exclude} 解析。
+     * {@code coco.features.enabled} 和 {@code coco.features.disabled} 解析。
      * </p>
      * @param environment Spring 环境
      * @param classLoader 用于读取构建期清单的类加载器
@@ -52,11 +52,9 @@ public final class CocoRuntimeFeatureResolver {
         if (environment == null) {
             return StandardCocoFeatures.resolve(CocoFeatureSelection.empty());
         }
-        Set<CocoFeature> disabled = new LinkedHashSet<>(bind(environment, "coco.features.disabled"));
-        disabled.addAll(bind(environment, "coco.features.exclude"));
         return StandardCocoFeatures.resolve(new CocoFeatureSelection(
                 bind(environment, "coco.features.enabled"),
-                disabled));
+                new LinkedHashSet<>(bind(environment, "coco.features.disabled"))));
     }
 
     private Set<CocoFeature> bind(Environment environment, String propertyName) {

@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
  * Coco 日志机制配置属性。
  * <p>
  * 绑定 {@code coco.logging} 命名空间，控制 Coco 默认控制台日志格式、Spring 原始启动日志降噪、
- * 异步日志输出以及访问日志配置。
+ * 异步日志输出、Node 终端渲染器以及访问日志配置。
  * </p>
  * <p>
  * 项目信息：
@@ -28,8 +28,8 @@ public class CocoLoggingProperties {
      * Coco 默认控制台日志格式。
      */
     public static final String DEFAULT_CONSOLE_PATTERN = "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} "
-            + "%highlight(%-5level) %clr(coco){cyan} %clr(%-10.10logger{0}){magenta} "
-            + "%clr([%15.15thread]){faint} %msg%n%wEx";
+            + "%highlight(%-5level) %clr(COCO){cyan} %clr(%logger{32}){magenta} "
+            + "%clr([%thread]){faint} : %msg%n%wEx";
 
     private boolean enabled = true;
 
@@ -39,6 +39,9 @@ public class CocoLoggingProperties {
 
     @NestedConfigurationProperty
     private AsyncProperties async = new AsyncProperties();
+
+    @NestedConfigurationProperty
+    private NodeRendererProperties nodeRenderer = new NodeRendererProperties();
 
     @NestedConfigurationProperty
     private CocoAccessLogProperties accessLog = new CocoAccessLogProperties();
@@ -127,6 +130,26 @@ public class CocoLoggingProperties {
 
     /**
      * <p>
+     * 返回 Node 终端日志渲染器配置。
+     * </p>
+     * @return Node 终端日志渲染器配置
+     */
+    public NodeRendererProperties getNodeRenderer() {
+        return this.nodeRenderer;
+    }
+
+    /**
+     * <p>
+     * 设置 Node 终端日志渲染器配置。
+     * </p>
+     * @param nodeRenderer Node 终端日志渲染器配置
+     */
+    public void setNodeRenderer(NodeRendererProperties nodeRenderer) {
+        this.nodeRenderer = nodeRenderer == null ? new NodeRendererProperties() : nodeRenderer;
+    }
+
+    /**
+     * <p>
      * 返回访问日志配置。
      * </p>
      * @return 访问日志配置
@@ -207,6 +230,117 @@ public class CocoLoggingProperties {
          */
         public void setQueueCapacity(int queueCapacity) {
             this.queueCapacity = queueCapacity <= 0 ? DEFAULT_QUEUE_CAPACITY : queueCapacity;
+        }
+    }
+
+    /**
+     * Coco Node 终端日志渲染器配置。
+     * <p>
+     * 控制 jar 启动时是否自动启动 Node.js 日志渲染子进程来接管控制台输出。
+     * </p>
+     * <p>
+     * 项目信息：
+     * </p>
+     * <ul>
+     *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+     *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+     *   <li>模块：{@code coco-common-logging}</li>
+     * </ul>
+     * @author patton174
+     * @since 1.0.0
+     */
+    public static class NodeRendererProperties {
+
+        private boolean enabled = true;
+
+        private boolean jarOnly = true;
+
+        private String command = "node";
+
+        private String color = "always";
+
+        /**
+         * <p>
+         * 返回是否启用 Node 终端日志渲染器。
+         * </p>
+         * @return 启用时返回 {@code true}
+         */
+        public boolean isEnabled() {
+            return this.enabled;
+        }
+
+        /**
+         * <p>
+         * 设置是否启用 Node 终端日志渲染器。
+         * </p>
+         * @param enabled 是否启用
+         */
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        /**
+         * <p>
+         * 返回是否只在 {@code java -jar} 启动场景自动接管日志输出。
+         * </p>
+         * @return 仅 jar 启动场景启用时返回 {@code true}
+         */
+        public boolean isJarOnly() {
+            return this.jarOnly;
+        }
+
+        /**
+         * <p>
+         * 设置是否只在 {@code java -jar} 启动场景自动接管日志输出。
+         * </p>
+         * @param jarOnly 是否仅 jar 启动场景启用
+         */
+        public void setJarOnly(boolean jarOnly) {
+            this.jarOnly = jarOnly;
+        }
+
+        /**
+         * <p>
+         * 返回 Node.js 命令。
+         * </p>
+         * @return Node.js 命令
+         */
+        public String getCommand() {
+            return this.command;
+        }
+
+        /**
+         * <p>
+         * 设置 Node.js 命令。
+         * </p>
+         * @param command Node.js 命令；为空时使用 {@code node}
+         */
+        public void setCommand(String command) {
+            this.command = command == null || command.isBlank() ? "node" : command.trim();
+        }
+
+        /**
+         * <p>
+         * 返回颜色模式。
+         * </p>
+         * @return 颜色模式，支持 {@code always}、{@code auto}、{@code never}
+         */
+        public String getColor() {
+            return this.color;
+        }
+
+        /**
+         * <p>
+         * 设置颜色模式。
+         * </p>
+         * @param color 颜色模式，支持 {@code always}、{@code auto}、{@code never}
+         */
+        public void setColor(String color) {
+            String checkedColor = color == null || color.isBlank() ? "always" : color.trim().toLowerCase();
+            this.color = switch (checkedColor) {
+                case "auto", "never" -> checkedColor;
+                default -> "always";
+            };
         }
     }
 }

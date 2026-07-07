@@ -71,22 +71,46 @@ class AsyncCocoLogSinkTest {
         }
     }
 
+    @Test
+    void writesErrorWithFailureSynchronouslyEvenWhenQueueHasCapacity() {
+        CapturingSink delegate = new CapturingSink();
+        String callerThreadName = Thread.currentThread().getName();
+
+        try (AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 8)) {
+            sink.log(record(CocoLogLevel.ERROR, "boom", new IllegalStateException("boom")));
+
+            assertEquals(List.of("boom"), delegate.messages());
+            assertEquals(List.of(callerThreadName), delegate.threadNames());
+        }
+    }
+
     private static CocoLogRecord record(CocoLogLevel level, String message) {
+        return record(level, message, null);
+    }
+
+    private static CocoLogRecord record(CocoLogLevel level, String message, Throwable failure) {
         return new CocoLogRecord(CocoLogHandle.of("test", "io.github.coco.test", CocoLogLevel.TRACE),
-                level, message, null);
+                level, message, failure);
     }
 
     private static class CapturingSink implements CocoLogSink {
 
         private final List<String> messages = new CopyOnWriteArrayList<>();
 
+        private final List<String> threadNames = new CopyOnWriteArrayList<>();
+
         @Override
         public void log(CocoLogRecord record) {
             this.messages.add(record.message());
+            this.threadNames.add(Thread.currentThread().getName());
         }
 
         protected List<String> messages() {
             return List.copyOf(this.messages);
+        }
+
+        protected List<String> threadNames() {
+            return List.copyOf(this.threadNames);
         }
 
         protected boolean awaitMessages(int count) throws InterruptedException {

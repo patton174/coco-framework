@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Coco 功能管理器测试。
  * <p>
- * 验证运行时功能启用状态和依赖排除传播规则。
+ * 验证运行时功能启用状态和依赖禁用传播规则。
  * </p>
  * <p>
  * 项目信息：
@@ -35,11 +35,11 @@ class CocoFeatureManagerTest {
         CocoFeatureManager manager = new DefaultCocoFeatureManager(Set.of());
 
         assertEquals(EnumSet.allOf(CocoFeature.class), manager.enabledFeatures());
-        assertTrue(manager.excludedFeatures().isEmpty());
+        assertTrue(manager.disabledFeatures().isEmpty());
     }
 
     @Test
-    void excludesDependentFeaturesWhenBaseFeatureIsExcluded() {
+    void disablesDependentFeaturesWhenBaseFeatureIsDisabled() {
         CocoFeatureManager manager = new DefaultCocoFeatureManager(Set.of(CocoFeature.MYBATIS_PLUS));
 
         assertFalse(manager.isEnabled(CocoFeature.MYBATIS_PLUS));
@@ -59,6 +59,6 @@ class CocoFeatureManagerTest {
 
         assertFalse(manager.isEnabled(CocoFeature.OPENAPI));
         assertTrue(manager.enabledFeatures().contains(CocoFeature.WEB));
-        assertTrue(manager.excludedFeatures().contains(CocoFeature.OPENAPI));
+        assertTrue(manager.disabledFeatures().contains(CocoFeature.OPENAPI));
     }
 }

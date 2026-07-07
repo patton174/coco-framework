@@ -66,6 +66,46 @@ public class SampleOrderController {
      */
     @PostMapping("/orders")
     public SampleOrderResponse createOrder(@RequestBody SampleCreateOrderRequest request) {
+        return createOrderResponse(request);
+    }
+
+    /**
+     * <p>
+     * 创建签名保护订单。
+     * </p>
+     * @param request 创建订单请求
+     * @return 已创建订单响应
+     */
+    @PostMapping("/secure/signature/orders")
+    public SampleOrderResponse createSignatureOrder(@RequestBody SampleCreateOrderRequest request) {
+        return createOrderResponse(request);
+    }
+
+    /**
+     * <p>
+     * 创建防重放保护订单。
+     * </p>
+     * @param request 创建订单请求
+     * @return 已创建订单响应
+     */
+    @PostMapping("/secure/replay/orders")
+    public SampleOrderResponse createReplayOrder(@RequestBody SampleCreateOrderRequest request) {
+        return createOrderResponse(request);
+    }
+
+    /**
+     * <p>
+     * 创建加密保护订单。
+     * </p>
+     * @param request 创建订单请求
+     * @return 已创建订单响应
+     */
+    @PostMapping("/secure/encryption/orders")
+    public SampleOrderResponse createEncryptionOrder(@RequestBody SampleCreateOrderRequest request) {
+        return createOrderResponse(request);
+    }
+
+    private SampleOrderResponse createOrderResponse(SampleCreateOrderRequest request) {
         return SampleOrderResponse.from(this.orderApplicationService.createOrder(request.buyerName(), request.sku(),
                 request.quantity()));
     }

@@ -38,6 +38,7 @@ public final class CocoLoggingEnvironmentPostProcessor implements EnvironmentPos
         if (!environment.getProperty("coco.logging.enabled", Boolean.class, true)) {
             return;
         }
+        CocoNodeLogRendererBootstrap.install(environment);
         Map<String, Object> defaults = new LinkedHashMap<>();
         defaults.put("logging.pattern.console", environment.getProperty("coco.logging.console-pattern",
                 CocoLoggingProperties.DEFAULT_CONSOLE_PATTERN));

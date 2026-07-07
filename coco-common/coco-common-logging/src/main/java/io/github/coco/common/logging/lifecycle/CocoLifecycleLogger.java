@@ -4,6 +4,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.OptionalInt;
 
 import io.github.coco.common.logging.core.CocoLogHandles;
@@ -27,6 +28,8 @@ import org.springframework.context.ConfigurableApplicationContext;
  * @since 1.0.0
  */
 public final class CocoLifecycleLogger {
+
+    private static final String STARTED_HANDLE = CocoLogHandles.LIFECYCLE;
 
     private final CocoLogManager logManager;
 
@@ -57,7 +60,8 @@ public final class CocoLifecycleLogger {
      * @param timeTaken 启动耗时
      */
     public void started(ConfigurableApplicationContext context, Duration timeTaken) {
-        this.logManager.info(CocoLogHandles.LIFECYCLE, startedMessage(context, timeTaken));
+        startedRecords(context, timeTaken)
+                .forEach(message -> this.logManager.info(STARTED_HANDLE, message));
     }
 
     /**
@@ -68,7 +72,7 @@ public final class CocoLifecycleLogger {
      * @param timeTaken 启动耗时
      */
     public void ready(ConfigurableApplicationContext context, Duration timeTaken) {
-        this.logManager.info(CocoLogHandles.LIFECYCLE, readyMessage(context, timeTaken));
+        this.logManager.info(STARTED_HANDLE, readyMessage(context, timeTaken));
     }
 
     /**
@@ -79,7 +83,7 @@ public final class CocoLifecycleLogger {
      * @param exception 启动异常
      */
     public void failed(ConfigurableApplicationContext context, Throwable exception) {
-        this.logManager.error(CocoLogHandles.LIFECYCLE, failedMessage(context, exception), exception);
+        this.logManager.error(STARTED_HANDLE, failedMessage(context, exception), exception);
     }
 
     /**
@@ -91,14 +95,19 @@ public final class CocoLifecycleLogger {
      * @return 应用上下文启动完成事件日志文本
      */
     public String startedMessage(ConfigurableApplicationContext context, Duration timeTaken) {
-        return String.join(System.lineSeparator(),
-                "▸ startup",
-                "  app      " + context.getId(),
-                "  profiles " + activeProfiles(context),
-                "  time     " + durationMillis(timeTaken) + "ms",
-                "  java     " + System.getProperty("java.version"),
-                "  pid      " + ProcessHandle.current().pid(),
-                "  workdir  \"" + escape(System.getProperty("user.dir")) + "\"");
+        return String.join(System.lineSeparator(), startedRecords(context, timeTaken));
+    }
+
+    /**
+     * <p>
+     * 创建应用上下文启动完成事件日志文本列表。
+     * </p>
+     * @param context 应用上下文
+     * @param timeTaken 启动耗时
+     * @return 应用上下文启动完成事件日志文本列表
+     */
+    public List<String> startedMessages(ConfigurableApplicationContext context, Duration timeTaken) {
+        return startedRecords(context, timeTaken);
     }
 
     /**
@@ -110,13 +119,11 @@ public final class CocoLifecycleLogger {
      * @return 启动完成事件日志文本
      */
     public String readyMessage(ConfigurableApplicationContext context, Duration timeTaken) {
-        StringBuilder message = new StringBuilder(String.join(System.lineSeparator(),
-                "◂ ready",
-                "  app      " + context.getId(),
-                "  profiles " + activeProfiles(context),
-                "  time     " + durationMillis(timeTaken) + "ms"));
-        resolvePort(context).ifPresent(port -> message.append(System.lineSeparator())
-                .append("  port     ").append(port));
+        StringBuilder message = new StringBuilder("◂ ready")
+                .append(" app=").append(context.getId())
+                .append(" profiles=").append(activeProfiles(context))
+                .append(" time=").append(durationMillis(timeTaken)).append("ms");
+        resolvePort(context).ifPresent(port -> message.append(" port=").append(port));
         return message.toString();
     }
 
@@ -131,10 +138,23 @@ public final class CocoLifecycleLogger {
     public String failedMessage(ConfigurableApplicationContext context, Throwable exception) {
         String application = context == null ? "unknown" : context.getId();
         String exceptionName = exception == null ? "unknown" : exception.getClass().getName();
+        String message = exception == null || exception.getMessage() == null || exception.getMessage().isBlank()
+                ? "unknown"
+                : exception.getMessage();
         return String.join(System.lineSeparator(),
                 "◂ failed",
-                "  app      " + application,
-                "  exception " + exceptionName);
+                "  app       " + application,
+                "  exception " + exceptionName,
+                "  message   " + message);
+    }
+
+    private static List<String> startedRecords(ConfigurableApplicationContext context, Duration timeTaken) {
+        return List.of(
+                "app " + context.getId(),
+                "profiles " + activeProfiles(context),
+                "time " + durationMillis(timeTaken) + "ms",
+                "java " + System.getProperty("java.version"),
+                "pid " + ProcessHandle.current().pid());
     }
 
     private static long durationMillis(Duration duration) {
@@ -166,9 +186,5 @@ public final class CocoLifecycleLogger {
                 .filter(profile -> profile != null && !profile.isBlank())
                 .map(String::trim)
                 .toList());
-    }
-
-    private static String escape(String value) {
-        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

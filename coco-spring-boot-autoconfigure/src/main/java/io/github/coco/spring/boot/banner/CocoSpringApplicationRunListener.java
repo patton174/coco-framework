@@ -3,6 +3,7 @@ package io.github.coco.spring.boot.banner;
 import java.time.Duration;
 
 import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
+import io.github.coco.spring.boot.logging.CocoNodeLogRendererBootstrap;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.SpringApplicationRunListener;
@@ -30,8 +31,6 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
 
     private final SpringApplication application;
 
-    private final CocoLifecycleLogger lifecycleLogger = new CocoLifecycleLogger();
-
     /**
      * <p>
      * 创建 Coco Spring 应用运行监听器。
@@ -49,6 +48,9 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
     @Override
     public void environmentPrepared(ConfigurableBootstrapContext bootstrapContext,
             ConfigurableEnvironment environment) {
+        if (environment.getProperty("coco.logging.enabled", Boolean.class, true)) {
+            CocoNodeLogRendererBootstrap.install(environment);
+        }
         if (environment.getProperty("coco.banner.enabled", Boolean.class, true)
                 && !environment.containsProperty("spring.banner.location")) {
             this.application.setBanner(new CocoSpringBanner());
@@ -88,7 +90,7 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
     @Override
     public void started(ConfigurableApplicationContext context, Duration timeTaken) {
         if (context.getEnvironment().getProperty("coco.logging.enabled", Boolean.class, true)) {
-            this.lifecycleLogger.started(context, timeTaken);
+            lifecycleLogger(context).started(context, timeTaken);
         }
     }
 
@@ -98,7 +100,7 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
     @Override
     public void ready(ConfigurableApplicationContext context, Duration timeTaken) {
         if (context.getEnvironment().getProperty("coco.logging.enabled", Boolean.class, true)) {
-            this.lifecycleLogger.ready(context, timeTaken);
+            lifecycleLogger(context).ready(context, timeTaken);
         }
     }
 
@@ -108,7 +110,19 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
     @Override
     public void failed(ConfigurableApplicationContext context, Throwable exception) {
         if (context == null || context.getEnvironment().getProperty("coco.logging.enabled", Boolean.class, true)) {
-            this.lifecycleLogger.failed(context, exception);
+            lifecycleLogger(context).failed(context, exception);
         }
+    }
+
+    private static CocoLifecycleLogger lifecycleLogger(ConfigurableApplicationContext context) {
+        if (context != null) {
+            try {
+                return context.getBean(CocoLifecycleLogger.class);
+            }
+            catch (RuntimeException ex) {
+                // 启动早期失败时可能尚未完成日志 Bean 装配，回退到默认生命周期记录器。
+            }
+        }
+        return new CocoLifecycleLogger();
     }
 }

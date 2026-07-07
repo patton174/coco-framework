@@ -12,7 +12,7 @@ import io.github.coco.feature.registry.StandardCocoFeatures;
 /**
  * 默认 Coco 功能管理器。
  * <p>
- * 根据显式排除项和标准功能依赖关系，计算最终启用与排除的功能集合。
+ * 根据显式禁用项和标准功能依赖关系，计算最终启用与禁用的功能集合。
  * </p>
  * <p>
  * 项目信息：
@@ -31,16 +31,16 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
 
     private final Set<CocoFeature> enabledFeatures;
 
-    private final Set<CocoFeature> excludedFeatures;
+    private final Set<CocoFeature> disabledFeatures;
 
     /**
      * <p>
      * 基于显式禁用功能集合创建功能管理器。
      * </p>
-     * @param excludedFeatures 显式禁用的功能集合
+     * @param disabledFeatures 显式禁用的功能集合
      */
-    public DefaultCocoFeatureManager(Set<CocoFeature> excludedFeatures) {
-        this(StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(excludedFeatures)));
+    public DefaultCocoFeatureManager(Set<CocoFeature> disabledFeatures) {
+        this(StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(disabledFeatures)));
     }
 
     /**
@@ -52,9 +52,9 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
     public DefaultCocoFeatureManager(CocoFeaturePlan featurePlan) {
         this.featurePlan = Objects.requireNonNull(featurePlan, "featurePlan must not be null");
         this.enabledFeatures = this.featurePlan.enabledFeatures();
-        EnumSet<CocoFeature> resolvedExcluded = EnumSet.allOf(CocoFeature.class);
-        resolvedExcluded.removeAll(this.enabledFeatures);
-        this.excludedFeatures = Set.copyOf(resolvedExcluded);
+        EnumSet<CocoFeature> resolvedDisabled = EnumSet.allOf(CocoFeature.class);
+        resolvedDisabled.removeAll(this.enabledFeatures);
+        this.disabledFeatures = Set.copyOf(resolvedDisabled);
     }
 
     /**
@@ -77,8 +77,8 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
      * {@inheritDoc}
      */
     @Override
-    public Set<CocoFeature> excludedFeatures() {
-        return this.excludedFeatures;
+    public Set<CocoFeature> disabledFeatures() {
+        return this.disabledFeatures;
     }
 
     /**

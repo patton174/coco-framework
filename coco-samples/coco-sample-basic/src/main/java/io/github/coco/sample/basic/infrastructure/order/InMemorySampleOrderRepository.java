@@ -44,6 +44,9 @@ public class InMemorySampleOrderRepository implements SampleOrderRepository {
     public InMemorySampleOrderRepository() {
         this.products.put("COCO-STARTER", new ProductState("COCO-STARTER", "Coco Starter", 9900L, 5));
         this.products.put("COCO-AUDIT", new ProductState("COCO-AUDIT", "Coco Audit", 12900L, 2));
+        this.products.put("COCO-SIGNATURE", new ProductState("COCO-SIGNATURE", "Coco Signature", 11900L, 20));
+        this.products.put("COCO-REPLAY", new ProductState("COCO-REPLAY", "Coco Replay", 10900L, 20));
+        this.products.put("COCO-ENCRYPTION", new ProductState("COCO-ENCRYPTION", "Coco Encryption", 13900L, 20));
     }
 
     /**

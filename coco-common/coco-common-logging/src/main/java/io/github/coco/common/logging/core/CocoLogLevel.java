@@ -69,4 +69,26 @@ public enum CocoLogLevel {
     public boolean enabled() {
         return this != OFF;
     }
+
+    /**
+     * <p>
+     * 判断当前级别作为日志句柄阈值时，是否允许输出目标日志级别。
+     * </p>
+     * @param level 待输出的日志级别
+     * @return 当前级别启用且目标级别不低于当前阈值时返回 {@code true}
+     */
+    public boolean allows(CocoLogLevel level) {
+        return enabled() && level != null && level.enabled() && priority(level) <= priority(this);
+    }
+
+    private static int priority(CocoLogLevel level) {
+        return switch (level) {
+            case ERROR -> 0;
+            case WARN -> 1;
+            case INFO -> 2;
+            case DEBUG -> 3;
+            case TRACE -> 4;
+            case OFF -> 5;
+        };
+    }
 }

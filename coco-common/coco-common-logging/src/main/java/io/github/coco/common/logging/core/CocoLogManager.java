@@ -61,7 +61,7 @@ public final class CocoLogManager {
         CocoLogLevel checkedLevel = level == null ? CocoLogLevel.INFO : level;
         CocoLogHandle handle = this.registry.find(handleName)
                 .orElseGet(() -> CocoLogHandle.of(handleName, "io.github.coco." + handleName, checkedLevel));
-        if (!checkedLevel.enabled() || !handle.defaultLevel().enabled()) {
+        if (!handle.defaultLevel().allows(checkedLevel)) {
             return;
         }
         this.sink.log(new CocoLogRecord(handle, checkedLevel, message, failure));

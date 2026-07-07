@@ -1,12 +1,8 @@
 package io.github.coco.feature.web.trace;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -16,11 +12,17 @@ import io.github.coco.common.logging.access.CocoAccessLog;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -45,9 +47,27 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
     private final String mdcKey;
 
+    private final boolean responseHeaderEnabled;
+
+    private final boolean responseCookieEnabled;
+
+    private final String cookieName;
+
+    private final String cookiePath;
+
+    private final int cookieMaxAge;
+
+    private final boolean cookieHttpOnly;
+
+    private final boolean cookieSecure;
+
+    private final String cookieSameSite;
+
     private final List<CocoAccessLogRecorder> accessLogRecorders;
 
     private final CocoAccessLogCaptureProperties accessLogProperties;
+
+    private final CocoWebRequestContextResolver requestContextResolver;
 
     /**
      * <p>
@@ -82,13 +102,40 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     public CocoTraceFilter(CocoTraceProperties properties,
             Collection<CocoAccessLogRecorder> accessLogRecorders,
             CocoAccessLogCaptureProperties accessLogProperties) {
+        this(properties, accessLogRecorders, accessLogProperties,
+                new DefaultCocoWebRequestContextResolver(null));
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web Trace 过滤器。
+     * </p>
+     * @param properties Trace 配置属性
+     * @param accessLogRecorders 接口访问日志记录器集合
+     * @param accessLogProperties 接口访问日志配置属性
+     * @param requestContextResolver Web 请求上下文解析器
+     */
+    public CocoTraceFilter(CocoTraceProperties properties,
+            Collection<CocoAccessLogRecorder> accessLogRecorders,
+            CocoAccessLogCaptureProperties accessLogProperties,
+            CocoWebRequestContextResolver requestContextResolver) {
         CocoTraceProperties checkedProperties = Objects.requireNonNull(properties, "properties must not be null");
         this.headerName = checkedProperties.getHeaderName();
         this.mdcKey = checkedProperties.getMdcKey();
+        this.responseHeaderEnabled = checkedProperties.isResponseHeaderEnabled();
+        this.responseCookieEnabled = checkedProperties.isResponseCookieEnabled();
+        this.cookieName = checkedProperties.getCookieName();
+        this.cookiePath = checkedProperties.getCookiePath();
+        this.cookieMaxAge = checkedProperties.getCookieMaxAge();
+        this.cookieHttpOnly = checkedProperties.isCookieHttpOnly();
+        this.cookieSecure = checkedProperties.isCookieSecure();
+        this.cookieSameSite = checkedProperties.getCookieSameSite();
         this.accessLogRecorders = accessLogRecorders == null ? List.of() : List.copyOf(accessLogRecorders);
         this.accessLogProperties = accessLogProperties == null
                 ? new CocoAccessLogCaptureProperties()
                 : accessLogProperties;
+        this.requestContextResolver = Objects.requireNonNull(requestContextResolver,
+                "requestContextResolver must not be null");
     }
 
     /**
@@ -100,10 +147,11 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         long startNanos = System.nanoTime();
         String traceId = resolveTraceId(request);
         String previousMdcValue = MDC.get(this.mdcKey);
-        CocoRequestContext requestContext = CocoRequestContext.of(traceId, request.getMethod(), resolvePath(request));
+        CocoWebRequestSnapshot requestSnapshot = this.requestContextResolver.resolve(traceId, request);
+        CocoRequestContext requestContext = requestSnapshot.toRequestContext();
         CocoRequestContextHolder.set(requestContext);
-        MDC.put(this.mdcKey, traceId);
-        response.setHeader(this.headerName, traceId);
+        MDC.put(this.mdcKey, requestSnapshot.traceId());
+        writeTraceResponse(response, requestSnapshot.traceId());
         Throwable failure = null;
         try {
             filterChain.doFilter(request, response);
@@ -113,7 +161,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             throw ex;
         }
         finally {
-            recordAccessLog(requestContext, request, response.getStatus(), elapsedMillis(startNanos), failure);
+            recordAccessLog(latestRequestSnapshot(request, requestSnapshot), response.getStatus(),
+                    elapsedMillis(startNanos), failure);
             restoreMdcValue(previousMdcValue);
             CocoRequestContextHolder.clear();
         }
@@ -137,9 +186,34 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         return requestTraceId.trim();
     }
 
-    private static String resolvePath(HttpServletRequest request) {
-        String requestUri = request.getRequestURI();
-        return requestUri == null || requestUri.isBlank() ? null : requestUri;
+    /**
+     * <p>
+     * 按配置将 TraceId 写入响应通道。
+     * </p>
+     * @param response 当前 HTTP 响应
+     * @param traceId 当前请求 TraceId
+     */
+    private void writeTraceResponse(HttpServletResponse response, String traceId) {
+        if (this.responseHeaderEnabled) {
+            response.setHeader(this.headerName, traceId);
+        }
+        if (this.responseCookieEnabled) {
+            response.addHeader(HttpHeaders.SET_COOKIE, buildTraceCookie(traceId));
+        }
+    }
+
+    private String buildTraceCookie(String traceId) {
+        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(this.cookieName, traceId)
+                .path(this.cookiePath)
+                .httpOnly(this.cookieHttpOnly)
+                .secure(this.cookieSecure);
+        if (this.cookieMaxAge >= 0) {
+            builder.maxAge(this.cookieMaxAge);
+        }
+        if (this.cookieSameSite != null && !this.cookieSameSite.isBlank()) {
+            builder.sameSite(this.cookieSameSite);
+        }
+        return builder.build().toString();
     }
 
     private void restoreMdcValue(String previousMdcValue) {
@@ -157,27 +231,37 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
      * <p>
      * 访问日志是旁路基础设施能力，记录器异常不会中断业务请求的收尾流程。
      * </p>
-     * @param requestContext 请求上下文
+     * @param requestSnapshot 请求快照
      * @param status 响应状态码
      * @param durationMillis 请求耗时，单位毫秒
      * @param failure 请求处理异常；正常完成时为空
      */
-    private void recordAccessLog(CocoRequestContext requestContext, HttpServletRequest request, int status,
+    private void recordAccessLog(CocoWebRequestSnapshot requestSnapshot, int status,
             long durationMillis, Throwable failure) {
         if (!this.accessLogProperties.isEnabled() || this.accessLogRecorders.isEmpty()) {
             return;
         }
-        CocoAccessLog accessLog = CocoAccessLog.of(requestContext.traceId(),
-                requestContext.method().orElse(null),
-                requestContext.path().orElse(null),
+        CocoAccessLog accessLog = CocoAccessLog.of(requestSnapshot.traceId(),
+                requestSnapshot.method(),
+                requestSnapshot.path(),
                 status,
                 durationMillis,
                 failure == null && status < 400,
                 failure == null ? null : failure.getClass().getName(),
-                resolveClientIp(request),
-                request.getHeader("User-Agent"),
-                resolveQueryString(request),
-                resolveRequestParameters(request));
+                requestSnapshot.clientIp(),
+                requestSnapshot.clientIpResolution().source().name(),
+                requestSnapshot.userAgent(),
+                requestSnapshot.contentType(),
+                requestSnapshot.queryString(),
+                requestSnapshot.headers(),
+                requestSnapshot.requestBody().effectiveSha256(),
+                requestSnapshot.requestBody().effectiveLength(),
+                requestSnapshot.requestBody().stage().id(),
+                requestSnapshot.browserFingerprint().value(),
+                requestSnapshot.payloadParseStatus().id(),
+                requestSnapshot.targetResolution().source().name(),
+                requestSnapshot.parameters())
+                .withFailure(failure);
         for (CocoAccessLogRecorder recorder : this.accessLogRecorders) {
             try {
                 recorder.record(accessLog);
@@ -201,147 +285,17 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
     /**
      * <p>
-     * 解析客户端 IP。
+     * 返回当前请求上的最新请求快照。
      * </p>
      * <p>
-     * 优先读取反向代理常用头，缺失时回退到 Servlet 容器提供的远端地址。
+     * 后续过滤器可能会刷新请求快照，例如 AES 解密后会将请求体从密文切换为业务可见的明文，因此访问日志应优先使用最新快照。
      * </p>
      * @param request 当前 HTTP 请求
-     * @return 客户端 IP
+     * @param fallbackSnapshot 兜底请求快照
+     * @return 最新请求快照；不存在时返回兜底快照
      */
-    private String resolveClientIp(HttpServletRequest request) {
-        String forwardedFor = firstHeaderValue(request, "X-Forwarded-For");
-        if (forwardedFor != null) {
-            return forwardedFor;
-        }
-        String realIp = firstHeaderValue(request, "X-Real-IP");
-        if (realIp != null) {
-            return realIp;
-        }
-        return request.getRemoteAddr();
-    }
-
-    /**
-     * <p>
-     * 返回逗号分隔请求头中的第一个有效值。
-     * </p>
-     * @param request 当前 HTTP 请求
-     * @param headerName 请求头名称
-     * @return 第一个有效值；请求头缺失时为空
-     */
-    private static String firstHeaderValue(HttpServletRequest request, String headerName) {
-        String headerValue = request.getHeader(headerName);
-        if (headerValue == null || headerValue.isBlank()) {
-            return null;
-        }
-        return Arrays.stream(headerValue.split(","))
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * <p>
-     * 解析并清洗查询字符串。
-     * </p>
-     * <p>
-     * 当访问日志关闭参数采集时不记录查询字符串；敏感参数会在输出前完成掩码。
-     * </p>
-     * @param request 当前 HTTP 请求
-     * @return 清洗后的查询字符串；无查询字符串时为空
-     */
-    private String resolveQueryString(HttpServletRequest request) {
-        if (!this.accessLogProperties.isIncludeParameters()) {
-            return null;
-        }
-        String queryString = request.getQueryString();
-        if (queryString == null || queryString.isBlank()) {
-            return null;
-        }
-        return Arrays.stream(queryString.split("&"))
-                .map(this::sanitizeQueryPair)
-                .filter(value -> !value.isBlank())
-                .reduce((left, right) -> left + "&" + right)
-                .orElse(null);
-    }
-
-    /**
-     * <p>
-     * 清洗查询字符串中的单个键值对。
-     * </p>
-     * @param pair 查询字符串键值对
-     * @return 清洗后的键值对
-     */
-    private String sanitizeQueryPair(String pair) {
-        int separatorIndex = pair.indexOf('=');
-        String name = separatorIndex < 0 ? pair : pair.substring(0, separatorIndex);
-        String value = separatorIndex < 0 ? "" : pair.substring(separatorIndex + 1);
-        if (isMaskedParameterName(name)) {
-            return name + "=******";
-        }
-        return separatorIndex < 0 ? trimValue(name) : name + "=" + trimValue(value);
-    }
-
-    /**
-     * <p>
-     * 解析并清洗 Servlet 请求参数。
-     * </p>
-     * @param request 当前 HTTP 请求
-     * @return 清洗后的请求参数快照
-     */
-    private Map<String, List<String>> resolveRequestParameters(HttpServletRequest request) {
-        if (!this.accessLogProperties.isIncludeParameters()) {
-            return Map.of();
-        }
-        Map<String, List<String>> parameters = new LinkedHashMap<>();
-        request.getParameterMap().forEach((name, values) -> parameters.put(name,
-                Arrays.stream(values == null ? new String[0] : values)
-                        .map(value -> sanitizeParameterValue(name, value))
-                        .toList()));
-        return parameters;
-    }
-
-    /**
-     * <p>
-     * 清洗单个请求参数值。
-     * </p>
-     * @param name 参数名
-     * @param value 参数值
-     * @return 清洗后的参数值
-     */
-    private String sanitizeParameterValue(String name, String value) {
-        if (isMaskedParameterName(name)) {
-            return "******";
-        }
-        return trimValue(value);
-    }
-
-    /**
-     * <p>
-     * 判断请求参数名是否需要掩码。
-     * </p>
-     * @param name 参数名
-     * @return 需要掩码时返回 {@code true}
-     */
-    private boolean isMaskedParameterName(String name) {
-        return name != null && this.accessLogProperties.getMaskedParameterNames()
-                .contains(name.trim().toLowerCase(Locale.ROOT));
-    }
-
-    /**
-     * <p>
-     * 裁剪请求参数值。
-     * </p>
-     * @param value 参数值
-     * @return 裁剪后的参数值
-     */
-    private String trimValue(String value) {
-        if (value == null) {
-            return "";
-        }
-        String trimmed = value.trim();
-        int maxLength = this.accessLogProperties.getMaxParameterValueLength();
-        return trimmed.length() <= maxLength ? trimmed : trimmed.substring(0, maxLength) + "...";
+    private static CocoWebRequestSnapshot latestRequestSnapshot(HttpServletRequest request,
+            CocoWebRequestSnapshot fallbackSnapshot) {
+        return CocoWebRequestSnapshotAttributes.get(request).orElse(fallbackSnapshot);
     }
 }

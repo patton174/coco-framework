@@ -95,13 +95,13 @@
 **Interfaces:**
 - Produces bean `CocoMessageBundleRegistrar cocoConfigMessageBundleRegistrar()`.
 - Produces bean `CocoMessageBundleRegistrar cocoFeatureRegistryMessageBundleRegistrar()`.
-- Produces message code `coco.config.features.exclude.invalid`.
+- Produces message code `coco.config.features.disabled.invalid`.
 - Produces message code `coco.feature.registry.not-found`.
 
 - [ ] Add `coco-common-i18n` dependency to `coco-config`.
 - [ ] Add config message resources with Chinese and English text.
 - [ ] Add `cocoConfigMessageBundleRegistrar` bean to `CocoConfigAutoConfiguration`.
-- [ ] Add config auto-configuration test that combines `CocoCommonAutoConfiguration` and resolves `coco.config.features.exclude.invalid`.
+- [ ] Add config auto-configuration test that combines `CocoCommonAutoConfiguration` and resolves `coco.config.features.disabled.invalid`.
 - [ ] Add `coco-common-i18n` and `spring-boot-autoconfigure` dependencies to `coco-feature-registry`.
 - [ ] Add `CocoFeatureRegistryAutoConfiguration` with a registrar for `coco-feature-registry-messages`.
 - [ ] Add feature-registry auto-configuration imports file.

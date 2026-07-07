@@ -6,12 +6,15 @@ import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.logging.access.Slf4jCocoAccessLogRecorder;
 import io.github.coco.common.logging.core.AsyncCocoLogSink;
+import io.github.coco.common.logging.core.CocoLogHandle;
 import io.github.coco.common.logging.core.CocoLogHandleRegistrar;
 import io.github.coco.common.logging.core.CocoLogHandleRegistry;
 import io.github.coco.common.logging.core.CocoLogHandles;
+import io.github.coco.common.logging.core.CocoLogLevel;
 import io.github.coco.common.logging.core.CocoLogManager;
 import io.github.coco.common.logging.core.CocoLogSink;
 import io.github.coco.common.logging.core.CocoLoggingProperties;
+import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
 import io.github.coco.common.logging.core.Slf4jCocoLogSink;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -19,6 +22,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
 /**
  * Coco 通用日志自动配置。
@@ -44,16 +48,36 @@ public class CocoCommonLoggingAutoConfiguration {
      * <p>
      * 创建日志句柄注册表。
      * </p>
+     * @param properties Coco 日志配置属性
      * @param registrars 业务侧和框架模块提供的日志句柄注册器
      * @return 日志句柄注册表
      */
     @Bean
     @ConditionalOnMissingBean
-    public CocoLogHandleRegistry cocoLogHandleRegistry(ObjectProvider<CocoLogHandleRegistrar> registrars) {
+    public CocoLogHandleRegistry cocoLogHandleRegistry(CocoLoggingProperties properties,
+            ObjectProvider<CocoLogHandleRegistrar> registrars, Environment environment) {
         CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
         CocoLogHandles.registerDefaults(registry);
         registrars.orderedStream().forEach(registrar -> registrar.register(registry));
+        registerAccessLogHandle(registry, properties, environment);
         return registry;
+    }
+
+    static void registerAccessLogHandle(CocoLogHandleRegistry registry, CocoLoggingProperties properties,
+            Environment environment) {
+        CocoLoggingProperties checkedProperties = properties == null ? new CocoLoggingProperties() : properties;
+        CocoAccessLogProperties accessLogProperties = checkedProperties.getAccessLog();
+        CocoLogHandle existingHandle = registry.find(CocoLogHandles.ACCESS)
+                .orElseGet(() -> CocoLogHandle.of(CocoLogHandles.ACCESS, CocoAccessLogProperties.DEFAULT_LOGGER_NAME,
+                        CocoLogLevel.INFO));
+        String configuredLoggerName = accessLogProperties.getLoggerName();
+        String loggerName = configuredLoggerName.equals(CocoAccessLogProperties.DEFAULT_LOGGER_NAME)
+                ? existingHandle.loggerName()
+                : configuredLoggerName;
+        CocoLogLevel level = environment != null && environment.containsProperty("coco.logging.access-log.level")
+                ? accessLogProperties.getLevel()
+                : existingHandle.defaultLevel();
+        registry.register(CocoLogHandle.of(CocoLogHandles.ACCESS, loggerName, level));
     }
 
     /**
@@ -86,6 +110,19 @@ public class CocoCommonLoggingAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoLogManager cocoLogManager(CocoLogHandleRegistry registry, CocoLogSink sink) {
         return new CocoLogManager(registry, sink);
+    }
+
+    /**
+     * <p>
+     * 创建应用生命周期日志记录器。
+     * </p>
+     * @param logManager Coco 日志管理器
+     * @return 应用生命周期日志记录器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoLifecycleLogger cocoLifecycleLogger(CocoLogManager logManager) {
+        return new CocoLifecycleLogger(logManager);
     }
 
     /**

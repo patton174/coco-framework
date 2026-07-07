@@ -173,7 +173,7 @@ coco-messages
 ```text
 coco.common.error.unknown
 coco.common.error.invalid-argument
-coco.config.features.exclude.invalid
+coco.config.features.disabled.invalid
 coco.config.features.dependency.disabled
 coco.feature.registry.not-found
 ```

@@ -28,62 +28,122 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
      */
     @Override
     public String format(CocoAccessLog accessLog, CocoAccessLogProperties properties) {
+        return String.join(System.lineSeparator(), formatEntries(accessLog, properties));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public List<String> formatEntries(CocoAccessLog accessLog, CocoAccessLogProperties properties) {
         CocoAccessLog checkedAccessLog = Objects.requireNonNull(accessLog, "accessLog must not be null");
         CocoAccessLogProperties checkedProperties = properties == null ? new CocoAccessLogProperties() : properties;
         if (checkedProperties.getStyle() == CocoAccessLogStyle.JSON) {
-            return formatJson(checkedAccessLog);
+            return List.of(formatJson(checkedAccessLog));
         }
-        return formatText(checkedAccessLog);
+        return List.of(formatTextRequest(checkedAccessLog), formatTextResponse(checkedAccessLog));
     }
 
-    private static String formatText(CocoAccessLog accessLog) {
-        String parameters = formatParameters(accessLog.requestParameters());
-        StringBuilder builder = new StringBuilder()
-                .append("▸ request  ")
-                .append(accessLog.method().orElse(""))
-                .append(' ')
-                .append(accessLog.path().orElse(""));
-        accessLog.queryString().ifPresent(queryString -> builder.append('?').append(queryString));
-        builder.append(" | trace=").append(accessLog.traceId())
-                .append(" ip=").append(accessLog.clientIp().orElse(""))
-                .append(" ua=\"").append(escape(accessLog.userAgent().orElse(""))).append('"');
-        if (!parameters.isBlank()) {
-            builder.append(" params=\"").append(escape(parameters)).append('"');
+    private static String formatTextRequest(CocoAccessLog accessLog) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("▸ request").append(System.lineSeparator());
+        builder.append(detail("traceId", accessLog.traceId())).append(System.lineSeparator());
+        builder.append(detail("method", accessLog.method().orElse(""))).append(System.lineSeparator());
+        builder.append(detail("path", formatPath(accessLog.path().orElse(null), accessLog.queryString().orElse(null))));
+        appendOptionalLine(builder, accessLog.clientIp(), "clientIp");
+        appendOptionalLine(builder, accessLog.clientIpSource(), "clientIpSource");
+        appendOptionalLine(builder, accessLog.userAgent().map(DefaultCocoAccessLogFormatter::quote), "userAgent");
+        appendOptionalLine(builder, accessLog.contentType(), "contentType");
+        appendOptionalLine(builder, accessLog.requestTargetSource(), "targetSource");
+        appendOptionalLine(builder, accessLog.payloadParseStatus(), "payloadParseStatus");
+        appendOptionalLine(builder, accessLog.browserFingerprint(), "browserFingerprint");
+        appendOptionalLine(builder, accessLog.requestBodyStage(), "bodyStage");
+        accessLog.requestBodyLength().ifPresent(value ->
+                builder.append(System.lineSeparator()).append(detail("bodyLength", Long.toString(value))));
+        accessLog.requestBodySha256().ifPresent(value ->
+                builder.append(System.lineSeparator()).append(detail("bodySha256", value)));
+        if (!accessLog.headers().isEmpty()) {
+            builder.append(System.lineSeparator()).append(detail("headers", formatEntries(accessLog.headers())));
         }
-        builder.append(" ◂ response ")
-                .append(accessLog.status())
-                .append(' ')
-                .append(accessLog.durationMillis()).append("ms")
-                .append(" success=").append(accessLog.success());
-        accessLog.exceptionType().ifPresent(exceptionType -> builder.append(" exception=").append(exceptionType));
+        if (!accessLog.requestParameters().isEmpty()) {
+            builder.append(System.lineSeparator()).append(detail("params", formatParameters(accessLog.requestParameters())));
+        }
+        return builder.toString();
+    }
+
+    private static String formatTextResponse(CocoAccessLog accessLog) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("◂ response")
+                .append(System.lineSeparator())
+                .append(detail("traceId", accessLog.traceId()))
+                .append(System.lineSeparator())
+                .append(detail("status", Integer.toString(accessLog.status())))
+                .append(System.lineSeparator())
+                .append(detail("duration", accessLog.durationMillis() + "ms"))
+                .append(System.lineSeparator())
+                .append(detail("success", Boolean.toString(accessLog.success())));
+        accessLog.exceptionType().ifPresent(value ->
+                builder.append(System.lineSeparator()).append(detail("exception", value)));
         return builder.toString();
     }
 
     private static String formatJson(CocoAccessLog accessLog) {
-        StringBuilder builder = new StringBuilder()
-                .append('{')
-                .append("\"traceId\":\"").append(escape(accessLog.traceId())).append('"')
-                .append(",\"method\":\"").append(escape(accessLog.method().orElse(""))).append('"')
-                .append(",\"path\":\"").append(escape(accessLog.path().orElse(""))).append('"')
-                .append(",\"clientIp\":\"").append(escape(accessLog.clientIp().orElse(""))).append('"')
-                .append(",\"queryString\":\"").append(escape(accessLog.queryString().orElse(""))).append('"')
-                .append(",\"parameters\":").append(formatParametersJson(accessLog.requestParameters()))
-                .append(",\"userAgent\":\"").append(escape(accessLog.userAgent().orElse(""))).append('"')
-                .append(",\"status\":").append(accessLog.status())
-                .append(",\"durationMs\":").append(accessLog.durationMillis())
-                .append(",\"success\":").append(accessLog.success());
-        accessLog.exceptionType().ifPresent(exceptionType -> builder.append(",\"exceptionType\":\"")
-                .append(escape(exceptionType)).append('"'));
+        StringBuilder builder = new StringBuilder().append('{');
+        appendJsonField(builder, "traceId", accessLog.traceId(), true);
+        appendJsonField(builder, "method", accessLog.method().orElse(null), false);
+        appendJsonField(builder, "path", accessLog.path().orElse(null), false);
+        appendJsonField(builder, "clientIp", accessLog.clientIp().orElse(null), false);
+        appendJsonField(builder, "clientIpSource", accessLog.clientIpSource().orElse(null), false);
+        appendJsonField(builder, "userAgent", accessLog.userAgent().orElse(null), false);
+        appendJsonField(builder, "contentType", accessLog.contentType().orElse(null), false);
+        appendJsonField(builder, "queryString", accessLog.queryString().orElse(null), false);
+        if (!accessLog.headers().isEmpty()) {
+            appendJsonField(builder, "headers", formatMapJson(accessLog.headers()), false, false);
+        }
+        appendJsonField(builder, "requestBodySha256", accessLog.requestBodySha256().orElse(null), false);
+        appendJsonField(builder, "requestBodyLength", accessLog.requestBodyLength().map(Object::toString).orElse(null),
+                false, false);
+        appendJsonField(builder, "requestBodyStage", accessLog.requestBodyStage().orElse(null), false);
+        appendJsonField(builder, "browserFingerprint", accessLog.browserFingerprint().orElse(null), false);
+        appendJsonField(builder, "payloadParseStatus", accessLog.payloadParseStatus().orElse(null), false);
+        appendJsonField(builder, "requestTargetSource", accessLog.requestTargetSource().orElse(null), false);
+        appendJsonField(builder, "parameters", formatParametersJson(accessLog.requestParameters()), false, false);
+        appendJsonField(builder, "status", Integer.toString(accessLog.status()), false, false);
+        appendJsonField(builder, "durationMs", Long.toString(accessLog.durationMillis()), false, false);
+        appendJsonField(builder, "success", Boolean.toString(accessLog.success()), false, false);
+        accessLog.exceptionType().ifPresent(value -> appendJsonField(builder, "exceptionType", value, false));
         return builder.append('}').toString();
     }
 
-    /**
-     * <p>
-     * 将请求参数格式化为可读的键值对文本。
-     * </p>
-     * @param parameters 请求参数
-     * @return 键值对文本
-     */
+    private static String detail(String label, String value) {
+        return String.format("  %-18s %s", label, value == null ? "" : value);
+    }
+
+    private static void appendOptionalLine(StringBuilder builder, java.util.Optional<String> value, String label) {
+        value.filter(item -> !item.isBlank())
+                .ifPresent(item -> builder.append(System.lineSeparator()).append(detail(label, item)));
+    }
+
+    private static String formatPath(String path, String queryString) {
+        if (path == null || path.isBlank()) {
+            return queryString == null || queryString.isBlank() ? "" : "?" + queryString;
+        }
+        if (queryString == null || queryString.isBlank()) {
+            return path;
+        }
+        return path + '?' + queryString;
+    }
+
+    private static String formatEntries(Map<String, String> entries) {
+        if (entries.isEmpty()) {
+            return "";
+        }
+        return entries.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .collect(Collectors.joining("; "));
+    }
+
     private static String formatParameters(Map<String, List<String>> parameters) {
         if (parameters.isEmpty()) {
             return "";
@@ -94,13 +154,6 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
                 .collect(Collectors.joining("&"));
     }
 
-    /**
-     * <p>
-     * 将请求参数格式化为 JSON 对象文本。
-     * </p>
-     * @param parameters 请求参数
-     * @return JSON 对象文本
-     */
     private static String formatParametersJson(Map<String, List<String>> parameters) {
         StringBuilder builder = new StringBuilder().append('{');
         boolean firstEntry = true;
@@ -125,10 +178,52 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
         return builder.append('}').toString();
     }
 
+    private static String formatMapJson(Map<String, String> entries) {
+        StringBuilder builder = new StringBuilder().append('{');
+        boolean firstEntry = true;
+        for (Map.Entry<String, String> entry : entries.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .toList()) {
+            if (!firstEntry) {
+                builder.append(',');
+            }
+            builder.append('"').append(escape(entry.getKey())).append("\":\"")
+                    .append(escape(entry.getValue())).append('"');
+            firstEntry = false;
+        }
+        return builder.append('}').toString();
+    }
+
+    private static void appendJsonField(StringBuilder builder, String name, String value, boolean first) {
+        appendJsonField(builder, name, value, first, true);
+    }
+
+    private static void appendJsonField(StringBuilder builder, String name, String value, boolean first,
+            boolean quoteValue) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (!first && builder.charAt(builder.length() - 1) != '{') {
+            builder.append(',');
+        }
+        builder.append('"').append(escape(name)).append("\":");
+        if (quoteValue) {
+            builder.append('"').append(escape(value)).append('"');
+        }
+        else {
+            builder.append(value);
+        }
+    }
+
+    private static String quote(String value) {
+        return '"' + value + '"';
+    }
+
     private static String escape(String value) {
-        StringBuilder builder = new StringBuilder(value.length());
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
+        String source = value == null ? "" : value;
+        StringBuilder builder = new StringBuilder(source.length());
+        for (int index = 0; index < source.length(); index++) {
+            char character = source.charAt(index);
             switch (character) {
                 case '\\' -> builder.append("\\\\");
                 case '"' -> builder.append("\\\"");

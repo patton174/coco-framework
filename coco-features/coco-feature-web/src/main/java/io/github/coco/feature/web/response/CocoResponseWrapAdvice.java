@@ -4,11 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.trace.CocoTraceProperties;
 import java.lang.reflect.Method;
 import java.util.Objects;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageConverter;
@@ -21,7 +23,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 /**
  * Coco Web 正常响应包装处理器。
  * <p>
- * 在 Spring MVC 写出响应体前，将普通业务返回值包装为 {@link CocoApiResponse}，并保留显式跳过、文件下载和已经包装的响应。
+ * 在 Spring MVC 写出响应体前，将普通业务返回值包装为统一响应体，并保留显式跳过、文件下载和已经包装的响应。
  * </p>
  * <p>
  * 项目信息：
@@ -45,6 +47,12 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
 
     private final ObjectMapper objectMapper;
 
+    private final CocoResponseProperties responseProperties;
+
+    private final CocoTraceProperties traceProperties;
+
+    private final CocoResponseBodyFactory responseBodyFactory;
+
     /**
      * <p>
      * 创建正常响应包装处理器。
@@ -56,10 +64,68 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
      */
     public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
             CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper) {
+        this(messageService, properties, codeProvider, objectMapper, new CocoResponseProperties());
+    }
+
+    /**
+     * <p>
+     * 创建正常响应包装处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param properties 正常响应包装配置
+     * @param codeProvider 系统响应码提供器
+     * @param objectMapper JSON 序列化器
+     * @param responseProperties 统一响应配置
+     */
+    public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
+            CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
+            CocoResponseProperties responseProperties) {
+        this(messageService, properties, codeProvider, objectMapper, responseProperties,
+                new CocoTraceProperties(),
+                new DefaultCocoResponseBodyFactory());
+    }
+
+    /**
+     * <p>
+     * 创建正常响应包装处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param properties 正常响应包装配置
+     * @param codeProvider 系统响应码提供器
+     * @param objectMapper JSON 序列化器
+     * @param responseProperties 统一响应配置
+     * @param traceProperties Trace 配置
+     */
+    public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
+            CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
+            CocoResponseProperties responseProperties, CocoTraceProperties traceProperties) {
+        this(messageService, properties, codeProvider, objectMapper, responseProperties, traceProperties,
+                new DefaultCocoResponseBodyFactory());
+    }
+
+    /**
+     * <p>
+     * 创建正常响应包装处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param properties 正常响应包装配置
+     * @param codeProvider 系统响应码提供器
+     * @param objectMapper JSON 序列化器
+     * @param responseProperties 统一响应配置
+     * @param responseBodyFactory 响应体工厂
+     */
+    public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
+            CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
+            CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
+            CocoResponseBodyFactory responseBodyFactory) {
         this.messageService = Objects.requireNonNull(messageService);
         this.properties = properties == null ? new CocoResponseWrapProperties() : properties;
         this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper);
+        this.responseProperties = responseProperties == null ? new CocoResponseProperties() : responseProperties;
+        this.traceProperties = traceProperties == null ? new CocoTraceProperties() : traceProperties;
+        this.responseBodyFactory = Objects.requireNonNull(responseBodyFactory,
+                "responseBodyFactory must not be null");
     }
 
     /**
@@ -96,13 +162,14 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
         if (isSkippedBody(body)) {
             return body;
         }
-        CocoApiResponse<Object> wrapped = CocoApiResponse.success(
-                this.codeProvider.success(),
-                this.messageService.getMessage(this.properties.getSuccessMessageCode()),
-                body,
-                CocoTraceContext.getOrCreateTraceId(),
-                resolvePath(request));
+        CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
+                resolveTraceIdForBody(), resolvePath(request));
+        String successMessageCode = this.properties.getSuccessMessageCode();
+        Object wrapped = this.responseBodyFactory.success(CocoResponsePayload.success(this.codeProvider.success(),
+                this.messageService.getMessageOrDefault(successMessageCode, successMessageCode), body, metadata));
+        applyTraceCookie(response);
         if (StringHttpMessageConverter.class.isAssignableFrom(selectedConverterType)) {
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
             return writeJson(wrapped);
         }
         return wrapped;
@@ -128,7 +195,7 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
                 || body instanceof byte[];
     }
 
-    private String writeJson(CocoApiResponse<?> response) {
+    private String writeJson(Object response) {
         try {
             return this.objectMapper.writeValueAsString(response);
         } catch (JsonProcessingException ex) {
@@ -142,5 +209,32 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
         }
         String path = request.getURI().getPath();
         return path == null || path.isBlank() ? null : path;
+    }
+
+    private String resolveTraceIdForBody() {
+        if (!this.responseProperties.getMetadataMode().includesTraceId()) {
+            return null;
+        }
+        return CocoTraceContext.getOrCreateTraceId();
+    }
+
+    private void applyTraceCookie(ServerHttpResponse response) {
+        if (!this.responseProperties.getMetadataMode().writesTraceCookie()
+                || this.traceProperties.isResponseCookieEnabled()) {
+            return;
+        }
+        String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
+        org.springframework.http.ResponseCookie.ResponseCookieBuilder builder = org.springframework.http.ResponseCookie
+                .from(this.traceProperties.getCookieName(), traceId)
+                .path(this.traceProperties.getCookiePath())
+                .httpOnly(this.traceProperties.isCookieHttpOnly())
+                .secure(this.traceProperties.isCookieSecure());
+        if (this.traceProperties.getCookieMaxAge() >= 0) {
+            builder.maxAge(this.traceProperties.getCookieMaxAge());
+        }
+        if (this.traceProperties.getCookieSameSite() != null && !this.traceProperties.getCookieSameSite().isBlank()) {
+            builder.sameSite(this.traceProperties.getCookieSameSite());
+        }
+        response.getHeaders().add(HttpHeaders.SET_COOKIE, builder.build().toString());
     }
 }

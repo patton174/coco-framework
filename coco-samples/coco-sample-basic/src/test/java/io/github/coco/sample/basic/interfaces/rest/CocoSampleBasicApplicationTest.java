@@ -2,6 +2,7 @@ package io.github.coco.sample.basic.interfaces.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -9,6 +10,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -16,8 +19,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.common.exception.type.CocoConflictException;
 import io.github.coco.common.logging.access.CocoAccessLog;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.common.logging.core.CocoLogRecord;
+import io.github.coco.common.logging.core.CocoLogSink;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,8 +56,13 @@ class CocoSampleBasicApplicationTest {
     @LocalServerPort
     private int port;
 
+    private static final String EXCEPTION_LOG_HANDLE = "exception";
+
     @Autowired
     private TestAccessLogRecorder accessLogRecorder;
+
+    @Autowired
+    private TestCocoLogSink logSink;
 
     private ObjectMapper objectMapper;
 
@@ -67,6 +78,7 @@ class CocoSampleBasicApplicationTest {
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
         this.accessLogRecorder.clear();
+        this.logSink.clear();
     }
 
     /**
@@ -84,8 +96,8 @@ class CocoSampleBasicApplicationTest {
         assertTrue(response.body().path("success").booleanValue());
         assertEquals(200, response.body().path("code").intValue());
         assertEquals("操作成功", response.body().path("message").textValue());
-        assertEquals("products-trace", response.body().path("traceId").textValue());
-        assertEquals("/sample/products", response.body().path("path").textValue());
+        assertTrue(response.body().path("traceId").isMissingNode());
+        assertTrue(response.body().path("path").isMissingNode());
         assertEquals("COCO-STARTER", response.body().path("data").get(0).path("sku").textValue());
         assertEquals(5, response.body().path("data").get(0).path("availableStock").intValue());
     }
@@ -134,8 +146,17 @@ class CocoSampleBasicApplicationTest {
         assertEquals(1004, response.body().path("code").intValue());
         assertEquals("商品 COCO-STARTER 库存不足，当前库存 5，请求数量 99",
                 response.body().path("message").textValue());
-        assertEquals("stock-error-trace", response.body().path("traceId").textValue());
-        assertEquals("/sample/orders", response.body().path("path").textValue());
+        assertTrue(response.body().path("traceId").isMissingNode());
+        assertTrue(response.body().path("path").isMissingNode());
+        assertEquals("stock-error-trace", response.header("X-Trace-Id"));
+        CocoLogRecord exceptionRecord = this.logSink.records().stream()
+                .filter(record -> EXCEPTION_LOG_HANDLE.equals(record.handle().name()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Exception log was not recorded."));
+        Throwable failure = exceptionRecord.failure()
+                .orElseThrow(() -> new AssertionError("Exception log failure was not recorded."));
+        assertEquals(CocoConflictException.class, failure.getClass());
+        assertEquals("商品 COCO-STARTER 库存不足，当前库存 5，请求数量 99", failure.getMessage());
 
         SampleHttpResponse englishResponse = post("/sample/orders", "stock-error-en-trace", "en-US",
                 Map.of("buyerName", "Patton", "sku", "COCO-STARTER", "quantity", 99));
@@ -145,8 +166,9 @@ class CocoSampleBasicApplicationTest {
         assertEquals(1004, englishResponse.body().path("code").intValue());
         assertEquals("Product COCO-STARTER has insufficient stock, current stock 5, requested quantity 99",
                 englishResponse.body().path("message").textValue());
-        assertEquals("stock-error-en-trace", englishResponse.body().path("traceId").textValue());
-        assertEquals("/sample/orders", englishResponse.body().path("path").textValue());
+        assertTrue(englishResponse.body().path("traceId").isMissingNode());
+        assertTrue(englishResponse.body().path("path").isMissingNode());
+        assertEquals("stock-error-en-trace", englishResponse.header("X-Trace-Id"));
     }
 
     /**
@@ -167,6 +189,15 @@ class CocoSampleBasicApplicationTest {
         assertEquals("/sample/products", accessLog.path().orElse(null));
         assertEquals(200, accessLog.status());
         assertTrue(accessLog.success());
+    }
+
+    @Test
+    void exposesApplicationMessageBundles() {
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+
+        assertNotNull(classLoader.getResource("messages.properties"));
+        assertNotNull(classLoader.getResource("messages_zh_CN.properties"));
+        assertNotNull(classLoader.getResource("messages_en_US.properties"));
     }
 
     /**
@@ -275,6 +306,17 @@ class CocoSampleBasicApplicationTest {
         TestAccessLogRecorder testAccessLogRecorder() {
             return new TestAccessLogRecorder();
         }
+
+        /**
+         * <p>
+         * 创建测试作用域 Coco 日志输出器。
+         * </p>
+         * @return 测试日志输出器
+         */
+        @Bean
+        TestCocoLogSink testCocoLogSink() {
+            return new TestCocoLogSink();
+        }
     }
 
     /**
@@ -314,6 +356,46 @@ class CocoSampleBasicApplicationTest {
          */
         void clear() {
             this.latestAccessLog.set(null);
+        }
+    }
+
+    /**
+     * <p>
+     * 测试作用域 Coco 日志输出器。
+     * </p>
+     * <p>
+     * 该类型只用于集成测试断言框架日志内容，不属于示例业务接入代码。
+     * </p>
+     */
+    static final class TestCocoLogSink implements CocoLogSink {
+
+        private final List<CocoLogRecord> records = new ArrayList<>();
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public synchronized void log(CocoLogRecord record) {
+            this.records.add(Objects.requireNonNull(record, "record must not be null"));
+        }
+
+        /**
+         * <p>
+         * 返回已记录的 Coco 日志快照。
+         * </p>
+         * @return Coco 日志快照
+         */
+        synchronized List<CocoLogRecord> records() {
+            return List.copyOf(this.records);
+        }
+
+        /**
+         * <p>
+         * 清理已记录的 Coco 日志。
+         * </p>
+         */
+        synchronized void clear() {
+            this.records.clear();
         }
     }
 }

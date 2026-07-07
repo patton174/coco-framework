@@ -22,7 +22,7 @@ import java.util.Locale;
  */
 public class CocoI18nProperties {
 
-    private List<String> basename = new ArrayList<>(List.of("messages", "coco-messages"));
+    private List<String> basename = new ArrayList<>(List.of("coco-messages"));
 
     private Locale defaultLocale = Locale.SIMPLIFIED_CHINESE;
 
@@ -48,7 +48,7 @@ public class CocoI18nProperties {
      */
     public void setBasename(List<String> basename) {
         this.basename = basename == null || basename.isEmpty()
-                ? new ArrayList<>(List.of("messages", "coco-messages"))
+                ? new ArrayList<>(List.of("coco-messages"))
                 : new ArrayList<>(basename);
     }
 

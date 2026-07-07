@@ -1,7 +1,13 @@
 package io.github.coco.feature.web;
 
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
+import io.github.coco.feature.web.body.CocoRequestBodyProperties;
+import io.github.coco.feature.web.context.CocoWebContextProperties;
+import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
+import io.github.coco.feature.web.replay.CocoReplayProperties;
+import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoResponseWrapProperties;
+import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -29,10 +35,28 @@ public class CocoWebProperties {
     private CocoTraceProperties trace = new CocoTraceProperties();
 
     @NestedConfigurationProperty
+    private CocoResponseProperties response = new CocoResponseProperties();
+
+    @NestedConfigurationProperty
     private CocoResponseWrapProperties responseWrap = new CocoResponseWrapProperties();
 
     @NestedConfigurationProperty
     private CocoAccessLogCaptureProperties accessLog = new CocoAccessLogCaptureProperties();
+
+    @NestedConfigurationProperty
+    private CocoRequestBodyProperties requestBody = new CocoRequestBodyProperties();
+
+    @NestedConfigurationProperty
+    private CocoSignatureProperties signature = new CocoSignatureProperties();
+
+    @NestedConfigurationProperty
+    private CocoEncryptionProperties encryption = new CocoEncryptionProperties();
+
+    @NestedConfigurationProperty
+    private CocoReplayProperties replay = new CocoReplayProperties();
+
+    @NestedConfigurationProperty
+    private CocoWebContextProperties context = new CocoWebContextProperties();
 
     /**
      * <p>
@@ -52,6 +76,26 @@ public class CocoWebProperties {
      */
     public void setTrace(CocoTraceProperties trace) {
         this.trace = trace == null ? new CocoTraceProperties() : trace;
+    }
+
+    /**
+     * <p>
+     * 返回统一响应配置属性。
+     * </p>
+     * @return 统一响应配置属性
+     */
+    public CocoResponseProperties getResponse() {
+        return this.response;
+    }
+
+    /**
+     * <p>
+     * 设置统一响应配置属性。
+     * </p>
+     * @param response 统一响应配置属性
+     */
+    public void setResponse(CocoResponseProperties response) {
+        this.response = response == null ? new CocoResponseProperties() : response;
     }
 
     /**
@@ -92,5 +136,105 @@ public class CocoWebProperties {
      */
     public void setAccessLog(CocoAccessLogCaptureProperties accessLog) {
         this.accessLog = accessLog == null ? new CocoAccessLogCaptureProperties() : accessLog;
+    }
+
+    /**
+     * <p>
+     * 返回请求体缓存配置属性。
+     * </p>
+     * @return 请求体缓存配置属性
+     */
+    public CocoRequestBodyProperties getRequestBody() {
+        return this.requestBody;
+    }
+
+    /**
+     * <p>
+     * 设置请求体缓存配置属性。
+     * </p>
+     * @param requestBody 请求体缓存配置属性
+     */
+    public void setRequestBody(CocoRequestBodyProperties requestBody) {
+        this.requestBody = requestBody == null ? new CocoRequestBodyProperties() : requestBody;
+    }
+
+    /**
+     * <p>
+     * 返回请求签名配置属性。
+     * </p>
+     * @return 请求签名配置属性
+     */
+    public CocoSignatureProperties getSignature() {
+        return this.signature;
+    }
+
+    /**
+     * <p>
+     * 设置请求签名配置属性。
+     * </p>
+     * @param signature 请求签名配置属性
+     */
+    public void setSignature(CocoSignatureProperties signature) {
+        this.signature = signature == null ? new CocoSignatureProperties() : signature;
+    }
+
+    /**
+     * <p>
+     * 返回请求加密配置属性。
+     * </p>
+     * @return 请求加密配置属性
+     */
+    public CocoEncryptionProperties getEncryption() {
+        return this.encryption;
+    }
+
+    /**
+     * <p>
+     * 设置请求加密配置属性。
+     * </p>
+     * @param encryption 请求加密配置属性
+     */
+    public void setEncryption(CocoEncryptionProperties encryption) {
+        this.encryption = encryption == null ? new CocoEncryptionProperties() : encryption;
+    }
+
+    /**
+     * <p>
+     * 返回防重放配置属性。
+     * </p>
+     * @return 防重放配置属性
+     */
+    public CocoReplayProperties getReplay() {
+        return this.replay;
+    }
+
+    /**
+     * <p>
+     * 设置防重放配置属性。
+     * </p>
+     * @param replay 防重放配置属性
+     */
+    public void setReplay(CocoReplayProperties replay) {
+        this.replay = replay == null ? new CocoReplayProperties() : replay;
+    }
+
+    /**
+     * <p>
+     * 返回 Web 请求上下文配置属性。
+     * </p>
+     * @return Web 请求上下文配置属性
+     */
+    public CocoWebContextProperties getContext() {
+        return this.context;
+    }
+
+    /**
+     * <p>
+     * 设置 Web 请求上下文配置属性。
+     * </p>
+     * @param context Web 请求上下文配置属性
+     */
+    public void setContext(CocoWebContextProperties context) {
+        this.context = context == null ? new CocoWebContextProperties() : context;
     }
 }

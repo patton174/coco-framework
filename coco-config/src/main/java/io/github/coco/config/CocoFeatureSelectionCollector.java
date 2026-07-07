@@ -49,8 +49,8 @@ final class CocoFeatureSelectionCollector {
 
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
         configurers.orderedStream().forEach(configurer -> configurer.configureFeatures(registry));
-        enabled.addAll(registry.includedFeatures());
-        disabled.addAll(registry.excludedFeatures());
+        enabled.addAll(registry.enabledFeatures());
+        disabled.addAll(registry.disabledFeatures());
 
         if (beanFactory != null) {
             for (String beanName : beanFactory.getBeanNamesForAnnotation(CocoFeatures.class)) {

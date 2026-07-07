@@ -64,21 +64,27 @@ class CocoSpringAutoconfigureTest {
     }
 
     @Test
-    void rendersLeanCocoSpringBannerWithoutFrame() {
+    void rendersUnicodeCocoSpringBannerWithoutFrame() {
         CocoBannerProperties properties = new CocoBannerProperties();
         CocoStartupBanner banner = new CocoStartupBanner(properties);
 
         String rendered = banner.render("9.9.9", "4.1.0");
 
         assertEquals(String.join(System.lineSeparator(),
-                "coco spring",
-                "  fast web framework",
+                " ██████╗ ██████╗  ██████╗ ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ",
+                "██╔════╝██╔═══██╗██╔════╝██╔═══██╗      ██╔════╝██╔══██╗██╔══██╗██║████╗  ██║██╔════╝ ",
+                "██║     ██║   ██║██║     ██║   ██║█████╗███████╗██████╔╝██████╔╝██║██╔██╗ ██║██║  ███╗",
+                "██║     ██║   ██║██║     ██║   ██║╚════╝╚════██║██╔═══╝ ██╔══██╗██║██║╚██╗██║██║   ██║",
+                "╚██████╗╚██████╔╝╚██████╗╚██████╔╝      ███████║██║     ██║  ██║██║██║ ╚████║╚██████╔╝",
+                " ╚═════╝ ╚═════╝  ╚═════╝ ╚═════╝       ╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ",
                 "",
-                "  version     9.9.9",
-                "  spring boot 4.1.0"), rendered);
-        assertFalse(rendered.contains("::"));
-        assertFalse(rendered.contains("+"));
-        assertFalse(rendered.contains("|"));
+                "：：coco 9.9.9",
+                "：：spring boot 4.1.0"), rendered);
+        assertTrue(rendered.contains("██████╗ ██████╗"));
+        assertTrue(rendered.contains("███████╗██████╗"));
+        assertTrue(rendered.contains("：：coco 9.9.9"));
+        assertTrue(rendered.contains("：：spring boot 4.1.0"));
+        assertFalse(rendered.contains("fast web framework"));
         assertFalse(rendered.contains("Author"));
         assertFalse(rendered.contains("Repository"));
         assertFalse(rendered.contains(":: Spring Boot ::"));
@@ -94,13 +100,11 @@ class CocoSpringAutoconfigureTest {
                 new PrintStream(output, true, StandardCharsets.UTF_8));
 
         String rendered = output.toString(StandardCharsets.UTF_8);
-        assertTrue(rendered.contains("coco spring"));
-        assertTrue(rendered.contains("  fast web framework"));
-        assertTrue(rendered.contains("  version     "));
-        assertTrue(rendered.contains("  spring boot "));
-        assertFalse(rendered.contains("::"));
-        assertFalse(rendered.contains("+"));
-        assertFalse(rendered.contains("|"));
+        assertTrue(rendered.contains("██████╗ ██████╗"));
+        assertTrue(rendered.contains("███████╗██████╗"));
+        assertTrue(rendered.contains("：：coco "));
+        assertTrue(rendered.contains("：：spring boot "));
+        assertFalse(rendered.contains("fast web framework"));
         assertFalse(rendered.contains("____          _"));
     }
 
@@ -117,8 +121,8 @@ class CocoSpringAutoconfigureTest {
         assertEquals("ERROR", environment.getProperty("logging.level.org.springframework"));
         assertEquals("WARN", environment.getProperty("logging.level.org.apache.catalina"));
         assertTrue(environment.getProperty("logging.pattern.console").contains("%highlight(%-5level)"));
-        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(coco){cyan}"));
-        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(%-10.10logger{0}){magenta}"));
+        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(COCO){cyan}"));
+        assertTrue(environment.getProperty("logging.pattern.console").contains("%clr(%logger{32}){magenta}"));
     }
 
     private static final class TestApplication {

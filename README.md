@@ -32,3 +32,24 @@ $env:JAVA_HOME='D:\Programs\Java\jdk_21'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
 mvn verify
 ```
+
+## Coco Log Renderer
+
+Use the optional Node.js renderer when you want a more compact local terminal view for Coco logs.
+
+```powershell
+mvn -f coco-samples/coco-sample-basic/pom.xml spring-boot:run | node tools/coco-log-renderer/bin/coco-log-renderer.mjs
+```
+
+When an application is started with `java -jar`, Coco also tries to start the packaged Node.js renderer automatically.
+If Node.js is unavailable, Coco keeps the normal JVM console output.
+
+```yaml
+coco:
+  logging:
+    node-renderer:
+      enabled: true
+      jar-only: true
+      command: node
+      color: always
+```

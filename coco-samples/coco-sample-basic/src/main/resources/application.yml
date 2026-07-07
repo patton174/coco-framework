@@ -11,3 +11,37 @@ coco:
       default-locale: zh-CN
       fallback-to-system-locale: false
       use-code-as-default-message: true
+  web:
+    signature:
+      secrets:
+        sample-app: sample-secret
+      matcher:
+        required:
+          - methods:
+              - POST
+            path-patterns:
+              - /sample/secure/signature/orders
+    replay:
+      protect-signed-requests: false
+      protect-encrypted-requests: false
+      matcher:
+        required:
+          - methods:
+              - POST
+            path-patterns:
+              - /sample/secure/replay/orders
+    encryption:
+      keys:
+        sample-app: MDEyMzQ1Njc4OWFiY2RlZg==
+      matcher:
+        required:
+          - methods:
+              - POST
+            path-patterns:
+              - /sample/secure/encryption/orders
+  logging:
+    node-renderer:
+      enabled: true
+      jar-only: false
+      command: "D:\\Program Files\\nodejs\\node.exe"
+      color: always

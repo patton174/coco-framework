@@ -49,7 +49,7 @@ class CocoFeaturesMojoTest {
         Files.writeString(resources.resolve("application.yml"), """
                 coco:
                   features:
-                    exclude:
+                    disabled:
                       - tenant
                       - data-permission
                 """, StandardCharsets.UTF_8);
