@@ -83,6 +83,21 @@ public interface CocoRequestParameterResolver {
 
     /**
      * <p>
+     * 解析清洗后的请求参数快照。
+     * </p>
+     * <p>
+     * 默认实现组合现有查询字符串、合并参数、查询参数和请求体参数解析方法，便于自定义解析器保持向后兼容。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 清洗后的请求参数快照
+     */
+    default CocoWebRequestParameters resolveParameterSnapshot(HttpServletRequest request) {
+        return new CocoWebRequestParameters(resolveQueryString(request), resolveParameters(request),
+                resolveQueryParameters(request), resolvePayloadParameters(request));
+    }
+
+    /**
+     * <p>
      * 解析原始查询参数。
      * </p>
      * @param request 当前 Servlet 请求
@@ -101,5 +116,20 @@ public interface CocoRequestParameterResolver {
      */
     default Map<String, List<String>> resolveRawPayloadParameters(HttpServletRequest request) {
         return Map.of();
+    }
+
+    /**
+     * <p>
+     * 解析原始请求参数快照。
+     * </p>
+     * <p>
+     * 默认实现组合现有原始查询字符串、原始合并参数、原始查询参数和原始请求体参数解析方法，便于自定义解析器保持向后兼容。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 原始请求参数快照
+     */
+    default CocoWebRequestParameters resolveRawParameterSnapshot(HttpServletRequest request) {
+        return new CocoWebRequestParameters(resolveRawQueryString(request), resolveRawParameters(request),
+                resolveRawQueryParameters(request), resolveRawPayloadParameters(request));
     }
 }

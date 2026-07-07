@@ -118,18 +118,25 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
             return Map.of();
         }
         Map<String, List<String>> payloadParameters = resolvePayloadParameters(checkedRequest);
-        Map<String, List<String>> parameters = new LinkedHashMap<>();
-        if (isCachedFormPayload(checkedRequest) && !payloadParameters.isEmpty()) {
-            merge(parameters, resolveQueryParameters(checkedRequest));
+        return resolveSanitizedParameters(checkedRequest, resolveQueryParameters(checkedRequest), payloadParameters);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoWebRequestParameters resolveParameterSnapshot(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        if (!this.properties.isIncludeParameters()) {
+            return CocoWebRequestParameters.empty();
         }
-        else {
-            checkedRequest.getParameterMap().forEach((name, values) -> parameters.put(name,
-                    new ArrayList<>(Arrays.stream(values == null ? new String[0] : values)
-                            .map(value -> sanitizeParameterValue(name, value))
-                            .toList())));
-        }
-        merge(parameters, payloadParameters);
-        return copy(parameters);
+        String queryString = resolveQueryString(checkedRequest);
+        Map<String, List<String>> queryParameters = resolveQueryParameters(checkedRequest);
+        Map<String, List<String>> payloadParameters = resolvePayloadParameters(checkedRequest);
+        Map<String, List<String>> parameters = resolveSanitizedParameters(checkedRequest, queryParameters,
+                payloadParameters);
+        return new CocoWebRequestParameters(queryString, parameters, queryParameters, payloadParameters,
+                payloadSource(checkedRequest, payloadParameters));
     }
 
     /**
@@ -165,6 +172,21 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         Map<String, List<String>> parameters = new LinkedHashMap<>(resolveRawQueryParameters(checkedRequest));
         merge(parameters, resolveRawPayloadParameters(checkedRequest));
         return copy(parameters);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoWebRequestParameters resolveRawParameterSnapshot(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        String rawQueryString = resolveRawQueryString(checkedRequest);
+        Map<String, List<String>> rawQueryParameters = parseRawQueryString(rawQueryString);
+        Map<String, List<String>> rawPayloadParameters = resolveRawPayloadParameters(checkedRequest);
+        Map<String, List<String>> rawParameters = new LinkedHashMap<>(rawQueryParameters);
+        merge(rawParameters, rawPayloadParameters);
+        return new CocoWebRequestParameters(rawQueryString, copy(rawParameters), rawQueryParameters,
+                rawPayloadParameters, payloadSource(checkedRequest, rawPayloadParameters));
     }
 
     /**
@@ -208,6 +230,37 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
             }
             target.put(name, targetValues);
         });
+    }
+
+    private Map<String, List<String>> resolveSanitizedParameters(HttpServletRequest request,
+            Map<String, List<String>> queryParameters, Map<String, List<String>> payloadParameters) {
+        Map<String, List<String>> parameters = new LinkedHashMap<>();
+        if (isCachedFormPayload(request) && payloadParameters != null && !payloadParameters.isEmpty()) {
+            merge(parameters, queryParameters);
+        }
+        else {
+            request.getParameterMap().forEach((name, values) -> parameters.put(name,
+                    new ArrayList<>(Arrays.stream(values == null ? new String[0] : values)
+                            .map(value -> sanitizeParameterValue(name, value))
+                            .toList())));
+        }
+        merge(parameters, payloadParameters);
+        return copy(parameters);
+    }
+
+    private static CocoWebParameterSource payloadSource(HttpServletRequest request,
+            Map<String, List<String>> payloadParameters) {
+        if (payloadParameters == null || payloadParameters.isEmpty()) {
+            return CocoWebParameterSource.NONE;
+        }
+        String contentType = normalizeMediaType(request.getContentType());
+        if (FORM_URLENCODED.equals(contentType)) {
+            return CocoWebParameterSource.FORM;
+        }
+        if (isJsonContentType(contentType)) {
+            return CocoWebParameterSource.JSON;
+        }
+        return CocoWebParameterSource.PAYLOAD;
     }
 
     private Map<String, List<String>> parseSanitizedQueryString(String queryString) {
@@ -312,6 +365,10 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
                 && CocoCachedBodyHttpServletRequest.cachedBody(request)
                         .filter(cachedBody -> cachedBody.cached() && cachedBody.content().length > 0)
                         .isPresent();
+    }
+
+    private static boolean isJsonContentType(String contentType) {
+        return contentType != null && ("application/json".equals(contentType) || contentType.endsWith("+json"));
     }
 
     private static String normalizeMediaType(String contentType) {

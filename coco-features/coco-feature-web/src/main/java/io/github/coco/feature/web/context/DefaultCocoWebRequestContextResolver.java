@@ -217,17 +217,17 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         CocoWebRequestSecurityInput securityInput = this.securityInputResolver.resolve(request, method, path);
         CocoRequestBodyMetadata requestBody = CocoRequestBodyMetadata.from(request);
         CocoWebRequestSecurityMetadata securityMetadata = this.securityMetadataResolver.resolve(securityInput);
-        Map<String, List<String>> parameters = this.requestParameterResolver.resolveParameters(request);
-        Map<String, List<String>> queryParameters = this.requestParameterResolver.resolveQueryParameters(request);
-        Map<String, List<String>> payloadParameters = this.requestParameterResolver.resolvePayloadParameters(request);
+        CocoWebRequestParameters parameterSnapshot = this.requestParameterResolver.resolveParameterSnapshot(request);
         Map<String, String> cookies = this.requestCookieResolver.resolveIncludedCookies(request);
-        CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path, resolveQueryString(request),
+        CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path,
+                parameterSnapshot.queryString(),
                 clientIpResolution.clientIp(), request.getHeader("User-Agent"),
                 resolveLocale(request),
                 request.getScheme(), request.getServerName(), request.getServerPort(),
                 request.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(request),
-                cookies, parameters, queryParameters, payloadParameters, securityInput, requestBody, securityMetadata,
-                browserFingerprint, clientIpResolution);
+                cookies, parameterSnapshot.parameters(), parameterSnapshot.queryParameters(),
+                parameterSnapshot.payloadParameters(), securityInput, requestBody, securityMetadata, browserFingerprint,
+                clientIpResolution, parameterSnapshot.payloadSource());
         CocoWebRequestSnapshotAttributes.set(request, snapshot, headerFingerprint(request));
         return snapshot;
     }
@@ -253,10 +253,6 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
     private static String resolvePath(HttpServletRequest request) {
         String requestUri = request.getRequestURI();
         return requestUri == null || requestUri.isBlank() ? null : requestUri;
-    }
-
-    private String resolveQueryString(HttpServletRequest request) {
-        return this.requestParameterResolver.resolveQueryString(request);
     }
 
     private static String resolveLocale(HttpServletRequest request) {

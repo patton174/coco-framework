@@ -133,12 +133,8 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
     @Override
     public CocoWebRequestSecurityInput resolve(HttpServletRequest request, String method, String path) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        String rawQueryString = this.requestParameterResolver.resolveRawQueryString(checkedRequest);
-        Map<String, List<String>> rawQueryParameters = this.requestParameterResolver.resolveRawQueryParameters(
+        CocoWebRequestParameters rawParameterSnapshot = this.requestParameterResolver.resolveRawParameterSnapshot(
                 checkedRequest);
-        Map<String, List<String>> rawPayloadParameters = this.requestParameterResolver.resolveRawPayloadParameters(
-                checkedRequest);
-        Map<String, List<String>> rawParameters = this.requestParameterResolver.resolveRawParameters(checkedRequest);
         Map<String, String> securityHeaders = this.requestHeaderResolver.resolveSelectedHeaders(checkedRequest,
                 this.securityHeaderNames, false);
         Map<String, List<String>> canonicalHeaderValues = this.requestHeaderResolver.resolveSelectedHeaderValues(
@@ -149,10 +145,11 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
                 this.canonicalCookieNames, false);
         CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
                 .orElse(CocoCachedRequestBody.empty());
-        return new CocoWebRequestSecurityInput(method, path, rawQueryString, rawParameters, rawQueryParameters,
-                rawPayloadParameters, securityHeaders, canonicalHeaders, cachedBody.sha256(),
-                cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached(), canonicalHeaderValues,
-                canonicalCookies);
+        return new CocoWebRequestSecurityInput(method, path, rawParameterSnapshot.queryString(),
+                rawParameterSnapshot.parameters(), rawParameterSnapshot.queryParameters(),
+                rawParameterSnapshot.payloadParameters(), securityHeaders, canonicalHeaders, cachedBody.sha256(),
+                cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached(),
+                canonicalHeaderValues, canonicalCookies, rawParameterSnapshot.payloadSource());
     }
 
     private static Set<String> securityHeaderNames(CocoWebContextProperties properties,

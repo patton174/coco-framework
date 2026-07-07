@@ -35,7 +35,9 @@ import io.github.coco.feature.web.context.CocoClientIpResolver;
 import io.github.coco.feature.web.context.CocoClientIpSource;
 import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.CocoRequestParameterResolver;
+import io.github.coco.feature.web.context.CocoWebParameterSource;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
+import io.github.coco.feature.web.context.CocoWebRequestParameters;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationContext;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationProperties;
@@ -1280,6 +1282,12 @@ class CocoWebAutoConfigurationTest {
             assertEquals("Patton", requestContext.parameter("buyer.name").orElseThrow());
             assertEquals("web,sign", requestContext.parameter("tags").orElseThrow());
             assertEquals("******", requestContext.parameter("password").orElseThrow());
+            assertEquals(CocoWebParameterSource.JSON, snapshot.payloadSource());
+            assertEquals(CocoWebParameterSource.JSON, snapshot.parameterSnapshot().payloadSource());
+            assertEquals(CocoWebParameterSource.JSON, snapshot.securityInput().payloadSource());
+            assertEquals(List.of("******"),
+                    snapshot.parameterSnapshot().sourceParameters(CocoWebParameterSource.JSON).get("password"));
+            assertTrue(snapshot.parameterSnapshot().sourceParameters(CocoWebParameterSource.FORM).isEmpty());
             assertTrue(snapshot.queryParameters().isEmpty());
             assertEquals(List.of("******"), snapshot.payloadParameters().get("password"));
             assertTrue(requestContext.queryParameter("password").isEmpty());
@@ -1323,6 +1331,12 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(List.of("Coco Spring"), snapshot.parameters().get("name"));
                     assertEquals(List.of("b", "a", "a"), snapshot.parameters().get("tag"));
                     assertEquals(List.of("******"), snapshot.parameters().get("token"));
+                    assertEquals(CocoWebParameterSource.FORM, snapshot.payloadSource());
+                    assertEquals(CocoWebParameterSource.FORM, snapshot.parameterSnapshot().payloadSource());
+                    assertEquals(CocoWebParameterSource.FORM, snapshot.securityInput().payloadSource());
+                    assertEquals(List.of("******"),
+                            snapshot.parameterSnapshot().sourceParameters(CocoWebParameterSource.FORM).get("token"));
+                    assertTrue(snapshot.parameterSnapshot().sourceParameters(CocoWebParameterSource.JSON).isEmpty());
                     assertTrue(snapshot.queryParameters().isEmpty());
                     assertEquals(List.of("******"), snapshot.payloadParameters().get("token"));
                     CocoRequestContext requestContext = snapshot.toRequestContext();
@@ -1822,6 +1836,15 @@ class CocoWebAutoConfigurationTest {
         assertEquals(List.of("******"), resolver.resolveParameters(request).get("password"));
         assertEquals(List.of("Coco..."), resolver.resolveParameters(request).get("name"));
         assertEquals(List.of("abcdef"), resolver.resolveRawParameters(request).get("password"));
+
+        CocoWebRequestParameters parameterSnapshot = resolver.resolveParameterSnapshot(request);
+
+        assertEquals("password=******&name=Coco...", parameterSnapshot.queryString());
+        assertEquals(List.of("******"), parameterSnapshot.values("password").orElseThrow());
+        assertEquals("Coco...", parameterSnapshot.firstValue("name", CocoWebParameterSource.QUERY).orElseThrow());
+        assertTrue(parameterSnapshot.contains("name", CocoWebParameterSource.MERGED));
+        assertEquals(CocoWebParameterSource.NONE, parameterSnapshot.payloadSource());
+        assertTrue(parameterSnapshot.payloadParameters().isEmpty());
     }
 
     @Test
@@ -1839,6 +1862,18 @@ class CocoWebAutoConfigurationTest {
         assertEquals(List.of("a%2Cb", "a,b"), rawParameters.get("tag"));
         assertEquals(List.of(""), rawParameters.get("empty"));
         assertFalse(rawParameters.containsKey("bodyOnly"));
+
+        CocoWebRequestParameters rawSnapshot = resolver.resolveRawParameterSnapshot(request);
+        CocoWebRequestParameters filteredSnapshot = rawSnapshot.without(Set.of("tag"));
+
+        assertEquals("name=Coco%20Spring&tag=a%2Cb&tag=a,b&empty", rawSnapshot.queryString());
+        assertEquals(List.of("a%2Cb", "a,b"),
+                rawSnapshot.values("tag", CocoWebParameterSource.QUERY).orElseThrow());
+        assertEquals("Coco%20Spring", rawSnapshot.firstValue("name").orElseThrow());
+        assertEquals(CocoWebParameterSource.NONE, rawSnapshot.payloadSource());
+        assertFalse(rawSnapshot.contains("bodyOnly"));
+        assertEquals("name=Coco%20Spring&empty", filteredSnapshot.queryString());
+        assertTrue(filteredSnapshot.values("tag", CocoWebParameterSource.QUERY).isEmpty());
     }
 
     @Test

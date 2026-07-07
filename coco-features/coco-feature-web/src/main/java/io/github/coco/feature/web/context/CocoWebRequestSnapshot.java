@@ -55,7 +55,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         Map<String, List<String>> payloadParameters,
         CocoWebRequestSecurityInput securityInput, CocoRequestBodyMetadata requestBody,
         CocoWebRequestSecurityMetadata securityMetadata, CocoBrowserFingerprint browserFingerprint,
-        CocoClientIpResolution clientIpResolution) {
+        CocoClientIpResolution clientIpResolution, CocoWebParameterSource payloadSource) {
 
     /**
      * <p>
@@ -207,6 +207,45 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
      * @param browserFingerprint 浏览器指纹
      * @param clientIpResolution 客户端 IP 解析结果
      */
+    public CocoWebRequestSnapshot(String traceId, String method, String path, String queryString,
+            String clientIp, String userAgent, String locale, String scheme, String host, Integer port,
+            String contentType, Map<String, String> headers, Map<String, String> cookies,
+            Map<String, List<String>> parameters, Map<String, List<String>> queryParameters,
+            Map<String, List<String>> payloadParameters,
+            CocoWebRequestSecurityInput securityInput, CocoRequestBodyMetadata requestBody,
+            CocoWebRequestSecurityMetadata securityMetadata, CocoBrowserFingerprint browserFingerprint,
+            CocoClientIpResolution clientIpResolution) {
+        this(traceId, method, path, queryString, clientIp, userAgent, locale, scheme, host, port,
+                contentType, headers, cookies, parameters, queryParameters, payloadParameters, securityInput,
+                requestBody, securityMetadata, browserFingerprint, clientIpResolution, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Web 请求快照，并归一化空白字段和集合字段。
+     * </p>
+     * @param traceId TraceId
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 查询字符串
+     * @param clientIp 客户端 IP
+     * @param userAgent User-Agent
+     * @param locale 请求语言
+     * @param scheme 请求协议
+     * @param host 请求主机
+     * @param port 请求端口
+     * @param contentType 请求内容类型
+     * @param headers 请求头快照
+     * @param cookies Cookie 快照
+     * @param parameters 请求参数快照
+     * @param queryParameters 查询参数快照
+     * @param payloadParameters 请求体参数快照
+     * @param securityInput 请求安全输入
+     * @param requestBody 请求体元数据
+     * @param securityMetadata 请求安全元数据
+     * @param browserFingerprint 浏览器指纹
+     * @param clientIpResolution 客户端 IP 解析结果
+     */
     public CocoWebRequestSnapshot {
         traceId = requireTraceId(traceId);
         method = normalizeMethod(method);
@@ -224,6 +263,7 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
         parameters = copyParameters(parameters);
         queryParameters = copyParameters(queryParameters);
         payloadParameters = copyParameters(payloadParameters);
+        payloadSource = normalizePayloadSource(payloadSource, payloadParameters, securityInput);
         securityInput = securityInput == null ? CocoWebRequestSecurityInput.empty() : securityInput;
         requestBody = requestBody == null
                 ? CocoRequestBodyMetadata.fromEffective(securityInput.bodySha256(), securityInput.bodyLength(),
@@ -231,6 +271,17 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
                 : requestBody;
         securityMetadata = securityMetadata == null ? CocoWebRequestSecurityMetadata.empty() : securityMetadata;
         browserFingerprint = browserFingerprint == null ? CocoBrowserFingerprint.empty() : browserFingerprint;
+    }
+
+    /**
+     * <p>
+     * 返回当前请求快照中的参数快照。
+     * </p>
+     * @return 参数快照
+     */
+    public CocoWebRequestParameters parameterSnapshot() {
+        return new CocoWebRequestParameters(this.queryString, this.parameters, this.queryParameters,
+                this.payloadParameters, this.payloadSource);
     }
 
     /**
@@ -374,5 +425,19 @@ public record CocoWebRequestSnapshot(String traceId, String method, String path,
             copied.add(value == null || value.isBlank() ? "" : value.trim());
         }
         return List.copyOf(copied);
+    }
+
+    private static CocoWebParameterSource normalizePayloadSource(CocoWebParameterSource payloadSource,
+            Map<String, List<String>> payloadParameters, CocoWebRequestSecurityInput securityInput) {
+        if (payloadParameters == null || payloadParameters.isEmpty()) {
+            return CocoWebParameterSource.NONE;
+        }
+        if (payloadSource != null && payloadSource.payload()) {
+            return payloadSource;
+        }
+        if (securityInput != null && securityInput.payloadSource().payload()) {
+            return securityInput.payloadSource();
+        }
+        return CocoWebParameterSource.PAYLOAD;
     }
 }

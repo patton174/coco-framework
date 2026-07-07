@@ -42,7 +42,8 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         Map<String, List<String>> parameters, Map<String, List<String>> queryParameters,
         Map<String, List<String>> payloadParameters, Map<String, String> securityHeaders,
         Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached,
-        Map<String, List<String>> canonicalHeaderValues, Map<String, String> canonicalCookies) {
+        Map<String, List<String>> canonicalHeaderValues, Map<String, String> canonicalCookies,
+        CocoWebParameterSource payloadSource) {
 
     /**
      * <p>
@@ -124,6 +125,34 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
      * @param canonicalHeaderValues 默认参与签名规范化的多值请求头
      * @param canonicalCookies 默认参与签名规范化的 Cookie
      */
+    public CocoWebRequestSecurityInput(String method, String path, String queryString,
+            Map<String, List<String>> parameters, Map<String, List<String>> queryParameters,
+            Map<String, List<String>> payloadParameters, Map<String, String> securityHeaders,
+            Map<String, String> canonicalHeaders, String bodySha256, Long bodyLength, boolean bodyCached,
+            Map<String, List<String>> canonicalHeaderValues, Map<String, String> canonicalCookies) {
+        this(method, path, queryString, parameters, queryParameters, payloadParameters, securityHeaders,
+                canonicalHeaders, bodySha256, bodyLength, bodyCached, canonicalHeaderValues, canonicalCookies,
+                null);
+    }
+
+    /**
+     * <p>
+     * 创建请求安全输入，并归一化字段和集合。
+     * </p>
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param queryString 原始查询字符串
+     * @param parameters 原始请求参数
+     * @param queryParameters 原始查询参数
+     * @param payloadParameters 原始请求体参数
+     * @param securityHeaders 安全能力相关请求头
+     * @param canonicalHeaders 默认参与签名规范化的请求头
+     * @param bodySha256 请求体 SHA-256 摘要
+     * @param bodyLength 请求体长度
+     * @param bodyCached 请求体是否已缓存
+     * @param canonicalHeaderValues 默认参与签名规范化的多值请求头
+     * @param canonicalCookies 默认参与签名规范化的 Cookie
+     */
     public CocoWebRequestSecurityInput {
         method = normalizeMethod(method);
         path = normalizeOptional(path);
@@ -138,6 +167,7 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         canonicalHeaders = copyHeaders(canonicalHeaders);
         canonicalHeaderValues = copyHeaderValues(canonicalHeaderValues);
         canonicalCookies = copyCookies(canonicalCookies);
+        payloadSource = normalizePayloadSource(payloadSource, payloadParameters);
         bodySha256 = normalizeOptional(bodySha256);
         bodyLength = bodyLength == null || bodyLength < 0 ? null : bodyLength;
         bodyCached = bodyCached && bodySha256 != null;
@@ -247,6 +277,17 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
 
     /**
      * <p>
+     * 返回当前安全输入中的请求参数快照。
+     * </p>
+     * @return 请求参数快照
+     */
+    public CocoWebRequestParameters parameterSnapshot() {
+        return new CocoWebRequestParameters(this.queryString, this.parameters, this.queryParameters,
+                this.payloadParameters, this.payloadSource);
+    }
+
+    /**
+     * <p>
      * 返回排除指定请求参数后的安全输入副本。
      * </p>
      * <p>
@@ -256,16 +297,16 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
      * @return 排除指定参数后的安全输入
      */
     public CocoWebRequestSecurityInput withoutParameters(Set<String> parameterNames) {
-        Set<String> normalizedNames = normalizeParameterNames(parameterNames);
-        if (normalizedNames.isEmpty()) {
+        CocoWebRequestParameters currentParameterSnapshot = parameterSnapshot();
+        CocoWebRequestParameters parameterSnapshot = currentParameterSnapshot.without(parameterNames);
+        if (parameterSnapshot == currentParameterSnapshot) {
             return this;
         }
-        return new CocoWebRequestSecurityInput(this.method, this.path, filterQueryString(this.queryString,
-                normalizedNames), filterParameters(this.parameters, normalizedNames),
-                filterParameters(this.queryParameters, normalizedNames),
-                filterParameters(this.payloadParameters, normalizedNames), this.securityHeaders,
+        return new CocoWebRequestSecurityInput(this.method, this.path, parameterSnapshot.queryString(),
+                parameterSnapshot.parameters(), parameterSnapshot.queryParameters(),
+                parameterSnapshot.payloadParameters(), this.securityHeaders,
                 this.canonicalHeaders, this.bodySha256, this.bodyLength, this.bodyCached,
-                this.canonicalHeaderValues, this.canonicalCookies);
+                this.canonicalHeaderValues, this.canonicalCookies, parameterSnapshot.payloadSource());
     }
 
     private static Optional<String> header(Map<String, String> headers, String name) {
@@ -345,52 +386,6 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         return copied.isEmpty() ? Map.of() : Collections.unmodifiableMap(copied);
     }
 
-    private static Set<String> normalizeParameterNames(Set<String> parameterNames) {
-        if (parameterNames == null || parameterNames.isEmpty()) {
-            return Set.of();
-        }
-        return parameterNames.stream()
-                .map(CocoWebRequestSecurityInput::normalizeOptional)
-                .filter(name -> name != null)
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
-    }
-
-    private static Map<String, List<String>> filterParameters(Map<String, List<String>> parameters,
-            Set<String> excludedNames) {
-        if (parameters == null || parameters.isEmpty() || excludedNames.isEmpty()) {
-            return parameters == null ? Map.of() : parameters;
-        }
-        Map<String, List<String>> filtered = new LinkedHashMap<>();
-        parameters.forEach((name, values) -> {
-            if (!excludedNames.contains(name)) {
-                filtered.put(name, values);
-            }
-        });
-        return filtered.isEmpty() ? Map.of() : Collections.unmodifiableMap(filtered);
-    }
-
-    private static String filterQueryString(String queryString, Set<String> excludedNames) {
-        if (queryString == null || queryString.isBlank() || excludedNames.isEmpty()) {
-            return queryString;
-        }
-        StringBuilder builder = new StringBuilder(queryString.length());
-        for (String pair : queryString.split("&", -1)) {
-            if (pair == null || pair.isBlank() || excludedNames.contains(parameterName(pair))) {
-                continue;
-            }
-            if (!builder.isEmpty()) {
-                builder.append('&');
-            }
-            builder.append(pair);
-        }
-        return builder.isEmpty() ? null : builder.toString();
-    }
-
-    private static String parameterName(String pair) {
-        int separatorIndex = pair.indexOf('=');
-        return separatorIndex < 0 ? pair : pair.substring(0, separatorIndex);
-    }
-
     private static List<String> copyHeaderValueList(List<String> values) {
         if (values == null || values.isEmpty()) {
             return List.of();
@@ -461,5 +456,16 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
             copied.add(value == null ? "" : value);
         }
         return List.copyOf(copied);
+    }
+
+    private static CocoWebParameterSource normalizePayloadSource(CocoWebParameterSource payloadSource,
+            Map<String, List<String>> payloadParameters) {
+        if (payloadParameters == null || payloadParameters.isEmpty()) {
+            return CocoWebParameterSource.NONE;
+        }
+        if (payloadSource == null || !payloadSource.payload()) {
+            return CocoWebParameterSource.PAYLOAD;
+        }
+        return payloadSource;
     }
 }
