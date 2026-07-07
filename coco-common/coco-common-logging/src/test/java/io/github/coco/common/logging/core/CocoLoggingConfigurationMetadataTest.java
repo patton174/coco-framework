@@ -1,5 +1,6 @@
 package io.github.coco.common.logging.core;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,5 +47,8 @@ class CocoLoggingConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.logging.access-log.level\""));
         assertTrue(content.contains("\"name\": \"coco.logging.access-log.style\""));
         assertTrue(content.contains("\"name\": \"coco.logging.access-log.logger-name\""));
+        assertFalse(content.contains("\"name\": \"coco.logging.access-log.include-parameters\""));
+        assertFalse(content.contains("\"name\": \"coco.logging.access-log.max-parameter-value-length\""));
+        assertFalse(content.contains("\"name\": \"coco.logging.access-log.masked-parameter-names\""));
     }
 }

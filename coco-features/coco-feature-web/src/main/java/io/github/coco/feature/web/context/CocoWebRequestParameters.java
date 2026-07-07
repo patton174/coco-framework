@@ -237,13 +237,13 @@ public record CocoWebRequestParameters(String queryString, Map<String, List<Stri
 
     private static CocoWebParameterSource normalizePayloadSource(CocoWebParameterSource payloadSource,
             Map<String, List<String>> payloadParameters) {
-        if (payloadParameters == null || payloadParameters.isEmpty()) {
-            return CocoWebParameterSource.NONE;
+        if (payloadSource != null && payloadSource.payload()) {
+            return payloadSource;
         }
-        if (payloadSource == null || !payloadSource.payload()) {
+        if (payloadParameters != null && !payloadParameters.isEmpty()) {
             return CocoWebParameterSource.PAYLOAD;
         }
-        return payloadSource;
+        return CocoWebParameterSource.NONE;
     }
 
     private static Map<String, List<String>> copyParameters(Map<String, List<String>> parameters) {

@@ -1,6 +1,6 @@
 package io.github.coco.feature.web.replay;
 
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 
 /**

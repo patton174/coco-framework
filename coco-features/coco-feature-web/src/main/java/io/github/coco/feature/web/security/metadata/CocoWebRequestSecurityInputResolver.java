@@ -1,4 +1,4 @@
-package io.github.coco.feature.web.context;
+package io.github.coco.feature.web.security.metadata;
 
 import jakarta.servlet.http.HttpServletRequest;
 

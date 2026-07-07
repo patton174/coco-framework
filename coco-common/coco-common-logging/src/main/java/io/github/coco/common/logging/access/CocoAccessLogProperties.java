@@ -1,15 +1,11 @@
 package io.github.coco.common.logging.access;
 
-import java.util.LinkedHashSet;
-import java.util.Locale;
-import java.util.Set;
-
 import io.github.coco.common.logging.core.CocoLogLevel;
 
 /**
  * Coco 接口访问日志配置属性。
  * <p>
- * 用于控制访问日志事件是否发布、默认输出级别、输出样式、隔离 logger 名称以及请求参数采集策略。
+ * 用于控制访问日志事件输出开关、默认输出级别、输出样式以及隔离 logger 名称。
  * </p>
  * <p>
  * 项目信息：
@@ -29,11 +25,6 @@ public class CocoAccessLogProperties {
      */
     public static final String DEFAULT_LOGGER_NAME = "io.github.coco.access";
 
-    private static final int DEFAULT_MAX_PARAMETER_VALUE_LENGTH = 256;
-
-    private static final Set<String> DEFAULT_MASKED_PARAMETER_NAMES = Set.of(
-            "password", "passwd", "pwd", "secret", "token", "access_token", "refresh_token", "authorization");
-
     private boolean enabled = true;
 
     private CocoLogLevel level = CocoLogLevel.INFO;
@@ -41,12 +32,6 @@ public class CocoAccessLogProperties {
     private CocoAccessLogStyle style = CocoAccessLogStyle.TEXT;
 
     private String loggerName = DEFAULT_LOGGER_NAME;
-
-    private boolean includeParameters = true;
-
-    private int maxParameterValueLength = DEFAULT_MAX_PARAMETER_VALUE_LENGTH;
-
-    private Set<String> maskedParameterNames = DEFAULT_MASKED_PARAMETER_NAMES;
 
     /**
      * <p>
@@ -130,77 +115,4 @@ public class CocoAccessLogProperties {
                 : loggerName.trim();
     }
 
-    /**
-     * <p>
-     * 返回是否记录请求参数。
-     * </p>
-     * @return 记录请求参数时返回 {@code true}
-     */
-    public boolean isIncludeParameters() {
-        return this.includeParameters;
-    }
-
-    /**
-     * <p>
-     * 设置是否记录请求参数。
-     * </p>
-     * @param includeParameters 是否记录请求参数
-     */
-    public void setIncludeParameters(boolean includeParameters) {
-        this.includeParameters = includeParameters;
-    }
-
-    /**
-     * <p>
-     * 返回单个请求参数值最大记录长度。
-     * </p>
-     * @return 单个请求参数值最大记录长度
-     */
-    public int getMaxParameterValueLength() {
-        return this.maxParameterValueLength;
-    }
-
-    /**
-     * <p>
-     * 设置单个请求参数值最大记录长度。
-     * </p>
-     * @param maxParameterValueLength 单个请求参数值最大记录长度
-     */
-    public void setMaxParameterValueLength(int maxParameterValueLength) {
-        this.maxParameterValueLength = maxParameterValueLength <= 0
-                ? DEFAULT_MAX_PARAMETER_VALUE_LENGTH
-                : maxParameterValueLength;
-    }
-
-    /**
-     * <p>
-     * 返回需要掩码的请求参数名集合。
-     * </p>
-     * @return 需要掩码的请求参数名集合
-     */
-    public Set<String> getMaskedParameterNames() {
-        return this.maskedParameterNames;
-    }
-
-    /**
-     * <p>
-     * 设置需要掩码的请求参数名集合。
-     * </p>
-     * @param maskedParameterNames 需要掩码的请求参数名集合
-     */
-    public void setMaskedParameterNames(Set<String> maskedParameterNames) {
-        if (maskedParameterNames == null || maskedParameterNames.isEmpty()) {
-            this.maskedParameterNames = DEFAULT_MASKED_PARAMETER_NAMES;
-            return;
-        }
-        Set<String> normalizedNames = new LinkedHashSet<>();
-        for (String name : maskedParameterNames) {
-            if (name != null && !name.isBlank()) {
-                normalizedNames.add(name.trim().toLowerCase(Locale.ROOT));
-            }
-        }
-        this.maskedParameterNames = normalizedNames.isEmpty()
-                ? DEFAULT_MASKED_PARAMETER_NAMES
-                : Set.copyOf(normalizedNames);
-    }
 }

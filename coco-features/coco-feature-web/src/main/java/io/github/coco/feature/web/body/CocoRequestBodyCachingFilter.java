@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
-import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
@@ -25,7 +25,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * Coco 请求体缓存过滤器。
  * <p>
- * 在请求进入 Trace 和业务处理前缓存可复读请求体，为后续 AES 解密、Sign 验签和请求体摘要解析提供统一入口。
+ * 在请求进入 Trace 和业务处理前缓存可复读请求体，为后续 AES 解密、Sign 验签、防重放和请求体摘要解析提供统一入口。
  * </p>
  * <p>
  * 项目信息：
@@ -42,7 +42,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     private static final int BUFFER_SIZE = 4096;
 
-    private static final int STATUS_PAYLOAD_TOO_LARGE = 413;
+    private static final String PAYLOAD_TOO_LARGE_CODE = "coco.web.request-body.payload-too-large";
 
     private static final String FORM_URLENCODED = "application/x-www-form-urlencoded";
 
@@ -87,8 +87,12 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     /**
      * <p>
-     * 鍒涘缓 Coco 璇锋眰浣撶紦瀛樿繃婊ゅ櫒銆?     * </p>
-     * @param properties 璇锋眰浣撶紦瀛橀厤缃睘鎬?     * @param signatureProperties 璇锋眰绛惧悕閰嶇疆灞炴€?     * @param encryptionProperties 璇锋眰鍔犲瘑閰嶇疆灞炴€?     * @param replayProperties 闃查噸鏀鹃厤缃睘鎬?
+     * 创建 Coco 请求体缓存过滤器。
+     * </p>
+     * @param properties 请求体缓存配置属性
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param replayProperties 防重放配置属性
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
@@ -113,8 +117,13 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     /**
      * <p>
-     * 鍒涘缓 Coco 璇锋眰浣撶紦瀛樿繃婊ゅ櫒銆?     * </p>
-     * @param properties 璇锋眰浣撶紦瀛橀厤缃睘鎬?     * @param signatureProperties 璇锋眰绛惧悕閰嶇疆灞炴€?     * @param encryptionProperties 璇锋眰鍔犲瘑閰嶇疆灞炴€?     * @param replayProperties 闃查噸鏀鹃厤缃睘鎬?     * @param exceptionResponseWriter 杩囨护鍣ㄥ紓甯稿搷搴斿啓鍑哄櫒
+     * 创建 Coco 请求体缓存过滤器。
+     * </p>
+     * @param properties 请求体缓存配置属性
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param replayProperties 防重放配置属性
+     * @param exceptionResponseWriter 过滤器异常响应写出器
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
@@ -140,9 +149,14 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     /**
      * <p>
-     * 鍒涘缓 Coco 璇锋眰浣撶紦瀛樿繃婊ゅ櫒銆?     * </p>
-     * @param properties 璇锋眰浣撶紦瀛橀厤缃睘鎬?     * @param signatureProperties 璇锋眰绛惧悕閰嶇疆灞炴€?     * @param encryptionProperties 璇锋眰鍔犲瘑閰嶇疆灞炴€?     * @param replayProperties 闃查噸鏀鹃厤缃睘鎬?     * @param exceptionResponseWriter 杩囨护鍣ㄥ紓甯稿搷搴斿啓鍑哄櫒
-     * @param requestMatcher Web 璇锋眰鍖归厤鍣?
+     * 创建 Coco 请求体缓存过滤器。
+     * </p>
+     * @param properties 请求体缓存配置属性
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param replayProperties 防重放配置属性
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param requestMatcher Web 请求匹配器
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
@@ -186,13 +200,11 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     private void writePayloadTooLarge(HttpServletRequest request, HttpServletResponse response)
             throws IOException {
+        CocoPayloadTooLargeException exception = new CocoPayloadTooLargeException(PAYLOAD_TOO_LARGE_CODE);
         if (this.exceptionResponseWriter == null) {
-            response.sendError(STATUS_PAYLOAD_TOO_LARGE, "Coco request body exceeds max cache bytes");
-            return;
+            throw exception;
         }
-        this.exceptionResponseWriter.write(
-                new CocoPayloadTooLargeException("coco.web.request-body.payload-too-large"),
-                request, response);
+        this.exceptionResponseWriter.write(exception, request, response);
     }
 
     private boolean shouldCache(HttpServletRequest request) {
@@ -205,7 +217,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         if (securityCapabilityRequiresBodyCaching(request)) {
             return true;
         }
-        if (parameterMetadataRequiresFormBodyCaching(request)) {
+        if (parameterMetadataRequiresBodyCaching(request)) {
             return true;
         }
         return CocoRequestBodyCachingMode.ALWAYS.equals(this.properties.getMode())
@@ -279,10 +291,11 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         return signatureRequiresBodyCaching(request) || encryptionRequiresBodyCaching(request);
     }
 
-    private boolean parameterMetadataRequiresFormBodyCaching(HttpServletRequest request) {
-        return isFormUrlencodedRequest(request)
-                && (signatureParameterMetadataMayAppearInBody(request)
-                        || replayParameterMetadataMayAppearInBody(request));
+    private boolean parameterMetadataRequiresBodyCaching(HttpServletRequest request) {
+        if (!parameterMetadataMayAppearInBody(request)) {
+            return false;
+        }
+        return isFormUrlencodedRequest(request) || isCacheableContentType(request);
     }
 
     private boolean signatureRequiresBodyCaching(HttpServletRequest request) {
@@ -313,6 +326,18 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         return this.replayProperties.isEnabled()
                 && this.replayProperties.getMetadataSource().supportsParameter()
                 && !this.requestMatcher.matches(request, this.replayProperties.getMatcher().getIgnored());
+    }
+
+    private boolean encryptionParameterMetadataMayAppearInBody(HttpServletRequest request) {
+        return this.encryptionProperties.isEnabled()
+                && this.encryptionProperties.getMetadataSource().supportsParameter()
+                && !this.requestMatcher.matches(request, this.encryptionProperties.getMatcher().getIgnored());
+    }
+
+    private boolean parameterMetadataMayAppearInBody(HttpServletRequest request) {
+        return signatureParameterMetadataMayAppearInBody(request)
+                || encryptionParameterMetadataMayAppearInBody(request)
+                || replayParameterMetadataMayAppearInBody(request);
     }
 
     private static Set<String> triggerHeaderNames(CocoRequestBodyProperties properties,
@@ -400,7 +425,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         while ((bytesRead = inputStream.read(buffer)) != -1) {
             totalBytes += bytesRead;
             if (totalBytes > maxCacheBytes) {
-                throw new RequestBodyOverflowException("Coco request body exceeds max cache bytes");
+                throw new RequestBodyOverflowException(PAYLOAD_TOO_LARGE_CODE);
             }
             outputStream.write(buffer, 0, bytesRead);
         }

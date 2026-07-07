@@ -11,9 +11,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.context.payload.CocoPayloadParameterResolver;
+import io.github.coco.feature.web.context.payload.CocoWebPayloadParseResult;
+import io.github.coco.feature.web.context.payload.CocoWebPayloadParseStatus;
 import io.github.coco.feature.web.context.payload.DefaultCocoPayloadParameterResolver;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -42,16 +43,6 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
     private final CocoWebParameterProperties properties;
 
     private final CocoPayloadParameterResolver payloadParameterResolver;
-
-    /**
-     * <p>
-     * 使用旧访问日志参数配置创建默认 Coco 请求参数解析器。
-     * </p>
-     * @param properties 访问日志采集配置属性
-     */
-    public DefaultCocoRequestParameterResolver(CocoAccessLogCaptureProperties properties) {
-        this(CocoWebParameterProperties.fromAccessLog(properties));
-    }
 
     /**
      * <p>
@@ -117,7 +108,7 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         if (!this.properties.isIncludeParameters()) {
             return Map.of();
         }
-        Map<String, List<String>> payloadParameters = resolvePayloadParameters(checkedRequest);
+        Map<String, List<String>> payloadParameters = resolvePayloadParseResult(checkedRequest).parameters();
         return resolveSanitizedParameters(checkedRequest, resolveQueryParameters(checkedRequest), payloadParameters);
     }
 
@@ -132,11 +123,12 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         }
         String queryString = resolveQueryString(checkedRequest);
         Map<String, List<String>> queryParameters = resolveQueryParameters(checkedRequest);
-        Map<String, List<String>> payloadParameters = resolvePayloadParameters(checkedRequest);
+        CocoWebPayloadParseResult payloadParseResult = resolvePayloadParseResult(checkedRequest);
+        Map<String, List<String>> payloadParameters = payloadParseResult.parameters();
         Map<String, List<String>> parameters = resolveSanitizedParameters(checkedRequest, queryParameters,
                 payloadParameters);
         return new CocoWebRequestParameters(queryString, parameters, queryParameters, payloadParameters,
-                payloadSource(checkedRequest, payloadParameters));
+                payloadParseResult.source());
     }
 
     /**
@@ -160,7 +152,7 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         if (!this.properties.isIncludeParameters()) {
             return Map.of();
         }
-        return this.payloadParameterResolver.resolvePayloadParameters(checkedRequest);
+        return resolvePayloadParseResult(checkedRequest).parameters();
     }
 
     /**
@@ -170,7 +162,7 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
     public Map<String, List<String>> resolveRawParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
         Map<String, List<String>> parameters = new LinkedHashMap<>(resolveRawQueryParameters(checkedRequest));
-        merge(parameters, resolveRawPayloadParameters(checkedRequest));
+        merge(parameters, resolveRawPayloadParseResult(checkedRequest).parameters());
         return copy(parameters);
     }
 
@@ -182,11 +174,12 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
         String rawQueryString = resolveRawQueryString(checkedRequest);
         Map<String, List<String>> rawQueryParameters = parseRawQueryString(rawQueryString);
-        Map<String, List<String>> rawPayloadParameters = resolveRawPayloadParameters(checkedRequest);
+        CocoWebPayloadParseResult rawPayloadParseResult = resolveRawPayloadParseResult(checkedRequest);
+        Map<String, List<String>> rawPayloadParameters = rawPayloadParseResult.parameters();
         Map<String, List<String>> rawParameters = new LinkedHashMap<>(rawQueryParameters);
         merge(rawParameters, rawPayloadParameters);
         return new CocoWebRequestParameters(rawQueryString, copy(rawParameters), rawQueryParameters,
-                rawPayloadParameters, payloadSource(checkedRequest, rawPayloadParameters));
+                rawPayloadParameters, rawPayloadParseResult.source());
     }
 
     /**
@@ -204,7 +197,46 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
     @Override
     public Map<String, List<String>> resolveRawPayloadParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        return this.payloadParameterResolver.resolveRawPayloadParameters(checkedRequest);
+        return resolveRawPayloadParseResult(checkedRequest).parameters();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoWebPayloadParseStatus resolvePayloadParseStatus(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        if (!this.properties.isIncludeParameters()) {
+            return CocoWebPayloadParseStatus.DISABLED;
+        }
+        return resolvePayloadParseResult(checkedRequest).status();
+    }
+
+    /**
+     * <p>
+     * 解析清洗后的请求体参数结果。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 清洗后的请求体参数结果
+     */
+    public CocoWebPayloadParseResult resolvePayloadParseResult(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        if (!this.properties.isIncludeParameters()) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.DISABLED, CocoWebParameterSource.NONE);
+        }
+        return this.payloadParameterResolver.resolvePayloadParseResult(checkedRequest);
+    }
+
+    /**
+     * <p>
+     * 解析原始请求体参数结果。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 原始请求体参数结果
+     */
+    public CocoWebPayloadParseResult resolveRawPayloadParseResult(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        return this.payloadParameterResolver.resolveRawPayloadParseResult(checkedRequest);
     }
 
     private static void merge(Map<String, List<String>> target, Map<String, List<String>> source) {
@@ -246,21 +278,6 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         }
         merge(parameters, payloadParameters);
         return copy(parameters);
-    }
-
-    private static CocoWebParameterSource payloadSource(HttpServletRequest request,
-            Map<String, List<String>> payloadParameters) {
-        if (payloadParameters == null || payloadParameters.isEmpty()) {
-            return CocoWebParameterSource.NONE;
-        }
-        String contentType = normalizeMediaType(request.getContentType());
-        if (FORM_URLENCODED.equals(contentType)) {
-            return CocoWebParameterSource.FORM;
-        }
-        if (isJsonContentType(contentType)) {
-            return CocoWebParameterSource.JSON;
-        }
-        return CocoWebParameterSource.PAYLOAD;
     }
 
     private Map<String, List<String>> parseSanitizedQueryString(String queryString) {

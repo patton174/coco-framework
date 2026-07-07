@@ -67,6 +67,26 @@ public record CocoBrowserFingerprint(String value, Map<String, String> signals) 
         return new CocoBrowserFingerprint(sha256(canonicalSignals(copiedSignals)), copiedSignals);
     }
 
+    /**
+     * <p>
+     * 根据展示信号和完整哈希信号生成浏览器指纹。
+     * </p>
+     * <p>
+     * 展示信号可以按配置裁剪后写入上下文，完整哈希信号用于生成摘要，避免长请求头裁剪后造成指纹碰撞。
+     * </p>
+     * @param signals 写入上下文的展示信号
+     * @param hashSignals 参与生成摘要的完整信号
+     * @return 浏览器指纹
+     */
+    public static CocoBrowserFingerprint from(Map<String, String> signals, Map<String, String> hashSignals) {
+        Map<String, String> copiedSignals = copySignals(signals);
+        Map<String, String> copiedHashSignals = copySignals(hashSignals);
+        if (copiedHashSignals.isEmpty()) {
+            return copiedSignals.isEmpty() ? empty() : from(copiedSignals);
+        }
+        return new CocoBrowserFingerprint(sha256(canonicalSignals(copiedHashSignals)), copiedSignals);
+    }
+
     private static Map<String, String> copySignals(Map<String, String> signals) {
         if (signals == null || signals.isEmpty()) {
             return Map.of();

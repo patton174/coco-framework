@@ -12,6 +12,8 @@ import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
+import io.github.coco.feature.web.body.CocoRequestBodyResolver;
+import io.github.coco.feature.web.body.DefaultCocoRequestBodyResolver;
 import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.CocoClientIpResolver;
 import io.github.coco.feature.web.context.CocoRequestCookieResolver;
@@ -20,8 +22,9 @@ import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityInputResolver;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.context.target.CocoWebRequestTargetResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestCookieResolver;
@@ -30,8 +33,9 @@ import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
-import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityInputResolver;
-import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.context.target.DefaultCocoWebRequestTargetResolver;
+import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.payload.CocoPayloadParameterResolver;
 import io.github.coco.feature.web.context.payload.DefaultCocoPayloadParameterResolver;
 import io.github.coco.feature.web.encryption.AesGcmCocoRequestDecryptor;
@@ -230,6 +234,19 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco 请求体解析器。
+     * </p>
+     * @return 请求体解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoRequestBodyResolver cocoRequestBodyResolver() {
+        return new DefaultCocoRequestBodyResolver();
+    }
+
+    /**
+     * <p>
      * 创建默认 Coco 请求参数解析器。
      * </p>
      * @param properties Coco Web 配置属性
@@ -247,12 +264,27 @@ public class CocoWebAutoConfiguration {
 
     /**
      * <p>
+     * 创建默认 Coco Web 请求目标解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return Web 请求目标解析器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoWebRequestTargetResolver cocoWebRequestTargetResolver(CocoWebProperties properties) {
+        return new DefaultCocoWebRequestTargetResolver(properties.getContext());
+    }
+
+    /**
+     * <p>
      * 创建默认 Coco Web 请求安全输入解析器。
      * </p>
      * @param properties Coco Web 配置属性
      * @param requestHeaderResolver 请求头解析器
      * @param requestCookieResolver 请求 Cookie 解析器
      * @param requestParameterResolver 请求参数解析器
+     * @param requestBodyResolver 请求体解析器
      * @return Web 请求安全输入解析器
      */
     @Bean
@@ -261,10 +293,11 @@ public class CocoWebAutoConfiguration {
     public CocoWebRequestSecurityInputResolver cocoWebRequestSecurityInputResolver(CocoWebProperties properties,
             CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestCookieResolver requestCookieResolver,
-            CocoRequestParameterResolver requestParameterResolver) {
+            CocoRequestParameterResolver requestParameterResolver,
+            CocoRequestBodyResolver requestBodyResolver) {
         return new DefaultCocoWebRequestSecurityInputResolver(properties.getContext(), requestHeaderResolver,
                 requestCookieResolver, requestParameterResolver, properties.getSignature(), properties.getEncryption(),
-                properties.getReplay());
+                properties.getReplay(), requestBodyResolver);
     }
 
     /**
@@ -288,11 +321,14 @@ public class CocoWebAutoConfiguration {
      * </p>
      * @param properties Coco Web 配置属性
      * @param clientIpResolver 客户端 IP 解析器
+     * @param requestTargetResolver Web 请求目标解析器
      * @param browserFingerprintResolver 浏览器指纹解析器
      * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver Cookie 解析器
      * @param requestParameterResolver 请求参数解析器
      * @param securityInputResolver Web 请求安全输入解析器
      * @param securityMetadataResolver Web 请求安全元数据解析器
+     * @param requestBodyResolver 请求体解析器
      * @return Coco Web 请求上下文解析器
      */
     @Bean
@@ -300,14 +336,17 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoWebRequestContextResolver cocoWebRequestContextResolver(CocoWebProperties properties,
             CocoClientIpResolver clientIpResolver,
+            CocoWebRequestTargetResolver requestTargetResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestCookieResolver requestCookieResolver,
             CocoRequestParameterResolver requestParameterResolver,
             CocoWebRequestSecurityInputResolver securityInputResolver,
-            CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
-        return new DefaultCocoWebRequestContextResolver(properties.getContext(), properties.getAccessLog(),
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
+            CocoRequestBodyResolver requestBodyResolver) {
+        return new DefaultCocoWebRequestContextResolver(properties.getContext(),
                 clientIpResolver, browserFingerprintResolver, requestHeaderResolver, requestCookieResolver,
-                requestParameterResolver, securityInputResolver, securityMetadataResolver);
+                requestTargetResolver,
+                requestParameterResolver, securityInputResolver, securityMetadataResolver, requestBodyResolver);
     }
 
     /**
@@ -429,7 +468,7 @@ public class CocoWebAutoConfiguration {
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoWebProperties properties, CocoResponseBodyFactory responseBodyFactory) {
         return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider,
-                properties.getResponse(), responseBodyFactory);
+                properties.getResponse(), properties.getTrace(), responseBodyFactory);
     }
 
     /**
@@ -468,7 +507,7 @@ public class CocoWebAutoConfiguration {
             CocoResponseBodyFactory responseBodyFactory) {
         return new CocoResponseWrapAdvice(messageService, properties.getResponseWrap(),
                 codeProvider, objectMapper.getIfAvailable(ObjectMapper::new), properties.getResponse(),
-                responseBodyFactory);
+                properties.getTrace(), responseBodyFactory);
     }
 
     /**
@@ -594,6 +633,7 @@ public class CocoWebAutoConfiguration {
      * @param securityMetadataResolver Web 请求安全元数据解析器
      * @param requestMatcher Web 请求匹配器
      * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param requestBodyResolver 请求体解析器
      * @return 请求解密过滤器注册器
      */
     @Bean
@@ -606,10 +646,12 @@ public class CocoWebAutoConfiguration {
             CocoWebRequestContextResolver requestContextResolver,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
             CocoWebRequestMatcher requestMatcher,
-            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+            CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoRequestBodyResolver requestBodyResolver) {
         FilterRegistrationBean<CocoEncryptionFilter> registration = new FilterRegistrationBean<>(
                 new CocoEncryptionFilter(properties.getEncryption(), keyResolver, requestDecryptor,
-                        requestContextResolver, exceptionResponseWriter, securityMetadataResolver, requestMatcher));
+                        requestContextResolver, exceptionResponseWriter, securityMetadataResolver, requestMatcher,
+                        requestBodyResolver));
         registration.setName("cocoEncryptionFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
         return registration;

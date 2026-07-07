@@ -3,7 +3,7 @@ package io.github.coco.feature.web.encryption;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 
 /**
@@ -108,6 +108,16 @@ public final class CocoEncryptionAssociatedData {
         append(builder, "replayTimestamp", replayTimestamp);
         append(builder, "replayNonce", replayNonce);
         return builder.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * <p>
+     * 返回当前 AES-GCM AAD 协议版本。
+     * </p>
+     * @return 协议版本
+     */
+    public static String version() {
+        return VERSION;
     }
 
     private static void append(StringBuilder builder, String name, String value) {

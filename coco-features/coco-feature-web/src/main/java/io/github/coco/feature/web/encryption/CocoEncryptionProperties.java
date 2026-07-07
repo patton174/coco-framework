@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -51,6 +51,8 @@ public class CocoEncryptionProperties {
     private String algorithmHeaderName = "X-Coco-Algorithm";
 
     private String algorithmParameterName = "algorithm";
+
+    private String payloadParameterName = "payload";
 
     private String defaultAlgorithm = "AES-GCM";
 
@@ -325,6 +327,26 @@ public class CocoEncryptionProperties {
      */
     public void setAlgorithmParameterName(String algorithmParameterName) {
         this.algorithmParameterName = normalizeParameterName(algorithmParameterName, "algorithm");
+    }
+
+    /**
+     * <p>
+     * 返回加密信封中的密文字段参数名称。
+     * </p>
+     * @return 加密信封中的密文字段参数名称
+     */
+    public String getPayloadParameterName() {
+        return this.payloadParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置加密信封中的密文字段参数名称。
+     * </p>
+     * @param payloadParameterName 加密信封中的密文字段参数名称
+     */
+    public void setPayloadParameterName(String payloadParameterName) {
+        this.payloadParameterName = normalizeParameterName(payloadParameterName, "payload");
     }
 
     /**

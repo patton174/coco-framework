@@ -1,7 +1,7 @@
 package io.github.coco.feature.web.replay;
 
 import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
-import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**

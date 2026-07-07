@@ -3,6 +3,7 @@ package io.github.coco.feature.web.context;
 import java.util.List;
 import java.util.Map;
 
+import io.github.coco.feature.web.context.payload.CocoWebPayloadParseStatus;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -86,7 +87,7 @@ public interface CocoRequestParameterResolver {
      * 解析清洗后的请求参数快照。
      * </p>
      * <p>
-     * 默认实现组合现有查询字符串、合并参数、查询参数和请求体参数解析方法，便于自定义解析器保持向后兼容。
+     * 默认实现组合查询字符串、合并参数、查询参数和请求体参数解析方法。
      * </p>
      * @param request 当前 Servlet 请求
      * @return 清洗后的请求参数快照
@@ -120,10 +121,21 @@ public interface CocoRequestParameterResolver {
 
     /**
      * <p>
+     * 解析当前请求体参数解析状态。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 请求体参数解析状态
+     */
+    default CocoWebPayloadParseStatus resolvePayloadParseStatus(HttpServletRequest request) {
+        return CocoWebPayloadParseStatus.DISABLED;
+    }
+
+    /**
+     * <p>
      * 解析原始请求参数快照。
      * </p>
      * <p>
-     * 默认实现组合现有原始查询字符串、原始合并参数、原始查询参数和原始请求体参数解析方法，便于自定义解析器保持向后兼容。
+     * 默认实现组合原始查询字符串、原始合并参数、原始查询参数和原始请求体参数解析方法。
      * </p>
      * @param request 当前 Servlet 请求
      * @return 原始请求参数快照

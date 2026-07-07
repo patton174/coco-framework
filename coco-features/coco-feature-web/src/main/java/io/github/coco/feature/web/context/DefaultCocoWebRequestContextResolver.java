@@ -6,12 +6,26 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.StringJoiner;
 
-import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
-import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
+import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
+import io.github.coco.feature.web.body.CocoRequestBodyResolver;
+import io.github.coco.feature.web.body.CocoResolvedRequestBody;
+import io.github.coco.feature.web.body.DefaultCocoRequestBodyResolver;
+import io.github.coco.feature.web.context.payload.CocoWebPayloadParseStatus;
+import io.github.coco.feature.web.context.target.CocoWebRequestTarget;
+import io.github.coco.feature.web.context.target.CocoWebRequestTargetResolution;
+import io.github.coco.feature.web.context.target.CocoWebRequestTargetResolver;
+import io.github.coco.feature.web.context.target.DefaultCocoWebRequestTargetResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -40,22 +54,24 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
 
     private final CocoRequestCookieResolver requestCookieResolver;
 
+    private final CocoWebRequestTargetResolver requestTargetResolver;
+
     private final CocoRequestParameterResolver requestParameterResolver;
 
     private final CocoWebRequestSecurityInputResolver securityInputResolver;
 
     private final CocoWebRequestSecurityMetadataResolver securityMetadataResolver;
 
+    private final CocoRequestBodyResolver requestBodyResolver;
+
     /**
      * <p>
      * 创建默认请求上下文解析器。
      * </p>
      * @param properties Web 请求上下文配置
-     * @param accessLogProperties 访问日志采集配置
      */
-    public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
-            CocoAccessLogCaptureProperties accessLogProperties) {
-        this(properties, accessLogProperties, null);
+    public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties) {
+        this(properties, (CocoBrowserFingerprintResolver) null);
     }
 
     /**
@@ -63,13 +79,11 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * 创建默认请求上下文解析器。
      * </p>
      * @param properties Web 请求上下文配置
-     * @param accessLogProperties 访问日志采集配置
      * @param browserFingerprintResolver 浏览器指纹解析器
      */
     public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
-            CocoAccessLogCaptureProperties accessLogProperties,
             CocoBrowserFingerprintResolver browserFingerprintResolver) {
-        this(properties, accessLogProperties, null, browserFingerprintResolver, null, null);
+        this(properties, null, browserFingerprintResolver, null, null);
     }
 
     /**
@@ -77,14 +91,13 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * 创建默认请求上下文解析器。
      * </p>
      * @param properties Web 请求上下文配置
-     * @param accessLogProperties 访问日志采集配置
      * @param clientIpResolver 客户端 IP 解析器
      * @param browserFingerprintResolver 浏览器指纹解析器
      */
     public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
-            CocoAccessLogCaptureProperties accessLogProperties, CocoClientIpResolver clientIpResolver,
+            CocoClientIpResolver clientIpResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver) {
-        this(properties, accessLogProperties, clientIpResolver, browserFingerprintResolver, null, null);
+        this(properties, clientIpResolver, browserFingerprintResolver, null, null);
     }
 
     /**
@@ -92,17 +105,16 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * 创建默认请求上下文解析器。
      * </p>
      * @param properties Web 请求上下文配置
-     * @param accessLogProperties 访问日志采集配置
      * @param clientIpResolver 客户端 IP 解析器
      * @param browserFingerprintResolver 浏览器指纹解析器
      * @param requestHeaderResolver 请求头解析器
      * @param requestParameterResolver 请求参数解析器
      */
     public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
-            CocoAccessLogCaptureProperties accessLogProperties, CocoClientIpResolver clientIpResolver,
+            CocoClientIpResolver clientIpResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestParameterResolver requestParameterResolver) {
-        this(properties, accessLogProperties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
+        this(properties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
                 requestParameterResolver, null);
     }
 
@@ -111,7 +123,6 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * 创建默认请求上下文解析器。
      * </p>
      * @param properties Web 请求上下文配置
-     * @param accessLogProperties 访问日志采集配置
      * @param clientIpResolver 客户端 IP 解析器
      * @param browserFingerprintResolver 浏览器指纹解析器
      * @param requestHeaderResolver 请求头解析器
@@ -119,11 +130,11 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * @param securityInputResolver 请求安全输入解析器
      */
     public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
-            CocoAccessLogCaptureProperties accessLogProperties, CocoClientIpResolver clientIpResolver,
+            CocoClientIpResolver clientIpResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestParameterResolver requestParameterResolver,
             CocoWebRequestSecurityInputResolver securityInputResolver) {
-        this(properties, accessLogProperties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
+        this(properties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
                 requestParameterResolver, securityInputResolver, null);
     }
 
@@ -132,7 +143,6 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * 创建默认请求上下文解析器。
      * </p>
      * @param properties Web 请求上下文配置
-     * @param accessLogProperties 访问日志采集配置
      * @param clientIpResolver 客户端 IP 解析器
      * @param browserFingerprintResolver 浏览器指纹解析器
      * @param requestHeaderResolver 请求头解析器
@@ -141,13 +151,13 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * @param securityMetadataResolver 请求安全元数据解析器
      */
     public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
-            CocoAccessLogCaptureProperties accessLogProperties, CocoClientIpResolver clientIpResolver,
+            CocoClientIpResolver clientIpResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestParameterResolver requestParameterResolver,
             CocoWebRequestSecurityInputResolver securityInputResolver,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
-        this(properties, accessLogProperties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
-                null, requestParameterResolver, securityInputResolver, securityMetadataResolver);
+        this(properties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
+                null, null, requestParameterResolver, securityInputResolver, securityMetadataResolver);
     }
 
     /**
@@ -155,25 +165,52 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
      * 创建默认请求上下文解析器。
      * </p>
      * @param properties Web 请求上下文配置
-     * @param accessLogProperties 访问日志采集配置
      * @param clientIpResolver 客户端 IP 解析器
      * @param browserFingerprintResolver 浏览器指纹解析器
      * @param requestHeaderResolver 请求头解析器
      * @param requestCookieResolver Cookie 解析器
+     * @param requestTargetResolver Web 请求目标解析器
      * @param requestParameterResolver 请求参数解析器
      * @param securityInputResolver 请求安全输入解析器
      * @param securityMetadataResolver 请求安全元数据解析器
      */
     public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
-            CocoAccessLogCaptureProperties accessLogProperties, CocoClientIpResolver clientIpResolver,
+            CocoClientIpResolver clientIpResolver,
             CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
-            CocoRequestCookieResolver requestCookieResolver, CocoRequestParameterResolver requestParameterResolver,
+            CocoRequestCookieResolver requestCookieResolver, CocoWebRequestTargetResolver requestTargetResolver,
+            CocoRequestParameterResolver requestParameterResolver,
             CocoWebRequestSecurityInputResolver securityInputResolver,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver) {
+        this(properties, clientIpResolver, browserFingerprintResolver, requestHeaderResolver,
+                requestCookieResolver, requestTargetResolver, requestParameterResolver, securityInputResolver,
+                securityMetadataResolver, null);
+    }
+
+    /**
+     * <p>
+     * 创建默认请求上下文解析器。
+     * </p>
+     * @param properties Web 请求上下文配置
+     * @param clientIpResolver 客户端 IP 解析器
+     * @param browserFingerprintResolver 浏览器指纹解析器
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver Cookie 解析器
+     * @param requestTargetResolver Web 请求目标解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param securityInputResolver 请求安全输入解析器
+     * @param securityMetadataResolver 请求安全元数据解析器
+     * @param requestBodyResolver 请求体解析器
+     */
+    public DefaultCocoWebRequestContextResolver(CocoWebContextProperties properties,
+            CocoClientIpResolver clientIpResolver,
+            CocoBrowserFingerprintResolver browserFingerprintResolver, CocoRequestHeaderResolver requestHeaderResolver,
+            CocoRequestCookieResolver requestCookieResolver, CocoWebRequestTargetResolver requestTargetResolver,
+            CocoRequestParameterResolver requestParameterResolver,
+            CocoWebRequestSecurityInputResolver securityInputResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
+            CocoRequestBodyResolver requestBodyResolver) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
-        CocoWebParameterProperties parameterProperties = accessLogProperties == null
-                ? contextProperties.getParameter()
-                : CocoWebParameterProperties.fromAccessLog(accessLogProperties);
+        CocoWebParameterProperties parameterProperties = contextProperties.getParameter();
         this.clientIpResolver = clientIpResolver == null
                 ? new DefaultCocoClientIpResolver(contextProperties)
                 : clientIpResolver;
@@ -186,12 +223,19 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         this.requestCookieResolver = requestCookieResolver == null
                 ? new DefaultCocoRequestCookieResolver(contextProperties)
                 : requestCookieResolver;
+        this.requestTargetResolver = requestTargetResolver == null
+                ? new DefaultCocoWebRequestTargetResolver(contextProperties)
+                : requestTargetResolver;
         this.requestParameterResolver = requestParameterResolver == null
                 ? new DefaultCocoRequestParameterResolver(parameterProperties)
                 : requestParameterResolver;
+        this.requestBodyResolver = requestBodyResolver == null
+                ? new DefaultCocoRequestBodyResolver()
+                : requestBodyResolver;
         this.securityInputResolver = securityInputResolver == null
                 ? new DefaultCocoWebRequestSecurityInputResolver(contextProperties, this.requestHeaderResolver,
-                        this.requestParameterResolver)
+                        this.requestCookieResolver, this.requestParameterResolver, null, null, null,
+                        this.requestBodyResolver)
                 : securityInputResolver;
         this.securityMetadataResolver = securityMetadataResolver == null
                 ? new DefaultCocoWebRequestSecurityMetadataResolver(null, null, null)
@@ -204,55 +248,59 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
     @Override
     public CocoWebRequestSnapshot resolve(String traceId, HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        String effectiveTraceId = resolveTraceId(traceId);
         return CocoWebRequestSnapshotAttributes.get(checkedRequest)
-                .filter(snapshot -> reusable(snapshot, traceId, checkedRequest))
-                .orElseGet(() -> resolveAndCache(traceId, checkedRequest));
+                .filter(snapshot -> reusable(snapshot, effectiveTraceId, checkedRequest))
+                .orElseGet(() -> resolveAndCache(effectiveTraceId, checkedRequest));
     }
 
     private CocoWebRequestSnapshot resolveAndCache(String traceId, HttpServletRequest request) {
         String method = request.getMethod();
-        String path = resolvePath(request);
+        CocoWebRequestTargetResolution targetResolution = this.requestTargetResolver.resolveResolution(request);
+        CocoWebRequestTarget requestTarget = targetResolution.target();
+        String path = requestTarget.path();
         CocoClientIpResolution clientIpResolution = this.clientIpResolver.resolveResolution(request);
         CocoBrowserFingerprint browserFingerprint = this.browserFingerprintResolver.resolve(request);
         CocoWebRequestSecurityInput securityInput = this.securityInputResolver.resolve(request, method, path);
-        CocoRequestBodyMetadata requestBody = CocoRequestBodyMetadata.from(request);
+        CocoResolvedRequestBody resolvedBody = this.requestBodyResolver.resolve(request);
+        CocoRequestBodyMetadata requestBody = resolvedBody.metadata();
         CocoWebRequestSecurityMetadata securityMetadata = this.securityMetadataResolver.resolve(securityInput);
         CocoWebRequestParameters parameterSnapshot = this.requestParameterResolver.resolveParameterSnapshot(request);
+        CocoWebPayloadParseStatus payloadParseStatus = this.requestParameterResolver.resolvePayloadParseStatus(request);
         Map<String, String> cookies = this.requestCookieResolver.resolveIncludedCookies(request);
         CocoWebRequestSnapshot snapshot = new CocoWebRequestSnapshot(traceId, method, path,
                 parameterSnapshot.queryString(),
                 clientIpResolution.clientIp(), request.getHeader("User-Agent"),
                 resolveLocale(request),
-                request.getScheme(), request.getServerName(), request.getServerPort(),
+                requestTarget.scheme(), requestTarget.host(), requestTarget.port(),
                 request.getContentType(), this.requestHeaderResolver.resolveIncludedHeaders(request),
                 cookies, parameterSnapshot.parameters(), parameterSnapshot.queryParameters(),
                 parameterSnapshot.payloadParameters(), securityInput, requestBody, securityMetadata, browserFingerprint,
-                clientIpResolution, parameterSnapshot.payloadSource());
+                clientIpResolution, targetResolution, parameterSnapshot.payloadSource(), null, payloadParseStatus,
+                Map.of());
         CocoWebRequestSnapshotAttributes.set(request, snapshot, headerFingerprint(request));
         return snapshot;
     }
 
-    private static boolean reusable(CocoWebRequestSnapshot snapshot, String traceId, HttpServletRequest request) {
-        return snapshot.traceId().equals(normalizeTraceId(traceId))
+    private boolean reusable(CocoWebRequestSnapshot snapshot, String traceId, HttpServletRequest request) {
+        CocoWebRequestTarget requestTarget = this.requestTargetResolver.resolve(request);
+        return snapshot.traceId().equals(traceId)
                 && Objects.equals(snapshot.method(), normalizeMethod(request.getMethod()))
-                && Objects.equals(snapshot.path(), resolvePath(request))
+                && Objects.equals(snapshot.path(), requestTarget.path())
                 && Objects.equals(snapshot.securityInput().queryString(), normalizeOptional(request.getQueryString()))
                 && CocoWebRequestSnapshotAttributes.headerFingerprint(request)
                         .filter(fingerprint -> fingerprint.equals(headerFingerprint(request)))
-                        .isPresent()
+                .isPresent()
                 && reusableBody(snapshot, request);
     }
 
-    private static boolean reusableBody(CocoWebRequestSnapshot snapshot, HttpServletRequest request) {
-        return CocoCachedBodyHttpServletRequest.cachedBody(request)
+    private boolean reusableBody(CocoWebRequestSnapshot snapshot, HttpServletRequest request) {
+        return Optional.ofNullable(this.requestBodyResolver.resolve(request))
+                .map(CocoResolvedRequestBody::effectiveBody)
+                .filter(CocoCachedRequestBody::cached)
                 .map(CocoCachedRequestBody::sha256)
                 .map(sha256 -> Objects.equals(sha256, snapshot.securityInput().bodySha256()))
                 .orElse(true);
-    }
-
-    private static String resolvePath(HttpServletRequest request) {
-        String requestUri = request.getRequestURI();
-        return requestUri == null || requestUri.isBlank() ? null : requestUri;
     }
 
     private static String resolveLocale(HttpServletRequest request) {
@@ -260,8 +308,8 @@ public final class DefaultCocoWebRequestContextResolver implements CocoWebReques
         return locale == null ? null : locale.toLanguageTag();
     }
 
-    private static String normalizeTraceId(String traceId) {
-        return traceId == null || traceId.isBlank() ? "" : traceId.trim();
+    private static String resolveTraceId(String traceId) {
+        return traceId == null || traceId.isBlank() ? CocoTraceContext.getOrCreateTraceId() : traceId.trim();
     }
 
     private static String normalizeMethod(String method) {

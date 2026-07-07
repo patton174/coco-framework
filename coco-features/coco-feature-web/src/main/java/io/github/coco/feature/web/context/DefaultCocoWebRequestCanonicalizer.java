@@ -10,6 +10,9 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
+
 /**
  * Coco Web 默认请求规范化器。
  * <p>
@@ -27,8 +30,6 @@ import java.util.stream.Stream;
  * @since 1.0.0
  */
 public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestCanonicalizer {
-
-    private static final String FRAMED_PARAMETER_VERSION = "coco-v2";
 
     private final CocoWebRequestCanonicalizationProperties properties;
 
@@ -217,7 +218,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
     }
 
     private boolean usesFramedParameterValues() {
-        return FRAMED_PARAMETER_VERSION.equalsIgnoreCase(this.properties.getVersion());
+        return true;
     }
 
     private static String value(String value) {

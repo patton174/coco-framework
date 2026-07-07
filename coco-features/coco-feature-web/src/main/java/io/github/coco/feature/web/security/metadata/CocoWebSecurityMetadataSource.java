@@ -1,4 +1,4 @@
-package io.github.coco.feature.web.context;
+package io.github.coco.feature.web.security.metadata;
 
 /**
  * Coco Web 安全元数据来源。

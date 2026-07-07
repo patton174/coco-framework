@@ -30,6 +30,8 @@ public final class AesGcmCocoRequestDecryptor implements CocoRequestDecryptor {
 
     private static final String JCA_TRANSFORMATION = "AES/GCM/NoPadding";
 
+    private static final String DECRYPT_FAILED_CODE = "coco.web.encryption.decrypt-failed";
+
     private final CocoEncryptionProperties properties;
 
     /**
@@ -50,7 +52,7 @@ public final class AesGcmCocoRequestDecryptor implements CocoRequestDecryptor {
         CocoRequestDecryptionContext checkedContext = Objects.requireNonNull(context, "context must not be null");
         CocoEncryptedRequest request = checkedContext.request();
         if (!supports(request.algorithm())) {
-            throw new IllegalArgumentException("unsupported encryption algorithm");
+            throw new CocoRequestDecryptException(DECRYPT_FAILED_CODE, null);
         }
         byte[] iv = CocoEncryptionCodecs.decode(request.iv(), this.properties.getIvEncoding());
         byte[] payload = CocoEncryptionCodecs.decode(request.payload(), this.properties.getPayloadEncoding());
@@ -62,7 +64,7 @@ public final class AesGcmCocoRequestDecryptor implements CocoRequestDecryptor {
             return cipher.doFinal(payload);
         }
         catch (GeneralSecurityException | IllegalArgumentException ex) {
-            throw new CocoRequestDecryptException("request decryption failed", ex);
+            throw new CocoRequestDecryptException(DECRYPT_FAILED_CODE, ex);
         }
     }
 

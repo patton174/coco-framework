@@ -36,6 +36,11 @@ public final class CocoRequestContextAttributes {
     public static final String CLIENT_IP_SOURCE_HEADER = "clientIpSourceHeader";
 
     /**
+     * 客户端 IP 来源请求头原始值属性键。
+     */
+    public static final String CLIENT_IP_SOURCE_HEADER_VALUE = "clientIpSourceHeaderValue";
+
+    /**
      * Servlet 远端地址属性键。
      */
     public static final String CLIENT_IP_REMOTE_ADDRESS = "clientIpRemoteAddress";
@@ -44,6 +49,16 @@ public final class CocoRequestContextAttributes {
      * 客户端 IP 是否来自可信代理链属性键。
      */
     public static final String CLIENT_IP_TRUSTED_PROXY = "clientIpTrustedProxy";
+
+    /**
+     * 客户端 IP 代理链属性键。
+     */
+    public static final String CLIENT_IP_CHAIN = "clientIpChain";
+
+    /**
+     * 客户端 IP 命中的代理链下标属性键。
+     */
+    public static final String CLIENT_IP_RESOLVED_CHAIN_INDEX = "clientIpResolvedChainIndex";
 
     /**
      * User-Agent 属性键。
@@ -81,9 +96,54 @@ public final class CocoRequestContextAttributes {
     public static final String CONTENT_TYPE = "contentType";
 
     /**
+     * 请求目标来源属性键。
+     */
+    public static final String REQUEST_TARGET_SOURCE = "requestTargetSource";
+
+    /**
+     * 请求目标远端地址属性键。
+     */
+    public static final String REQUEST_TARGET_REMOTE_ADDRESS = "requestTargetRemoteAddress";
+
+    /**
+     * 请求目标是否来自可信代理属性键。
+     */
+    public static final String REQUEST_TARGET_TRUSTED_PROXY = "requestTargetTrustedProxy";
+
+    /**
+     * 请求目标来源头列表属性键。
+     */
+    public static final String REQUEST_TARGET_SOURCE_HEADERS = "requestTargetSourceHeaders";
+
+    /**
+     * 请求目标转发前缀属性键。
+     */
+    public static final String REQUEST_TARGET_FORWARDED_PREFIX = "requestTargetForwardedPrefix";
+
+    /**
+     * 请求上下文阶段属性键。
+     */
+    public static final String REQUEST_CONTEXT_PHASE = "requestContextPhase";
+
+    /**
+     * 请求体参数来源属性键。
+     */
+    public static final String REQUEST_PAYLOAD_SOURCE = "requestPayloadSource";
+
+    /**
+     * 请求体参数解析状态属性键。
+     */
+    public static final String REQUEST_PAYLOAD_PARSE_STATUS = "requestPayloadParseStatus";
+
+    /**
      * 浏览器指纹属性键。
      */
     public static final String BROWSER_FINGERPRINT = "browserFingerprint";
+
+    /**
+     * 浏览器指纹信号属性键前缀。
+     */
+    public static final String BROWSER_FINGERPRINT_SIGNAL_PREFIX = "browserFingerprintSignal.";
 
     /**
      * 请求体 SHA-256 摘要属性键。
@@ -121,6 +181,31 @@ public final class CocoRequestContextAttributes {
     public static final String SECURITY_APP_ID = "securityAppId";
 
     /**
+     * 签名应用标识属性键。
+     */
+    public static final String SIGNATURE_APP_ID = "signatureAppId";
+
+    /**
+     * 签名密钥标识属性键。
+     */
+    public static final String SIGNATURE_KEY_ID = "signatureKeyId";
+
+    /**
+     * 签名时间戳属性键。
+     */
+    public static final String SIGNATURE_TIMESTAMP = "signatureTimestamp";
+
+    /**
+     * 签名随机串属性键。
+     */
+    public static final String SIGNATURE_NONCE = "signatureNonce";
+
+    /**
+     * 签名值属性键。
+     */
+    public static final String SIGNATURE_VALUE = "signatureValue";
+
+    /**
      * 请求安全密钥标识属性键。
      */
     public static final String SECURITY_KEY_ID = "securityKeyId";
@@ -146,9 +231,109 @@ public final class CocoRequestContextAttributes {
     public static final String SIGNATURE_ALGORITHM = "signatureAlgorithm";
 
     /**
+     * 请求签名元数据来源属性键。
+     */
+    public static final String SIGNATURE_METADATA_SOURCE = "signatureMetadataSource";
+
+    /**
+     * 请求签名是否已验证通过属性键。
+     */
+    public static final String SIGNATURE_VERIFIED = "signatureVerified";
+
+    /**
+     * 请求签名验证完成时间属性键。
+     */
+    public static final String SIGNATURE_VERIFIED_AT = "signatureVerifiedAt";
+
+    /**
+     * 请求签名规范化文本 SHA-256 摘要属性键。
+     */
+    public static final String SIGNATURE_CANONICAL_SHA256 = "signatureCanonicalSha256";
+
+    /**
      * 请求加密算法属性键。
      */
     public static final String ENCRYPTION_ALGORITHM = "encryptionAlgorithm";
+
+    /**
+     * 请求加密元数据来源属性键。
+     */
+    public static final String ENCRYPTION_METADATA_SOURCE = "encryptionMetadataSource";
+
+    /**
+     * 请求是否已成功解密属性键。
+     */
+    public static final String REQUEST_DECRYPTED = "requestDecrypted";
+
+    /**
+     * 请求加密 AAD 版本属性键。
+     */
+    public static final String ENCRYPTION_ASSOCIATED_DATA_VERSION = "encryptionAssociatedDataVersion";
+
+    /**
+     * 请求加密 AAD SHA-256 摘要属性键。
+     */
+    public static final String ENCRYPTION_ASSOCIATED_DATA_SHA256 = "encryptionAssociatedDataSha256";
+
+    /**
+     * 加密应用标识属性键。
+     */
+    public static final String ENCRYPTION_APP_ID = "encryptionAppId";
+
+    /**
+     * 加密密钥标识属性键。
+     */
+    public static final String ENCRYPTION_KEY_ID = "encryptionKeyId";
+
+    /**
+     * 加密初始向量属性键。
+     */
+    public static final String ENCRYPTION_IV = "encryptionIv";
+
+    /**
+     * 重放应用标识属性键。
+     */
+    public static final String REPLAY_APP_ID = "replayAppId";
+
+    /**
+     * 重放密钥标识属性键。
+     */
+    public static final String REPLAY_KEY_ID = "replayKeyId";
+
+    /**
+     * 重放时间戳属性键。
+     */
+    public static final String REPLAY_TIMESTAMP = "replayTimestamp";
+
+    /**
+     * 重放随机串属性键。
+     */
+    public static final String REPLAY_NONCE = "replayNonce";
+
+    /**
+     * 请求防重放元数据来源属性键。
+     */
+    public static final String REPLAY_METADATA_SOURCE = "replayMetadataSource";
+
+    /**
+     * 请求防重放键是否已预占属性键。
+     */
+    public static final String REPLAY_RESERVED = "replayReserved";
+
+    /**
+     * 请求防重放键过期时间属性键。
+     */
+    public static final String REPLAY_EXPIRES_AT = "replayExpiresAt";
+
+    /**
+     * 请求防重放窗口秒数属性键。
+     */
+    public static final String REPLAY_WINDOW_SECONDS = "replayWindowSeconds";
+
+    /**
+     * 请求防重放键 SHA-256 摘要属性键。
+     */
+    public static final String REPLAY_KEY_SHA256 = "replayKeySha256";
 
     /**
      * 请求头属性键前缀。
@@ -231,6 +416,17 @@ public final class CocoRequestContextAttributes {
      */
     public static String payloadParameter(String name) {
         return PAYLOAD_PARAMETER_PREFIX + normalizeSegment(name);
+    }
+
+    /**
+     * <p>
+     * 创建浏览器指纹信号上下文属性键。
+     * </p>
+     * @param name 浏览器指纹信号名称
+     * @return 浏览器指纹信号上下文属性键
+     */
+    public static String browserFingerprintSignal(String name) {
+        return BROWSER_FINGERPRINT_SIGNAL_PREFIX + normalizeHeaderName(name);
     }
 
     private static String normalizeHeaderName(String name) {

@@ -78,7 +78,24 @@ public record CocoRequestBodyMetadata(String transportSha256, Long transportLeng
                 .orElse(CocoCachedRequestBody.empty());
         CocoCachedRequestBody transportBody = CocoCachedBodyHttpServletRequest.transportBody(request)
                 .orElse(effectiveBody);
-        return fromBodies(transportBody, effectiveBody);
+        return from(transportBody, effectiveBody);
+    }
+
+    /**
+     * <p>
+     * 从传输态请求体和业务态请求体创建请求体元数据。
+     * </p>
+     * @param transportBody 传输态请求体
+     * @param effectiveBody 业务态请求体
+     * @return 请求体元数据
+     */
+    public static CocoRequestBodyMetadata from(CocoCachedRequestBody transportBody,
+            CocoCachedRequestBody effectiveBody) {
+        CocoCachedRequestBody transport = transportBody == null ? CocoCachedRequestBody.empty() : transportBody;
+        CocoCachedRequestBody effective = effectiveBody == null ? CocoCachedRequestBody.empty() : effectiveBody;
+        return new CocoRequestBodyMetadata(transport.sha256(), transport.cached() ? transport.length() : null,
+                transport.cached(), effective.sha256(), effective.cached() ? effective.length() : null,
+                effective.cached(), null);
     }
 
     /**
@@ -92,15 +109,6 @@ public record CocoRequestBodyMetadata(String transportSha256, Long transportLeng
      */
     public static CocoRequestBodyMetadata fromEffective(String sha256, Long length, boolean cached) {
         return new CocoRequestBodyMetadata(sha256, length, cached, sha256, length, cached, null);
-    }
-
-    private static CocoRequestBodyMetadata fromBodies(CocoCachedRequestBody transportBody,
-            CocoCachedRequestBody effectiveBody) {
-        CocoCachedRequestBody transport = transportBody == null ? CocoCachedRequestBody.empty() : transportBody;
-        CocoCachedRequestBody effective = effectiveBody == null ? CocoCachedRequestBody.empty() : effectiveBody;
-        return new CocoRequestBodyMetadata(transport.sha256(), transport.cached() ? transport.length() : null,
-                transport.cached(), effective.sha256(), effective.cached() ? effective.length() : null,
-                effective.cached(), null);
     }
 
     private static CocoRequestBodyStage resolveStage(String transportSha256, boolean transportCached,

@@ -1,20 +1,30 @@
 package io.github.coco.feature.web.replay;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
+import io.github.coco.common.context.CocoRequestContextAttributes;
+import io.github.coco.common.context.CocoRequestContextHolder;
 import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.context.CocoWebRequestContextPhase;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -182,10 +192,23 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         if (!this.replayStore.reserve(replayKey, expiresAt)) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.detected");
         }
+        publishVerifiedSnapshot(request, snapshot, metadata, replayKey, expiresAt);
     }
 
+    /**
+     * <p>
+     * 判断当前请求是否需要执行防重放校验。
+     * </p>
+     * <p>
+     * 当请求已经携带防重放协议字段时，即使未显式配置强制防重放，也应进入校验，避免业务误以为协议字段已经生效。
+     * </p>
+     * @param metadata 请求安全元数据
+     * @param replayRequired 当前请求是否强制防重放
+     * @return 需要执行防重放校验时返回 {@code true}
+     */
     private boolean shouldProtect(CocoWebRequestSecurityMetadata metadata, boolean replayRequired) {
         return replayRequired
+                || metadata.replayProtected()
                 || (this.properties.isProtectSignedRequests() && metadata.signed())
                 || (this.properties.isProtectEncryptedRequests() && metadata.encrypted());
     }
@@ -214,6 +237,42 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
             catch (RuntimeException ignored) {
                 throw CocoBusinessExceptions.unauthorized("coco.web.replay.invalid-timestamp");
             }
+        }
+    }
+
+    private void publishVerifiedSnapshot(HttpServletRequest request, CocoWebRequestSnapshot snapshot,
+            CocoWebRequestSecurityMetadata metadata, CocoReplayKey replayKey, Instant expiresAt) {
+        Map<String, String> evidence = new LinkedHashMap<>();
+        putEvidence(evidence, CocoRequestContextAttributes.REPLAY_METADATA_SOURCE,
+                this.properties.getMetadataSource().name());
+        putEvidence(evidence, CocoRequestContextAttributes.REPLAY_RESERVED, Boolean.TRUE.toString());
+        putEvidence(evidence, CocoRequestContextAttributes.REPLAY_EXPIRES_AT,
+                expiresAt == null ? null : expiresAt.toString());
+        putEvidence(evidence, CocoRequestContextAttributes.REPLAY_WINDOW_SECONDS,
+                Long.toString(this.properties.getTtlSeconds()));
+        putEvidence(evidence, CocoRequestContextAttributes.REPLAY_KEY_SHA256,
+                replayKey == null ? null : sha256(replayKey.value()));
+        CocoWebRequestSnapshot verifiedSnapshot = snapshot.withSecurityMetadata(metadata)
+                .withContextAttributes(evidence)
+                .withContextPhase(CocoWebRequestContextPhase.REPLAY_VERIFIED);
+        CocoWebRequestSnapshotAttributes.set(request, verifiedSnapshot);
+        CocoRequestContextHolder.set(verifiedSnapshot.toRequestContext());
+    }
+
+    private static void putEvidence(Map<String, String> attributes, String name, String value) {
+        if (value != null && !value.isBlank()) {
+            attributes.put(name, value);
+        }
+    }
+
+    private static String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(
+                    (value == null ? "" : value).getBytes(StandardCharsets.UTF_8)));
+        }
+        catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 algorithm is not available", ex);
         }
     }
 }

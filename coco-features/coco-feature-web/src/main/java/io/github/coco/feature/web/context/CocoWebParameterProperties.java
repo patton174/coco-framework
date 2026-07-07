@@ -4,7 +4,6 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
-import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.context.payload.CocoPayloadParameterProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -39,23 +38,6 @@ public class CocoWebParameterProperties {
 
     @NestedConfigurationProperty
     private CocoPayloadParameterProperties payload = new CocoPayloadParameterProperties();
-
-    /**
-     * <p>
-     * 从旧访问日志参数配置创建请求参数配置。
-     * </p>
-     * @param properties 访问日志采集配置属性
-     * @return 请求参数配置属性
-     */
-    public static CocoWebParameterProperties fromAccessLog(CocoAccessLogCaptureProperties properties) {
-        CocoWebParameterProperties parameterProperties = new CocoWebParameterProperties();
-        if (properties != null) {
-            parameterProperties.setIncludeParameters(properties.isIncludeParameters());
-            parameterProperties.setMaxParameterValueLength(properties.getMaxParameterValueLength());
-            parameterProperties.setMaskedParameterNames(properties.getMaskedParameterNames());
-        }
-        return parameterProperties;
-    }
 
     /**
      * <p>

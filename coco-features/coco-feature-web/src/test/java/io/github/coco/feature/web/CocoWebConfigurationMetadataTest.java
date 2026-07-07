@@ -71,9 +71,6 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-secure\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-same-site\""));
         assertTrue(content.contains("\"name\": \"coco.web.access-log.enabled\""));
-        assertTrue(content.contains("\"name\": \"coco.web.access-log.include-parameters\""));
-        assertTrue(content.contains("\"name\": \"coco.web.access-log.max-parameter-value-length\""));
-        assertTrue(content.contains("\"name\": \"coco.web.access-log.masked-parameter-names\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.level\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.style\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.logger-name\""));
@@ -119,6 +116,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.encryption.iv-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.algorithm-header-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.algorithm-parameter-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.encryption.payload-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.default-algorithm\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.key-encoding\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.iv-encoding\""));
@@ -162,6 +160,11 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.included-content-types\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.max-json-depth\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.max-parameter-count\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.target.proto-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.target.host-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.target.port-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.target.prefix-header-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.target.apply-forwarded-prefix\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.version\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-version\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.canonicalization.include-purpose\""));
@@ -186,16 +189,16 @@ class CocoWebConfigurationMetadataTest {
     }
 
     @Test
-    void exposesConfigurationMetadataHintsAndDeprecations() throws IOException {
+    void exposesConfigurationMetadataHints() throws IOException {
         JsonNode metadata = configurationMetadata("/META-INF/additional-spring-configuration-metadata.json");
 
         assertHintValues(metadata, "coco.web.request-body.mode", "security-headers", "always");
         assertHintDescriptionContains(metadata, "coco.web.request-body.mode", "security-headers",
-                "签名、加密强制匹配规则");
-        assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "trace", "debug");
+                "签名、加密、防重放强制匹配规则");
+        assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "cookie", "trace", "debug");
         assertHintValues(metadata, "coco.web.context.parameter.payload.included-content-types",
                 "application/json", "application/*+json", "application/x-www-form-urlencoded");
-        assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v1", "coco-v2");
+        assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v2");
         assertHintValues(metadata, "coco.web.signature.metadata-source", "header", "parameter",
                 "header-then-parameter", "parameter-then-header");
         assertHintValues(metadata, "coco.web.encryption.metadata-source", "header", "parameter",
@@ -205,18 +208,18 @@ class CocoWebConfigurationMetadataTest {
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.payload-encoding", "base64", "hex", "utf8", "raw");
-        assertDeprecated(metadata, "coco.web.access-log.include-parameters",
-                "coco.web.context.parameter.include-parameters");
-        assertDeprecated(metadata, "coco.web.access-log.max-parameter-value-length",
-                "coco.web.context.parameter.max-parameter-value-length");
-        assertDeprecated(metadata, "coco.web.access-log.masked-parameter-names",
-                "coco.web.context.parameter.masked-parameter-names");
         assertAdditionalProperty(metadata, "coco.web.signature.matcher.required[].methods");
         assertAdditionalProperty(metadata, "coco.web.signature.matcher.required[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.signature.matcher.ignored[].methods");
+        assertAdditionalProperty(metadata, "coco.web.signature.matcher.ignored[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.encryption.matcher.required[].methods");
         assertAdditionalProperty(metadata, "coco.web.encryption.matcher.required[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.encryption.matcher.ignored[].methods");
         assertAdditionalProperty(metadata, "coco.web.encryption.matcher.ignored[].path-patterns");
+        assertAdditionalProperty(metadata, "coco.web.replay.matcher.required[].methods");
         assertAdditionalProperty(metadata, "coco.web.replay.matcher.required[].path-patterns");
         assertAdditionalProperty(metadata, "coco.web.replay.matcher.ignored[].methods");
+        assertAdditionalProperty(metadata, "coco.web.replay.matcher.ignored[].path-patterns");
     }
 
     @Test
@@ -265,15 +268,6 @@ class CocoWebConfigurationMetadataTest {
                 .orElse(null);
         assertNotNull(valueNode, "missing hint value: " + name + "=" + value);
         assertTrue(valueNode.path("description").asText().contains(expectedDescriptionPart));
-    }
-
-    private static void assertDeprecated(JsonNode metadata, String name, String replacement) {
-        JsonNode property = findNamedNode(metadata.path("properties"), name);
-        assertNotNull(property, "missing property: " + name);
-        JsonNode deprecation = property.path("deprecation");
-        assertEquals("warning", deprecation.path("level").asText());
-        assertEquals(replacement, deprecation.path("replacement").asText());
-        assertFalse(deprecation.path("reason").asText().isBlank());
     }
 
     private static void assertAdditionalProperty(JsonNode metadata, String name) {

@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.context;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -21,11 +22,14 @@ import java.util.Optional;
  * @param sourceHeaderValue 来源请求头原始值
  * @param remoteAddress Servlet 远端地址
  * @param trustedProxy 远端地址是否匹配可信代理
+ * @param sourceChain 来源请求头解析出的 IP 链
+ * @param resolvedChainIndex 命中的客户端 IP 在代理链中的下标
  * @author patton174
  * @since 1.0.0
  */
 public record CocoClientIpResolution(String clientIp, CocoClientIpSource source, String sourceHeaderName,
-        String sourceHeaderValue, String remoteAddress, boolean trustedProxy) {
+        String sourceHeaderValue, String remoteAddress, boolean trustedProxy, List<String> sourceChain,
+        Integer resolvedChainIndex) {
 
     /**
      * <p>
@@ -37,6 +41,8 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
      * @param sourceHeaderValue 来源请求头原始值
      * @param remoteAddress Servlet 远端地址
      * @param trustedProxy 远端地址是否匹配可信代理
+     * @param sourceChain 来源请求头解析出的 IP 链
+     * @param resolvedChainIndex 命中的客户端 IP 在代理链中的下标
      */
     public CocoClientIpResolution {
         clientIp = normalizeOptional(clientIp);
@@ -44,12 +50,20 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
         sourceHeaderName = normalizeOptional(sourceHeaderName);
         sourceHeaderValue = normalizeOptional(sourceHeaderValue);
         remoteAddress = normalizeOptional(remoteAddress);
+        sourceChain = normalizeSourceChain(sourceChain);
+        resolvedChainIndex = normalizeResolvedChainIndex(sourceChain, resolvedChainIndex);
         trustedProxy = trustedProxy && remoteAddress != null;
         if (clientIp == null && source != CocoClientIpSource.UNRESOLVED) {
             source = CocoClientIpSource.UNRESOLVED;
             sourceHeaderName = null;
             sourceHeaderValue = null;
             trustedProxy = false;
+            sourceChain = List.of();
+            resolvedChainIndex = null;
+        }
+        if (source != CocoClientIpSource.FORWARDED_HEADER) {
+            sourceChain = List.of();
+            resolvedChainIndex = null;
         }
     }
 
@@ -62,7 +76,7 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
      */
     public static CocoClientIpResolution remoteAddress(String remoteAddress) {
         return new CocoClientIpResolution(remoteAddress, CocoClientIpSource.REMOTE_ADDRESS, null, null,
-                remoteAddress, false);
+                remoteAddress, false, List.of(), null);
     }
 
     /**
@@ -78,7 +92,25 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
     public static CocoClientIpResolution forwardedHeader(String clientIp, String sourceHeaderName,
             String sourceHeaderValue, String remoteAddress) {
         return new CocoClientIpResolution(clientIp, CocoClientIpSource.FORWARDED_HEADER, sourceHeaderName,
-                sourceHeaderValue, remoteAddress, true);
+                sourceHeaderValue, remoteAddress, true, List.of(clientIp), 0);
+    }
+
+    /**
+     * <p>
+     * 创建代理请求头解析结果。
+     * </p>
+     * @param clientIp 客户端 IP
+     * @param sourceHeaderName 来源请求头名称
+     * @param sourceHeaderValue 来源请求头原始值
+     * @param remoteAddress Servlet 远端地址
+     * @param sourceChain 来源请求头解析出的 IP 链
+     * @param resolvedChainIndex 命中的客户端 IP 在代理链中的下标
+     * @return 客户端 IP 解析结果
+     */
+    public static CocoClientIpResolution forwardedHeader(String clientIp, String sourceHeaderName,
+            String sourceHeaderValue, String remoteAddress, List<String> sourceChain, Integer resolvedChainIndex) {
+        return new CocoClientIpResolution(clientIp, CocoClientIpSource.FORWARDED_HEADER, sourceHeaderName,
+                sourceHeaderValue, remoteAddress, true, sourceChain, resolvedChainIndex);
     }
 
     /**
@@ -89,7 +121,8 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
      * @return 客户端 IP 解析结果
      */
     public static CocoClientIpResolution custom(String clientIp) {
-        return new CocoClientIpResolution(clientIp, CocoClientIpSource.CUSTOM, null, null, null, false);
+        return new CocoClientIpResolution(clientIp, CocoClientIpSource.CUSTOM, null, null, null, false, List.of(),
+                null);
     }
 
     /**
@@ -99,7 +132,8 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
      * @return 客户端 IP 解析结果
      */
     public static CocoClientIpResolution unresolved() {
-        return new CocoClientIpResolution(null, CocoClientIpSource.UNRESOLVED, null, null, null, false);
+        return new CocoClientIpResolution(null, CocoClientIpSource.UNRESOLVED, null, null, null, false, List.of(),
+                null);
     }
 
     /**
@@ -120,6 +154,23 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
      */
     public Optional<String> clientIpOptional() {
         return Optional.ofNullable(this.clientIp);
+    }
+
+    private static List<String> normalizeSourceChain(List<String> sourceChain) {
+        if (sourceChain == null || sourceChain.isEmpty()) {
+            return List.of();
+        }
+        return sourceChain.stream()
+                .map(CocoClientIpResolution::normalizeOptional)
+                .filter(value -> value != null)
+                .toList();
+    }
+
+    private static Integer normalizeResolvedChainIndex(List<String> sourceChain, Integer resolvedChainIndex) {
+        if (resolvedChainIndex == null || sourceChain == null || sourceChain.isEmpty()) {
+            return null;
+        }
+        return resolvedChainIndex >= 0 && resolvedChainIndex < sourceChain.size() ? resolvedChainIndex : null;
     }
 
     private static String normalizeOptional(String value) {

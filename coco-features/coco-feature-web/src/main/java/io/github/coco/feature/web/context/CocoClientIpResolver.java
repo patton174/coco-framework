@@ -35,7 +35,7 @@ public interface CocoClientIpResolver {
      * 从当前 Servlet 请求解析客户端 IP 及来源信息。
      * </p>
      * <p>
-     * 默认实现兼容旧的字符串解析器，将非空解析结果标记为业务自定义来源。需要暴露可信代理、来源请求头等细节时可以覆盖该方法。
+     * 默认实现将非空解析结果标记为业务自定义来源。需要暴露可信代理、来源请求头等细节时可以覆盖该方法。
      * </p>
      * @param request 当前 Servlet 请求
      * @return 客户端 IP 解析结果

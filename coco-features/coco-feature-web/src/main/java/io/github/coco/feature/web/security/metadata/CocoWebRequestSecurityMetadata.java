@@ -1,4 +1,4 @@
-package io.github.coco.feature.web.context;
+package io.github.coco.feature.web.security.metadata;
 
 import java.util.Optional;
 
@@ -27,11 +27,11 @@ import java.util.Optional;
  * @param encryptionIv 加密初始向量
  * @param encryptionAlgorithm 加密算法
  * @param encrypted 请求是否声明为加密请求
- * @author patton174
  * @param replayAppId 防重放应用标识
  * @param replayKeyId 防重放密钥标识
  * @param replayTimestamp 防重放时间戳
  * @param replayNonce 防重放随机串
+ * @author patton174
  * @since 1.0.0
  */
 public record CocoWebRequestSecurityMetadata(String signatureAppId, String signatureKeyId,

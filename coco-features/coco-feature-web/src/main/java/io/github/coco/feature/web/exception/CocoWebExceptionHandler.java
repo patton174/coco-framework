@@ -18,8 +18,11 @@ import io.github.coco.feature.web.response.CocoResponsePayload;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.DefaultCocoResponseBodyFactory;
+import io.github.coco.feature.web.trace.CocoTraceProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
@@ -63,6 +66,8 @@ public class CocoWebExceptionHandler {
 
     private final CocoResponseProperties responseProperties;
 
+    private final CocoTraceProperties traceProperties;
+
     private final CocoResponseBodyFactory responseBodyFactory;
 
     /**
@@ -91,6 +96,24 @@ public class CocoWebExceptionHandler {
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties) {
         this(messageService, httpStatusResolver, codeProvider, responseProperties,
+                new CocoTraceProperties(),
+                new DefaultCocoResponseBodyFactory());
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 全局异常处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
+     * @param responseProperties 统一响应配置
+     * @param traceProperties Trace 配置
+     */
+    public CocoWebExceptionHandler(CocoMessageService messageService,
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
+            CocoResponseProperties responseProperties, CocoTraceProperties traceProperties) {
+        this(messageService, httpStatusResolver, codeProvider, responseProperties, traceProperties,
                 new DefaultCocoResponseBodyFactory());
     }
 
@@ -106,12 +129,14 @@ public class CocoWebExceptionHandler {
      */
     public CocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
-            CocoResponseProperties responseProperties, CocoResponseBodyFactory responseBodyFactory) {
+            CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
+            CocoResponseBodyFactory responseBodyFactory) {
         this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
         this.httpStatusResolver = Objects.requireNonNull(httpStatusResolver,
                 "httpStatusResolver must not be null");
         this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
         this.responseProperties = responseProperties == null ? new CocoResponseProperties() : responseProperties;
+        this.traceProperties = traceProperties == null ? new CocoTraceProperties() : traceProperties;
         this.responseBodyFactory = Objects.requireNonNull(responseBodyFactory,
                 "responseBodyFactory must not be null");
     }
@@ -206,7 +231,9 @@ public class CocoWebExceptionHandler {
         CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
                 resolveTraceIdForBody(), resolvePath(request));
         Object response = this.responseBodyFactory.error(CocoResponsePayload.error(code, message, metadata));
-        return ResponseEntity.status(statusCode).body(response);
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(statusCode);
+        applyTraceCookie(builder);
+        return builder.body(response);
     }
 
     /**
@@ -333,5 +360,25 @@ public class CocoWebExceptionHandler {
             return null;
         }
         return CocoTraceContext.getOrCreateTraceId();
+    }
+
+    private void applyTraceCookie(ResponseEntity.BodyBuilder builder) {
+        if (!this.responseProperties.getMetadataMode().writesTraceCookie()
+                || this.traceProperties.isResponseCookieEnabled()) {
+            return;
+        }
+        String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
+        ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from(this.traceProperties.getCookieName(),
+                traceId)
+                .path(this.traceProperties.getCookiePath())
+                .httpOnly(this.traceProperties.isCookieHttpOnly())
+                .secure(this.traceProperties.isCookieSecure());
+        if (this.traceProperties.getCookieMaxAge() >= 0) {
+            cookieBuilder.maxAge(this.traceProperties.getCookieMaxAge());
+        }
+        if (this.traceProperties.getCookieSameSite() != null && !this.traceProperties.getCookieSameSite().isBlank()) {
+            cookieBuilder.sameSite(this.traceProperties.getCookieSameSite());
+        }
+        builder.header(HttpHeaders.SET_COOKIE, cookieBuilder.build().toString());
     }
 }

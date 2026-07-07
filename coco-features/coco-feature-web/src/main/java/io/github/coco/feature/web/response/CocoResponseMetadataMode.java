@@ -28,6 +28,13 @@ public enum CocoResponseMetadataMode {
 
     /**
      * <p>
+     * 仅通过响应 Cookie 输出 TraceId。
+     * </p>
+     */
+    COOKIE,
+
+    /**
+     * <p>
      * 仅在响应体中输出 TraceId。
      * </p>
      */
@@ -35,7 +42,7 @@ public enum CocoResponseMetadataMode {
 
     /**
      * <p>
-     * 在响应体中输出 TraceId 和请求路径，主要用于调试或兼容旧客户端。
+     * 在响应体中输出 TraceId 和请求路径，主要用于联调和诊断。
      * </p>
      */
     DEBUG;
@@ -58,5 +65,15 @@ public enum CocoResponseMetadataMode {
      */
     public boolean includesPath() {
         return this == DEBUG;
+    }
+
+    /**
+     * <p>
+     * 判断当前模式是否通过响应 Cookie 输出 TraceId。
+     * </p>
+     * @return 通过 Cookie 输出 TraceId 时返回 {@code true}
+     */
+    public boolean writesTraceCookie() {
+        return this == COOKIE;
     }
 }

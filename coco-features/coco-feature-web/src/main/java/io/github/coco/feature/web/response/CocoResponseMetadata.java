@@ -57,7 +57,7 @@ public record CocoResponseMetadata(String traceId, String path) {
         CocoResponseMetadataMode mode = properties == null
                 ? CocoResponseMetadataMode.NONE
                 : properties.getMetadataMode();
-        if (mode == CocoResponseMetadataMode.NONE) {
+        if (mode == CocoResponseMetadataMode.NONE || mode == CocoResponseMetadataMode.COOKIE) {
             return empty();
         }
         return new CocoResponseMetadata(mode.includesTraceId() ? traceId : null,

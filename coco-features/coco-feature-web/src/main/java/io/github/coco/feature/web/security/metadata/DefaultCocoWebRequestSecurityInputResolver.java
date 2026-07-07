@@ -1,4 +1,4 @@
-package io.github.coco.feature.web.context;
+package io.github.coco.feature.web.security.metadata;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -8,8 +8,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
+import io.github.coco.feature.web.body.CocoRequestBodyResolver;
+import io.github.coco.feature.web.body.CocoResolvedRequestBody;
+import io.github.coco.feature.web.body.DefaultCocoRequestBodyResolver;
+import io.github.coco.feature.web.context.CocoRequestCookieResolver;
+import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
+import io.github.coco.feature.web.context.CocoRequestParameterResolver;
+import io.github.coco.feature.web.context.CocoWebContextProperties;
+import io.github.coco.feature.web.context.CocoWebParameterProperties;
+import io.github.coco.feature.web.context.CocoWebRequestParameters;
+import io.github.coco.feature.web.context.DefaultCocoRequestCookieResolver;
+import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
+import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
@@ -44,6 +55,8 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
     private final CocoRequestCookieResolver requestCookieResolver;
 
     private final CocoRequestParameterResolver requestParameterResolver;
+
+    private final CocoRequestBodyResolver requestBodyResolver;
 
     /**
      * <p>
@@ -110,6 +123,28 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
             CocoRequestHeaderResolver requestHeaderResolver, CocoRequestCookieResolver requestCookieResolver,
             CocoRequestParameterResolver requestParameterResolver, CocoSignatureProperties signatureProperties,
             CocoEncryptionProperties encryptionProperties, CocoReplayProperties replayProperties) {
+        this(properties, requestHeaderResolver, requestCookieResolver, requestParameterResolver, signatureProperties,
+                encryptionProperties, replayProperties, null);
+    }
+
+    /**
+     * <p>
+     * 创建默认 Coco Web 请求安全输入解析器。
+     * </p>
+     * @param properties Web 请求上下文配置属性
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver 请求 Cookie 解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param replayProperties 防重放配置属性
+     * @param requestBodyResolver 请求体解析器
+     */
+    public DefaultCocoWebRequestSecurityInputResolver(CocoWebContextProperties properties,
+            CocoRequestHeaderResolver requestHeaderResolver, CocoRequestCookieResolver requestCookieResolver,
+            CocoRequestParameterResolver requestParameterResolver, CocoSignatureProperties signatureProperties,
+            CocoEncryptionProperties encryptionProperties, CocoReplayProperties replayProperties,
+            CocoRequestBodyResolver requestBodyResolver) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
         this.securityHeaderNames = securityHeaderNames(contextProperties, signatureProperties, encryptionProperties,
                 replayProperties);
@@ -125,6 +160,9 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         this.requestParameterResolver = requestParameterResolver == null
                 ? new DefaultCocoRequestParameterResolver(new CocoWebParameterProperties())
                 : requestParameterResolver;
+        this.requestBodyResolver = requestBodyResolver == null
+                ? new DefaultCocoRequestBodyResolver()
+                : requestBodyResolver;
     }
 
     /**
@@ -143,8 +181,12 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         Map<String, String> canonicalHeaders = joinHeaders(canonicalHeaderValues);
         Map<String, String> canonicalCookies = this.requestCookieResolver.resolveSelectedCookies(checkedRequest,
                 this.canonicalCookieNames, false);
-        CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
-                .orElse(CocoCachedRequestBody.empty());
+        CocoResolvedRequestBody resolvedBody = this.requestBodyResolver.resolve(checkedRequest);
+        if (resolvedBody == null) {
+            resolvedBody = new CocoResolvedRequestBody(null, null, null, checkedRequest.getContentType(),
+                    checkedRequest.getCharacterEncoding());
+        }
+        CocoCachedRequestBody cachedBody = resolvedBody.effectiveBody();
         return new CocoWebRequestSecurityInput(method, path, rawParameterSnapshot.queryString(),
                 rawParameterSnapshot.parameters(), rawParameterSnapshot.queryParameters(),
                 rawParameterSnapshot.payloadParameters(), securityHeaders, canonicalHeaders, cachedBody.sha256(),

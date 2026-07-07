@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 

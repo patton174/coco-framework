@@ -1,4 +1,4 @@
-package io.github.coco.feature.web.context;
+package io.github.coco.feature.web.security.metadata;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -83,7 +83,7 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
                 read(checkedInput, this.signatureProperties.getMetadataSource(),
                         this.signatureProperties.getNonceHeaderName(),
                         this.signatureProperties.getNonceParameterName()).orElse(null),
-                signatureAlgorithm(checkedInput, signed),
+                signatureAlgorithm(checkedInput),
                 signature,
                 signed,
                 read(checkedInput, this.encryptionProperties.getMetadataSource(),
@@ -95,7 +95,7 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
                 read(checkedInput, this.encryptionProperties.getMetadataSource(),
                         this.encryptionProperties.getIvHeaderName(),
                         this.encryptionProperties.getIvParameterName()).orElse(null),
-                encryptionAlgorithm(checkedInput, encrypted),
+                encryptionAlgorithm(checkedInput),
                 encrypted,
                 read(checkedInput, this.replayProperties.getMetadataSource(),
                         this.replayProperties.getAppIdHeaderName(),
@@ -119,22 +119,18 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
                         this.signatureProperties.getSignatureFallbackParameterName()));
     }
 
-    private String signatureAlgorithm(CocoWebRequestSecurityInput input, boolean signed) {
+    private String signatureAlgorithm(CocoWebRequestSecurityInput input) {
         return read(input, this.signatureProperties.getMetadataSource(),
                 this.signatureProperties.getAlgorithmHeaderName(),
                 this.signatureProperties.getAlgorithmParameterName())
-                .orElse(signed || this.signatureProperties.isRequired()
-                        ? this.signatureProperties.getDefaultAlgorithm()
-                        : null);
+                .orElse(null);
     }
 
-    private String encryptionAlgorithm(CocoWebRequestSecurityInput input, boolean encrypted) {
+    private String encryptionAlgorithm(CocoWebRequestSecurityInput input) {
         return read(input, this.encryptionProperties.getMetadataSource(),
                 this.encryptionProperties.getAlgorithmHeaderName(),
                 this.encryptionProperties.getAlgorithmParameterName())
-                .orElse(encrypted || this.encryptionProperties.isRequired()
-                        ? this.encryptionProperties.getDefaultAlgorithm()
-                        : null);
+                .orElse(null);
     }
 
     private static Optional<String> read(CocoWebRequestSecurityInput input, CocoWebSecurityMetadataSource source,
@@ -152,11 +148,22 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
     }
 
     private static Optional<String> parameter(CocoWebRequestSecurityInput input, String parameterName) {
-        return input.parameter(parameterName)
-                .flatMap(values -> values.stream()
-                        .filter(value -> value != null && !value.isBlank())
-                        .map(String::trim)
-                        .findFirst());
+        Optional<String> queryValue = firstNonBlank(input.queryParameter(parameterName));
+        if (queryValue.isPresent()) {
+            return queryValue;
+        }
+        Optional<String> payloadValue = firstNonBlank(input.payloadParameter(parameterName));
+        if (payloadValue.isPresent()) {
+            return payloadValue;
+        }
+        return firstNonBlank(input.parameter(parameterName));
+    }
+
+    private static Optional<String> firstNonBlank(Optional<java.util.List<String>> values) {
+        return values.flatMap(parameterValues -> parameterValues.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .findFirst());
     }
 
     private static boolean encrypted(String value) {

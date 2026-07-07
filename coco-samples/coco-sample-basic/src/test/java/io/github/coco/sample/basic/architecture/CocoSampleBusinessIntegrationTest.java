@@ -13,6 +13,8 @@ import java.util.TreeSet;
 import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilderFactory;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.PropertySource;
@@ -88,6 +90,56 @@ class CocoSampleBusinessIntegrationTest {
         }
 
         assertEquals(List.of("tenant", "data-permission"), disabledFeatures);
+    }
+
+    /**
+     * <p>
+     * 示例项目应该在默认业务配置中声明签名、防重放和加密接入路径，保证一次启动即可验证完整业务链路。
+     * </p>
+     * @throws Exception 配置文件解析失败时抛出
+     */
+    @Test
+    void declaresSecurityConfigurationInApplicationConfiguration() throws Exception {
+        assertApplicationYamlProperty("coco.web.signature.secrets.sample-app", "sample-secret");
+        assertApplicationYamlProperty("coco.web.signature.matcher.required[0].path-patterns[0]",
+                "/sample/secure/signature/orders");
+        assertApplicationYamlProperty("coco.web.replay.matcher.required[0].path-patterns[0]",
+                "/sample/secure/replay/orders");
+        assertApplicationYamlProperty("coco.web.encryption.keys.sample-app", "MDEyMzQ1Njc4OWFiY2RlZg==");
+        assertApplicationYamlProperty("coco.web.encryption.matcher.required[0].path-patterns[0]",
+                "/sample/secure/encryption/orders");
+    }
+
+    /**
+     * <p>
+     * 示例项目应该提供可直接导入 Postman 的测试集和环境变量文件，避免使用者手工拼装请求头、签名和加密参数。
+     * </p>
+     * @throws Exception Postman JSON 解析失败时抛出
+     */
+    @Test
+    void providesPostmanImportAssets() throws Exception {
+        Path postmanDirectory = sampleDirectory().resolve("postman");
+        Path collection = postmanDirectory.resolve("coco-sample-basic.postman_collection.json");
+        Path environment = postmanDirectory.resolve("coco-sample-basic.postman_environment.json");
+        Path generator = sampleDirectory().resolve("scripts/generate_postman_import.py");
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        assertTrue(Files.isRegularFile(generator));
+        assertTrue(Files.isRegularFile(collection));
+        assertTrue(Files.isRegularFile(environment));
+
+        JsonNode collectionRoot = objectMapper.readTree(collection.toFile());
+        assertEquals("Coco Sample Basic", collectionRoot.path("info").path("name").asText());
+        assertEquals(5, collectionRoot.path("item").size());
+        assertEquals("业务主流程", collectionRoot.path("item").get(0).path("name").asText());
+        assertEquals(16, countPostmanRequests(collectionRoot.path("item")));
+
+        JsonNode environmentRoot = objectMapper.readTree(environment.toFile());
+        assertEquals("Coco Sample Basic Local", environmentRoot.path("name").asText());
+        assertTrue(hasPostmanEnvironmentValue(environmentRoot, "baseUrl"));
+        assertTrue(hasPostmanEnvironmentValue(environmentRoot, "secureAppId"));
+        assertTrue(hasPostmanEnvironmentValue(environmentRoot, "signatureSecret"));
+        assertTrue(hasPostmanEnvironmentValue(environmentRoot, "encryptedOrderBody"));
     }
 
     /**
@@ -174,6 +226,39 @@ class CocoSampleBusinessIntegrationTest {
         if (value != null) {
             values.add(Objects.toString(value));
         }
+    }
+
+    private static void assertApplicationYamlProperty(String propertyName, Object expected) throws Exception {
+        Path yaml = sampleDirectory().resolve("src/main/resources/application.yml");
+        assertTrue(Files.isRegularFile(yaml));
+        List<PropertySource<?>> sources = new YamlPropertySourceLoader()
+                .load("application", new FileSystemResource(yaml));
+
+        List<Object> values = new ArrayList<>();
+        for (PropertySource<?> source : sources) {
+            Object value = source.getProperty(propertyName);
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        assertEquals(List.of(expected), values);
+    }
+
+    private static int countPostmanRequests(JsonNode folders) {
+        int count = 0;
+        for (JsonNode folder : folders) {
+            count += folder.path("item").size();
+        }
+        return count;
+    }
+
+    private static boolean hasPostmanEnvironmentValue(JsonNode environment, String key) {
+        for (JsonNode value : environment.path("values")) {
+            if (key.equals(value.path("key").asText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean containsAccessLogProbe(Path path) {

@@ -3,7 +3,6 @@ package io.github.coco.feature.web.trace;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -104,7 +103,7 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             Collection<CocoAccessLogRecorder> accessLogRecorders,
             CocoAccessLogCaptureProperties accessLogProperties) {
         this(properties, accessLogRecorders, accessLogProperties,
-                new DefaultCocoWebRequestContextResolver(null, accessLogProperties));
+                new DefaultCocoWebRequestContextResolver(null));
     }
 
     /**
@@ -250,9 +249,18 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
                 failure == null && status < 400,
                 failure == null ? null : failure.getClass().getName(),
                 requestSnapshot.clientIp(),
+                requestSnapshot.clientIpResolution().source().name(),
                 requestSnapshot.userAgent(),
-                this.accessLogProperties.isIncludeParameters() ? requestSnapshot.queryString() : null,
-                this.accessLogProperties.isIncludeParameters() ? requestSnapshot.parameters() : Map.of());
+                requestSnapshot.contentType(),
+                requestSnapshot.queryString(),
+                requestSnapshot.headers(),
+                requestSnapshot.requestBody().effectiveSha256(),
+                requestSnapshot.requestBody().effectiveLength(),
+                requestSnapshot.requestBody().stage().id(),
+                requestSnapshot.browserFingerprint().value(),
+                requestSnapshot.payloadParseStatus().id(),
+                requestSnapshot.targetResolution().source().name(),
+                requestSnapshot.parameters());
         for (CocoAccessLogRecorder recorder : this.accessLogRecorders) {
             try {
                 recorder.record(accessLog);

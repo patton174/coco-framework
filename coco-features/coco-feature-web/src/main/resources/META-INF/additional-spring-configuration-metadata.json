@@ -1,30 +1,6 @@
 {
   "properties": [
     {
-      "name": "coco.web.access-log.include-parameters",
-      "deprecation": {
-        "level": "warning",
-        "reason": "访问日志参数采集策略已迁移到统一 Web 请求上下文参数配置。",
-        "replacement": "coco.web.context.parameter.include-parameters"
-      }
-    },
-    {
-      "name": "coco.web.access-log.max-parameter-value-length",
-      "deprecation": {
-        "level": "warning",
-        "reason": "访问日志参数裁剪策略已迁移到统一 Web 请求上下文参数配置。",
-        "replacement": "coco.web.context.parameter.max-parameter-value-length"
-      }
-    },
-    {
-      "name": "coco.web.access-log.masked-parameter-names",
-      "deprecation": {
-        "level": "warning",
-        "reason": "访问日志参数脱敏策略已迁移到统一 Web 请求上下文参数配置。",
-        "replacement": "coco.web.context.parameter.masked-parameter-names"
-      }
-    },
-    {
       "name": "coco.web.signature.matcher.required[].methods",
       "type": "java.util.Set<java.lang.String>",
       "description": "需要强制验签的 HTTP 方法集合。"
@@ -91,7 +67,7 @@
       "values": [
         {
           "value": "security-headers",
-          "description": "当请求包含签名、加密触发头，或命中签名、加密强制匹配规则时缓存请求体。"
+          "description": "当请求包含签名、加密、防重放触发头，或命中签名、加密、防重放强制匹配规则时缓存请求体。"
         },
         {
           "value": "always",
@@ -105,6 +81,10 @@
         {
           "value": "none",
           "description": "不在统一响应体中输出 TraceId 或请求路径。"
+        },
+        {
+          "value": "cookie",
+          "description": "仅通过响应 Cookie 输出 TraceId，不在响应体中暴露链路元数据。"
         },
         {
           "value": "trace",
@@ -136,10 +116,6 @@
     {
       "name": "coco.web.context.canonicalization.version",
       "values": [
-        {
-          "value": "coco-v1",
-          "description": "保持 1.x 兼容的请求参数分隔符规范化格式。"
-        },
         {
           "value": "coco-v2",
           "description": "使用带数量和长度前缀的请求参数规范化格式，适合签名、加密和防重放场景。"

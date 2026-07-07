@@ -1,5 +1,8 @@
 package io.github.coco.feature.web.context;
 
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
+
 /**
  * Coco Web 请求规范化上下文。
  * <p>

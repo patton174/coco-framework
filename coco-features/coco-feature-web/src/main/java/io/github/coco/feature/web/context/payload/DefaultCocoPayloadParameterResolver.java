@@ -19,12 +19,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.context.CocoWebParameterProperties;
+import io.github.coco.feature.web.context.CocoWebParameterSource;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * 默认 Coco 请求体参数解析器。
  * <p>
  * 仅从已缓存请求体中解析 JSON 和表单 payload 参数，不主动消费 Servlet 原始输入流。
+ * </p>
+ * <p>
+ * 同时返回统一的解析结果模型，明确区分已解析、未缓存、密文传输态、格式错误和限制截断等状态。
  * </p>
  * <p>
  * 项目信息：
@@ -91,21 +95,27 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
      * {@inheritDoc}
      */
     @Override
+    public CocoWebPayloadParseResult resolvePayloadParseResult(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        return resolvePayloadParseResult(checkedRequest, true);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public Map<String, List<String>> resolvePayloadParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        String contentType = normalizeMediaType(checkedRequest.getContentType());
-        if (!this.properties.getPayload().isEnabled() || !isIncludedContentType(contentType)
-                || encryptedTransportBody(checkedRequest)) {
-            return Map.of();
-        }
-        Map<String, List<String>> rawParameters = CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
-                .filter(CocoCachedRequestBody::cached)
-                .map(cachedBody -> parseCachedBody(contentType, checkedRequest, cachedBody))
-                .orElse(Map.of());
-        if (rawParameters.isEmpty()) {
-            return Map.of();
-        }
-        return sanitizePayloadParameters(rawParameters, FORM_URLENCODED.equals(contentType), requestCharset(checkedRequest));
+        return resolvePayloadParseResult(checkedRequest, true).parameters();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoWebPayloadParseResult resolveRawPayloadParseResult(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        return resolvePayloadParseResult(checkedRequest, false);
     }
 
     /**
@@ -114,42 +124,66 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
     @Override
     public Map<String, List<String>> resolveRawPayloadParameters(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
-        if (!this.properties.getPayload().isEnabled() || encryptedTransportBody(checkedRequest)) {
-            return Map.of();
-        }
-        String contentType = normalizeMediaType(checkedRequest.getContentType());
-        if (!isIncludedContentType(contentType)) {
-            return Map.of();
-        }
-        return CocoCachedBodyHttpServletRequest.cachedBody(checkedRequest)
-                .filter(CocoCachedRequestBody::cached)
-                .map(cachedBody -> parseCachedBody(contentType, checkedRequest, cachedBody))
-                .orElse(Map.of());
+        return resolvePayloadParseResult(checkedRequest, false).parameters();
     }
 
-    private Map<String, List<String>> parseCachedBody(String contentType, HttpServletRequest request,
-            CocoCachedRequestBody cachedBody) {
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CocoWebPayloadParseStatus resolvePayloadParseStatus(HttpServletRequest request) {
+        HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        return resolvePayloadParseResult(checkedRequest, true).status();
+    }
+
+    private CocoWebPayloadParseResult resolvePayloadParseResult(HttpServletRequest request, boolean sanitize) {
+        if (!this.properties.getPayload().isEnabled()) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.DISABLED, CocoWebParameterSource.NONE);
+        }
+        if (encryptedTransportBody(request)) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.ENCRYPTED_TRANSPORT,
+                    inferPayloadSource(request));
+        }
+        String contentType = normalizeMediaType(request.getContentType());
+        if (!hasRequestBody(request)) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.NO_BODY, CocoWebParameterSource.NONE);
+        }
+        if (!isIncludedContentType(contentType)) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.UNSUPPORTED_CONTENT_TYPE,
+                    inferPayloadSource(contentType));
+        }
+        return CocoCachedBodyHttpServletRequest.cachedBody(request)
+                .filter(CocoCachedRequestBody::cached)
+                .map(cachedBody -> parseCachedBody(contentType, request, cachedBody, sanitize))
+                .orElseGet(() -> CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.NOT_CACHED,
+                        inferPayloadSource(contentType)));
+    }
+
+    private CocoWebPayloadParseResult parseCachedBody(String contentType, HttpServletRequest request,
+            CocoCachedRequestBody cachedBody, boolean sanitize) {
         byte[] content = cachedBody.content();
         if (content.length == 0) {
-            return Map.of();
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.PARSED, inferPayloadSource(contentType));
         }
         if (FORM_URLENCODED.equals(contentType)) {
-            return parseFormPayload(new String(content, requestCharset(request)));
+            return adapt(parseFormPayload(new String(content, requestCharset(request))), true, requestCharset(request),
+                    sanitize);
         }
         if (isJsonContentType(contentType)) {
-            return parseJsonPayload(content);
+            return adapt(parseJsonPayload(content), false, requestCharset(request), sanitize);
         }
-        return Map.of();
+        return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.UNSUPPORTED_CONTENT_TYPE,
+                inferPayloadSource(contentType));
     }
 
-    private Map<String, List<String>> parseFormPayload(String payload) {
+    private CocoWebPayloadParseResult parseFormPayload(String payload) {
         if (payload == null || payload.isBlank()) {
-            return Map.of();
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.PARSED, CocoWebParameterSource.FORM);
         }
-        Map<String, List<String>> parameters = new LinkedHashMap<>();
-        int[] count = new int[] { 0 };
+        PayloadParseState state = new PayloadParseState(this.properties.getPayload().getMaxParameterCount(),
+                this.properties.getPayload().getMaxJsonDepth());
         for (String pair : payload.split("&", -1)) {
-            if (count[0] >= this.properties.getPayload().getMaxParameterCount()) {
+            if (state.parameterLimitReached()) {
                 break;
             }
             if (pair == null || pair.isBlank()) {
@@ -161,62 +195,90 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
                 continue;
             }
             String value = separatorIndex < 0 ? "" : pair.substring(separatorIndex + 1);
-            addParameter(parameters, name, value, count);
+            if (state.reachedParameterLimit()) {
+                state.markParameterLimitReached();
+                break;
+            }
+            addParameter(state.parameters(), name, value, state);
         }
-        return copy(parameters);
+        return new CocoWebPayloadParseResult(copy(state.parameters()), state.status(), CocoWebParameterSource.FORM);
     }
 
-    private Map<String, List<String>> parseJsonPayload(byte[] content) {
+    private CocoWebPayloadParseResult parseJsonPayload(byte[] content) {
         try {
             JsonNode root = this.objectMapper.readTree(content);
             if (root == null || root.isMissingNode()) {
-                return Map.of();
+                return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.PARSED, CocoWebParameterSource.JSON);
             }
-            Map<String, List<String>> parameters = new LinkedHashMap<>();
-            int[] count = new int[] { 0 };
-            flattenJson(parameters, "", root, 0, count);
-            return copy(parameters);
+            PayloadParseState state = new PayloadParseState(this.properties.getPayload().getMaxParameterCount(),
+                    this.properties.getPayload().getMaxJsonDepth());
+            flattenJson(state.parameters(), "", root, 0, state);
+            return new CocoWebPayloadParseResult(copy(state.parameters()), state.status(), CocoWebParameterSource.JSON);
         }
         catch (Exception ex) {
-            return Map.of();
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.MALFORMED_PAYLOAD,
+                    CocoWebParameterSource.JSON);
         }
     }
 
     private void flattenJson(Map<String, List<String>> parameters, String path, JsonNode node,
-            int depth, int[] count) {
-        if (node == null || count[0] >= this.properties.getPayload().getMaxParameterCount()
-                || depth > this.properties.getPayload().getMaxJsonDepth()) {
+            int depth, PayloadParseState state) {
+        if (node == null || state.parameterLimitReached()) {
+            return;
+        }
+        if (depth > state.maxJsonDepth()) {
+            state.markJsonDepthLimitReached();
             return;
         }
         if (node.isObject()) {
             Iterator<String> fieldNames = node.fieldNames();
             while (fieldNames.hasNext()) {
+                if (state.reachedParameterLimit()) {
+                    state.markParameterLimitReached();
+                    return;
+                }
                 String fieldName = fieldNames.next();
-                flattenJson(parameters, childPath(path, fieldName), node.get(fieldName), depth + 1, count);
+                flattenJson(parameters, childPath(path, fieldName), node.get(fieldName), depth + 1, state);
             }
             return;
         }
         if (node.isArray()) {
-            flattenJsonArray(parameters, path, node, depth, count);
+            flattenJsonArray(parameters, path, node, depth, state);
             return;
         }
-        addParameter(parameters, path.isBlank() ? "$" : path, scalarValue(node), count);
+        if (state.reachedParameterLimit()) {
+            state.markParameterLimitReached();
+            return;
+        }
+        addParameter(parameters, path.isBlank() ? "$" : path, scalarValue(node), state);
     }
 
     private void flattenJsonArray(Map<String, List<String>> parameters, String path, JsonNode node,
-            int depth, int[] count) {
+            int depth, PayloadParseState state) {
         for (int index = 0; index < node.size(); index++) {
-            if (count[0] >= this.properties.getPayload().getMaxParameterCount()) {
+            if (state.reachedParameterLimit()) {
+                state.markParameterLimitReached();
                 return;
             }
             JsonNode value = node.get(index);
             if (value != null && value.isValueNode()) {
-                addParameter(parameters, path.isBlank() ? "$" : path, scalarValue(value), count);
+                addParameter(parameters, path.isBlank() ? "$" : path, scalarValue(value), state);
             }
             else {
-                flattenJson(parameters, indexedPath(path, index), value, depth + 1, count);
+                flattenJson(parameters, indexedPath(path, index), value, depth + 1, state);
             }
         }
+    }
+
+    private CocoWebPayloadParseResult adapt(CocoWebPayloadParseResult parseResult, boolean formPayload,
+            Charset charset, boolean sanitize) {
+        if (!sanitize) {
+            return parseResult;
+        }
+        return new CocoWebPayloadParseResult(
+                sanitizePayloadParameters(parseResult.parameters(), formPayload, charset),
+                parseResult.status(),
+                parseResult.source());
     }
 
     private Map<String, List<String>> sanitizePayloadParameters(Map<String, List<String>> rawParameters,
@@ -271,6 +333,29 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
         return false;
     }
 
+    private static boolean hasRequestBody(HttpServletRequest request) {
+        CocoCachedRequestBody cachedBody = CocoCachedBodyHttpServletRequest.effectiveBody(request)
+                .orElse(CocoCachedRequestBody.empty());
+        if (cachedBody.cached()) {
+            return cachedBody.length() > 0;
+        }
+        long contentLength = request.getContentLengthLong();
+        if (contentLength > 0L) {
+            return true;
+        }
+        String contentLengthHeader = request.getHeader("Content-Length");
+        if (contentLengthHeader != null && !contentLengthHeader.isBlank()) {
+            try {
+                return Long.parseLong(contentLengthHeader.trim()) > 0L;
+            }
+            catch (NumberFormatException ignored) {
+                return true;
+            }
+        }
+        String transferEncoding = request.getHeader("Transfer-Encoding");
+        return transferEncoding != null && !transferEncoding.isBlank();
+    }
+
     private boolean encryptedTransportBody(HttpServletRequest request) {
         if (!encrypted(request)) {
             return false;
@@ -294,15 +379,31 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
     }
 
     private static boolean isJsonContentType(String contentType) {
-        return "application/json".equals(contentType) || contentType.endsWith("+json");
+        return contentType != null
+                && ("application/json".equals(contentType) || contentType.endsWith("+json"));
     }
 
-    private static void addParameter(Map<String, List<String>> parameters, String name, String value, int[] count) {
+    private static CocoWebParameterSource inferPayloadSource(HttpServletRequest request) {
+        return inferPayloadSource(normalizeMediaType(request.getContentType()));
+    }
+
+    private static CocoWebParameterSource inferPayloadSource(String contentType) {
+        if (FORM_URLENCODED.equals(contentType)) {
+            return CocoWebParameterSource.FORM;
+        }
+        if (isJsonContentType(contentType)) {
+            return CocoWebParameterSource.JSON;
+        }
+        return contentType == null ? CocoWebParameterSource.NONE : CocoWebParameterSource.PAYLOAD;
+    }
+
+    private static void addParameter(Map<String, List<String>> parameters, String name, String value,
+            PayloadParseState state) {
         if (name == null || name.isBlank()) {
             return;
         }
         parameters.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value == null ? "" : value);
-        count[0]++;
+        state.incrementCount();
     }
 
     private static Map<String, List<String>> copy(Map<String, List<String>> parameters) {
@@ -399,6 +500,64 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
         }
         catch (IllegalArgumentException ex) {
             return value;
+        }
+    }
+
+    private static final class PayloadParseState {
+
+        private final Map<String, List<String>> parameters = new LinkedHashMap<>();
+
+        private final int maxParameterCount;
+
+        private final int maxJsonDepth;
+
+        private int parameterCount;
+
+        private boolean parameterLimitReached;
+
+        private boolean jsonDepthLimitReached;
+
+        private PayloadParseState(int maxParameterCount, int maxJsonDepth) {
+            this.maxParameterCount = maxParameterCount;
+            this.maxJsonDepth = maxJsonDepth;
+        }
+
+        private Map<String, List<String>> parameters() {
+            return this.parameters;
+        }
+
+        private int maxJsonDepth() {
+            return this.maxJsonDepth;
+        }
+
+        private boolean reachedParameterLimit() {
+            return this.parameterCount >= this.maxParameterCount;
+        }
+
+        private boolean parameterLimitReached() {
+            return this.parameterLimitReached;
+        }
+
+        private void markParameterLimitReached() {
+            this.parameterLimitReached = true;
+        }
+
+        private void markJsonDepthLimitReached() {
+            this.jsonDepthLimitReached = true;
+        }
+
+        private void incrementCount() {
+            this.parameterCount++;
+        }
+
+        private CocoWebPayloadParseStatus status() {
+            if (this.parameterLimitReached) {
+                return CocoWebPayloadParseStatus.PARAMETER_LIMIT_REACHED;
+            }
+            if (this.jsonDepthLimitReached) {
+                return CocoWebPayloadParseStatus.JSON_DEPTH_LIMIT_REACHED;
+            }
+            return CocoWebPayloadParseStatus.PARSED;
         }
     }
 }

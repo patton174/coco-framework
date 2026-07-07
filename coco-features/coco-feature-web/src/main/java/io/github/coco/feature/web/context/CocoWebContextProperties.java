@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import io.github.coco.feature.web.context.target.CocoWebRequestTargetProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
@@ -89,6 +90,9 @@ public class CocoWebContextProperties {
 
     @NestedConfigurationProperty
     private CocoWebParameterProperties parameter = new CocoWebParameterProperties();
+
+    @NestedConfigurationProperty
+    private CocoWebRequestTargetProperties target = new CocoWebRequestTargetProperties();
 
     @NestedConfigurationProperty
     private CocoWebRequestCanonicalizationProperties canonicalization =
@@ -397,6 +401,26 @@ public class CocoWebContextProperties {
      */
     public void setParameter(CocoWebParameterProperties parameter) {
         this.parameter = parameter == null ? new CocoWebParameterProperties() : parameter;
+    }
+
+    /**
+     * <p>
+     * 返回 Web 请求目标解析配置属性。
+     * </p>
+     * @return Web 请求目标解析配置属性
+     */
+    public CocoWebRequestTargetProperties getTarget() {
+        return this.target;
+    }
+
+    /**
+     * <p>
+     * 设置 Web 请求目标解析配置属性。
+     * </p>
+     * @param target Web 请求目标解析配置属性
+     */
+    public void setTarget(CocoWebRequestTargetProperties target) {
+        this.target = target == null ? new CocoWebRequestTargetProperties() : target;
     }
 
     /**

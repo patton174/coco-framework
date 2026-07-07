@@ -3,25 +3,32 @@ package io.github.coco.feature.web.signature;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import io.github.coco.common.context.CocoRequestContextAttributes;
+import io.github.coco.common.context.CocoRequestContextHolder;
 import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationContext;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationPurpose;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
+import io.github.coco.feature.web.context.CocoWebRequestContextPhase;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
-import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
-import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -193,14 +200,22 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        boolean signatureExpected = hasSignatureHeader(request);
         boolean signatureRequired = signatureRequired(request);
+        CocoWebRequestSnapshot snapshot = null;
+        CocoWebRequestSecurityMetadata metadata = null;
+        boolean signatureExpected = hasSignatureHeader(request);
+        if (!signatureExpected && this.properties.getMetadataSource().supportsParameter()
+                && CocoCachedBodyHttpServletRequest.cachedBody(request).isPresent()) {
+            snapshot = resolveSnapshot(request);
+            metadata = this.securityMetadataResolver.resolve(snapshot.securityInput());
+            signatureExpected = metadata.signed();
+        }
         if (!signatureRequired && !signatureExpected) {
             filterChain.doFilter(request, response);
             return;
         }
         try {
-            verifyRequest(request, signatureExpected, signatureRequired);
+            verifyRequest(request, signatureExpected, signatureRequired, snapshot, metadata);
         }
         catch (CocoException ex) {
             this.exceptionResponseWriter.write(ex, request, response);
@@ -244,11 +259,18 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
                 || this.requestMatcher.matches(request, this.properties.getMatcher().getRequired());
     }
 
-    private void verifyRequest(HttpServletRequest request, boolean signatureExpected, boolean signatureRequired) {
+    private CocoWebRequestSnapshot resolveSnapshot(HttpServletRequest request) {
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
-        CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
+        return this.requestContextResolver.resolve(traceId, request);
+    }
+
+    private void verifyRequest(HttpServletRequest request, boolean signatureExpected, boolean signatureRequired,
+            CocoWebRequestSnapshot resolvedSnapshot, CocoWebRequestSecurityMetadata resolvedMetadata) {
+        CocoWebRequestSnapshot snapshot = resolvedSnapshot == null ? resolveSnapshot(request) : resolvedSnapshot;
         CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
-        CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(securityInput);
+        CocoWebRequestSecurityMetadata metadata = resolvedMetadata == null
+                ? this.securityMetadataResolver.resolve(securityInput)
+                : resolvedMetadata;
         CocoWebRequestSecurityInput canonicalInput = canonicalSecurityInput(securityInput);
         CocoWebRequestCanonicalForm canonicalForm = this.requestCanonicalizer.canonicalize(
                 new CocoWebRequestCanonicalizationContext(CocoWebRequestCanonicalizationPurpose.SIGNATURE,
@@ -268,6 +290,7 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         if (!this.signatureVerifier.verify(new CocoSignatureVerificationContext(signatureRequest, secret))) {
             throw CocoBusinessExceptions.unauthorized("coco.web.signature.invalid");
         }
+        publishVerifiedSnapshot(request, snapshot, metadata, canonicalForm.sha256());
     }
 
     private CocoSignatureRequest resolveSignatureRequest(CocoWebRequestSecurityMetadata metadata,
@@ -367,6 +390,28 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         return securityInput.payloadParameter(parameterName)
                 .filter(values -> values.stream().anyMatch(value -> value != null && !value.isBlank()))
                 .isPresent();
+    }
+
+    private void publishVerifiedSnapshot(HttpServletRequest request, CocoWebRequestSnapshot snapshot,
+            CocoWebRequestSecurityMetadata metadata, String canonicalSha256) {
+        Map<String, String> evidence = new LinkedHashMap<>();
+        putEvidence(evidence, CocoRequestContextAttributes.SIGNATURE_METADATA_SOURCE,
+                this.properties.getMetadataSource().name());
+        putEvidence(evidence, CocoRequestContextAttributes.SIGNATURE_VERIFIED, Boolean.TRUE.toString());
+        putEvidence(evidence, CocoRequestContextAttributes.SIGNATURE_VERIFIED_AT,
+                Instant.now(this.clock).toString());
+        putEvidence(evidence, CocoRequestContextAttributes.SIGNATURE_CANONICAL_SHA256, canonicalSha256);
+        CocoWebRequestSnapshot verifiedSnapshot = snapshot.withSecurityMetadata(metadata)
+                .withContextAttributes(evidence)
+                .withContextPhase(CocoWebRequestContextPhase.SIGNATURE_VERIFIED);
+        CocoWebRequestSnapshotAttributes.set(request, verifiedSnapshot);
+        CocoRequestContextHolder.set(verifiedSnapshot.toRequestContext());
+    }
+
+    private static void putEvidence(Map<String, String> attributes, String name, String value) {
+        if (value != null && !value.isBlank()) {
+            attributes.put(name, value);
+        }
     }
 
 }

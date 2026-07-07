@@ -1,26 +1,38 @@
 package io.github.coco.feature.web.encryption;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
 import io.github.coco.common.context.CocoRequestContext;
+import io.github.coco.common.context.CocoRequestContextAttributes;
 import io.github.coco.common.context.CocoRequestContextHolder;
 import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
+import io.github.coco.feature.web.body.CocoRequestBodyResolver;
+import io.github.coco.feature.web.body.CocoResolvedRequestBody;
+import io.github.coco.feature.web.body.DefaultCocoRequestBodyResolver;
+import io.github.coco.feature.web.context.CocoWebRequestContextPhase;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
-import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
-import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -46,6 +58,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 public final class CocoEncryptionFilter extends OncePerRequestFilter {
 
+    private static final String ASSOCIATED_DATA_VERSION = CocoEncryptionAssociatedData.version();
+
     private final CocoEncryptionProperties properties;
 
     private final CocoEncryptionKeyResolver keyResolver;
@@ -59,6 +73,8 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
     private final CocoWebRequestSecurityMetadataResolver securityMetadataResolver;
 
     private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
+
+    private final CocoRequestBodyResolver requestBodyResolver;
 
     /**
      * <p>
@@ -111,6 +127,28 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
             CocoRequestDecryptor requestDecryptor, CocoWebRequestContextResolver requestContextResolver,
             CocoFilterExceptionResponseWriter exceptionResponseWriter,
             CocoWebRequestSecurityMetadataResolver securityMetadataResolver, CocoWebRequestMatcher requestMatcher) {
+        this(properties, keyResolver, requestDecryptor, requestContextResolver, exceptionResponseWriter,
+                securityMetadataResolver, requestMatcher, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 请求解密过滤器。
+     * </p>
+     * @param properties 请求加密配置属性
+     * @param keyResolver AES 解密密钥解析器
+     * @param requestDecryptor 请求解密器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @param securityMetadataResolver 请求安全元数据解析器
+     * @param requestMatcher Web 请求匹配器
+     * @param requestBodyResolver 请求体解析器
+     */
+    public CocoEncryptionFilter(CocoEncryptionProperties properties, CocoEncryptionKeyResolver keyResolver,
+            CocoRequestDecryptor requestDecryptor, CocoWebRequestContextResolver requestContextResolver,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver, CocoWebRequestMatcher requestMatcher,
+            CocoRequestBodyResolver requestBodyResolver) {
         this.properties = properties == null ? new CocoEncryptionProperties() : properties;
         this.keyResolver = Objects.requireNonNull(keyResolver, "keyResolver must not be null");
         this.requestDecryptor = Objects.requireNonNull(requestDecryptor, "requestDecryptor must not be null");
@@ -122,6 +160,9 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
                 : securityMetadataResolver;
         this.exceptionResponseWriter = Objects.requireNonNull(exceptionResponseWriter,
                 "exceptionResponseWriter must not be null");
+        this.requestBodyResolver = requestBodyResolver == null
+                ? new DefaultCocoRequestBodyResolver()
+                : requestBodyResolver;
     }
 
     /**
@@ -138,7 +179,12 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+        ResolvedEncryptedRequest resolvedRequest = null;
         boolean encrypted = encrypted(request);
+        if (!encrypted && parameterMetadataMayAppearInCachedBody(request)) {
+            resolvedRequest = resolveEncryptedRequest(request);
+            encrypted = resolvedRequest.metadata().encrypted();
+        }
         boolean encryptionRequired = encryptionRequired(request);
         if (!encrypted && !encryptionRequired) {
             filterChain.doFilter(request, response);
@@ -147,10 +193,15 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
         Optional<CocoRequestContext> previousContext = CocoRequestContextHolder.current();
         Optional<String> previousTraceId = CocoTraceContext.currentTraceId();
         try {
-            HttpServletRequest decryptedRequest = decryptRequest(request, encrypted);
-            CocoWebRequestSnapshot effectiveSnapshot = resolveEffectiveRequestSnapshot(decryptedRequest);
+            DecryptedRequest decryptedRequest = decryptRequest(request, encrypted, resolvedRequest);
+            CocoWebRequestSnapshot effectiveSnapshot = resolveEffectiveRequestSnapshot(decryptedRequest.request())
+                    .withSecurityMetadata(decryptedRequest.metadata())
+                    .withContextAttributes(decryptedRequest.contextAttributes())
+                    .withContextAttributes(decryptionEvidence(decryptedRequest.associatedData()))
+                    .withContextPhase(CocoWebRequestContextPhase.DECRYPTED);
+            CocoWebRequestSnapshotAttributes.set(decryptedRequest.request(), effectiveSnapshot);
             CocoRequestContextHolder.set(effectiveSnapshot.toRequestContext());
-            filterChain.doFilter(decryptedRequest, response);
+            filterChain.doFilter(decryptedRequest.request(), response);
         }
         catch (CocoException ex) {
             this.exceptionResponseWriter.write(ex, request, response);
@@ -169,19 +220,26 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
                 || this.requestMatcher.matches(request, this.properties.getMatcher().getRequired());
     }
 
-    private HttpServletRequest decryptRequest(HttpServletRequest request, boolean encrypted) {
+    private DecryptedRequest decryptRequest(HttpServletRequest request, boolean encrypted,
+            ResolvedEncryptedRequest resolvedRequest) {
         if (!encrypted) {
             throw CocoBusinessExceptions.unauthorized("coco.web.encryption.missing-encrypted");
         }
-        ResolvedEncryptedRequest resolvedRequest = resolveEncryptedRequest(request);
-        CocoEncryptedRequest encryptedRequest = resolvedRequest.request();
+        ResolvedEncryptedRequest effectiveResolvedRequest = resolvedRequest == null
+                ? resolveEncryptedRequest(request)
+                : resolvedRequest;
+        CocoEncryptedRequest encryptedRequest = effectiveResolvedRequest.request();
         validateRequiredFields(encryptedRequest);
         CocoEncryptionKey key = this.keyResolver.resolve(encryptedRequest)
                 .orElseThrow(() -> CocoBusinessExceptions.unauthorized("coco.web.encryption.key-not-found"));
         try {
             byte[] decryptedPayload = this.requestDecryptor.decrypt(new CocoRequestDecryptionContext(
-                    encryptedRequest, key, resolvedRequest.associatedData()));
-            return new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(decryptedPayload));
+                    encryptedRequest, key, effectiveResolvedRequest.associatedData()));
+            return new DecryptedRequest(
+                    new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(decryptedPayload)),
+                    effectiveResolvedRequest.associatedData(),
+                    effectiveResolvedRequest.metadata(),
+                    effectiveResolvedRequest.snapshot().contextAttributes());
         }
         catch (RuntimeException ex) {
             throw CocoBusinessExceptions.unauthorized("coco.web.encryption.decrypt-failed");
@@ -193,8 +251,9 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
                 request);
         CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
         CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(securityInput);
-        byte[] payload = CocoCachedBodyHttpServletRequest.cachedBody(request)
-                .map(CocoCachedRequestBody::content)
+        CocoResolvedRequestBody resolvedBody = this.requestBodyResolver.resolve(request);
+        byte[] payload = encryptedPayload(securityInput)
+                .or(() -> cachedPayload(resolvedBody))
                 .orElseGet(() -> readRawBody(request));
         CocoEncryptedRequest encryptedRequest = new CocoEncryptedRequest(
                 metadata.encryptionAppId(),
@@ -204,7 +263,63 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
                 metadata.encrypted(),
                 payload);
         return new ResolvedEncryptedRequest(encryptedRequest,
-                CocoEncryptionAssociatedData.from(encryptedRequest, snapshot, metadata));
+                CocoEncryptionAssociatedData.from(encryptedRequest, snapshot, metadata), metadata, snapshot);
+    }
+
+    /**
+     * <p>
+     * 判断加密协议元数据是否可能来自已缓存的请求体参数。
+     * </p>
+     * @param request 当前 Servlet 请求
+     * @return 需要从请求体参数解析加密元数据时返回 {@code true}
+     */
+    private boolean parameterMetadataMayAppearInCachedBody(HttpServletRequest request) {
+        return this.properties.getMetadataSource().supportsParameter()
+                && Optional.ofNullable(this.requestBodyResolver.resolve(request))
+                        .map(CocoResolvedRequestBody::effectiveCached)
+                        .orElse(false);
+    }
+
+    /**
+     * <p>
+     * 返回当前请求体解析结果中的业务态密文载荷。
+     * </p>
+     * @param resolvedBody 已解析请求体
+     * @return 业务态密文载荷；未缓存时为空
+     */
+    private static Optional<byte[]> cachedPayload(CocoResolvedRequestBody resolvedBody) {
+        CocoResolvedRequestBody body = resolvedBody == null
+                ? new CocoResolvedRequestBody(null, null, null, null, null)
+                : resolvedBody;
+        return body.effectiveCached() ? Optional.of(body.effectiveBody().content()) : Optional.empty();
+    }
+
+    /**
+     * <p>
+     * 从请求体参数中读取加密信封密文字段。
+     * </p>
+     * @param securityInput 请求安全输入
+     * @return 加密信封密文字段；未提供时为空
+     */
+    private Optional<byte[]> encryptedPayload(CocoWebRequestSecurityInput securityInput) {
+        if (!this.properties.getMetadataSource().supportsParameter()) {
+            return Optional.empty();
+        }
+        return firstNonBlankValue(securityInput.payloadParameter(this.properties.getPayloadParameterName()))
+                .map(value -> value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * <p>
+     * 从多值参数中返回第一个非空白原始值。
+     * </p>
+     * @param values 多值参数
+     * @return 第一个非空白原始值；不存在时为空
+     */
+    private static Optional<String> firstNonBlankValue(Optional<List<String>> values) {
+        return values.flatMap(parameterValues -> parameterValues.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst());
     }
 
     /**
@@ -275,11 +390,58 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
         return value != null && ("true".equalsIgnoreCase(value.trim()) || "1".equals(value.trim()));
     }
 
-    private record ResolvedEncryptedRequest(CocoEncryptedRequest request, byte[] associatedData) {
+    private Map<String, String> decryptionEvidence(byte[] associatedData) {
+        Map<String, String> evidence = new LinkedHashMap<>();
+        putEvidence(evidence, CocoRequestContextAttributes.ENCRYPTION_METADATA_SOURCE,
+                this.properties.getMetadataSource().name());
+        putEvidence(evidence, CocoRequestContextAttributes.REQUEST_DECRYPTED, Boolean.TRUE.toString());
+        putEvidence(evidence, CocoRequestContextAttributes.ENCRYPTION_ASSOCIATED_DATA_VERSION,
+                ASSOCIATED_DATA_VERSION);
+        putEvidence(evidence, CocoRequestContextAttributes.ENCRYPTION_ASSOCIATED_DATA_SHA256,
+                sha256(associatedData));
+        return evidence;
+    }
+
+    private static void putEvidence(Map<String, String> attributes, String name, String value) {
+        if (value != null && !value.isBlank()) {
+            attributes.put(name, value);
+        }
+    }
+
+    private static String sha256(byte[] content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(content == null ? new byte[0] : content));
+        }
+        catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 algorithm is not available", ex);
+        }
+    }
+
+    private record DecryptedRequest(HttpServletRequest request, byte[] associatedData,
+            CocoWebRequestSecurityMetadata metadata, Map<String, String> contextAttributes) {
+
+        private DecryptedRequest {
+            request = Objects.requireNonNull(request, "request must not be null");
+            associatedData = associatedData == null ? new byte[0] : associatedData.clone();
+            metadata = metadata == null ? CocoWebRequestSecurityMetadata.empty() : metadata;
+            contextAttributes = contextAttributes == null ? Map.of() : Map.copyOf(contextAttributes);
+        }
+
+        @Override
+        public byte[] associatedData() {
+            return this.associatedData.clone();
+        }
+    }
+
+    private record ResolvedEncryptedRequest(CocoEncryptedRequest request, byte[] associatedData,
+            CocoWebRequestSecurityMetadata metadata, CocoWebRequestSnapshot snapshot) {
 
         private ResolvedEncryptedRequest {
             request = Objects.requireNonNull(request, "request must not be null");
             associatedData = associatedData == null ? new byte[0] : associatedData.clone();
+            metadata = metadata == null ? CocoWebRequestSecurityMetadata.empty() : metadata;
+            snapshot = Objects.requireNonNull(snapshot, "snapshot must not be null");
         }
 
         @Override

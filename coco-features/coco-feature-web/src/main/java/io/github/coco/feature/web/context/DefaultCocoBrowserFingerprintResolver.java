@@ -48,17 +48,19 @@ public final class DefaultCocoBrowserFingerprintResolver implements CocoBrowserF
     public CocoBrowserFingerprint resolve(HttpServletRequest request) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
         Map<String, String> signals = new LinkedHashMap<>();
+        Map<String, String> hashSignals = new LinkedHashMap<>();
         for (String headerName : this.properties.getFingerprintHeaderNames()) {
             if (headerName == null || headerName.isBlank()) {
                 continue;
             }
             List<String> values = existingHeaderValues(checkedRequest, headerName);
             if (!values.isEmpty()) {
-                signals.put(headerName.trim().toLowerCase(Locale.ROOT),
-                        fingerprintSignalValue(values, this.properties.getMaxHeaderValueLength()));
+                String normalizedName = headerName.trim().toLowerCase(Locale.ROOT);
+                signals.put(normalizedName, fingerprintSignalValue(values, this.properties.getMaxHeaderValueLength()));
+                hashSignals.put(normalizedName, fingerprintSignalValue(values, 0));
             }
         }
-        return CocoBrowserFingerprint.from(signals);
+        return CocoBrowserFingerprint.from(signals, hashSignals);
     }
 
     private static List<String> existingHeaderValues(HttpServletRequest request, String headerName) {
@@ -92,7 +94,9 @@ public final class DefaultCocoBrowserFingerprintResolver implements CocoBrowserF
         if (normalized == null) {
             return "";
         }
-        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
+        return maxLength <= 0 || normalized.length() <= maxLength
+                ? normalized
+                : normalized.substring(0, maxLength) + "...";
     }
 
     private static String fingerprintSignalValue(List<String> values, int maxLength) {

@@ -1,10 +1,9 @@
 package io.github.coco.feature.web.replay;
 
 import java.util.Objects;
-import java.util.Optional;
 
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
 
 /**
  * 默认 Coco Web 防重放键解析器。
@@ -44,21 +43,18 @@ public final class DefaultCocoReplayKeyResolver implements CocoReplayKeyResolver
         CocoWebRequestSnapshot checkedSnapshot = Objects.requireNonNull(snapshot, "snapshot must not be null");
         CocoWebRequestSecurityMetadata checkedMetadata = Objects.requireNonNull(metadata, "metadata must not be null");
         return new CocoReplayKey(
-                checkedSnapshot.securityInput().securityHeader(this.properties.getAppIdHeaderName())
-                        .or(() -> Optional.ofNullable(checkedMetadata.replayAppId()))
-                        .or(checkedMetadata::primaryAppId)
-                        .orElse(null),
-                checkedSnapshot.securityInput().securityHeader(this.properties.getKeyIdHeaderName())
-                        .or(() -> Optional.ofNullable(checkedMetadata.replayKeyId()))
-                        .or(checkedMetadata::primaryKeyId)
-                        .orElse(null),
-                checkedSnapshot.securityInput().securityHeader(this.properties.getTimestampHeaderName())
-                        .or(() -> Optional.ofNullable(checkedMetadata.replayTimestamp()))
-                        .orElse(checkedMetadata.signatureTimestamp()),
-                checkedSnapshot.securityInput().securityHeader(this.properties.getNonceHeaderName())
-                        .or(() -> Optional.ofNullable(checkedMetadata.replayNonce()))
-                        .orElse(checkedMetadata.signatureNonce()),
+                firstNonBlank(checkedMetadata.replayAppId(), checkedMetadata.primaryAppId().orElse(null)),
+                firstNonBlank(checkedMetadata.replayKeyId(), checkedMetadata.primaryKeyId().orElse(null)),
+                firstNonBlank(checkedMetadata.replayTimestamp(), checkedMetadata.signatureTimestamp()),
+                firstNonBlank(checkedMetadata.replayNonce(), checkedMetadata.signatureNonce()),
                 this.properties.isIncludeMethod() ? checkedSnapshot.method() : null,
                 this.properties.isIncludePath() ? checkedSnapshot.path() : null);
+    }
+
+    private static String firstNonBlank(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary;
+        }
+        return fallback == null || fallback.isBlank() ? null : fallback;
     }
 }

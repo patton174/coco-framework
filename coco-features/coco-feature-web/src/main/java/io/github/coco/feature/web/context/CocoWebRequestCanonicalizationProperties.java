@@ -20,7 +20,7 @@ public class CocoWebRequestCanonicalizationProperties {
 
     private static final String DEFAULT_PARAMETER_VALUE_SEPARATOR = ",";
 
-    private static final String DEFAULT_VERSION = "coco-v1";
+    private static final String DEFAULT_VERSION = "coco-v2";
 
     private String version = DEFAULT_VERSION;
 

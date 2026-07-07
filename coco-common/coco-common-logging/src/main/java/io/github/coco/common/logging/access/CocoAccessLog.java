@@ -11,7 +11,8 @@ import java.util.Optional;
 /**
  * Coco 接口访问日志。
  * <p>
- * 表示一次接口请求完成后的访问日志事件，保存 TraceId、HTTP 方法、请求路径、客户端信息、请求参数、响应状态、耗时、成功标记和异常类型。
+ * 表示一次接口请求完成后的访问日志事件，保存 TraceId、HTTP 方法、请求路径、请求头、客户端信息、请求参数、
+ * 响应状态、耗时、成功标记和异常类型，以及请求体和安全快照的摘要字段。
  * </p>
  * <p>
  * 项目信息：
@@ -34,9 +35,27 @@ public final class CocoAccessLog {
 
     private final String clientIp;
 
+    private final String clientIpSource;
+
     private final String userAgent;
 
+    private final String contentType;
+
     private final String queryString;
+
+    private final Map<String, String> headers;
+
+    private final String requestBodySha256;
+
+    private final Long requestBodyLength;
+
+    private final String requestBodyStage;
+
+    private final String browserFingerprint;
+
+    private final String payloadParseStatus;
+
+    private final String requestTargetSource;
 
     private final Map<String, List<String>> requestParameters;
 
@@ -49,14 +68,25 @@ public final class CocoAccessLog {
     private final String exceptionType;
 
     private CocoAccessLog(String traceId, String method, String path, int status, long durationMillis,
-            boolean success, String exceptionType, String clientIp, String userAgent, String queryString,
-            Map<String, List<String>> requestParameters) {
+            boolean success, String exceptionType, String clientIp, String clientIpSource, String userAgent,
+            String contentType, String queryString, Map<String, String> headers, String requestBodySha256,
+            Long requestBodyLength, String requestBodyStage, String browserFingerprint,
+            String payloadParseStatus, String requestTargetSource, Map<String, List<String>> requestParameters) {
         this.traceId = requireTraceId(traceId);
         this.method = normalizeMethod(method);
         this.path = normalizeOptional(path);
         this.clientIp = normalizeOptional(clientIp);
+        this.clientIpSource = normalizeOptional(clientIpSource);
         this.userAgent = normalizeOptional(userAgent);
+        this.contentType = normalizeOptional(contentType);
         this.queryString = normalizeOptional(queryString);
+        this.headers = normalizeHeaders(headers);
+        this.requestBodySha256 = normalizeOptional(requestBodySha256);
+        this.requestBodyLength = requestBodyLength == null || requestBodyLength < 0L ? null : requestBodyLength;
+        this.requestBodyStage = normalizeOptional(requestBodyStage);
+        this.browserFingerprint = normalizeOptional(browserFingerprint);
+        this.payloadParseStatus = normalizeOptional(payloadParseStatus);
+        this.requestTargetSource = normalizeOptional(requestTargetSource);
         this.requestParameters = normalizeParameters(requestParameters);
         this.status = status;
         this.durationMillis = requireDurationMillis(durationMillis);
@@ -80,7 +110,7 @@ public final class CocoAccessLog {
     public static CocoAccessLog of(String traceId, String method, String path, int status,
             long durationMillis, boolean success, String exceptionType) {
         return new CocoAccessLog(traceId, method, path, status, durationMillis, success, exceptionType,
-                null, null, null, Map.of());
+                null, null, null, null, null, Map.of(), null, null, null, null, null, null, Map.of());
     }
 
     /**
@@ -104,115 +134,123 @@ public final class CocoAccessLog {
             long durationMillis, boolean success, String exceptionType, String clientIp, String userAgent,
             String queryString, Map<String, List<String>> requestParameters) {
         return new CocoAccessLog(traceId, method, path, status, durationMillis, success, exceptionType,
-                clientIp, userAgent, queryString, requestParameters);
+                clientIp, null, userAgent, null, queryString, Map.of(), null, null, null, null, null, null,
+                requestParameters);
     }
 
     /**
      * <p>
-     * 返回 TraceId。
+     * 创建携带完整结构化快照的接口访问日志事件。
      * </p>
-     * @return TraceId
+     * @param traceId TraceId
+     * @param method HTTP 方法
+     * @param path 请求路径
+     * @param status 响应状态码
+     * @param durationMillis 请求耗时，单位毫秒
+     * @param success 是否成功
+     * @param exceptionType 异常类型
+     * @param clientIp 客户端 IP
+     * @param clientIpSource 客户端 IP 来源
+     * @param userAgent User-Agent
+     * @param contentType 请求内容类型
+     * @param queryString 原始查询字符串
+     * @param headers 请求头快照
+     * @param requestBodySha256 请求体 SHA-256
+     * @param requestBodyLength 请求体长度
+     * @param requestBodyStage 请求体阶段
+     * @param browserFingerprint 浏览器指纹
+     * @param payloadParseStatus 请求体参数解析状态
+     * @param requestTargetSource 请求目标来源
+     * @param requestParameters 请求参数
+     * @return 接口访问日志事件
      */
+    public static CocoAccessLog of(String traceId, String method, String path, int status,
+            long durationMillis, boolean success, String exceptionType, String clientIp, String clientIpSource,
+            String userAgent, String contentType, String queryString, Map<String, String> headers,
+            String requestBodySha256, Long requestBodyLength, String requestBodyStage, String browserFingerprint,
+            String payloadParseStatus, String requestTargetSource, Map<String, List<String>> requestParameters) {
+        return new CocoAccessLog(traceId, method, path, status, durationMillis, success, exceptionType,
+                clientIp, clientIpSource, userAgent, contentType, queryString, headers, requestBodySha256,
+                requestBodyLength, requestBodyStage, browserFingerprint, payloadParseStatus, requestTargetSource,
+                requestParameters);
+    }
+
     public String traceId() {
         return this.traceId;
     }
 
-    /**
-     * <p>
-     * 返回 HTTP 方法。
-     * </p>
-     * @return HTTP 方法；未设置时为空
-     */
     public Optional<String> method() {
         return Optional.ofNullable(this.method);
     }
 
-    /**
-     * <p>
-     * 返回请求路径。
-     * </p>
-     * @return 请求路径；未设置时为空
-     */
     public Optional<String> path() {
         return Optional.ofNullable(this.path);
     }
 
-    /**
-     * <p>
-     * 返回客户端 IP。
-     * </p>
-     * @return 客户端 IP；未设置时为空
-     */
     public Optional<String> clientIp() {
         return Optional.ofNullable(this.clientIp);
     }
 
-    /**
-     * <p>
-     * 返回 User-Agent。
-     * </p>
-     * @return User-Agent；未设置时为空
-     */
+    public Optional<String> clientIpSource() {
+        return Optional.ofNullable(this.clientIpSource);
+    }
+
     public Optional<String> userAgent() {
         return Optional.ofNullable(this.userAgent);
     }
 
-    /**
-     * <p>
-     * 返回原始查询字符串。
-     * </p>
-     * @return 原始查询字符串；未设置时为空
-     */
+    public Optional<String> contentType() {
+        return Optional.ofNullable(this.contentType);
+    }
+
     public Optional<String> queryString() {
         return Optional.ofNullable(this.queryString);
     }
 
-    /**
-     * <p>
-     * 返回请求参数快照。
-     * </p>
-     * @return 不可变请求参数快照
-     */
+    public Map<String, String> headers() {
+        return this.headers;
+    }
+
+    public Optional<String> requestBodySha256() {
+        return Optional.ofNullable(this.requestBodySha256);
+    }
+
+    public Optional<Long> requestBodyLength() {
+        return Optional.ofNullable(this.requestBodyLength);
+    }
+
+    public Optional<String> requestBodyStage() {
+        return Optional.ofNullable(this.requestBodyStage);
+    }
+
+    public Optional<String> browserFingerprint() {
+        return Optional.ofNullable(this.browserFingerprint);
+    }
+
+    public Optional<String> payloadParseStatus() {
+        return Optional.ofNullable(this.payloadParseStatus);
+    }
+
+    public Optional<String> requestTargetSource() {
+        return Optional.ofNullable(this.requestTargetSource);
+    }
+
     public Map<String, List<String>> requestParameters() {
         return this.requestParameters;
     }
 
-    /**
-     * <p>
-     * 返回响应状态码。
-     * </p>
-     * @return 响应状态码
-     */
     public int status() {
         return this.status;
     }
 
-    /**
-     * <p>
-     * 返回请求耗时，单位毫秒。
-     * </p>
-     * @return 请求耗时
-     */
     public long durationMillis() {
         return this.durationMillis;
     }
 
-    /**
-     * <p>
-     * 返回请求是否成功。
-     * </p>
-     * @return 成功时返回 {@code true}
-     */
     public boolean success() {
         return this.success;
     }
 
-    /**
-     * <p>
-     * 返回请求异常类型。
-     * </p>
-     * @return 异常类型；无异常时为空
-     */
     public Optional<String> exceptionType() {
         return Optional.ofNullable(this.exceptionType);
     }
@@ -238,6 +276,21 @@ public final class CocoAccessLog {
 
     private static String normalizeOptional(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static Map<String, String> normalizeHeaders(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> normalized = new LinkedHashMap<>();
+        headers.forEach((name, value) -> {
+            String normalizedName = normalizeOptional(name);
+            String normalizedValue = normalizeOptional(value);
+            if (normalizedName != null && normalizedValue != null) {
+                normalized.put(normalizedName.toLowerCase(Locale.ROOT), normalizedValue);
+            }
+        });
+        return Collections.unmodifiableMap(normalized);
     }
 
     private static Map<String, List<String>> normalizeParameters(Map<String, List<String>> parameters) {

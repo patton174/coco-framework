@@ -3,6 +3,7 @@ package io.github.coco.feature.web;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,6 +29,10 @@ import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingMode;
+import io.github.coco.feature.web.body.CocoRequestBodyProperties;
+import io.github.coco.feature.web.body.CocoRequestBodyResolver;
+import io.github.coco.feature.web.body.CocoResolvedRequestBody;
+import io.github.coco.feature.web.body.DefaultCocoRequestBodyResolver;
 import io.github.coco.feature.web.context.CocoBrowserFingerprint;
 import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.CocoClientIpResolution;
@@ -46,13 +51,13 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatchRule;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityInputResolver;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
-import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
-import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.CocoWebParameterProperties;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
@@ -61,7 +66,12 @@ import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
-import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.context.target.CocoWebRequestTarget;
+import io.github.coco.feature.web.context.target.CocoWebRequestTargetResolution;
+import io.github.coco.feature.web.context.target.CocoWebRequestTargetResolver;
+import io.github.coco.feature.web.context.target.CocoWebRequestTargetSource;
+import io.github.coco.feature.web.context.target.DefaultCocoWebRequestTargetResolver;
+import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.payload.CocoPayloadParameterResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
 import io.github.coco.feature.web.encryption.CocoEncryptedRequest;
@@ -69,9 +79,12 @@ import io.github.coco.feature.web.encryption.CocoEncryptionAssociatedData;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
+import io.github.coco.feature.web.exception.CocoPayloadTooLargeException;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.replay.CocoReplayFilter;
+import io.github.coco.feature.web.replay.CocoReplayKey;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
+import io.github.coco.feature.web.replay.DefaultCocoReplayKeyResolver;
 import io.github.coco.feature.web.response.CocoApiResponse;
 import io.github.coco.feature.web.response.CocoIgnoreResponseWrap;
 import io.github.coco.feature.web.response.CocoResponseBodyFactory;
@@ -84,6 +97,7 @@ import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.CocoSystemCodes;
 import io.github.coco.feature.web.signature.CocoSignatureFilter;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
+import io.github.coco.feature.web.signature.CocoSignatureVerifier;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import jakarta.servlet.Servlet;
@@ -104,6 +118,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
@@ -195,7 +210,9 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoBrowserFingerprintResolver"));
             assertTrue(context.containsBean("cocoRequestHeaderResolver"));
             assertTrue(context.containsBean("cocoPayloadParameterResolver"));
+            assertTrue(context.containsBean("cocoRequestBodyResolver"));
             assertTrue(context.containsBean("cocoRequestParameterResolver"));
+            assertTrue(context.containsBean("cocoWebRequestTargetResolver"));
             assertTrue(context.containsBean("cocoWebRequestSecurityInputResolver"));
             assertTrue(context.containsBean("cocoWebRequestSecurityMetadataResolver"));
             assertTrue(context.containsBean("cocoWebRequestCanonicalizer"));
@@ -225,9 +242,9 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void disablesWebAutoConfigurationWhenFeatureIsExcluded() {
+    void disablesWebAutoConfigurationWhenFeatureIsDisabled() {
         this.webContextRunner
-                .withPropertyValues("coco.features.exclude[0]=web")
+                .withPropertyValues("coco.features.disabled[0]=web")
                 .run(context -> {
                     assertFalse(context.containsBean("cocoExceptionHttpStatusResolver"));
                     assertFalse(context.containsBean("cocoTraceFilterRegistration"));
@@ -324,6 +341,27 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void disablesSignatureFilterRegistrationByProperty() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.enabled=false")
+                .run(context -> assertFalse(context.containsBean("cocoSignatureFilterRegistration")));
+    }
+
+    @Test
+    void disablesEncryptionFilterRegistrationByProperty() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.enabled=false")
+                .run(context -> assertFalse(context.containsBean("cocoEncryptionFilterRegistration")));
+    }
+
+    @Test
+    void disablesReplayFilterRegistrationByProperty() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.enabled=false")
+                .run(context -> assertFalse(context.containsBean("cocoReplayFilterRegistration")));
+    }
+
+    @Test
     void returnsLocalizedErrorResponseForCocoException() {
         CocoTraceContext.setTraceId("trace-test");
         this.webContextRunner.run(context -> {
@@ -360,6 +398,28 @@ class CocoWebAutoConfigurationTest {
                     CocoApiResponse<?> body = apiBody(response);
                     assertEquals("trace-test", body.traceId());
                     assertEquals("/api/users", body.path());
+                });
+    }
+
+    @Test
+    void writesTraceCookieInErrorResponseWhenCookieModeIsEnabled() {
+        CocoTraceContext.setTraceId("trace-cookie");
+        this.webContextRunner
+                .withPropertyValues("coco.web.response.metadata-mode=cookie")
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+
+                    ResponseEntity<Object> response = handler.handleCocoException(
+                            CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"),
+                            new ServletWebRequest(request));
+
+                    CocoApiResponse<?> body = apiBody(response);
+                    String cookie = response.getHeaders().getFirst(org.springframework.http.HttpHeaders.SET_COOKIE);
+                    assertNull(body.traceId());
+                    assertNull(body.path());
+                    assertNotNull(cookie);
+                    assertTrue(cookie.contains("COCO_TRACE_ID=trace-cookie"));
                 });
     }
 
@@ -476,9 +536,6 @@ class CocoWebAutoConfigurationTest {
         CocoWebProperties properties = new CocoWebProperties();
 
         assertTrue(properties.getAccessLog().isEnabled());
-        assertTrue(properties.getAccessLog().isIncludeParameters());
-        assertEquals(256, properties.getAccessLog().getMaxParameterValueLength());
-        assertTrue(properties.getAccessLog().getMaskedParameterNames().contains("token"));
         assertTrue(properties.getRequestBody().isEnabled());
         assertEquals(CocoRequestBodyCachingMode.SECURITY_HEADERS, properties.getRequestBody().getMode());
         assertEquals(1024 * 1024, properties.getRequestBody().getMaxCacheBytes());
@@ -504,6 +561,7 @@ class CocoWebAutoConfigurationTest {
         assertEquals("X-Coco-Key-Id", properties.getEncryption().getKeyIdHeaderName());
         assertEquals("X-Coco-IV", properties.getEncryption().getIvHeaderName());
         assertEquals("X-Coco-Algorithm", properties.getEncryption().getAlgorithmHeaderName());
+        assertEquals("payload", properties.getEncryption().getPayloadParameterName());
         assertEquals("AES-GCM", properties.getEncryption().getDefaultAlgorithm());
         assertEquals(CocoCryptoTextEncoding.BASE64, properties.getEncryption().getKeyEncoding());
         assertEquals(CocoCryptoTextEncoding.BASE64, properties.getEncryption().getIvEncoding());
@@ -535,6 +593,11 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getContext().getFingerprintHeaderNames().contains("sec-ch-ua"));
         assertEquals(256, properties.getContext().getMaxHeaderValueLength());
         assertTrue(properties.getContext().getParameter().isIncludeParameters());
+        assertTrue(properties.getContext().getTarget().getProtoHeaderNames().contains("X-Forwarded-Proto"));
+        assertTrue(properties.getContext().getTarget().getHostHeaderNames().contains("X-Forwarded-Host"));
+        assertTrue(properties.getContext().getTarget().getPortHeaderNames().contains("X-Forwarded-Port"));
+        assertTrue(properties.getContext().getTarget().getPrefixHeaderNames().contains("X-Forwarded-Prefix"));
+        assertTrue(properties.getContext().getTarget().isApplyForwardedPrefix());
         assertEquals(256, properties.getContext().getParameter().getMaxParameterValueLength());
         assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("token"));
         assertTrue(properties.getContext().getParameter().getPayload().isEnabled());
@@ -546,7 +609,7 @@ class CocoWebAutoConfigurationTest {
                 .contains("application/x-www-form-urlencoded"));
         assertEquals(8, properties.getContext().getParameter().getPayload().getMaxJsonDepth());
         assertEquals(128, properties.getContext().getParameter().getPayload().getMaxParameterCount());
-        assertEquals("coco-v1", properties.getContext().getCanonicalization().getVersion());
+        assertEquals("coco-v2", properties.getContext().getCanonicalization().getVersion());
         assertFalse(properties.getContext().getCanonicalization().isIncludeVersion());
         assertFalse(properties.getContext().getCanonicalization().isIncludePurpose());
         assertTrue(properties.getContext().getCanonicalization().isIncludeMethod());
@@ -584,17 +647,26 @@ class CocoWebAutoConfigurationTest {
         CocoAccessLogProperties properties = new CocoAccessLogProperties();
         DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
 
-        assertEquals("▸ request  POST /sample/orders?sku=COCO-STARTER&token=****** | trace=trace-1001 "
-                        + "ip=10.0.0.8 ua=\"PostmanRuntime/7.37\" "
-                        + "params=\"sku=COCO-STARTER&token=******\" ◂ response 201 42ms success=true",
-                formatter.format(accessLog, properties));
+        assertEquals("▸ request\n"
+                        + "  traceId            trace-1001\n"
+                        + "  method             POST\n"
+                        + "  path               /sample/orders?sku=COCO-STARTER&token=******\n"
+                        + "  clientIp           10.0.0.8\n"
+                        + "  userAgent          \"PostmanRuntime/7.37\"\n"
+                        + "  params             sku=COCO-STARTER&token=******\n"
+                        + "◂ response\n"
+                        + "  status             201\n"
+                        + "  duration           42ms\n"
+                        + "  success            true",
+                formatter.format(accessLog, properties).replace("\r\n", "\n"));
 
         properties.setStyle(CocoAccessLogStyle.JSON);
 
         assertEquals("{\"traceId\":\"trace-1001\",\"method\":\"POST\",\"path\":\"/sample/orders\","
-                        + "\"clientIp\":\"10.0.0.8\",\"queryString\":\"sku=COCO-STARTER&token=******\","
+                        + "\"clientIp\":\"10.0.0.8\",\"userAgent\":\"PostmanRuntime/7.37\","
+                        + "\"queryString\":\"sku=COCO-STARTER&token=******\","
                         + "\"parameters\":{\"sku\":[\"COCO-STARTER\"],\"token\":[\"******\"]},"
-                        + "\"userAgent\":\"PostmanRuntime/7.37\",\"status\":201,\"durationMs\":42,\"success\":true}",
+                        + "\"status\":201,\"durationMs\":42,\"success\":true}",
                 formatter.format(accessLog, properties));
     }
 
@@ -640,6 +712,58 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("trace-wrap", response.traceId());
                     assertEquals("/api/users", response.path());
         });
+    }
+
+    @Test
+    void writesTraceCookieForWrappedResponseWhenCookieModeIsEnabled() throws Exception {
+        CocoTraceContext.setTraceId("trace-wrap");
+        this.webContextRunner
+                .withPropertyValues("coco.web.response.metadata-mode=cookie")
+                .run(context -> {
+                    CocoResponseWrapAdvice advice = context.getBean(CocoResponseWrapAdvice.class);
+                    MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+                    ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+                    ServletServerHttpResponse response = new ServletServerHttpResponse(new MockHttpServletResponse());
+
+                    Object body = advice.beforeBodyWrite(Map.of("name", "Coco"), methodParameter("objectBody"),
+                            MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request, response);
+
+                    assertTrue(body instanceof CocoApiResponse<?>);
+                    CocoApiResponse<?> wrapped = (CocoApiResponse<?>) body;
+                    assertNull(wrapped.traceId());
+                    assertNull(wrapped.path());
+                    String cookie = response.getHeaders().getFirst(org.springframework.http.HttpHeaders.SET_COOKIE);
+                    assertNotNull(cookie);
+                    assertTrue(cookie.contains("COCO_TRACE_ID=trace-wrap"));
+                });
+    }
+
+    @Test
+    void writesConfiguredTraceCookieForWrappedResponseWhenCookieModeIsEnabled() throws Exception {
+        CocoTraceContext.setTraceId("trace-custom");
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.response.metadata-mode=cookie",
+                        "coco.web.trace.cookie-name=TRACE_ALIAS",
+                        "coco.web.trace.cookie-path=/sample",
+                        "coco.web.trace.cookie-max-age=60",
+                        "coco.web.trace.cookie-same-site=Strict")
+                .run(context -> {
+                    CocoResponseWrapAdvice advice = context.getBean(CocoResponseWrapAdvice.class);
+                    MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+                    ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+                    ServletServerHttpResponse response = new ServletServerHttpResponse(new MockHttpServletResponse());
+
+                    advice.beforeBodyWrite(Map.of("name", "Coco"), methodParameter("objectBody"),
+                            MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request, response);
+
+                    String cookie = response.getHeaders().getFirst(org.springframework.http.HttpHeaders.SET_COOKIE);
+                    assertNotNull(cookie);
+                    assertTrue(cookie.contains("TRACE_ALIAS=trace-custom"));
+                    assertTrue(cookie.contains("Path=/sample"));
+                    assertTrue(cookie.contains("Max-Age=60"));
+                    assertTrue(cookie.contains("SameSite=Strict"));
+                });
     }
 
     @Test
@@ -967,8 +1091,11 @@ class CocoWebAutoConfigurationTest {
                 assertEquals("10.0.0.9", requestContext.clientIp().orElseThrow());
                 assertEquals("FORWARDED_HEADER", requestContext.clientIpSource().orElseThrow());
                 assertEquals("X-Forwarded-For", requestContext.clientIpSourceHeader().orElseThrow());
+                assertEquals("10.0.0.8, 10.0.0.9", requestContext.clientIpSourceHeaderValue().orElseThrow());
                 assertEquals("127.0.0.1", requestContext.clientIpRemoteAddress().orElseThrow());
                 assertTrue(requestContext.clientIpTrustedProxy());
+                assertEquals(List.of("10.0.0.8", "10.0.0.9"), requestContext.clientIpChain());
+                assertEquals(1, requestContext.clientIpResolvedChainIndex().orElseThrow());
                 assertEquals("PostmanRuntime/7.37", requestContext.userAgent().orElseThrow());
                 assertEquals("name=Coco&token=******", requestContext.queryString().orElseThrow());
                 assertEquals("zh-CN", requestContext.locale().orElseThrow());
@@ -977,13 +1104,15 @@ class CocoWebAutoConfigurationTest {
                 assertEquals("8443", requestContext.attribute("port").orElseThrow());
                 assertEquals("application/json", requestContext.attribute("contentType").orElseThrow());
                 assertTrue(requestContext.browserFingerprint().orElseThrow().length() == 64);
-                assertEquals("sample-app", requestContext.securityAppId().orElseThrow());
-                assertEquals("key-001", requestContext.securityKeyId().orElseThrow());
+                assertTrue(requestContext.securityAppId().isEmpty());
+                assertTrue(requestContext.securityKeyId().isEmpty());
                 assertTrue(requestContext.requestSigned());
                 assertTrue(requestContext.requestEncrypted());
                 assertTrue(requestContext.requestReplayProtected());
                 assertEquals("HMAC-SHA256", requestContext.signatureAlgorithm().orElseThrow());
                 assertEquals("AES-GCM", requestContext.encryptionAlgorithm().orElseThrow());
+                assertEquals("transport-captured", requestContext.requestContextPhase().orElseThrow());
+                assertEquals("no-body", requestContext.requestPayloadParseStatus().orElseThrow());
                 assertTrue(requestContext.header("accept-language").orElseThrow().contains("zh-cn"));
                 assertEquals("Coco", requestContext.parameter("name").orElseThrow());
                 assertEquals("******", requestContext.parameter("token").orElseThrow());
@@ -1165,7 +1294,10 @@ class CocoWebAutoConfigurationTest {
                     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
                     MockHttpServletResponse response = new MockHttpServletResponse();
                     request.addHeader("X-Trace-Id", "context-trace");
-                    request.addHeader("Forwarded", "for=\"[2001:db8:cafe::17]:4711\";proto=https");
+                    request.setRemoteAddr("127.0.0.1");
+                    request.addHeader("Forwarded",
+                            "for=\"[2001:db8:cafe::17]:4711\";proto=https;host=\"api.coco.dev:8443\"");
+                    request.addHeader("X-Forwarded-Prefix", "/gateway");
                     request.addHeader("Authorization", "Bearer secret-token");
                     request.addHeader("Accept-Language", "zh-CN,en;q=0.8");
                     request.setQueryString("password=abcdef&name=Coconut");
@@ -1175,6 +1307,20 @@ class CocoWebAutoConfigurationTest {
                     filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
                         CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
                         assertEquals("2001:db8:cafe::17", requestContext.clientIp().orElseThrow());
+                        assertEquals("for=\"[2001:db8:cafe::17]:4711\";proto=https;host=\"api.coco.dev:8443\"",
+                                requestContext.clientIpSourceHeaderValue().orElseThrow());
+                        assertEquals(List.of("2001:db8:cafe::17"), requestContext.clientIpChain());
+                        assertEquals(0, requestContext.clientIpResolvedChainIndex().orElseThrow());
+                        assertEquals("MIXED", requestContext.requestTargetSource().orElseThrow());
+                        assertEquals("127.0.0.1", requestContext.requestTargetRemoteAddress().orElseThrow());
+                        assertTrue(requestContext.requestTargetTrustedProxy());
+                        assertEquals(List.of("forwarded", "x-forwarded-prefix"),
+                                requestContext.requestTargetSourceHeaders());
+                        assertEquals("/gateway", requestContext.requestTargetForwardedPrefix().orElseThrow());
+                        assertEquals("https", requestContext.scheme().orElseThrow());
+                        assertEquals("api.coco.dev", requestContext.host().orElseThrow());
+                        assertEquals(8443, requestContext.port().orElseThrow());
+                        assertEquals("/gateway/api/users", requestContext.path().orElseThrow());
                         assertEquals("password=******&name=Coco...", requestContext.queryString().orElseThrow());
                         assertEquals("******", requestContext.header("authorization").orElseThrow());
                         assertEquals("zh-CN,en...", requestContext.header("accept-language").orElseThrow());
@@ -1199,6 +1345,7 @@ class CocoWebAutoConfigurationTest {
             request.addHeader("X-Coco-Timestamp", "1783300000000");
             request.addHeader("X-Coco-Nonce", "nonce-1001");
             request.addHeader("X-Coco-Sign", "sign-value");
+            request.addHeader("X-Coco-Sign-Algorithm", "HMAC-SHA256");
             request.addHeader("X-Coco-Encrypted", "true");
             request.addHeader("X-Coco-Key-Id", "key-1");
             request.addHeader("X-Coco-IV", "iv-1");
@@ -1281,7 +1428,11 @@ class CocoWebAutoConfigurationTest {
             assertEquals(List.of("plain-secret"), snapshot.securityInput().payloadParameter("password").orElseThrow());
             assertEquals("Patton", requestContext.parameter("buyer.name").orElseThrow());
             assertEquals("web,sign", requestContext.parameter("tags").orElseThrow());
+            assertEquals(List.of("web", "sign"), requestContext.parameterValues("tags").orElseThrow());
             assertEquals("******", requestContext.parameter("password").orElseThrow());
+            assertEquals("JSON", requestContext.requestPayloadSource().orElseThrow());
+            assertEquals("transport-captured", requestContext.requestContextPhase().orElseThrow());
+            assertEquals("parsed", requestContext.requestPayloadParseStatus().orElseThrow());
             assertEquals(CocoWebParameterSource.JSON, snapshot.payloadSource());
             assertEquals(CocoWebParameterSource.JSON, snapshot.parameterSnapshot().payloadSource());
             assertEquals(CocoWebParameterSource.JSON, snapshot.securityInput().payloadSource());
@@ -1340,6 +1491,9 @@ class CocoWebAutoConfigurationTest {
                     assertTrue(snapshot.queryParameters().isEmpty());
                     assertEquals(List.of("******"), snapshot.payloadParameters().get("token"));
                     CocoRequestContext requestContext = snapshot.toRequestContext();
+                    assertEquals("FORM", requestContext.requestPayloadSource().orElseThrow());
+                    assertEquals("transport-captured", requestContext.requestContextPhase().orElseThrow());
+                    assertEquals("parsed", requestContext.requestPayloadParseStatus().orElseThrow());
                     assertEquals("******", requestContext.payloadParameter("token").orElseThrow());
                     assertTrue(canonicalForm.text().contains("queryParameters\n"));
                     assertTrue(canonicalForm.text().contains("payloadParameters\n"));
@@ -1403,8 +1557,83 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("transport", snapshot.requestBody().stage().id());
                     assertEquals(sha256(body), snapshot.requestBody().transportSha256());
                     assertEquals(sha256(body), snapshot.requestBody().effectiveSha256());
+                    assertEquals("transport-captured",
+                            snapshot.toRequestContext().requestContextPhase().orElseThrow());
+                    assertEquals("encrypted-transport",
+                            snapshot.toRequestContext().requestPayloadParseStatus().orElseThrow());
                     assertFalse(canonicalForm.text().contains("TRANSPORT"));
                     assertFalse(canonicalForm.text().contains("cipher"));
+                });
+    }
+
+    @Test
+    void marksMalformedJsonPayloadAndPreservesPayloadSource() {
+        this.webContextRunner.run(context -> {
+            CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+            byte[] body = "{\"sku\":\"COCO-STARTER\"".getBytes(StandardCharsets.UTF_8);
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+
+            CocoWebRequestSnapshot snapshot = resolver.resolve("malformed-json-payload",
+                    new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+            CocoRequestContext requestContext = snapshot.toRequestContext();
+
+            assertTrue(snapshot.parameters().isEmpty());
+            assertTrue(snapshot.payloadParameters().isEmpty());
+            assertEquals(CocoWebParameterSource.JSON, snapshot.payloadSource());
+            assertEquals(CocoWebParameterSource.JSON, snapshot.parameterSnapshot().payloadSource());
+            assertEquals(CocoWebParameterSource.JSON, snapshot.securityInput().payloadSource());
+            assertEquals("JSON", requestContext.requestPayloadSource().orElseThrow());
+            assertEquals("malformed-payload", requestContext.requestPayloadParseStatus().orElseThrow());
+        });
+    }
+
+    @Test
+    void marksJsonPayloadAsDepthLimitedWhenMaxDepthIsReached() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.parameter.payload.max-json-depth=1")
+                .run(context -> {
+                    CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    byte[] body = ("{\"sku\":\"COCO-STARTER\",\"buyer\":{\"profile\":{\"name\":\"Patton\"}}}")
+                            .getBytes(StandardCharsets.UTF_8);
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+
+                    CocoWebRequestSnapshot snapshot = resolver.resolve("json-depth-limit-payload",
+                            new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+                    CocoRequestContext requestContext = snapshot.toRequestContext();
+
+                    assertEquals(List.of("COCO-STARTER"), snapshot.payloadParameters().get("sku"));
+                    assertFalse(snapshot.payloadParameters().containsKey("buyer.profile.name"));
+                    assertEquals(CocoWebParameterSource.JSON, snapshot.payloadSource());
+                    assertEquals("json-depth-limit-reached",
+                            requestContext.requestPayloadParseStatus().orElseThrow());
+                });
+    }
+
+    @Test
+    void marksFormPayloadAsParameterLimitedWhenMaxCountIsReached() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.context.parameter.payload.max-parameter-count=2")
+                .run(context -> {
+                    CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    byte[] body = "sku=COCO-STARTER&tag=web&token=secret".getBytes(StandardCharsets.UTF_8);
+                    request.setContentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+                    request.addParameter("sku", "COCO-STARTER");
+                    request.addParameter("tag", "web");
+                    request.addParameter("token", "secret");
+
+                    CocoWebRequestSnapshot snapshot = resolver.resolve("form-parameter-limit-payload",
+                            new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+                    CocoRequestContext requestContext = snapshot.toRequestContext();
+
+                    assertEquals(List.of("COCO-STARTER"), snapshot.payloadParameters().get("sku"));
+                    assertEquals(List.of("web"), snapshot.payloadParameters().get("tag"));
+                    assertFalse(snapshot.payloadParameters().containsKey("token"));
+                    assertEquals(CocoWebParameterSource.FORM, snapshot.payloadSource());
+                    assertEquals("parameter-limit-reached",
+                            requestContext.requestPayloadParseStatus().orElseThrow());
                 });
     }
 
@@ -1423,7 +1652,26 @@ class CocoWebAutoConfigurationTest {
 
                     assertFalse(snapshot.parameters().containsKey("sku"));
                     assertTrue(snapshot.securityInput().parameter("sku").isEmpty());
+                    assertEquals("transport-captured",
+                            snapshot.toRequestContext().requestContextPhase().orElseThrow());
+                    assertEquals("disabled",
+                            snapshot.toRequestContext().requestPayloadParseStatus().orElseThrow());
                 });
+    }
+
+    @Test
+    void marksJsonPayloadAsNotCachedWhenRequestBodyWasNotWrapped() {
+        this.webContextRunner.run(context -> {
+            CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            request.setContent("{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8));
+
+            CocoRequestContext requestContext = resolver.resolve("payload-not-cached-trace", request).toRequestContext();
+
+            assertEquals("transport-captured", requestContext.requestContextPhase().orElseThrow());
+            assertEquals("not-cached", requestContext.requestPayloadParseStatus().orElseThrow());
+        });
     }
 
     @Test
@@ -1445,8 +1693,11 @@ class CocoWebAutoConfigurationTest {
                 + "x-coco-timestamp#1\n"
                 + "x-coco-timestamp[0]=13:1783300000000\n"
                 + "parameters\n"
-                + "sku=COCO-STARTER\n"
-                + "tag=a,b\n"
+                + "sku#1\n"
+                + "sku[0]=12:COCO-STARTER\n"
+                + "tag#2\n"
+                + "tag[0]=1:a\n"
+                + "tag[1]=1:b\n"
                 + "bodySha256=body-digest\n"
                 + "bodyLength=12\n";
         assertEquals(expectedText, canonicalForm.text());
@@ -1454,7 +1705,7 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void defaultRequestCanonicalizerEscapesDelimitedValues() {
+    void defaultRequestCanonicalizerEscapesFramedValues() {
         CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders",
                 "tag=a,b&tag=a&tag=b",
                 Map.of("tag", List.of("a,b", "a", "b")),
@@ -1465,7 +1716,10 @@ class CocoWebAutoConfigurationTest {
 
         assertTrue(canonicalForm.text().contains("x-coco-name[0]=13:Coco\\:Runtime"));
         assertTrue(canonicalForm.text().contains("x-coco-flags[0]=7:a\\=b\\|c"));
-        assertTrue(canonicalForm.text().contains("tag=a,a\\,b,b"));
+        assertTrue(canonicalForm.text().contains("tag#3\n"));
+        assertTrue(canonicalForm.text().contains("tag[0]=1:a\n"));
+        assertTrue(canonicalForm.text().contains("tag[1]=4:a\\,b\n"));
+        assertTrue(canonicalForm.text().contains("tag[2]=1:b\n"));
         assertEquals(sha256(canonicalForm.text()), canonicalForm.sha256());
     }
 
@@ -1492,10 +1746,7 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void requestCanonicalizerV2SeparatesValuesWithoutParameterSeparatorAmbiguity() {
-        CocoWebRequestCanonicalizationProperties delimitedProperties =
-                parameterOnlyCanonicalizationProperties("coco-v1");
-        delimitedProperties.setParameterValueSeparator("a");
+    void requestCanonicalizerSeparatesValuesWithoutParameterSeparatorAmbiguity() {
         CocoWebRequestCanonicalizationProperties framedProperties =
                 parameterOnlyCanonicalizationProperties("coco-v2");
         framedProperties.setParameterValueSeparator("a");
@@ -1504,16 +1755,11 @@ class CocoWebAutoConfigurationTest {
         CocoWebRequestSecurityInput twoEmptyValues = new CocoWebRequestSecurityInput("POST", "/api/orders",
                 null, Map.of("tag", List.of("", "")), Map.of(), Map.of(), null, null, false);
 
-        String delimitedSingleValueText = new DefaultCocoWebRequestCanonicalizer(delimitedProperties)
-                .canonicalize(singleValue).text();
-        String delimitedTwoEmptyValuesText = new DefaultCocoWebRequestCanonicalizer(delimitedProperties)
-                .canonicalize(twoEmptyValues).text();
         String framedSingleValueText = new DefaultCocoWebRequestCanonicalizer(framedProperties)
                 .canonicalize(singleValue).text();
         String framedTwoEmptyValuesText = new DefaultCocoWebRequestCanonicalizer(framedProperties)
                 .canonicalize(twoEmptyValues).text();
 
-        assertEquals(delimitedSingleValueText, delimitedTwoEmptyValuesText);
         assertTrue(framedSingleValueText.contains("tag#1\n"));
         assertTrue(framedSingleValueText.contains("tag[0]=1:a\n"));
         assertTrue(framedTwoEmptyValuesText.contains("tag#2\n"));
@@ -1682,7 +1928,7 @@ class CocoWebAutoConfigurationTest {
         CocoWebRequestCanonicalForm canonicalForm = new DefaultCocoWebRequestCanonicalizer(properties)
                 .canonicalize(canonicalizationContext);
 
-        assertTrue(canonicalForm.text().contains("version=coco-v1"));
+        assertTrue(canonicalForm.text().contains("version=coco-v2"));
         assertTrue(canonicalForm.text().contains("purpose=SIGNATURE"));
         assertTrue(canonicalForm.text().contains("method=POST"));
         assertTrue(canonicalForm.text().contains("path=/api/orders"));
@@ -1707,6 +1953,8 @@ class CocoWebAutoConfigurationTest {
         assertEquals(CocoClientIpSource.REMOTE_ADDRESS, resolution.source());
         assertEquals("127.0.0.1", resolution.remoteAddress());
         assertFalse(resolution.trustedProxy());
+        assertTrue(resolution.sourceChain().isEmpty());
+        assertTrue(resolution.resolvedChainIndex() == null);
     }
 
     @Test
@@ -1727,6 +1975,8 @@ class CocoWebAutoConfigurationTest {
         assertEquals("for=\"[2001:db8:cafe::17]:4711\";proto=https", resolution.sourceHeaderValue());
         assertEquals("127.0.0.1", resolution.remoteAddress());
         assertTrue(resolution.trustedProxy());
+        assertEquals(List.of("2001:db8:cafe::17"), resolution.sourceChain());
+        assertEquals(0, resolution.resolvedChainIndex());
     }
 
     @Test
@@ -1744,6 +1994,8 @@ class CocoWebAutoConfigurationTest {
         assertEquals(CocoClientIpSource.FORWARDED_HEADER, resolution.source());
         assertEquals("X-Forwarded-For", resolution.sourceHeaderName());
         assertTrue(resolution.trustedProxy());
+        assertEquals(List.of("198.51.100.20", "203.0.113.8", "10.0.0.9"), resolution.sourceChain());
+        assertEquals(1, resolution.resolvedChainIndex());
     }
 
     @Test
@@ -1781,6 +2033,59 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void defaultRequestTargetResolverUsesServletTargetWhenProxyIsUntrusted() {
+        CocoWebContextProperties properties = new CocoWebContextProperties();
+        CocoWebRequestTargetResolver resolver = new DefaultCocoWebRequestTargetResolver(properties);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/internal/orders");
+        request.setScheme("http");
+        request.setServerName("internal.coco.local");
+        request.setServerPort(8080);
+        request.setRemoteAddr("203.0.113.10");
+        request.addHeader("Forwarded", "proto=https;host=api.coco.dev");
+        request.addHeader("X-Forwarded-Prefix", "/gateway");
+
+        CocoWebRequestTargetResolution resolution = resolver.resolveResolution(request);
+        CocoWebRequestTarget target = resolution.target();
+
+        assertEquals("http", target.scheme());
+        assertEquals("internal.coco.local", target.host());
+        assertEquals(8080, target.port());
+        assertEquals("/internal/orders", target.path());
+        assertEquals(CocoWebRequestTargetSource.SERVLET, resolution.source());
+        assertEquals("203.0.113.10", resolution.remoteAddress());
+        assertFalse(resolution.trustedProxy());
+        assertTrue(resolution.sourceHeaders().isEmpty());
+        assertNull(resolution.forwardedPrefix());
+    }
+
+    @Test
+    void defaultRequestTargetResolverParsesForwardedTargetFromTrustedProxy() {
+        CocoWebContextProperties properties = new CocoWebContextProperties();
+        properties.setTrustedProxyCidrs(Set.of("127.0.0.1/32"));
+        CocoWebRequestTargetResolver resolver = new DefaultCocoWebRequestTargetResolver(properties);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/orders");
+        request.setScheme("http");
+        request.setServerName("internal.coco.local");
+        request.setServerPort(8080);
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("Forwarded", "for=203.0.113.10;proto=https;host=\"api.coco.dev:8443\"");
+        request.addHeader("X-Forwarded-Prefix", "/gateway");
+
+        CocoWebRequestTargetResolution resolution = resolver.resolveResolution(request);
+        CocoWebRequestTarget target = resolution.target();
+
+        assertEquals("https", target.scheme());
+        assertEquals("api.coco.dev", target.host());
+        assertEquals(8443, target.port());
+        assertEquals("/gateway/orders", target.path());
+        assertEquals(CocoWebRequestTargetSource.MIXED, resolution.source());
+        assertEquals("127.0.0.1", resolution.remoteAddress());
+        assertTrue(resolution.trustedProxy());
+        assertEquals(List.of("forwarded", "x-forwarded-prefix"), resolution.sourceHeaders());
+        assertEquals("/gateway", resolution.forwardedPrefix());
+    }
+
+    @Test
     void defaultBrowserFingerprintResolverUsesConfiguredHeaderSignals() {
         CocoWebProperties properties = new CocoWebProperties();
         properties.getContext().setFingerprintHeaderNames(Set.of("User-Agent", "Sec-CH-UA"));
@@ -1811,6 +2116,47 @@ class CocoWebAutoConfigurationTest {
 
         assertNotNull(fingerprint.value());
         assertEquals("0=5:alpha;1=10:beta,gamma;", fingerprint.signals().get("x-fp"));
+    }
+
+    @Test
+    void defaultBrowserFingerprintResolverHashesFullSignalsBeforeDisplayTrimming() {
+        CocoWebProperties properties = new CocoWebProperties();
+        properties.getContext().setFingerprintHeaderNames(Set.of("User-Agent"));
+        properties.getContext().setMaxHeaderValueLength(8);
+        CocoBrowserFingerprintResolver resolver = new DefaultCocoBrowserFingerprintResolver(properties.getContext());
+        MockHttpServletRequest firstRequest = new MockHttpServletRequest("GET", "/api/users");
+        MockHttpServletRequest secondRequest = new MockHttpServletRequest("GET", "/api/users");
+        firstRequest.addHeader("User-Agent", "Chrome/126-A");
+        secondRequest.addHeader("User-Agent", "Chrome/126-B");
+
+        CocoBrowserFingerprint firstFingerprint = resolver.resolve(firstRequest);
+        CocoBrowserFingerprint secondFingerprint = resolver.resolve(secondRequest);
+
+        assertEquals("Chrome/1...", firstFingerprint.signals().get("user-agent"));
+        assertEquals("Chrome/1...", secondFingerprint.signals().get("user-agent"));
+        assertNotEquals(firstFingerprint.value(), secondFingerprint.value());
+    }
+
+    @Test
+    void defaultRequestBodyResolverSeparatesTransportAndEffectiveBodies() {
+        CocoRequestBodyResolver resolver = new DefaultCocoRequestBodyResolver();
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        byte[] transportBody = "cipher".getBytes(StandardCharsets.UTF_8);
+        byte[] effectiveBody = "{\"sku\":\"COCO\"}".getBytes(StandardCharsets.UTF_8);
+        CocoCachedBodyHttpServletRequest transportRequest = new CocoCachedBodyHttpServletRequest(request,
+                CocoCachedRequestBody.cached(transportBody));
+        CocoCachedBodyHttpServletRequest effectiveRequest = new CocoCachedBodyHttpServletRequest(transportRequest,
+                CocoCachedRequestBody.cached(effectiveBody));
+
+        CocoResolvedRequestBody resolvedBody = resolver.resolve(effectiveRequest);
+
+        assertTrue(resolvedBody.transportCached());
+        assertTrue(resolvedBody.effectiveCached());
+        assertEquals(sha256(transportBody), resolvedBody.transportBody().sha256());
+        assertEquals(sha256(effectiveBody), resolvedBody.effectiveBody().sha256());
+        assertEquals(sha256(transportBody), resolvedBody.metadata().transportSha256());
+        assertEquals(sha256(effectiveBody), resolvedBody.metadata().effectiveSha256());
+        assertEquals("decrypted", resolvedBody.metadata().stage().id());
     }
 
     @Test
@@ -2036,8 +2382,45 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void usesCustomSecurityMetadataResolverInRequestContextAndSignatureFilter() throws Exception {
+        AtomicReference<String> verifiedAppId = new AtomicReference<>();
+        CocoWebRequestSecurityMetadataResolver metadataResolver = input -> new CocoWebRequestSecurityMetadata(
+                "custom-app", "custom-key", String.valueOf(System.currentTimeMillis()), "custom-nonce",
+                "HMAC-SHA256", "custom-signature", true,
+                null, null, null, null, false, null, null, null, null);
+        CocoSignatureVerifier verifier = context -> {
+            verifiedAppId.set(context.request().appId());
+            return true;
+        };
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.signature.required=true",
+                        "coco.web.signature.secrets.custom-app=custom-secret")
+                .withBean(CocoWebRequestSecurityMetadataResolver.class, () -> metadataResolver)
+                .withBean(CocoSignatureVerifier.class, () -> verifier)
+                .run(context -> {
+                    CocoWebRequestContextResolver contextResolver =
+                            context.getBean(CocoWebRequestContextResolver.class);
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/custom-metadata");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "custom-metadata-trace");
+
+                    CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-metadata-trace", request);
+
+                    assertEquals("custom-app", snapshot.securityMetadata().signatureAppId());
+                    signatureFilter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                            assertTrue(CocoRequestContextHolder.current().orElseThrow().signatureVerified()))));
+
+                    assertEquals(200, response.getStatus(), response.getContentAsString());
+                    assertEquals("custom-app", verifiedAppId.get());
+                });
+    }
+
+    @Test
     void defaultRequestContextResolverCachesSnapshotForSameRequest() {
-        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null, null);
+        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
         request.addHeader("User-Agent", "JUnit");
 
@@ -2049,8 +2432,20 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void defaultRequestContextResolverCreatesTraceIdWhenCallerDoesNotProvideOne() {
+        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+
+        CocoWebRequestSnapshot snapshot = resolver.resolve(null, request);
+
+        assertNotNull(snapshot.traceId());
+        assertFalse(snapshot.traceId().isBlank());
+        assertEquals(snapshot.traceId(), CocoTraceContext.currentTraceId().orElseThrow());
+    }
+
+    @Test
     void defaultRequestContextResolverRefreshesSnapshotWhenQueryStringChanges() {
-        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null, null);
+        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
         request.setQueryString("name=first");
 
@@ -2065,7 +2460,7 @@ class CocoWebAutoConfigurationTest {
 
     @Test
     void defaultRequestContextResolverRefreshesSnapshotWhenBodyBecomesCached() {
-        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null, null);
+        DefaultCocoWebRequestContextResolver resolver = new DefaultCocoWebRequestContextResolver(null);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
         byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
 
@@ -2089,8 +2484,10 @@ class CocoWebAutoConfigurationTest {
                         "x-coco-timestamp", "1700000000000",
                         "x-coco-nonce", "nonce-1001",
                         "x-coco-sign", "signature-1001",
+                        "x-coco-sign-algorithm", "HMAC-SHA256",
                         "x-coco-encrypted", "true",
-                        "x-coco-iv", "iv-1001"),
+                        "x-coco-iv", "iv-1001",
+                        "x-coco-algorithm", "AES-GCM"),
                 Map.of(), null, null, false);
 
         CocoWebRequestSecurityMetadata metadata = resolver.resolve(input);
@@ -2159,6 +2556,52 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void prefersQueryParametersOverPayloadParametersForSecurityMetadata() {
+        CocoSignatureProperties signatureProperties = new CocoSignatureProperties();
+        signatureProperties.setMetadataSource(CocoWebSecurityMetadataSource.PARAMETER);
+        CocoWebRequestSecurityMetadataResolver resolver = new DefaultCocoWebRequestSecurityMetadataResolver(
+                signatureProperties, new CocoEncryptionProperties(), new CocoReplayProperties());
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders",
+                "appId=query-app&nonce=query-nonce&sign=query-signature", Map.of(),
+                Map.of(
+                        "appId", List.of("query-app"),
+                        "nonce", List.of("query-nonce"),
+                        "sign", List.of("query-signature")),
+                Map.of(
+                        "appId", List.of("payload-app"),
+                        "nonce", List.of("payload-nonce"),
+                        "sign", List.of("payload-signature")),
+                Map.of(), Map.of(), null, null, false, Map.of(), Map.of(), CocoWebParameterSource.FORM);
+
+        CocoWebRequestSecurityMetadata metadata = resolver.resolve(input);
+
+        assertEquals("query-app", metadata.signatureAppId());
+        assertEquals("query-nonce", metadata.signatureNonce());
+        assertEquals("query-signature", metadata.signature());
+    }
+
+    @Test
+    void fallsBackToPayloadParametersWhenQuerySecurityMetadataIsMissing() {
+        CocoSignatureProperties signatureProperties = new CocoSignatureProperties();
+        signatureProperties.setMetadataSource(CocoWebSecurityMetadataSource.PARAMETER);
+        CocoWebRequestSecurityMetadataResolver resolver = new DefaultCocoWebRequestSecurityMetadataResolver(
+                signatureProperties, new CocoEncryptionProperties(), new CocoReplayProperties());
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders", null, Map.of(),
+                Map.of(),
+                Map.of(
+                        "appId", List.of("payload-app"),
+                        "nonce", List.of("payload-nonce"),
+                        "sign", List.of("payload-signature")),
+                Map.of(), Map.of(), null, null, false, Map.of(), Map.of(), CocoWebParameterSource.FORM);
+
+        CocoWebRequestSecurityMetadata metadata = resolver.resolve(input);
+
+        assertEquals("payload-app", metadata.signatureAppId());
+        assertEquals("payload-nonce", metadata.signatureNonce());
+        assertEquals("payload-signature", metadata.signature());
+    }
+
+    @Test
     void resolvesSecurityMetadataUsingConfiguredSourcePriority() {
         CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders", null,
                 Map.of(
@@ -2188,6 +2631,37 @@ class CocoWebAutoConfigurationTest {
         assertEquals("parameter-app", parameterFirst.signatureAppId());
         assertEquals("parameter-nonce", parameterFirst.signatureNonce());
         assertEquals("parameter-signature", parameterFirst.signature());
+    }
+
+    @Test
+    void replayKeyResolverHonorsConfiguredMetadataSourcePriority() {
+        CocoWebRequestSecurityInput input = new CocoWebRequestSecurityInput("POST", "/api/orders", null,
+                Map.of(
+                        "appId", List.of("parameter-app"),
+                        "keyId", List.of("parameter-key"),
+                        "timestamp", List.of("1700000000000"),
+                        "nonce", List.of("parameter-nonce")),
+                Map.of(
+                        "x-coco-app-id", "header-app",
+                        "x-coco-key-id", "header-key",
+                        "x-coco-timestamp", "1700000000001",
+                        "x-coco-nonce", "header-nonce"),
+                Map.of(), null);
+        CocoReplayProperties replayProperties = new CocoReplayProperties();
+        replayProperties.setMetadataSource(CocoWebSecurityMetadataSource.PARAMETER_THEN_HEADER);
+        CocoWebRequestSecurityMetadata metadata = new DefaultCocoWebRequestSecurityMetadataResolver(
+                new CocoSignatureProperties(), new CocoEncryptionProperties(), replayProperties).resolve(input);
+        CocoReplayKey replayKey = new DefaultCocoReplayKeyResolver(replayProperties).resolve(
+                new CocoWebRequestSnapshot("replay-priority-trace", "POST", "/api/orders", null, "127.0.0.1", null,
+                        null, null, null, null, null, Map.of(), Map.of(), input, CocoBrowserFingerprint.empty()),
+                metadata);
+
+        assertEquals("parameter-app", replayKey.appId());
+        assertEquals("parameter-key", replayKey.keyId());
+        assertEquals("1700000000000", replayKey.timestamp());
+        assertEquals("parameter-nonce", replayKey.nonce());
+        assertEquals("POST", replayKey.method());
+        assertEquals("/api/orders", replayKey.path());
     }
 
     @Test
@@ -2306,11 +2780,13 @@ class CocoWebAutoConfigurationTest {
                     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
 
                     CocoWebRequestSnapshot snapshot = contextResolver.resolve("custom-fingerprint-trace", request);
+                    CocoRequestContext requestContext = snapshot.toRequestContext();
 
                     assertEquals("custom-browser-fingerprint", snapshot.browserFingerprint().value());
-                    assertEquals("custom-browser-fingerprint",
-                            snapshot.toRequestContext().browserFingerprint().orElseThrow());
+                    assertEquals("custom-browser-fingerprint", requestContext.browserFingerprint().orElseThrow());
                     assertEquals("yes", snapshot.browserFingerprint().signals().get("custom"));
+                    assertEquals("yes", requestContext.browserFingerprintSignal("custom").orElseThrow());
+                    assertEquals(Map.of("custom", "yes"), requestContext.browserFingerprintSignals());
                 });
     }
 
@@ -2367,6 +2843,25 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void throwsCocoExceptionWhenRequestBodyExceedsMaxCacheBytesWithoutResponseWriter() throws Exception {
+        CocoRequestBodyProperties properties = new CocoRequestBodyProperties();
+        properties.setMode(CocoRequestBodyCachingMode.ALWAYS);
+        properties.setMaxCacheBytes(4);
+        CocoRequestBodyCachingFilter bodyFilter = new CocoRequestBodyCachingFilter(properties);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent("{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8));
+
+        CocoPayloadTooLargeException exception = assertThrows(CocoPayloadTooLargeException.class,
+                () -> bodyFilter.doFilter(request, response, new MockFilterChain()));
+
+        assertEquals("coco.web.request-body.payload-too-large", exception.messageCode());
+        assertEquals(200, response.getStatus());
+        assertTrue(response.getContentAsString().isBlank());
+    }
+
+    @Test
     void verifiesSignedJsonRequestBeforeBusinessServlet() throws Exception {
         this.webContextRunner
                 .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
@@ -2388,6 +2883,47 @@ class CocoWebAutoConfigurationTest {
                                                     reachedBusiness.set(true))))));
 
                     assertEquals(200, response.getStatus());
+                    assertEquals(Boolean.TRUE, reachedBusiness.get());
+                });
+    }
+
+    @Test
+    void verifiesSignedJsonRequestAgainstForwardedExternalTarget() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.signature.secrets.sample-app=sample-secret",
+                        "coco.web.context.trusted-proxy-cidrs[0]=127.0.0.1/32")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedForwardedRequest(context, "forwarded-signature",
+                            "sample-secret", String.valueOf(System.currentTimeMillis()), "nonce-forwarded-signature",
+                            "/gateway");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new TraceCapturingServlet(() -> {
+                                                CocoRequestContext requestContext =
+                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                assertEquals("https", requestContext.scheme().orElseThrow());
+                                                assertEquals("api.coco.dev", requestContext.host().orElseThrow());
+                                                assertEquals(8443, requestContext.port().orElseThrow());
+                                                assertEquals("/gateway/api/orders", requestContext.path().orElseThrow());
+                                                assertTrue(requestContext.signatureAppId().isEmpty());
+                                                assertTrue(requestContext.signatureTimestamp().isEmpty());
+                                                assertTrue(requestContext.signatureNonce().isEmpty());
+                                                assertTrue(requestContext.signatureValue().isEmpty());
+                                                reachedBusiness.set(true);
+                                            })))));
+
+                    assertEquals(200, response.getStatus(), response.getContentAsString());
                     assertEquals(Boolean.TRUE, reachedBusiness.get());
                 });
     }
@@ -2586,6 +3122,10 @@ class CocoWebAutoConfigurationTest {
                                                         CocoRequestContextHolder.current().orElseThrow();
                                                 assertEquals(sha256("{\"sku\":\"COCO-STARTER\"}"),
                                                         requestContext.requestBodySha256().orElseThrow());
+                                                assertEquals("signature-verified",
+                                                        requestContext.requestContextPhase().orElseThrow());
+                                                assertEquals("unsupported-content-type",
+                                                        requestContext.requestPayloadParseStatus().orElseThrow());
                                                 reachedBusiness.set(true);
                                             })))));
 
@@ -2696,14 +3236,53 @@ class CocoWebAutoConfigurationTest {
                                             new MockFilterChain(new TraceCapturingServlet(() -> {
                                                 CocoRequestContext requestContext =
                                                         CocoRequestContextHolder.current().orElseThrow();
-                                                assertEquals("sample-app",
-                                                        requestContext.securityAppId().orElseThrow());
+                                                assertTrue(requestContext.securityAppId().isEmpty());
                                                 assertEquals(sha256("{\"sku\":\"COCO-STARTER\"}"),
                                                         requestContext.requestBodySha256().orElseThrow());
+                                                assertEquals("signature-verified",
+                                                        requestContext.requestContextPhase().orElseThrow());
                                                 reachedBusiness.set(true);
                                             })))));
 
                     assertEquals(200, response.getStatus());
+                    assertEquals(Boolean.TRUE, reachedBusiness.get());
+                });
+    }
+
+    @Test
+    void verifiesSignedJsonPayloadWithParameterMetadataSourceWhenSignatureIsOptional() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.signature.secrets.sample-app=sample-secret",
+                        "coco.web.signature.metadata-source=parameter")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = jsonPayloadSignedRequest(context, "json-payload-signature",
+                            "sample-secret", String.valueOf(System.currentTimeMillis()), "nonce-json-payload-1001");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new TraceCapturingServlet(() -> {
+                                                CocoRequestContext requestContext =
+                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                assertTrue(requestContext.signatureVerified());
+                                                assertEquals("signature-verified",
+                                                        requestContext.requestContextPhase().orElseThrow());
+                                                assertTrue(requestContext.securityAppId().isEmpty());
+                                                assertEquals("COCO-BODY",
+                                                        requestContext.payloadParameter("sku").orElseThrow());
+                                                reachedBusiness.set(true);
+                                            })))));
+
+                    assertEquals(200, response.getStatus(), response.getContentAsString());
                     assertEquals(Boolean.TRUE, reachedBusiness.get());
                 });
     }
@@ -2732,7 +3311,7 @@ class CocoWebAutoConfigurationTest {
                                             new MockFilterChain(new TraceCapturingServlet(() -> {
                                                 CocoRequestContext requestContext =
                                                         CocoRequestContextHolder.current().orElseThrow();
-                                                assertEquals("sample-app", requestContext.securityAppId().orElseThrow());
+                                                assertTrue(requestContext.securityAppId().isEmpty());
                                                 assertEquals("COCO-FORM", requestContext.parameter("sku").orElseThrow());
                                                 assertEquals("COCO-FORM",
                                                         requestContext.payloadParameter("sku").orElseThrow());
@@ -2772,7 +3351,15 @@ class CocoWebAutoConfigurationTest {
                                             (signatureRequest, signatureResponse) ->
                                                     replayFilter.doFilter(signatureRequest, signatureResponse,
                                                             new MockFilterChain(new TraceCapturingServlet(() ->
-                                                                    reachedBusiness.set(true)))))));
+                                                                    {
+                                                                        CocoRequestContext requestContext =
+                                                                                CocoRequestContextHolder.current()
+                                                                                        .orElseThrow();
+                                                                        assertEquals("replay-verified",
+                                                                                requestContext.requestContextPhase()
+                                                                                        .orElseThrow());
+                                                                        reachedBusiness.set(true);
+                                                                    }))))));
 
                     MockHttpServletRequest replayRequest = signedRequest(context, "replay-second", "sample-secret",
                             timestamp, nonce);
@@ -2793,6 +3380,63 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(Boolean.FALSE, body.get("success"));
                     assertEquals(401, body.get("code"));
                     assertEquals("Request replay has been detected.", body.get("message"));
+                });
+    }
+
+    @Test
+    void distinguishesReplayKeysByForwardedExternalPath() throws Exception {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.signature.secrets.sample-app=sample-secret",
+                        "coco.web.context.trusted-proxy-cidrs[0]=127.0.0.1/32")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    String timestamp = String.valueOf(System.currentTimeMillis());
+                    String nonce = "nonce-forwarded-replay-1001";
+                    AtomicInteger businessHits = new AtomicInteger();
+
+                    MockHttpServletRequest firstRequest = signedForwardedRequest(context, "forwarded-replay-first",
+                            "sample-secret", timestamp, nonce, "/gateway-a");
+                    MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+                    bodyFilter.doFilter(firstRequest, firstResponse, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse,
+                                            (signatureRequest, signatureResponse) ->
+                                                    replayFilter.doFilter(signatureRequest, signatureResponse,
+                                                            new MockFilterChain(new TraceCapturingServlet(() -> {
+                                                                CocoRequestContext requestContext =
+                                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                                assertEquals("/gateway-a/api/orders",
+                                                                        requestContext.path().orElseThrow());
+                                                                businessHits.incrementAndGet();
+                                                            }))))));
+
+                    MockHttpServletRequest secondRequest = signedForwardedRequest(context, "forwarded-replay-second",
+                            "sample-secret", timestamp, nonce, "/gateway-b");
+                    MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+                    bodyFilter.doFilter(secondRequest, secondResponse, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse,
+                                            (signatureRequest, signatureResponse) ->
+                                                    replayFilter.doFilter(signatureRequest, signatureResponse,
+                                                            new MockFilterChain(new TraceCapturingServlet(() -> {
+                                                                CocoRequestContext requestContext =
+                                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                                assertEquals("/gateway-b/api/orders",
+                                                                        requestContext.path().orElseThrow());
+                                                                businessHits.incrementAndGet();
+                                                            }))))));
+
+                    assertEquals(200, firstResponse.getStatus(), firstResponse.getContentAsString());
+                    assertEquals(200, secondResponse.getStatus(), secondResponse.getContentAsString());
+                    assertEquals(2, businessHits.get());
                 });
     }
 
@@ -2824,10 +3468,63 @@ class CocoWebAutoConfigurationTest {
                                                 assertEquals(nonce, requestContext.payloadParameter("nonce").orElseThrow());
                                                 assertEquals(timestamp,
                                                         requestContext.payloadParameter("timestamp").orElseThrow());
+                                                assertEquals("replay-verified",
+                                                        requestContext.requestContextPhase().orElseThrow());
                                                 reachedBusiness.set(true);
                                             })))));
 
                     MockHttpServletRequest replayRequest = replayFormRequest("form-replay-second", timestamp, nonce);
+                    replayRequest.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse replayResponse = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(replayRequest, replayResponse, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertEquals(200, firstResponse.getStatus(), firstResponse.getContentAsString());
+                    assertEquals(Boolean.TRUE, reachedBusiness.get());
+                    assertEquals(401, replayResponse.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(replayResponse.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(401, body.get("code"));
+                    assertEquals("Request replay has been detected.", body.get("message"));
+                });
+    }
+
+    @Test
+    void rejectsReplayedJsonPayloadRequestWithOptionalParameterMetadataSource() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.metadata-source=parameter")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    String timestamp = String.valueOf(System.currentTimeMillis());
+                    String nonce = "nonce-json-replay-1001";
+                    MockHttpServletRequest firstRequest = replayJsonPayloadRequest("json-replay-first", timestamp,
+                            nonce);
+                    MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+                    AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+
+                    bodyFilter.doFilter(firstRequest, firstResponse, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    replayFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new TraceCapturingServlet(() -> {
+                                                CocoRequestContext requestContext =
+                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                assertEquals(nonce, requestContext.payloadParameter("nonce").orElseThrow());
+                                                assertEquals(timestamp,
+                                                        requestContext.payloadParameter("timestamp").orElseThrow());
+                                                assertEquals("replay-verified",
+                                                        requestContext.requestContextPhase().orElseThrow());
+                                                reachedBusiness.set(true);
+                                            })))));
+
+                    MockHttpServletRequest replayRequest = replayJsonPayloadRequest("json-replay-second", timestamp,
+                            nonce);
                     replayRequest.addHeader("Accept-Language", "en-US");
                     MockHttpServletResponse replayResponse = new MockHttpServletResponse();
 
@@ -2920,6 +3617,332 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void returnsUnifiedErrorResponseWhenSignatureAppIdIsMissing() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "missing-signature-app-id",
+                            "sample-secret");
+                    request.removeHeader("X-Coco-App-Id");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertEquals(401, response.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(401, body.get("code"));
+                    assertEquals("Request signature app id is missing.", body.get("message"));
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureAlgorithmIsMissing() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "missing-signature-algorithm",
+                            "sample-secret");
+                    request.removeHeader("X-Coco-Sign-Algorithm");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request signature algorithm is missing.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureTimestampIsMissing() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "missing-signature-timestamp",
+                            "sample-secret");
+                    request.removeHeader("X-Coco-Timestamp");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request signature timestamp is missing.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureTimestampIsInvalid() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "invalid-signature-timestamp",
+                            "sample-secret", "invalid-timestamp", "nonce-invalid-timestamp");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request signature timestamp is invalid.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureTimestampHasExpired() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "expired-signature-timestamp",
+                            "sample-secret", "1", "nonce-expired-timestamp");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request signature has expired.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureTimestampIsInFuture() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "future-signature-timestamp",
+                            "sample-secret", String.valueOf(System.currentTimeMillis() + 86_400_000L),
+                            "nonce-future-timestamp");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request signature has expired.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureAlgorithmIsUnsupported() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = signedRequest(context, "unsupported-signature-algorithm",
+                            "sample-secret");
+                    request.removeHeader("X-Coco-Sign-Algorithm");
+                    request.addHeader("X-Coco-Sign-Algorithm", "HMAC-SHA1");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request signature is invalid.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenSignatureSecretIsMissing() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                    context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+            CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                    "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+            MockHttpServletRequest request = signedRequest(context, "missing-signature-secret", "sample-secret");
+            request.addHeader("Accept-Language", "en-US");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                    traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                            signatureFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+            assertUnauthorizedResponse(response, "Request signature secret is not configured.");
+        });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenReplayNonceIsMissing() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.required=true")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Trace-Id", "missing-replay-nonce");
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-Key-Id", "key-1001");
+                    request.addHeader("X-Coco-Timestamp", String.valueOf(System.currentTimeMillis()));
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+
+                    assertEquals(401, response.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(401, body.get("code"));
+                    assertEquals("Request replay nonce is missing.", body.get("message"));
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenReplayTimestampIsMissing() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.required=true")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Trace-Id", "missing-replay-timestamp");
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-Key-Id", "key-1001");
+                    request.addHeader("X-Coco-Nonce", "nonce-missing-timestamp");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+
+                    assertUnauthorizedResponse(response, "Request replay timestamp is missing.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenReplayTimestampIsInvalid() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.required=true")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Trace-Id", "invalid-replay-timestamp");
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-Key-Id", "key-1001");
+                    request.addHeader("X-Coco-Timestamp", "invalid-timestamp");
+                    request.addHeader("X-Coco-Nonce", "nonce-invalid-timestamp");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+
+                    assertUnauthorizedResponse(response, "Request replay timestamp is invalid.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenReplayWindowHasExpired() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.required=true")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Trace-Id", "expired-replay-window");
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-Key-Id", "key-1001");
+                    request.addHeader("X-Coco-Timestamp", "1");
+                    request.addHeader("X-Coco-Nonce", "nonce-expired-window");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+
+                    assertUnauthorizedResponse(response, "Request replay window has expired.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenReplayTimestampIsInFuture() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.required=true")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Trace-Id", "future-replay-timestamp");
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-Key-Id", "key-1001");
+                    request.addHeader("X-Coco-Timestamp", String.valueOf(System.currentTimeMillis() + 86_400_000L));
+                    request.addHeader("X-Coco-Nonce", "nonce-future-window");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+
+                    assertUnauthorizedResponse(response, "Request replay timestamp is invalid.");
+                });
+    }
+
+    @Test
     void decryptsEncryptedJsonRequestBeforeBusinessServlet() throws Exception {
         byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
         CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
@@ -2956,9 +3979,12 @@ class CocoWebAutoConfigurationTest {
                                                 assertTrue(requestContext.requestBodyTransportSha256().isPresent());
                                                 assertFalse(sha256(plainBody).equals(
                                                         requestContext.requestBodyTransportSha256().orElseThrow()));
-                                                assertEquals("sample-app",
-                                                        requestContext.securityAppId().orElseThrow());
+                                                assertTrue(requestContext.securityAppId().isEmpty());
                                                 assertTrue(requestContext.requestEncrypted());
+                                                assertEquals("decrypted",
+                                                        requestContext.requestContextPhase().orElseThrow());
+                                                assertEquals("parsed",
+                                                        requestContext.requestPayloadParseStatus().orElseThrow());
                                             })))));
 
                     assertEquals(200, response.getStatus());
@@ -2984,6 +4010,160 @@ class CocoWebAutoConfigurationTest {
                     assertTrue(canonicalForm.text().contains("payloadParameters\n"));
                     assertTrue(canonicalForm.text().contains("sku[0]=12:COCO-STARTER\n"));
                     assertEquals("encrypted-body-trace", recorder.lastAccessLog().traceId());
+                });
+    }
+
+    @Test
+    void decryptsEncryptedJsonRequestAgainstForwardedExternalTarget() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.encryption.keys.sample-app=" + Base64.getEncoder().encodeToString(key),
+                        "coco.web.context.trusted-proxy-cidrs[0]=127.0.0.1/32")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    byte[] plainBody = "{\"sku\":\"COCO-FORWARDED\"}".getBytes(StandardCharsets.UTF_8);
+                    MockHttpServletRequest request = encryptedForwardedRequest(plainBody, key,
+                            "encrypted-forwarded-trace", "/gateway");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<String> downstreamBody = new AtomicReference<>();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new BodyReadingServlet(downstreamBody, () -> {
+                                                CocoRequestContext requestContext =
+                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                assertEquals("https", requestContext.scheme().orElseThrow());
+                                                assertEquals("api.coco.dev", requestContext.host().orElseThrow());
+                                                assertEquals(8443, requestContext.port().orElseThrow());
+                                                assertEquals("/gateway/api/orders", requestContext.path().orElseThrow());
+                                                assertEquals("decrypted",
+                                                        requestContext.requestContextPhase().orElseThrow());
+                                            })))));
+
+                    assertEquals(200, response.getStatus(), response.getContentAsString());
+                    assertEquals("{\"sku\":\"COCO-FORWARDED\"}", downstreamBody.get());
+                    assertEquals("/gateway/api/orders",
+                            CocoWebRequestSnapshotAttributes.get(request).orElseThrow().path());
+                });
+    }
+
+    @Test
+    void decryptsEncryptedJsonRequestWhenMetadataSourceIsParameter() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.encryption.keys.sample-app=" + Base64.getEncoder().encodeToString(key),
+                        "coco.web.encryption.metadata-source=parameter")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    byte[] plainBody = "{\"sku\":\"COCO-PARAM\"}".getBytes(StandardCharsets.UTF_8);
+                    MockHttpServletRequest request = encryptedParameterMetadataRequest(plainBody, key,
+                            "encrypted-parameter-trace");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<String> downstreamBody = new AtomicReference<>();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) -> {
+                        traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) -> {
+                            encryptionFilter.doFilter(traceRequest, traceResponse,
+                                    new MockFilterChain(new BodyReadingServlet(downstreamBody, () -> {
+                                        CocoRequestContext requestContext =
+                                                CocoRequestContextHolder.current().orElseThrow();
+                                        assertTrue(requestContext.securityAppId().isEmpty());
+                                        assertTrue(requestContext.requestEncrypted());
+                                        assertEquals("decrypted",
+                                                requestContext.requestContextPhase().orElseThrow());
+                                    })));
+                        });
+                    });
+
+                    assertEquals(200, response.getStatus());
+                    assertEquals("{\"sku\":\"COCO-PARAM\"}", downstreamBody.get());
+                });
+    }
+
+    @Test
+    void decryptsEncryptedJsonEnvelopeWhenMetadataSourceIsParameter() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.encryption.keys.sample-app=" + Base64.getEncoder().encodeToString(key),
+                        "coco.web.encryption.metadata-source=parameter")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    byte[] plainBody = "{\"sku\":\"COCO-ENVELOPE\"}".getBytes(StandardCharsets.UTF_8);
+                    MockHttpServletRequest request = encryptedPayloadMetadataRequest(plainBody, key,
+                            "encrypted-envelope-trace");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<String> downstreamBody = new AtomicReference<>();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse,
+                                            new MockFilterChain(new BodyReadingServlet(downstreamBody, () -> {
+                                                CocoRequestContext requestContext =
+                                                        CocoRequestContextHolder.current().orElseThrow();
+                                                assertTrue(requestContext.securityAppId().isEmpty());
+                                                assertTrue(requestContext.requestEncrypted());
+                                                assertEquals("decrypted",
+                                                        requestContext.requestContextPhase().orElseThrow());
+                                                assertEquals("COCO-ENVELOPE",
+                                                        requestContext.payloadParameter("sku").orElseThrow());
+                                            })))));
+
+                    assertEquals(200, response.getStatus(), response.getContentAsString());
+                    assertEquals("{\"sku\":\"COCO-ENVELOPE\"}", downstreamBody.get());
+                });
+    }
+
+    @Test
+    void decryptsEncryptedJsonRequestWithHexEncodings() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.encryption.keys.sample-app=" + HexFormat.of().formatHex(key),
+                        "coco.web.encryption.key-encoding=hex",
+                        "coco.web.encryption.iv-encoding=hex",
+                        "coco.web.encryption.payload-encoding=hex")
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    byte[] plainBody = "{\"sku\":\"COCO-HEX\"}".getBytes(StandardCharsets.UTF_8);
+                    MockHttpServletRequest request = hexEncodedEncryptedRequest(plainBody, key,
+                            "encrypted-hex-trace");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<String> downstreamBody = new AtomicReference<>();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) -> {
+                        traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) -> {
+                            encryptionFilter.doFilter(traceRequest, traceResponse,
+                                    new MockFilterChain(new BodyReadingServlet(downstreamBody, () -> {
+                                    })));
+                        });
+                    });
+
+                    assertEquals(200, response.getStatus());
+                    assertEquals("{\"sku\":\"COCO-HEX\"}", downstreamBody.get());
                 });
     }
 
@@ -3096,6 +4276,171 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void returnsUnifiedErrorResponseWhenEncryptionAlgorithmIsUnsupported() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = encryptedRequest("{}".getBytes(StandardCharsets.UTF_8), key,
+                            "unsupported-encryption-algorithm");
+                    request.removeHeader("X-Coco-Algorithm");
+                    request.addHeader("X-Coco-Algorithm", "AES-CBC");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request encryption payload is invalid.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenEncryptionAppIdIsMissing() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = encryptedRequest("{}".getBytes(StandardCharsets.UTF_8), key,
+                            "missing-encryption-app-id");
+                    request.removeHeader("X-Coco-App-Id");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request encryption app id is missing.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenEncryptionIvIsMissing() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = encryptedRequest("{}".getBytes(StandardCharsets.UTF_8), key,
+                            "missing-encryption-iv");
+                    request.removeHeader("X-Coco-IV");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request encryption iv is missing.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenEncryptionAlgorithmIsMissing() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = encryptedRequest("{}".getBytes(StandardCharsets.UTF_8), key,
+                            "missing-encryption-algorithm");
+                    request.removeHeader("X-Coco-Algorithm");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request encryption algorithm is missing.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenEncryptionPayloadIsMissing() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    request.setContent(new byte[0]);
+                    request.addHeader("X-Trace-Id", "missing-encryption-payload");
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-Encrypted", "true");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-IV", Base64.getEncoder()
+                            .encodeToString("123456789012".getBytes(StandardCharsets.UTF_8)));
+                    request.addHeader("X-Coco-Algorithm", "AES-GCM");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request encryption payload is missing.");
+                });
+    }
+
+    @Test
+    void returnsUnifiedErrorResponseWhenEncryptionKeyIsMissing() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner.run(context -> {
+            CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                    context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+            CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                    "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+            MockHttpServletRequest request = encryptedRequest("{}".getBytes(StandardCharsets.UTF_8), key,
+                    "missing-encryption-key");
+            request.addHeader("Accept-Language", "en-US");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                    traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                            encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+            assertUnauthorizedResponse(response, "Request encryption key is not configured.");
+        });
+    }
+
+    @Test
     void usesCustomWebRequestContextResolver() throws Exception {
         CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
         CocoWebRequestContextResolver resolver = (traceId, request) -> new CocoWebRequestSnapshot(traceId,
@@ -3195,10 +4540,12 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void accessLogParameterSwitchDoesNotDisableRequestContextParameters() throws Exception {
+    void contextParameterSwitchControlsAccessLogParameters() throws Exception {
         CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
         this.webContextRunner
-                .withPropertyValues("coco.web.access-log.include-parameters=false")
+                .withPropertyValues(
+                        "coco.web.context.parameter.include-parameters=false",
+                        "coco.web.context.parameter.max-parameter-value-length=4")
                 .withBean(CocoAccessLogRecorder.class, () -> recorder)
                 .run(context -> {
                     CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
@@ -3206,14 +4553,14 @@ class CocoWebAutoConfigurationTest {
                     MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users");
                     MockHttpServletResponse response = new MockHttpServletResponse();
                     request.addHeader("X-Trace-Id", "access-no-params");
-                    request.setQueryString("name=Coco&token=abc");
-                    request.addParameter("name", "Coco");
+                    request.setQueryString("name=Coconut&token=abc");
+                    request.addParameter("name", "Coconut");
                     request.addParameter("token", "abc");
 
                     filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> {
                         CocoRequestContext requestContext = CocoRequestContextHolder.current().orElseThrow();
-                        assertEquals("Coco", requestContext.parameter("name").orElseThrow());
-                        assertEquals("******", requestContext.parameter("token").orElseThrow());
+                        assertTrue(requestContext.parameter("name").isEmpty());
+                        assertTrue(requestContext.parameter("token").isEmpty());
                     })));
 
                     CocoAccessLog accessLog = recorder.lastAccessLog();
@@ -3358,6 +4705,32 @@ class CocoWebAutoConfigurationTest {
         return request;
     }
 
+    private static MockHttpServletRequest jsonPayloadSignedRequest(org.springframework.context.ApplicationContext context,
+            String traceId, String secret, String timestamp, String nonce) {
+        CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+        CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+        String basePayload = "{\"sku\":\"COCO-BODY\",\"appId\":\"sample-app\",\"timestamp\":\"" + timestamp
+                + "\",\"nonce\":\"" + nonce + "\",\"signAlgorithm\":\"HMAC-SHA256\"}";
+        byte[] baseBody = basePayload.getBytes(StandardCharsets.UTF_8);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(baseBody);
+        request.addHeader("X-Trace-Id", traceId);
+        CocoWebRequestSnapshot snapshot = resolver.resolve(traceId,
+                new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(baseBody)));
+        CocoWebRequestSecurityInput canonicalInput = snapshot.securityInput().withoutBodyMetadata();
+        String canonicalText = canonicalizer.canonicalize(new CocoWebRequestCanonicalizationContext(
+                CocoWebRequestCanonicalizationPurpose.SIGNATURE, canonicalInput, null,
+                snapshot.browserFingerprint())).text();
+        String signature = hmacSha256Hex(canonicalText, secret);
+        CocoWebRequestSnapshotAttributes.clear(request);
+        CocoCachedBodyHttpServletRequest.clear(request);
+        String signedPayload = basePayload.substring(0, basePayload.length() - 1)
+                + ",\"sign\":\"" + signature + "\"}";
+        request.setContent(signedPayload.getBytes(StandardCharsets.UTF_8));
+        return request;
+    }
+
     private static MockHttpServletRequest formSignedRequest(org.springframework.context.ApplicationContext context,
             String traceId, String secret, String timestamp, String nonce) {
         CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
@@ -3403,6 +4776,40 @@ class CocoWebAutoConfigurationTest {
         return request;
     }
 
+    private static MockHttpServletRequest replayJsonPayloadRequest(String traceId, String timestamp, String nonce) {
+        String payload = "{\"sku\":\"COCO-JSON\",\"appId\":\"sample-app\",\"keyId\":\"key-1001\","
+                + "\"timestamp\":\"" + timestamp + "\",\"nonce\":\"" + nonce + "\"}";
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(payload.getBytes(StandardCharsets.UTF_8));
+        request.addHeader("X-Trace-Id", traceId);
+        return request;
+    }
+
+    private static MockHttpServletRequest signedForwardedRequest(org.springframework.context.ApplicationContext context,
+            String traceId, String secret, String timestamp, String nonce, String forwardedPrefix) {
+        CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
+        CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
+        byte[] body = "{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(body);
+        request.addHeader("X-Trace-Id", traceId);
+        request.addHeader("X-Coco-App-Id", "sample-app");
+        request.addHeader("X-Coco-Timestamp", timestamp);
+        request.addHeader("X-Coco-Nonce", nonce);
+        request.addHeader("X-Coco-Sign-Algorithm", "HMAC-SHA256");
+        applyForwardedTarget(request, forwardedPrefix);
+        CocoWebRequestSnapshot snapshot = resolver.resolve(traceId,
+                new CocoCachedBodyHttpServletRequest(request, CocoCachedRequestBody.cached(body)));
+        String canonicalText = canonicalizer.canonicalize(CocoWebRequestCanonicalizationContext.of(
+                CocoWebRequestCanonicalizationPurpose.SIGNATURE, snapshot, null)).text();
+        CocoWebRequestSnapshotAttributes.clear(request);
+        CocoCachedBodyHttpServletRequest.clear(request);
+        request.addHeader("X-Coco-Sign", hmacSha256Hex(canonicalText, secret));
+        return request;
+    }
+
     private static MockHttpServletRequest encryptedRequest(byte[] plainBody, byte[] key, String traceId) {
         byte[] iv = "123456789012".getBytes(StandardCharsets.UTF_8);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
@@ -3411,6 +4818,76 @@ class CocoWebAutoConfigurationTest {
         byte[] aad = CocoEncryptionAssociatedData.from("sample-app", null, encodedIv, "AES-GCM", true,
                 "POST", "/api/orders", null, null, null);
         request.setContent(Base64.getEncoder().encode(aesGcmEncrypt(plainBody, key, iv, aad)));
+        request.addHeader("X-Trace-Id", traceId);
+        request.addHeader("X-Coco-Encrypted", "true");
+        request.addHeader("X-Coco-App-Id", "sample-app");
+        request.addHeader("X-Coco-IV", encodedIv);
+        request.addHeader("X-Coco-Algorithm", "AES-GCM");
+        return request;
+    }
+
+    private static MockHttpServletRequest encryptedForwardedRequest(byte[] plainBody, byte[] key, String traceId,
+            String forwardedPrefix) {
+        byte[] iv = "123456789012".getBytes(StandardCharsets.UTF_8);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        applyForwardedTarget(request, forwardedPrefix);
+        String encodedIv = Base64.getEncoder().encodeToString(iv);
+        byte[] aad = CocoEncryptionAssociatedData.from("sample-app", null, encodedIv, "AES-GCM", true,
+                "POST", forwardedPrefix + "/api/orders", null, null, null);
+        request.setContent(Base64.getEncoder().encode(aesGcmEncrypt(plainBody, key, iv, aad)));
+        request.addHeader("X-Trace-Id", traceId);
+        request.addHeader("X-Coco-Encrypted", "true");
+        request.addHeader("X-Coco-App-Id", "sample-app");
+        request.addHeader("X-Coco-IV", encodedIv);
+        request.addHeader("X-Coco-Algorithm", "AES-GCM");
+        return request;
+    }
+
+    private static MockHttpServletRequest encryptedParameterMetadataRequest(byte[] plainBody, byte[] key,
+            String traceId) {
+        byte[] iv = "123456789012".getBytes(StandardCharsets.UTF_8);
+        String encodedIv = Base64.getEncoder().encodeToString(iv);
+        String queryString = "encrypted=true&appId=sample-app&iv=" + encodedIv + "&algorithm=AES-GCM";
+        byte[] aad = CocoEncryptionAssociatedData.from("sample-app", null, encodedIv, "AES-GCM", true,
+                "POST", "/api/orders", queryString, null, null);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(Base64.getEncoder().encode(aesGcmEncrypt(plainBody, key, iv, aad)));
+        request.setQueryString(queryString);
+        request.addParameter("encrypted", "true");
+        request.addParameter("appId", "sample-app");
+        request.addParameter("iv", encodedIv);
+        request.addParameter("algorithm", "AES-GCM");
+        request.addHeader("X-Trace-Id", traceId);
+        return request;
+    }
+
+    private static MockHttpServletRequest encryptedPayloadMetadataRequest(byte[] plainBody, byte[] key,
+            String traceId) {
+        byte[] iv = "123456789012".getBytes(StandardCharsets.UTF_8);
+        String encodedIv = Base64.getEncoder().encodeToString(iv);
+        byte[] aad = CocoEncryptionAssociatedData.from("sample-app", null, encodedIv, "AES-GCM", true,
+                "POST", "/api/orders", null, null, null);
+        String encodedPayload = Base64.getEncoder().encodeToString(aesGcmEncrypt(plainBody, key, iv, aad));
+        String envelope = "{\"encrypted\":true,\"appId\":\"sample-app\",\"iv\":\"" + encodedIv
+                + "\",\"algorithm\":\"AES-GCM\",\"payload\":\"" + encodedPayload + "\"}";
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(envelope.getBytes(StandardCharsets.UTF_8));
+        request.addHeader("X-Trace-Id", traceId);
+        return request;
+    }
+
+    private static MockHttpServletRequest hexEncodedEncryptedRequest(byte[] plainBody, byte[] key, String traceId) {
+        byte[] iv = "123456789012".getBytes(StandardCharsets.UTF_8);
+        String encodedIv = HexFormat.of().formatHex(iv);
+        byte[] aad = CocoEncryptionAssociatedData.from("sample-app", null, encodedIv, "AES-GCM", true,
+                "POST", "/api/orders", null, null, null);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setContent(HexFormat.of().formatHex(aesGcmEncrypt(plainBody, key, iv, aad))
+                .getBytes(StandardCharsets.UTF_8));
         request.addHeader("X-Trace-Id", traceId);
         request.addHeader("X-Coco-Encrypted", "true");
         request.addHeader("X-Coco-App-Id", "sample-app");
@@ -3428,6 +4905,14 @@ class CocoWebAutoConfigurationTest {
         request.addHeader("X-Replay-Time", timestamp);
         request.addHeader("X-Replay-Nonce", nonce);
         return request;
+    }
+
+    private static void applyForwardedTarget(MockHttpServletRequest request, String forwardedPrefix) {
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("Forwarded", "for=203.0.113.10;proto=https;host=\"api.coco.dev:8443\"");
+        if (forwardedPrefix != null) {
+            request.addHeader("X-Forwarded-Prefix", forwardedPrefix);
+        }
     }
 
     private static byte[] aesGcmEncrypt(byte[] plainBody, byte[] key, byte[] iv, byte[] aad) {
@@ -3471,6 +4956,14 @@ class CocoWebAutoConfigurationTest {
         Object body = response.getBody();
         assertTrue(body instanceof CocoApiResponse<?>);
         return (CocoApiResponse<?>) body;
+    }
+
+    private static void assertUnauthorizedResponse(MockHttpServletResponse response, String message) throws Exception {
+        assertEquals(401, response.getStatus());
+        Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+        assertEquals(Boolean.FALSE, body.get("success"));
+        assertEquals(401, body.get("code"));
+        assertEquals(message, body.get("message"));
     }
 
     private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService) {
