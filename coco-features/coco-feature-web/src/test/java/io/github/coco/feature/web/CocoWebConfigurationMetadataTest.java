@@ -89,22 +89,36 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.signature.timestamp-required\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.timestamp-validation-enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.max-clock-skew-seconds\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.metadata-source\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.app-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.app-id-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.key-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.key-id-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.timestamp-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.timestamp-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.nonce-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.nonce-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.signature-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.signature-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.signature-fallback-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.signature-fallback-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.algorithm-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.signature.algorithm-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.default-algorithm\""));
         assertTrue(content.contains("\"name\": \"coco.web.signature.secrets\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.required\""));
+        assertTrue(content.contains("\"name\": \"coco.web.encryption.metadata-source\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.encrypted-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.encryption.encrypted-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.app-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.encryption.app-id-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.key-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.encryption.key-id-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.iv-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.encryption.iv-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.algorithm-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.encryption.algorithm-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.default-algorithm\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.key-encoding\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.iv-encoding\""));
@@ -117,10 +131,15 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-encrypted-requests\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.include-method\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.include-path\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.metadata-source\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.app-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.app-id-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.key-id-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.key-id-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.timestamp-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.timestamp-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.nonce-header-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.nonce-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.ttl-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.cleanup-interval-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.client-ip-header-names\""));
@@ -177,6 +196,12 @@ class CocoWebConfigurationMetadataTest {
         assertHintValues(metadata, "coco.web.context.parameter.payload.included-content-types",
                 "application/json", "application/*+json", "application/x-www-form-urlencoded");
         assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v1", "coco-v2");
+        assertHintValues(metadata, "coco.web.signature.metadata-source", "header", "parameter",
+                "header-then-parameter", "parameter-then-header");
+        assertHintValues(metadata, "coco.web.encryption.metadata-source", "header", "parameter",
+                "header-then-parameter", "parameter-then-header");
+        assertHintValues(metadata, "coco.web.replay.metadata-source", "header", "parameter",
+                "header-then-parameter", "parameter-then-header");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.payload-encoding", "base64", "hex", "utf8", "raw");

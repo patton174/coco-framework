@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Coco Web 请求安全输入。
@@ -244,6 +245,29 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         return Optional.ofNullable(this.payloadParameters.get(name.trim()));
     }
 
+    /**
+     * <p>
+     * 返回排除指定请求参数后的安全输入副本。
+     * </p>
+     * <p>
+     * 该方法用于签名参数放在 query 或表单中时，先移除签名值本身，再生成规范化文本。
+     * </p>
+     * @param parameterNames 需要排除的参数名称集合
+     * @return 排除指定参数后的安全输入
+     */
+    public CocoWebRequestSecurityInput withoutParameters(Set<String> parameterNames) {
+        Set<String> normalizedNames = normalizeParameterNames(parameterNames);
+        if (normalizedNames.isEmpty()) {
+            return this;
+        }
+        return new CocoWebRequestSecurityInput(this.method, this.path, filterQueryString(this.queryString,
+                normalizedNames), filterParameters(this.parameters, normalizedNames),
+                filterParameters(this.queryParameters, normalizedNames),
+                filterParameters(this.payloadParameters, normalizedNames), this.securityHeaders,
+                this.canonicalHeaders, this.bodySha256, this.bodyLength, this.bodyCached,
+                this.canonicalHeaderValues, this.canonicalCookies);
+    }
+
     private static Optional<String> header(Map<String, String> headers, String name) {
         if (name == null || name.isBlank()) {
             return Optional.empty();
@@ -319,6 +343,52 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
             }
         });
         return copied.isEmpty() ? Map.of() : Collections.unmodifiableMap(copied);
+    }
+
+    private static Set<String> normalizeParameterNames(Set<String> parameterNames) {
+        if (parameterNames == null || parameterNames.isEmpty()) {
+            return Set.of();
+        }
+        return parameterNames.stream()
+                .map(CocoWebRequestSecurityInput::normalizeOptional)
+                .filter(name -> name != null)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private static Map<String, List<String>> filterParameters(Map<String, List<String>> parameters,
+            Set<String> excludedNames) {
+        if (parameters == null || parameters.isEmpty() || excludedNames.isEmpty()) {
+            return parameters == null ? Map.of() : parameters;
+        }
+        Map<String, List<String>> filtered = new LinkedHashMap<>();
+        parameters.forEach((name, values) -> {
+            if (!excludedNames.contains(name)) {
+                filtered.put(name, values);
+            }
+        });
+        return filtered.isEmpty() ? Map.of() : Collections.unmodifiableMap(filtered);
+    }
+
+    private static String filterQueryString(String queryString, Set<String> excludedNames) {
+        if (queryString == null || queryString.isBlank() || excludedNames.isEmpty()) {
+            return queryString;
+        }
+        StringBuilder builder = new StringBuilder(queryString.length());
+        for (String pair : queryString.split("&", -1)) {
+            if (pair == null || pair.isBlank() || excludedNames.contains(parameterName(pair))) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append('&');
+            }
+            builder.append(pair);
+        }
+        return builder.isEmpty() ? null : builder.toString();
+    }
+
+    private static String parameterName(String pair) {
+        int separatorIndex = pair.indexOf('=');
+        return separatorIndex < 0 ? pair : pair.substring(0, separatorIndex);
     }
 
     private static List<String> copyHeaderValueList(List<String> values) {

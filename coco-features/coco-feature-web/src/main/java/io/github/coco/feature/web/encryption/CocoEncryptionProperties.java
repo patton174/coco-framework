@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -29,15 +30,27 @@ public class CocoEncryptionProperties {
 
     private boolean required = false;
 
+    private CocoWebSecurityMetadataSource metadataSource = CocoWebSecurityMetadataSource.HEADER;
+
     private String encryptedHeaderName = "X-Coco-Encrypted";
+
+    private String encryptedParameterName = "encrypted";
 
     private String appIdHeaderName = "X-Coco-App-Id";
 
+    private String appIdParameterName = "appId";
+
     private String keyIdHeaderName = "X-Coco-Key-Id";
+
+    private String keyIdParameterName = "keyId";
 
     private String ivHeaderName = "X-Coco-IV";
 
+    private String ivParameterName = "iv";
+
     private String algorithmHeaderName = "X-Coco-Algorithm";
+
+    private String algorithmParameterName = "algorithm";
 
     private String defaultAlgorithm = "AES-GCM";
 
@@ -96,6 +109,26 @@ public class CocoEncryptionProperties {
 
     /**
      * <p>
+     * 返回加密协议材料解析来源。
+     * </p>
+     * @return 加密协议材料解析来源
+     */
+    public CocoWebSecurityMetadataSource getMetadataSource() {
+        return this.metadataSource;
+    }
+
+    /**
+     * <p>
+     * 设置加密协议材料解析来源。
+     * </p>
+     * @param metadataSource 加密协议材料解析来源
+     */
+    public void setMetadataSource(CocoWebSecurityMetadataSource metadataSource) {
+        this.metadataSource = metadataSource == null ? CocoWebSecurityMetadataSource.HEADER : metadataSource;
+    }
+
+    /**
+     * <p>
      * 返回加密标记请求头名称。
      * </p>
      * @return 加密标记请求头名称
@@ -112,6 +145,26 @@ public class CocoEncryptionProperties {
      */
     public void setEncryptedHeaderName(String encryptedHeaderName) {
         this.encryptedHeaderName = normalizeHeaderName(encryptedHeaderName, "X-Coco-Encrypted");
+    }
+
+    /**
+     * <p>
+     * 返回加密标记请求参数名称。
+     * </p>
+     * @return 加密标记请求参数名称
+     */
+    public String getEncryptedParameterName() {
+        return this.encryptedParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置加密标记请求参数名称。
+     * </p>
+     * @param encryptedParameterName 加密标记请求参数名称
+     */
+    public void setEncryptedParameterName(String encryptedParameterName) {
+        this.encryptedParameterName = normalizeParameterName(encryptedParameterName, "encrypted");
     }
 
     /**
@@ -136,6 +189,26 @@ public class CocoEncryptionProperties {
 
     /**
      * <p>
+     * 返回 AppId 请求参数名称。
+     * </p>
+     * @return AppId 请求参数名称
+     */
+    public String getAppIdParameterName() {
+        return this.appIdParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置 AppId 请求参数名称。
+     * </p>
+     * @param appIdParameterName AppId 请求参数名称
+     */
+    public void setAppIdParameterName(String appIdParameterName) {
+        this.appIdParameterName = normalizeParameterName(appIdParameterName, "appId");
+    }
+
+    /**
+     * <p>
      * 返回 KeyId 请求头名称。
      * </p>
      * @return KeyId 请求头名称
@@ -152,6 +225,26 @@ public class CocoEncryptionProperties {
      */
     public void setKeyIdHeaderName(String keyIdHeaderName) {
         this.keyIdHeaderName = normalizeHeaderName(keyIdHeaderName, "X-Coco-Key-Id");
+    }
+
+    /**
+     * <p>
+     * 返回 KeyId 请求参数名称。
+     * </p>
+     * @return KeyId 请求参数名称
+     */
+    public String getKeyIdParameterName() {
+        return this.keyIdParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置 KeyId 请求参数名称。
+     * </p>
+     * @param keyIdParameterName KeyId 请求参数名称
+     */
+    public void setKeyIdParameterName(String keyIdParameterName) {
+        this.keyIdParameterName = normalizeParameterName(keyIdParameterName, "keyId");
     }
 
     /**
@@ -176,6 +269,26 @@ public class CocoEncryptionProperties {
 
     /**
      * <p>
+     * 返回 IV 请求参数名称。
+     * </p>
+     * @return IV 请求参数名称
+     */
+    public String getIvParameterName() {
+        return this.ivParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置 IV 请求参数名称。
+     * </p>
+     * @param ivParameterName IV 请求参数名称
+     */
+    public void setIvParameterName(String ivParameterName) {
+        this.ivParameterName = normalizeParameterName(ivParameterName, "iv");
+    }
+
+    /**
+     * <p>
      * 返回算法请求头名称。
      * </p>
      * @return 算法请求头名称
@@ -192,6 +305,26 @@ public class CocoEncryptionProperties {
      */
     public void setAlgorithmHeaderName(String algorithmHeaderName) {
         this.algorithmHeaderName = normalizeHeaderName(algorithmHeaderName, "X-Coco-Algorithm");
+    }
+
+    /**
+     * <p>
+     * 返回算法请求参数名称。
+     * </p>
+     * @return 算法请求参数名称
+     */
+    public String getAlgorithmParameterName() {
+        return this.algorithmParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置算法请求参数名称。
+     * </p>
+     * @param algorithmParameterName 算法请求参数名称
+     */
+    public void setAlgorithmParameterName(String algorithmParameterName) {
+        this.algorithmParameterName = normalizeParameterName(algorithmParameterName, "algorithm");
     }
 
     /**
@@ -341,6 +474,10 @@ public class CocoEncryptionProperties {
 
     private static String normalizeHeaderName(String headerName, String defaultValue) {
         return headerName == null || headerName.isBlank() ? defaultValue : headerName.trim();
+    }
+
+    private static String normalizeParameterName(String parameterName, String defaultValue) {
+        return parameterName == null || parameterName.isBlank() ? defaultValue : parameterName.trim();
     }
 
     private static Map<String, String> normalizeKeys(Map<String, String> keys) {

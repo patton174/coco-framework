@@ -1,6 +1,7 @@
 package io.github.coco.feature.web.replay;
 
 import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
+import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
@@ -45,16 +46,26 @@ public class CocoReplayProperties {
 
     private boolean includePath = true;
 
+    private CocoWebSecurityMetadataSource metadataSource = CocoWebSecurityMetadataSource.HEADER;
+
     @NestedConfigurationProperty
     private CocoWebRequestMatcherProperties matcher = new CocoWebRequestMatcherProperties();
 
     private String appIdHeaderName = DEFAULT_APP_ID_HEADER_NAME;
 
+    private String appIdParameterName = "appId";
+
     private String keyIdHeaderName = DEFAULT_KEY_ID_HEADER_NAME;
+
+    private String keyIdParameterName = "keyId";
 
     private String timestampHeaderName = DEFAULT_TIMESTAMP_HEADER_NAME;
 
+    private String timestampParameterName = "timestamp";
+
     private String nonceHeaderName = DEFAULT_NONCE_HEADER_NAME;
+
+    private String nonceParameterName = "nonce";
 
     private long ttlSeconds = DEFAULT_TTL_SECONDS;
 
@@ -182,6 +193,26 @@ public class CocoReplayProperties {
 
     /**
      * <p>
+     * 返回防重放协议材料解析来源。
+     * </p>
+     * @return 防重放协议材料解析来源
+     */
+    public CocoWebSecurityMetadataSource getMetadataSource() {
+        return this.metadataSource;
+    }
+
+    /**
+     * <p>
+     * 设置防重放协议材料解析来源。
+     * </p>
+     * @param metadataSource 防重放协议材料解析来源
+     */
+    public void setMetadataSource(CocoWebSecurityMetadataSource metadataSource) {
+        this.metadataSource = metadataSource == null ? CocoWebSecurityMetadataSource.HEADER : metadataSource;
+    }
+
+    /**
+     * <p>
      * 返回防重放路径和方法匹配配置。
      * </p>
      * @return 请求匹配配置
@@ -222,6 +253,26 @@ public class CocoReplayProperties {
 
     /**
      * <p>
+     * 返回防重放应用标识请求参数名称。
+     * </p>
+     * @return 防重放应用标识请求参数名称
+     */
+    public String getAppIdParameterName() {
+        return this.appIdParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放应用标识请求参数名称。
+     * </p>
+     * @param appIdParameterName 防重放应用标识请求参数名称
+     */
+    public void setAppIdParameterName(String appIdParameterName) {
+        this.appIdParameterName = normalizeParameterName(appIdParameterName, "appId");
+    }
+
+    /**
+     * <p>
      * 返回防重放密钥标识请求头名称。
      * </p>
      * @return 防重放密钥标识请求头名称
@@ -238,6 +289,26 @@ public class CocoReplayProperties {
      */
     public void setKeyIdHeaderName(String keyIdHeaderName) {
         this.keyIdHeaderName = normalizeHeaderName(keyIdHeaderName, DEFAULT_KEY_ID_HEADER_NAME);
+    }
+
+    /**
+     * <p>
+     * 返回防重放密钥标识请求参数名称。
+     * </p>
+     * @return 防重放密钥标识请求参数名称
+     */
+    public String getKeyIdParameterName() {
+        return this.keyIdParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放密钥标识请求参数名称。
+     * </p>
+     * @param keyIdParameterName 防重放密钥标识请求参数名称
+     */
+    public void setKeyIdParameterName(String keyIdParameterName) {
+        this.keyIdParameterName = normalizeParameterName(keyIdParameterName, "keyId");
     }
 
     /**
@@ -262,6 +333,26 @@ public class CocoReplayProperties {
 
     /**
      * <p>
+     * 返回防重放时间戳请求参数名称。
+     * </p>
+     * @return 防重放时间戳请求参数名称
+     */
+    public String getTimestampParameterName() {
+        return this.timestampParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放时间戳请求参数名称。
+     * </p>
+     * @param timestampParameterName 防重放时间戳请求参数名称
+     */
+    public void setTimestampParameterName(String timestampParameterName) {
+        this.timestampParameterName = normalizeParameterName(timestampParameterName, "timestamp");
+    }
+
+    /**
+     * <p>
      * 返回防重放随机串请求头名称。
      * </p>
      * @return 防重放随机串请求头名称
@@ -278,6 +369,26 @@ public class CocoReplayProperties {
      */
     public void setNonceHeaderName(String nonceHeaderName) {
         this.nonceHeaderName = normalizeHeaderName(nonceHeaderName, DEFAULT_NONCE_HEADER_NAME);
+    }
+
+    /**
+     * <p>
+     * 返回防重放随机串请求参数名称。
+     * </p>
+     * @return 防重放随机串请求参数名称
+     */
+    public String getNonceParameterName() {
+        return this.nonceParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置防重放随机串请求参数名称。
+     * </p>
+     * @param nonceParameterName 防重放随机串请求参数名称
+     */
+    public void setNonceParameterName(String nonceParameterName) {
+        this.nonceParameterName = normalizeParameterName(nonceParameterName, "nonce");
     }
 
     /**
@@ -324,5 +435,9 @@ public class CocoReplayProperties {
 
     private static String normalizeHeaderName(String headerName, String defaultHeaderName) {
         return headerName == null || headerName.isBlank() ? defaultHeaderName : headerName.trim();
+    }
+
+    private static String normalizeParameterName(String parameterName, String defaultParameterName) {
+        return parameterName == null || parameterName.isBlank() ? defaultParameterName : parameterName.trim();
     }
 }

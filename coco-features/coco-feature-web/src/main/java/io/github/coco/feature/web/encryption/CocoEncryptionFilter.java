@@ -18,6 +18,7 @@ import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
+import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
@@ -263,8 +264,15 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
     }
 
     private boolean encrypted(HttpServletRequest request) {
-        String encrypted = request.getHeader(this.properties.getEncryptedHeaderName());
-        return encrypted != null && ("true".equalsIgnoreCase(encrypted.trim()) || "1".equals(encrypted.trim()));
+        CocoWebSecurityMetadataSource source = this.properties.getMetadataSource();
+        return encrypted(source.supportsHeader() ? request.getHeader(this.properties.getEncryptedHeaderName()) : null)
+                || encrypted(source.supportsParameter()
+                        ? request.getParameter(this.properties.getEncryptedParameterName())
+                        : null);
+    }
+
+    private static boolean encrypted(String value) {
+        return value != null && ("true".equalsIgnoreCase(value.trim()) || "1".equals(value.trim()));
     }
 
     private record ResolvedEncryptedRequest(CocoEncryptedRequest request, byte[] associatedData) {

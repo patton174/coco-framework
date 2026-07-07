@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
+import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
@@ -45,6 +46,8 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
     private final CocoRequestBodyProperties properties;
 
     private final Set<String> triggerHeaderNames;
+
+    private final Set<String> triggerParameterNames;
 
     private final CocoSignatureProperties signatureProperties;
 
@@ -109,6 +112,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         this.signatureProperties = signatureProperties == null ? new CocoSignatureProperties() : signatureProperties;
         this.encryptionProperties = encryptionProperties == null ? new CocoEncryptionProperties() : encryptionProperties;
         this.triggerHeaderNames = triggerHeaderNames(this.properties, this.signatureProperties, this.encryptionProperties);
+        this.triggerParameterNames = triggerParameterNames(this.signatureProperties, this.encryptionProperties);
         this.requestMatcher = requestMatcher == null ? new DefaultCocoWebRequestMatcher() : requestMatcher;
         this.exceptionResponseWriter = exceptionResponseWriter;
     }
@@ -152,7 +156,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         if (!this.properties.isEnabled() || !isCacheMethod(request) || isExcludedContentType(request)) {
             return false;
         }
-        if (isTriggerHeaderPresent(request)) {
+        if (isSecurityTriggerPresent(request)) {
             return true;
         }
         if (securityCapabilityRequiresBodyCaching(request)) {
@@ -193,10 +197,32 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         return false;
     }
 
+    private boolean isSecurityTriggerPresent(HttpServletRequest request) {
+        return isTriggerHeaderPresent(request) || isTriggerParameterPresent(request);
+    }
+
     private boolean isTriggerHeaderPresent(HttpServletRequest request) {
         for (String headerName : this.triggerHeaderNames) {
             String value = request.getHeader(headerName);
             if (value != null && !value.isBlank()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isTriggerParameterPresent(HttpServletRequest request) {
+        if (this.triggerParameterNames.isEmpty()) {
+            return false;
+        }
+        String queryString = request.getQueryString();
+        if (queryString == null || queryString.isBlank()) {
+            return false;
+        }
+        for (String pair : queryString.split("&", -1)) {
+            int separatorIndex = pair.indexOf('=');
+            String name = separatorIndex < 0 ? pair : pair.substring(0, separatorIndex);
+            if (this.triggerParameterNames.contains(name)) {
                 return true;
             }
         }
@@ -232,6 +258,33 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         add(headerNames, signatureProperties.getSignatureFallbackHeaderName());
         add(headerNames, encryptionProperties.getEncryptedHeaderName());
         return Set.copyOf(headerNames);
+    }
+
+    private static Set<String> triggerParameterNames(CocoSignatureProperties signatureProperties,
+            CocoEncryptionProperties encryptionProperties) {
+        LinkedHashSet<String> parameterNames = new LinkedHashSet<>();
+        addIfParameterSource(parameterNames, signatureProperties.getMetadataSource(),
+                signatureProperties.getSignatureParameterName());
+        addIfParameterSource(parameterNames, signatureProperties.getMetadataSource(),
+                signatureProperties.getSignatureFallbackParameterName());
+        addIfParameterSource(parameterNames, encryptionProperties.getMetadataSource(),
+                encryptionProperties.getEncryptedParameterName());
+        return Set.copyOf(parameterNames);
+    }
+
+    private static void addIfParameterSource(Set<String> parameterNames, CocoWebSecurityMetadataSource source,
+            String parameterName) {
+        CocoWebSecurityMetadataSource metadataSource = source == null ? CocoWebSecurityMetadataSource.HEADER : source;
+        if (metadataSource.supportsParameter()) {
+            addParameter(parameterNames, parameterName);
+        }
+    }
+
+    private static void addParameter(Set<String> parameterNames, String parameterName) {
+        String normalizedName = parameterName == null || parameterName.isBlank() ? null : parameterName.trim();
+        if (normalizedName != null) {
+            parameterNames.add(normalizedName);
+        }
     }
 
     private static void add(Set<String> headerNames, String headerName) {

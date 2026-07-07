@@ -147,6 +147,69 @@
       ]
     },
     {
+      "name": "coco.web.signature.metadata-source",
+      "values": [
+        {
+          "value": "header",
+          "description": "仅从请求头解析签名协议材料。"
+        },
+        {
+          "value": "parameter",
+          "description": "仅从请求参数解析签名协议材料。"
+        },
+        {
+          "value": "header-then-parameter",
+          "description": "优先从请求头解析，缺失时退回请求参数。"
+        },
+        {
+          "value": "parameter-then-header",
+          "description": "优先从请求参数解析，缺失时退回请求头。"
+        }
+      ]
+    },
+    {
+      "name": "coco.web.encryption.metadata-source",
+      "values": [
+        {
+          "value": "header",
+          "description": "仅从请求头解析加密协议材料。"
+        },
+        {
+          "value": "parameter",
+          "description": "仅从请求参数解析加密协议材料。"
+        },
+        {
+          "value": "header-then-parameter",
+          "description": "优先从请求头解析，缺失时退回请求参数。"
+        },
+        {
+          "value": "parameter-then-header",
+          "description": "优先从请求参数解析，缺失时退回请求头。"
+        }
+      ]
+    },
+    {
+      "name": "coco.web.replay.metadata-source",
+      "values": [
+        {
+          "value": "header",
+          "description": "仅从请求头解析防重放协议材料。"
+        },
+        {
+          "value": "parameter",
+          "description": "仅从请求参数解析防重放协议材料。"
+        },
+        {
+          "value": "header-then-parameter",
+          "description": "优先从请求头解析，缺失时退回请求参数。"
+        },
+        {
+          "value": "parameter-then-header",
+          "description": "优先从请求参数解析，缺失时退回请求头。"
+        }
+      ]
+    },
+    {
       "name": "coco.web.encryption.key-encoding",
       "values": [
         {

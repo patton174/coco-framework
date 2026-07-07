@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Set;
 
 import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoException;
@@ -18,6 +19,7 @@ import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
+import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
@@ -208,8 +210,29 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
     }
 
     private boolean hasSignatureHeader(HttpServletRequest request) {
+        CocoWebSecurityMetadataSource source = this.properties.getMetadataSource();
+        return hasSignatureHeader(request, source) || hasSignatureParameter(request, source);
+    }
+
+    private boolean hasSignatureHeader(HttpServletRequest request, CocoWebSecurityMetadataSource source) {
+        if (!source.supportsHeader()) {
+            return false;
+        }
         return request.getHeader(this.properties.getSignatureHeaderName()) != null
                 || request.getHeader(this.properties.getSignatureFallbackHeaderName()) != null;
+    }
+
+    private boolean hasSignatureParameter(HttpServletRequest request, CocoWebSecurityMetadataSource source) {
+        if (!source.supportsParameter()) {
+            return false;
+        }
+        return hasRequestParameter(request, this.properties.getSignatureParameterName())
+                || hasRequestParameter(request, this.properties.getSignatureFallbackParameterName());
+    }
+
+    private static boolean hasRequestParameter(HttpServletRequest request, String parameterName) {
+        String value = parameterName == null || parameterName.isBlank() ? null : request.getParameter(parameterName);
+        return value != null && !value.isBlank();
     }
 
     private boolean matchesIgnoredRequest(HttpServletRequest request) {
@@ -226,9 +249,10 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
         CocoWebRequestSecurityInput securityInput = snapshot.securityInput();
         CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(securityInput);
+        CocoWebRequestSecurityInput canonicalInput = canonicalSecurityInput(securityInput);
         CocoWebRequestCanonicalForm canonicalForm = this.requestCanonicalizer.canonicalize(
-                CocoWebRequestCanonicalizationContext.of(CocoWebRequestCanonicalizationPurpose.SIGNATURE,
-                        snapshot, metadata));
+                new CocoWebRequestCanonicalizationContext(CocoWebRequestCanonicalizationPurpose.SIGNATURE,
+                        canonicalInput, metadata, snapshot.browserFingerprint()));
         CocoSignatureRequest signatureRequest = resolveSignatureRequest(metadata, canonicalForm);
         if (!signatureRequest.signed()) {
             if (signatureRequired || signatureExpected) {
@@ -319,6 +343,15 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
                 throw CocoBusinessExceptions.unauthorized("coco.web.signature.invalid-timestamp");
             }
         }
+    }
+
+    private CocoWebRequestSecurityInput canonicalSecurityInput(CocoWebRequestSecurityInput securityInput) {
+        if (!this.properties.getMetadataSource().supportsParameter()) {
+            return securityInput;
+        }
+        return securityInput.withoutParameters(Set.of(
+                this.properties.getSignatureParameterName(),
+                this.properties.getSignatureFallbackParameterName()));
     }
 
 }

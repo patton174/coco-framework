@@ -67,44 +67,96 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
         CocoWebRequestSecurityInput checkedInput = Objects.requireNonNull(input, "input must not be null");
         String signature = signatureHeader(checkedInput).orElse(null);
         boolean signed = signature != null;
-        boolean encrypted = encrypted(checkedInput.securityHeader(
-                this.encryptionProperties.getEncryptedHeaderName()).orElse(null));
+        boolean encrypted = encrypted(read(checkedInput, this.encryptionProperties.getMetadataSource(),
+                this.encryptionProperties.getEncryptedHeaderName(),
+                this.encryptionProperties.getEncryptedParameterName()).orElse(null));
         return new CocoWebRequestSecurityMetadata(
-                checkedInput.securityHeader(this.signatureProperties.getAppIdHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.signatureProperties.getKeyIdHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.signatureProperties.getTimestampHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.signatureProperties.getNonceHeaderName()).orElse(null),
+                read(checkedInput, this.signatureProperties.getMetadataSource(),
+                        this.signatureProperties.getAppIdHeaderName(),
+                        this.signatureProperties.getAppIdParameterName()).orElse(null),
+                read(checkedInput, this.signatureProperties.getMetadataSource(),
+                        this.signatureProperties.getKeyIdHeaderName(),
+                        this.signatureProperties.getKeyIdParameterName()).orElse(null),
+                read(checkedInput, this.signatureProperties.getMetadataSource(),
+                        this.signatureProperties.getTimestampHeaderName(),
+                        this.signatureProperties.getTimestampParameterName()).orElse(null),
+                read(checkedInput, this.signatureProperties.getMetadataSource(),
+                        this.signatureProperties.getNonceHeaderName(),
+                        this.signatureProperties.getNonceParameterName()).orElse(null),
                 signatureAlgorithm(checkedInput, signed),
                 signature,
                 signed,
-                checkedInput.securityHeader(this.encryptionProperties.getAppIdHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.encryptionProperties.getKeyIdHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.encryptionProperties.getIvHeaderName()).orElse(null),
+                read(checkedInput, this.encryptionProperties.getMetadataSource(),
+                        this.encryptionProperties.getAppIdHeaderName(),
+                        this.encryptionProperties.getAppIdParameterName()).orElse(null),
+                read(checkedInput, this.encryptionProperties.getMetadataSource(),
+                        this.encryptionProperties.getKeyIdHeaderName(),
+                        this.encryptionProperties.getKeyIdParameterName()).orElse(null),
+                read(checkedInput, this.encryptionProperties.getMetadataSource(),
+                        this.encryptionProperties.getIvHeaderName(),
+                        this.encryptionProperties.getIvParameterName()).orElse(null),
                 encryptionAlgorithm(checkedInput, encrypted),
                 encrypted,
-                checkedInput.securityHeader(this.replayProperties.getAppIdHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.replayProperties.getKeyIdHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.replayProperties.getTimestampHeaderName()).orElse(null),
-                checkedInput.securityHeader(this.replayProperties.getNonceHeaderName()).orElse(null));
+                read(checkedInput, this.replayProperties.getMetadataSource(),
+                        this.replayProperties.getAppIdHeaderName(),
+                        this.replayProperties.getAppIdParameterName()).orElse(null),
+                read(checkedInput, this.replayProperties.getMetadataSource(),
+                        this.replayProperties.getKeyIdHeaderName(),
+                        this.replayProperties.getKeyIdParameterName()).orElse(null),
+                read(checkedInput, this.replayProperties.getMetadataSource(),
+                        this.replayProperties.getTimestampHeaderName(),
+                        this.replayProperties.getTimestampParameterName()).orElse(null),
+                read(checkedInput, this.replayProperties.getMetadataSource(),
+                        this.replayProperties.getNonceHeaderName(),
+                        this.replayProperties.getNonceParameterName()).orElse(null));
     }
 
     private Optional<String> signatureHeader(CocoWebRequestSecurityInput input) {
-        return input.securityHeader(this.signatureProperties.getSignatureHeaderName())
-                .or(() -> input.securityHeader(this.signatureProperties.getSignatureFallbackHeaderName()));
+        CocoWebSecurityMetadataSource source = this.signatureProperties.getMetadataSource();
+        return read(input, source, this.signatureProperties.getSignatureHeaderName(),
+                this.signatureProperties.getSignatureParameterName())
+                .or(() -> read(input, source, this.signatureProperties.getSignatureFallbackHeaderName(),
+                        this.signatureProperties.getSignatureFallbackParameterName()));
     }
 
     private String signatureAlgorithm(CocoWebRequestSecurityInput input, boolean signed) {
-        return input.securityHeader(this.signatureProperties.getAlgorithmHeaderName())
+        return read(input, this.signatureProperties.getMetadataSource(),
+                this.signatureProperties.getAlgorithmHeaderName(),
+                this.signatureProperties.getAlgorithmParameterName())
                 .orElse(signed || this.signatureProperties.isRequired()
                         ? this.signatureProperties.getDefaultAlgorithm()
                         : null);
     }
 
     private String encryptionAlgorithm(CocoWebRequestSecurityInput input, boolean encrypted) {
-        return input.securityHeader(this.encryptionProperties.getAlgorithmHeaderName())
+        return read(input, this.encryptionProperties.getMetadataSource(),
+                this.encryptionProperties.getAlgorithmHeaderName(),
+                this.encryptionProperties.getAlgorithmParameterName())
                 .orElse(encrypted || this.encryptionProperties.isRequired()
                         ? this.encryptionProperties.getDefaultAlgorithm()
                         : null);
+    }
+
+    private static Optional<String> read(CocoWebRequestSecurityInput input, CocoWebSecurityMetadataSource source,
+            String headerName, String parameterName) {
+        CocoWebSecurityMetadataSource metadataSource = source == null ? CocoWebSecurityMetadataSource.HEADER : source;
+        Optional<String> headerValue = metadataSource.supportsHeader()
+                ? input.securityHeader(headerName)
+                : Optional.empty();
+        Optional<String> parameterValue = metadataSource.supportsParameter()
+                ? parameter(input, parameterName)
+                : Optional.empty();
+        return metadataSource.parameterFirst()
+                ? parameterValue.or(() -> headerValue)
+                : headerValue.or(() -> parameterValue);
+    }
+
+    private static Optional<String> parameter(CocoWebRequestSecurityInput input, String parameterName) {
+        return input.parameter(parameterName)
+                .flatMap(values -> values.stream()
+                        .filter(value -> value != null && !value.isBlank())
+                        .map(String::trim)
+                        .findFirst());
     }
 
     private static boolean encrypted(String value) {

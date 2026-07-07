@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import io.github.coco.feature.web.context.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.CocoWebRequestMatcherProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -37,19 +38,35 @@ public class CocoSignatureProperties {
 
     private long maxClockSkewSeconds = DEFAULT_MAX_CLOCK_SKEW_SECONDS;
 
+    private CocoWebSecurityMetadataSource metadataSource = CocoWebSecurityMetadataSource.HEADER;
+
     private String appIdHeaderName = "X-Coco-App-Id";
+
+    private String appIdParameterName = "appId";
 
     private String keyIdHeaderName = "X-Coco-Key-Id";
 
+    private String keyIdParameterName = "keyId";
+
     private String timestampHeaderName = "X-Coco-Timestamp";
+
+    private String timestampParameterName = "timestamp";
 
     private String nonceHeaderName = "X-Coco-Nonce";
 
+    private String nonceParameterName = "nonce";
+
     private String signatureHeaderName = "X-Coco-Sign";
+
+    private String signatureParameterName = "sign";
 
     private String signatureFallbackHeaderName = "X-Coco-Signature";
 
+    private String signatureFallbackParameterName = "signature";
+
     private String algorithmHeaderName = "X-Coco-Sign-Algorithm";
+
+    private String algorithmParameterName = "signAlgorithm";
 
     private String defaultAlgorithm = "HMAC-SHA256";
 
@@ -162,6 +179,26 @@ public class CocoSignatureProperties {
 
     /**
      * <p>
+     * 返回签名协议材料解析来源。
+     * </p>
+     * @return 签名协议材料解析来源
+     */
+    public CocoWebSecurityMetadataSource getMetadataSource() {
+        return this.metadataSource;
+    }
+
+    /**
+     * <p>
+     * 设置签名协议材料解析来源。
+     * </p>
+     * @param metadataSource 签名协议材料解析来源
+     */
+    public void setMetadataSource(CocoWebSecurityMetadataSource metadataSource) {
+        this.metadataSource = metadataSource == null ? CocoWebSecurityMetadataSource.HEADER : metadataSource;
+    }
+
+    /**
+     * <p>
      * 返回 AppId 请求头名称。
      * </p>
      * @return AppId 请求头名称
@@ -178,6 +215,26 @@ public class CocoSignatureProperties {
      */
     public void setAppIdHeaderName(String appIdHeaderName) {
         this.appIdHeaderName = normalizeHeaderName(appIdHeaderName, "X-Coco-App-Id");
+    }
+
+    /**
+     * <p>
+     * 返回 AppId 请求参数名称。
+     * </p>
+     * @return AppId 请求参数名称
+     */
+    public String getAppIdParameterName() {
+        return this.appIdParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置 AppId 请求参数名称。
+     * </p>
+     * @param appIdParameterName AppId 请求参数名称
+     */
+    public void setAppIdParameterName(String appIdParameterName) {
+        this.appIdParameterName = normalizeParameterName(appIdParameterName, "appId");
     }
 
     /**
@@ -202,6 +259,26 @@ public class CocoSignatureProperties {
 
     /**
      * <p>
+     * 返回 KeyId 请求参数名称。
+     * </p>
+     * @return KeyId 请求参数名称
+     */
+    public String getKeyIdParameterName() {
+        return this.keyIdParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置 KeyId 请求参数名称。
+     * </p>
+     * @param keyIdParameterName KeyId 请求参数名称
+     */
+    public void setKeyIdParameterName(String keyIdParameterName) {
+        this.keyIdParameterName = normalizeParameterName(keyIdParameterName, "keyId");
+    }
+
+    /**
+     * <p>
      * 返回时间戳请求头名称。
      * </p>
      * @return 时间戳请求头名称
@@ -218,6 +295,26 @@ public class CocoSignatureProperties {
      */
     public void setTimestampHeaderName(String timestampHeaderName) {
         this.timestampHeaderName = normalizeHeaderName(timestampHeaderName, "X-Coco-Timestamp");
+    }
+
+    /**
+     * <p>
+     * 返回时间戳请求参数名称。
+     * </p>
+     * @return 时间戳请求参数名称
+     */
+    public String getTimestampParameterName() {
+        return this.timestampParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置时间戳请求参数名称。
+     * </p>
+     * @param timestampParameterName 时间戳请求参数名称
+     */
+    public void setTimestampParameterName(String timestampParameterName) {
+        this.timestampParameterName = normalizeParameterName(timestampParameterName, "timestamp");
     }
 
     /**
@@ -242,6 +339,26 @@ public class CocoSignatureProperties {
 
     /**
      * <p>
+     * 返回随机串请求参数名称。
+     * </p>
+     * @return 随机串请求参数名称
+     */
+    public String getNonceParameterName() {
+        return this.nonceParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置随机串请求参数名称。
+     * </p>
+     * @param nonceParameterName 随机串请求参数名称
+     */
+    public void setNonceParameterName(String nonceParameterName) {
+        this.nonceParameterName = normalizeParameterName(nonceParameterName, "nonce");
+    }
+
+    /**
+     * <p>
      * 返回签名请求头名称。
      * </p>
      * @return 签名请求头名称
@@ -258,6 +375,26 @@ public class CocoSignatureProperties {
      */
     public void setSignatureHeaderName(String signatureHeaderName) {
         this.signatureHeaderName = normalizeHeaderName(signatureHeaderName, "X-Coco-Sign");
+    }
+
+    /**
+     * <p>
+     * 返回签名请求参数名称。
+     * </p>
+     * @return 签名请求参数名称
+     */
+    public String getSignatureParameterName() {
+        return this.signatureParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置签名请求参数名称。
+     * </p>
+     * @param signatureParameterName 签名请求参数名称
+     */
+    public void setSignatureParameterName(String signatureParameterName) {
+        this.signatureParameterName = normalizeParameterName(signatureParameterName, "sign");
     }
 
     /**
@@ -282,6 +419,26 @@ public class CocoSignatureProperties {
 
     /**
      * <p>
+     * 返回签名兜底请求参数名称。
+     * </p>
+     * @return 签名兜底请求参数名称
+     */
+    public String getSignatureFallbackParameterName() {
+        return this.signatureFallbackParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置签名兜底请求参数名称。
+     * </p>
+     * @param signatureFallbackParameterName 签名兜底请求参数名称
+     */
+    public void setSignatureFallbackParameterName(String signatureFallbackParameterName) {
+        this.signatureFallbackParameterName = normalizeParameterName(signatureFallbackParameterName, "signature");
+    }
+
+    /**
+     * <p>
      * 返回签名算法请求头名称。
      * </p>
      * @return 签名算法请求头名称
@@ -298,6 +455,26 @@ public class CocoSignatureProperties {
      */
     public void setAlgorithmHeaderName(String algorithmHeaderName) {
         this.algorithmHeaderName = normalizeHeaderName(algorithmHeaderName, "X-Coco-Sign-Algorithm");
+    }
+
+    /**
+     * <p>
+     * 返回签名算法请求参数名称。
+     * </p>
+     * @return 签名算法请求参数名称
+     */
+    public String getAlgorithmParameterName() {
+        return this.algorithmParameterName;
+    }
+
+    /**
+     * <p>
+     * 设置签名算法请求参数名称。
+     * </p>
+     * @param algorithmParameterName 签名算法请求参数名称
+     */
+    public void setAlgorithmParameterName(String algorithmParameterName) {
+        this.algorithmParameterName = normalizeParameterName(algorithmParameterName, "signAlgorithm");
     }
 
     /**
@@ -367,6 +544,10 @@ public class CocoSignatureProperties {
 
     private static String normalizeHeaderName(String headerName, String defaultValue) {
         return headerName == null || headerName.isBlank() ? defaultValue : headerName.trim();
+    }
+
+    private static String normalizeParameterName(String parameterName, String defaultValue) {
+        return parameterName == null || parameterName.isBlank() ? defaultValue : parameterName.trim();
     }
 
     private static Map<String, String> normalizeSecrets(Map<String, String> secrets) {
