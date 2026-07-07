@@ -1,5 +1,7 @@
 package io.github.coco.common.logging.access;
 
+import java.util.List;
+
 /**
  * Coco 接口访问日志格式化器。
  * <p>
@@ -28,4 +30,19 @@ public interface CocoAccessLogFormatter {
      * @return 可打印文本
      */
     String format(CocoAccessLog accessLog, CocoAccessLogProperties properties);
+
+    /**
+     * <p>
+     * 将接口访问日志事件格式化为一组可独立输出的日志正文。
+     * </p>
+     * <p>
+     * 默认保持单条日志事件，业务自定义格式化器无需为了兼容升级修改实现。需要让 request、response 分别拥有日志前缀时，可覆盖该方法返回多条正文。
+     * </p>
+     * @param accessLog 接口访问日志事件
+     * @param properties 接口访问日志配置
+     * @return 可独立输出的日志正文集合
+     */
+    default List<String> formatEntries(CocoAccessLog accessLog, CocoAccessLogProperties properties) {
+        return List.of(format(accessLog, properties));
+    }
 }

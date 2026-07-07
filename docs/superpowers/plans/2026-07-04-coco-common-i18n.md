@@ -140,5 +140,5 @@
 ## Self-Review
 
 - Spec coverage: module wiring, public/internal boundary, i18n service, framework exception/message prompts, Spring Boot auto-configuration, metadata, sample, and full verification are covered.
-- Scope check: request locale resolution, global exception handling, response translation, database messages, frontend export, and annotation i18n are excluded.
+- Scope check: request locale resolution, global exception handling, response translation, database messages, frontend export, and annotation i18n are out of scope.
 - Type consistency: property namespace is `coco.common.i18n`; artifact is `coco-common-i18n`; public packages use `io.github.coco.common`.

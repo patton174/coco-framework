@@ -28,11 +28,11 @@ import org.junit.jupiter.api.Test;
 class CocoConfigurationMetadataTest {
 
     @Test
-    void exposesFeatureExcludePropertyMetadata() throws IOException {
+    void exposesFeatureDisabledPropertyMetadata() throws IOException {
         InputStream metadata = getClass().getResourceAsStream("/META-INF/spring-configuration-metadata.json");
 
         assertNotNull(metadata);
         String content = new String(metadata.readAllBytes(), StandardCharsets.UTF_8);
-        assertTrue(content.contains("\"name\": \"coco.features.exclude\""));
+        assertTrue(content.contains("\"name\": \"coco.features.disabled\""));
     }
 }

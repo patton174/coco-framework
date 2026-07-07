@@ -11,6 +11,9 @@ import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.exception.type.CocoSystemException;
 import io.github.coco.common.exception.type.CocoUnauthorizedException;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.common.logging.core.CocoLogHandles;
+import io.github.coco.common.logging.core.CocoLogLevel;
+import io.github.coco.common.logging.core.CocoLogManager;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.response.CocoResponseBodyFactory;
 import io.github.coco.feature.web.response.CocoResponseMetadata;
@@ -69,6 +72,8 @@ public class CocoWebExceptionHandler {
     private final CocoTraceProperties traceProperties;
 
     private final CocoResponseBodyFactory responseBodyFactory;
+
+    private final CocoLogManager logManager;
 
     /**
      * <p>
@@ -131,6 +136,26 @@ public class CocoWebExceptionHandler {
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
             CocoResponseBodyFactory responseBodyFactory) {
+        this(messageService, httpStatusResolver, codeProvider, responseProperties, traceProperties,
+                responseBodyFactory, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 全局异常处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
+     * @param responseProperties 统一响应配置
+     * @param traceProperties Trace 配置
+     * @param responseBodyFactory 响应体工厂
+     * @param logManager Coco 日志管理器；为空时不输出异常日志
+     */
+    public CocoWebExceptionHandler(CocoMessageService messageService,
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
+            CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
+            CocoResponseBodyFactory responseBodyFactory, CocoLogManager logManager) {
         this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
         this.httpStatusResolver = Objects.requireNonNull(httpStatusResolver,
                 "httpStatusResolver must not be null");
@@ -139,6 +164,7 @@ public class CocoWebExceptionHandler {
         this.traceProperties = traceProperties == null ? new CocoTraceProperties() : traceProperties;
         this.responseBodyFactory = Objects.requireNonNull(responseBodyFactory,
                 "responseBodyFactory must not be null");
+        this.logManager = logManager;
     }
 
     /**
@@ -157,6 +183,7 @@ public class CocoWebExceptionHandler {
         String message = this.messageService.resolve(checkedException.message());
         int code = checkedException.businessCode()
                 .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
+        logException(checkedException, statusCode, code, request, message);
         return error(statusCode, code, message, request);
     }
 
@@ -178,7 +205,9 @@ public class CocoWebExceptionHandler {
     public ResponseEntity<Object> handleBadRequestException(Exception exception, WebRequest request) {
         Objects.requireNonNull(exception, "exception must not be null");
         String message = this.messageService.getMessage(BAD_REQUEST_MESSAGE_CODE);
-        return error(HttpStatus.BAD_REQUEST, this.codeProvider.invalidArgument(), message, request);
+        int code = this.codeProvider.invalidArgument();
+        logException(exception, HttpStatus.BAD_REQUEST, code, request);
+        return error(HttpStatus.BAD_REQUEST, code, message, request);
     }
 
     /**
@@ -193,7 +222,9 @@ public class CocoWebExceptionHandler {
     public ResponseEntity<Object> handleNotFoundException(NoHandlerFoundException exception, WebRequest request) {
         Objects.requireNonNull(exception, "exception must not be null");
         String message = this.messageService.getMessage(CocoCommonErrorCode.NOT_FOUND, resolvePath(request));
-        return error(HttpStatus.NOT_FOUND, this.codeProvider.notFound(), message, request);
+        int code = this.codeProvider.notFound();
+        logException(exception, HttpStatus.NOT_FOUND, code, request);
+        return error(HttpStatus.NOT_FOUND, code, message, request);
     }
 
     /**
@@ -209,7 +240,9 @@ public class CocoWebExceptionHandler {
             HttpRequestMethodNotSupportedException exception, WebRequest request) {
         Objects.requireNonNull(exception, "exception must not be null");
         String message = this.messageService.getMessage(METHOD_NOT_ALLOWED_MESSAGE_CODE);
-        return error(HttpStatus.METHOD_NOT_ALLOWED, this.codeProvider.invalidArgument(), message, request);
+        int code = this.codeProvider.invalidArgument();
+        logException(exception, HttpStatus.METHOD_NOT_ALLOWED, code, request);
+        return error(HttpStatus.METHOD_NOT_ALLOWED, code, message, request);
     }
 
     /**
@@ -224,7 +257,89 @@ public class CocoWebExceptionHandler {
     public ResponseEntity<Object> handleUnhandledException(Exception exception, WebRequest request) {
         Objects.requireNonNull(exception, "exception must not be null");
         String message = this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR);
-        return error(HttpStatus.INTERNAL_SERVER_ERROR, this.codeProvider.internalError(), message, request);
+        int code = this.codeProvider.internalError();
+        logException(exception, HttpStatus.INTERNAL_SERVER_ERROR, code, request);
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, code, message, request);
+    }
+
+    private void logException(Throwable exception, HttpStatusCode statusCode, int code, WebRequest request) {
+        logException(exception, statusCode, code, request, null);
+    }
+
+    private void logException(Throwable exception, HttpStatusCode statusCode, int code, WebRequest request,
+            String resolvedMessage) {
+        if (this.logManager == null || exception == null) {
+            return;
+        }
+        CocoLogLevel level = statusCode != null && statusCode.is5xxServerError()
+                ? CocoLogLevel.ERROR
+                : CocoLogLevel.WARN;
+        this.logManager.log(CocoLogHandles.EXCEPTION, level,
+                formatExceptionLogMessage(exception, statusCode, code, request),
+                localizedFailure(exception, resolvedMessage));
+    }
+
+    private static String formatExceptionLogMessage(Throwable exception, HttpStatusCode statusCode, int code,
+            WebRequest request) {
+        StringBuilder builder = new StringBuilder("exception");
+        builder.append(" type=").append(exception.getClass().getName());
+        if (statusCode != null) {
+            builder.append(" status=").append(statusCode.value());
+        }
+        builder.append(" code=").append(code);
+        CocoTraceContext.currentTraceId().ifPresent(traceId -> builder.append(" traceId=").append(traceId));
+        String path = resolvePath(request);
+        if (path != null) {
+            builder.append(" path=").append(path);
+        }
+        if (exception instanceof CocoException cocoException) {
+            builder.append(" messageCode=").append(cocoException.messageCode());
+        }
+        return builder.toString();
+    }
+
+    private Throwable localizedFailure(Throwable exception, String resolvedMessage) {
+        if (!(exception instanceof CocoException cocoException)) {
+            return exception;
+        }
+        String message = resolvedMessage == null || resolvedMessage.isBlank()
+                ? this.messageService.resolve(cocoException.message())
+                : resolvedMessage;
+        Throwable localizedCause = localizedFailure(cocoException.getCause(), null);
+        CocoException localizedException = copyCocoException(cocoException, message, localizedCause);
+        localizedException.setStackTrace(cocoException.getStackTrace());
+        for (Throwable suppressed : cocoException.getSuppressed()) {
+            localizedException.addSuppressed(localizedFailure(suppressed, null));
+        }
+        return localizedException;
+    }
+
+    private Throwable localizedFailure(Throwable exception) {
+        return localizedFailure(exception, null);
+    }
+
+    private static CocoException copyCocoException(CocoException exception, String message, Throwable cause) {
+        Object[] args = exception.args();
+        String code = exception.code();
+        if (exception instanceof CocoConflictException) {
+            return new CocoConflictException(code, message, cause, args);
+        }
+        if (exception instanceof CocoForbiddenException) {
+            return new CocoForbiddenException(code, message, cause, args);
+        }
+        if (exception instanceof CocoNotFoundException) {
+            return new CocoNotFoundException(code, message, cause, args);
+        }
+        if (exception instanceof CocoPayloadTooLargeException || exception instanceof CocoRequestException) {
+            return new CocoRequestException(code, message, cause, args);
+        }
+        if (exception instanceof CocoSystemException) {
+            return new CocoSystemException(code, message, cause, args);
+        }
+        if (exception instanceof CocoUnauthorizedException) {
+            return new CocoUnauthorizedException(code, message, cause, args);
+        }
+        return new CocoException(code, message, cause, args);
     }
 
     private ResponseEntity<Object> error(HttpStatusCode statusCode, int code, String message, WebRequest request) {

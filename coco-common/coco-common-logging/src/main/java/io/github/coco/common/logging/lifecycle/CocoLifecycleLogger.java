@@ -29,6 +29,8 @@ import org.springframework.context.ConfigurableApplicationContext;
  */
 public final class CocoLifecycleLogger {
 
+    private static final String STARTED_HANDLE = CocoLogHandles.LIFECYCLE;
+
     private final CocoLogManager logManager;
 
     /**
@@ -58,8 +60,8 @@ public final class CocoLifecycleLogger {
      * @param timeTaken 启动耗时
      */
     public void started(ConfigurableApplicationContext context, Duration timeTaken) {
-        startedMessages(context, timeTaken)
-                .forEach(message -> this.logManager.info(CocoLogHandles.LIFECYCLE, message));
+        startedRecords(context, timeTaken)
+                .forEach(message -> this.logManager.info(STARTED_HANDLE, message));
     }
 
     /**
@@ -70,7 +72,7 @@ public final class CocoLifecycleLogger {
      * @param timeTaken 启动耗时
      */
     public void ready(ConfigurableApplicationContext context, Duration timeTaken) {
-        this.logManager.info(CocoLogHandles.LIFECYCLE, readyMessage(context, timeTaken));
+        this.logManager.info(STARTED_HANDLE, readyMessage(context, timeTaken));
     }
 
     /**
@@ -81,7 +83,7 @@ public final class CocoLifecycleLogger {
      * @param exception 启动异常
      */
     public void failed(ConfigurableApplicationContext context, Throwable exception) {
-        this.logManager.error(CocoLogHandles.LIFECYCLE, failedMessage(context, exception), exception);
+        this.logManager.error(STARTED_HANDLE, failedMessage(context, exception), exception);
     }
 
     /**
@@ -93,7 +95,7 @@ public final class CocoLifecycleLogger {
      * @return 应用上下文启动完成事件日志文本
      */
     public String startedMessage(ConfigurableApplicationContext context, Duration timeTaken) {
-        return String.join(System.lineSeparator(), startedMessages(context, timeTaken));
+        return String.join(System.lineSeparator(), startedRecords(context, timeTaken));
     }
 
     /**
@@ -105,12 +107,7 @@ public final class CocoLifecycleLogger {
      * @return 应用上下文启动完成事件日志文本列表
      */
     public List<String> startedMessages(ConfigurableApplicationContext context, Duration timeTaken) {
-        return List.of(
-                "app " + context.getId(),
-                "profiles " + activeProfiles(context),
-                "time " + durationMillis(timeTaken) + "ms",
-                "java " + System.getProperty("java.version"),
-                "pid " + ProcessHandle.current().pid());
+        return startedRecords(context, timeTaken);
     }
 
     /**
@@ -149,6 +146,15 @@ public final class CocoLifecycleLogger {
                 "  app       " + application,
                 "  exception " + exceptionName,
                 "  message   " + message);
+    }
+
+    private static List<String> startedRecords(ConfigurableApplicationContext context, Duration timeTaken) {
+        return List.of(
+                "app " + context.getId(),
+                "profiles " + activeProfiles(context),
+                "time " + durationMillis(timeTaken) + "ms",
+                "java " + System.getProperty("java.version"),
+                "pid " + ProcessHandle.current().pid());
     }
 
     private static long durationMillis(Duration duration) {

@@ -4,15 +4,15 @@ import test from 'node:test';
 import { renderLine, renderText, stripAnsi } from '../bin/coco-log-renderer.mjs';
 
 test('renders coco log line compactly without colors', () => {
-  const line = '2026-07-06 00:21:53.738 INFO  coco lifecycle  [           main] ▸ startup';
+  const line = '2026-07-06 00:21:53.738 INFO  COCO io.github.coco.lifecycle [main] : app application';
 
   assert.equal(renderLine(line, { colors: false }),
-    '2026-07-06 00:21:53.738 INFO  lifecycle  main ▸ startup');
+    '2026-07-06 00:21:53.738 INFO  io.github.coco.lifecycle main app      application');
 });
 
-test('keeps lightweight unicode banner readable', () => {
-  assert.equal(renderLine('   _|_|_|                _|_|_|                    _|_|_|                         _|                        ', { colors: false }),
-    '   _|_|_|                _|_|_|                    _|_|_|                         _|                        ');
+test('keeps unicode art banner readable', () => {
+  assert.equal(renderLine(' ██████╗ ██████╗  ██████╗ ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ', { colors: false }),
+    ' ██████╗ ██████╗  ██████╗ ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ');
   assert.equal(renderLine('：：coco 1.0.0-SNAPSHOT', { colors: false }),
     '：：coco 1.0.0-SNAPSHOT');
   assert.equal(renderLine('：：spring boot 4.1.0', { colors: false }),
@@ -32,21 +32,21 @@ test('strips existing ansi codes before rendering', () => {
 
 test('renders multiline text', () => {
   const text = [
-    '   _|_|_|                _|_|_|                    _|_|_|                         _|                        ',
+    ' ██████╗ ██████╗  ██████╗ ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ',
     '2026-07-06 00:21:53.738 WARN  coco access     [nio-8080-exec-1] slow request',
   ].join('\n');
 
   assert.equal(renderText(text, { colors: false }), [
-    '   _|_|_|                _|_|_|                    _|_|_|                         _|                        ',
+    ' ██████╗ ██████╗  ██████╗ ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ',
     '2026-07-06 00:21:53.738 WARN  access     nio-8080-exec-1 slow request',
   ].join('\n'));
 });
 
 test('renders old ansi log chunk as clean text', () => {
-  const text = '2026-07-06 00:21:53.738 \u001b[34mINFO \u001b[0;39m coco lifecycle  [           main] ▸ startup';
+  const text = '2026-07-06 00:21:53.738 \u001b[34mINFO \u001b[0;39m coco lifecycle  [           main] app application';
 
   assert.equal(renderText(text, { colors: false }),
-    '2026-07-06 00:21:53.738 INFO  lifecycle  main ▸ startup');
+    '2026-07-06 00:21:53.738 INFO  lifecycle  main app      application');
 });
 
 test('renders current uppercase coco prefix with readable logger names', () => {
@@ -54,4 +54,9 @@ test('renders current uppercase coco prefix with readable logger names', () => {
 
   assert.equal(renderText(text, { colors: false }),
     '2026-07-06 00:21:53.738 INFO  io.github.coco.lifecycle main ◂ ready');
+});
+
+test('keeps access log arrows readable', () => {
+  assert.equal(renderLine('▸ request', { colors: false }), '▸ request');
+  assert.equal(renderLine('◂ response', { colors: false }), '◂ response');
 });

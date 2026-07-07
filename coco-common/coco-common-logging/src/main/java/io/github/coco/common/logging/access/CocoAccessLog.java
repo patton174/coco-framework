@@ -12,7 +12,7 @@ import java.util.Optional;
  * Coco 接口访问日志。
  * <p>
  * 表示一次接口请求完成后的访问日志事件，保存 TraceId、HTTP 方法、请求路径、请求头、客户端信息、请求参数、
- * 响应状态、耗时、成功标记和异常类型，以及请求体和安全快照的摘要字段。
+ * 响应状态、耗时、成功标记、异常类型、异常对象，以及请求体和安全快照的摘要字段。
  * </p>
  * <p>
  * 项目信息：
@@ -67,11 +67,14 @@ public final class CocoAccessLog {
 
     private final String exceptionType;
 
+    private final Throwable failure;
+
     private CocoAccessLog(String traceId, String method, String path, int status, long durationMillis,
             boolean success, String exceptionType, String clientIp, String clientIpSource, String userAgent,
             String contentType, String queryString, Map<String, String> headers, String requestBodySha256,
             Long requestBodyLength, String requestBodyStage, String browserFingerprint,
-            String payloadParseStatus, String requestTargetSource, Map<String, List<String>> requestParameters) {
+            String payloadParseStatus, String requestTargetSource, Map<String, List<String>> requestParameters,
+            Throwable failure) {
         this.traceId = requireTraceId(traceId);
         this.method = normalizeMethod(method);
         this.path = normalizeOptional(path);
@@ -91,7 +94,8 @@ public final class CocoAccessLog {
         this.status = status;
         this.durationMillis = requireDurationMillis(durationMillis);
         this.success = success;
-        this.exceptionType = normalizeOptional(exceptionType);
+        this.exceptionType = normalizeExceptionType(exceptionType, failure);
+        this.failure = failure;
     }
 
     /**
@@ -110,7 +114,7 @@ public final class CocoAccessLog {
     public static CocoAccessLog of(String traceId, String method, String path, int status,
             long durationMillis, boolean success, String exceptionType) {
         return new CocoAccessLog(traceId, method, path, status, durationMillis, success, exceptionType,
-                null, null, null, null, null, Map.of(), null, null, null, null, null, null, Map.of());
+                null, null, null, null, null, Map.of(), null, null, null, null, null, null, Map.of(), null);
     }
 
     /**
@@ -135,7 +139,7 @@ public final class CocoAccessLog {
             String queryString, Map<String, List<String>> requestParameters) {
         return new CocoAccessLog(traceId, method, path, status, durationMillis, success, exceptionType,
                 clientIp, null, userAgent, null, queryString, Map.of(), null, null, null, null, null, null,
-                requestParameters);
+                requestParameters, null);
     }
 
     /**
@@ -172,7 +176,25 @@ public final class CocoAccessLog {
         return new CocoAccessLog(traceId, method, path, status, durationMillis, success, exceptionType,
                 clientIp, clientIpSource, userAgent, contentType, queryString, headers, requestBodySha256,
                 requestBodyLength, requestBodyStage, browserFingerprint, payloadParseStatus, requestTargetSource,
-                requestParameters);
+                requestParameters, null);
+    }
+
+    /**
+     * <p>
+     * 返回携带异常对象的新访问日志事件。
+     * </p>
+     * <p>
+     * 访问日志对象保持不可变；需要把真实异常交给日志输出器时，通过该方法生成带异常的新事件。
+     * </p>
+     * @param failure 请求处理异常；没有异常时为空
+     * @return 携带异常对象的新访问日志事件
+     */
+    public CocoAccessLog withFailure(Throwable failure) {
+        return new CocoAccessLog(this.traceId, this.method, this.path, this.status, this.durationMillis, this.success,
+                this.exceptionType, this.clientIp, this.clientIpSource, this.userAgent, this.contentType,
+                this.queryString, this.headers, this.requestBodySha256, this.requestBodyLength,
+                this.requestBodyStage, this.browserFingerprint, this.payloadParseStatus, this.requestTargetSource,
+                this.requestParameters, failure);
     }
 
     public String traceId() {
@@ -255,6 +277,16 @@ public final class CocoAccessLog {
         return Optional.ofNullable(this.exceptionType);
     }
 
+    /**
+     * <p>
+     * 返回请求处理异常。
+     * </p>
+     * @return 请求处理异常；没有异常时为空
+     */
+    public Optional<Throwable> failure() {
+        return Optional.ofNullable(this.failure);
+    }
+
     private static String requireTraceId(String traceId) {
         if (traceId == null || traceId.isBlank()) {
             throw new IllegalArgumentException("traceId must not be blank");
@@ -276,6 +308,14 @@ public final class CocoAccessLog {
 
     private static String normalizeOptional(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String normalizeExceptionType(String exceptionType, Throwable failure) {
+        String normalizedExceptionType = normalizeOptional(exceptionType);
+        if (normalizedExceptionType != null) {
+            return normalizedExceptionType;
+        }
+        return failure == null ? null : failure.getClass().getName();
     }
 
     private static Map<String, String> normalizeHeaders(Map<String, String> headers) {

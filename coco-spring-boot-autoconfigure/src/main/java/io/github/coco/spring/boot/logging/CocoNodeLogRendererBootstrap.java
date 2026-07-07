@@ -62,16 +62,20 @@ public final class CocoNodeLogRendererBootstrap {
             return;
         }
         PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
         try {
             Path rendererScript = extractRendererScript();
             Process process = startRenderer(environment, rendererScript);
             pipe(process.getInputStream(), originalOut, "coco-node-log-renderer-out");
-            pipe(process.getErrorStream(), System.err, "coco-node-log-renderer-err");
+            pipe(process.getErrorStream(), originalErr, "coco-node-log-renderer-err");
 
-            PrintStream proxy = new PrintStream(new FallbackOutputStream(process.getOutputStream(), originalOut),
+            OutputStream rendererInput = process.getOutputStream();
+            PrintStream outProxy = new PrintStream(new FallbackOutputStream(rendererInput, originalOut),
                     true, StandardCharsets.UTF_8);
-            System.setOut(proxy);
-            System.setErr(proxy);
+            PrintStream errProxy = new PrintStream(new FallbackOutputStream(rendererInput, originalErr),
+                    true, StandardCharsets.UTF_8);
+            System.setOut(outProxy);
+            System.setErr(errProxy);
             Runtime.getRuntime().addShutdownHook(new Thread(() -> stop(process), "coco-node-log-renderer-stop"));
         }
         catch (RuntimeException | IOException ex) {
@@ -198,17 +202,25 @@ public final class CocoNodeLogRendererBootstrap {
     private static String findExistingNodeExecutable() {
         List<Path> candidates = new ArrayList<>();
         addNodeCandidate(candidates, System.getenv("COCO_NODE_COMMAND"));
+        addNodePathCandidates(candidates, System.getenv("PATH"));
         addNodeCandidate(candidates, System.getenv("ProgramFiles") + "\\nodejs");
         addNodeCandidate(candidates, System.getenv("ProgramFiles(x86)") + "\\nodejs");
         addNodeCandidate(candidates, System.getenv("LOCALAPPDATA") + "\\Programs\\nodejs");
-        addNodeCandidate(candidates, "D:\\Program Files\\nodejs");
-        addNodeCandidate(candidates, "D:\\Programs\\nodejs");
         for (Path candidate : candidates) {
             if (Files.isRegularFile(candidate)) {
                 return candidate.toString();
             }
         }
         return null;
+    }
+
+    private static void addNodePathCandidates(List<Path> candidates, String pathValue) {
+        if (pathValue == null || pathValue.isBlank()) {
+            return;
+        }
+        for (String entry : pathValue.split(java.io.File.pathSeparator)) {
+            addNodeCandidate(candidates, entry);
+        }
     }
 
     private static void addNodeCandidate(List<Path> candidates, String value) {

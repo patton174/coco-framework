@@ -27,8 +27,6 @@ public class CocoFeatureProperties {
 
     private Set<CocoFeature> disabled = new LinkedHashSet<>();
 
-    private Set<CocoFeature> exclude = new LinkedHashSet<>();
-
     /**
      * <p>
      * 返回配置文件中显式启用的功能集合。
@@ -71,36 +69,11 @@ public class CocoFeatureProperties {
 
     /**
      * <p>
-     * 返回旧版排除式配置集合。
-     * </p>
-     * @return 旧版排除式配置集合
-     */
-    public Set<CocoFeature> getExclude() {
-        return this.exclude;
-    }
-
-    /**
-     * <p>
-     * 设置旧版排除式配置集合。
-     * </p>
-     * <p>
-     * 该属性作为 {@code disabled} 的兼容别名保留。
-     * </p>
-     * @param exclude 旧版排除式配置集合
-     */
-    public void setExclude(Set<CocoFeature> exclude) {
-        this.exclude = exclude == null ? new LinkedHashSet<>() : new LinkedHashSet<>(exclude);
-    }
-
-    /**
-     * <p>
-     * 合并新版禁用配置和旧版排除式配置。
+     * 返回最终禁用声明集合。
      * </p>
      * @return 最终禁用声明集合
      */
     public Set<CocoFeature> disabledFeatures() {
-        LinkedHashSet<CocoFeature> features = new LinkedHashSet<>(this.disabled);
-        features.addAll(this.exclude);
-        return Set.copyOf(features);
+        return Set.copyOf(this.disabled);
     }
 }

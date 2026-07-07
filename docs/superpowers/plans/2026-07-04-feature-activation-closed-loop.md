@@ -13,7 +13,7 @@
 - Keep business usage as a single dependency on `coco-spring-boot-starter`.
 - Default standard features are enabled unless explicitly disabled.
 - Support code configuration with `@CocoFeatures(enabled = {...}, disabled = {...})`.
-- Keep existing `coco.features.exclude` working as an alias for disabled features.
+- Use `coco.features.disabled` as the only configuration-file entry for disabled features.
 - Disabled features win over enabled features within the same configuration source.
 - Code configuration has higher priority than application configuration.
 - Generate `META-INF/coco/features.json` during the Maven build.
@@ -33,12 +33,12 @@
 
 **Interfaces:**
 - Produces: `@CocoFeatures(enabled = CocoFeature[], disabled = CocoFeature[])`.
-- Produces: `CocoFeatureRegistry.include(...)`, `enable(...)`, `disable(...)`, `includedFeatures()`.
+- Produces: `CocoFeatureRegistry.enable(...)`, `disable(...)`, `enabledFeatures()`, `disabledFeatures()`.
 
 - [ ] Add the `CocoFeatures` annotation with runtime retention and type target.
-- [ ] Extend `CocoFeatureRegistry` with include/enable/disable methods while keeping `exclude(...)`.
-- [ ] Update `DefaultCocoFeatureRegistry` to store included and excluded sets.
-- [ ] Add tests proving include/exclude aliases and null-safe behavior.
+- [ ] Extend `CocoFeatureRegistry` with enable/disable methods.
+- [ ] Update `DefaultCocoFeatureRegistry` to store enabled and disabled sets.
+- [ ] Add tests proving enable/disable chaining and null-safe behavior.
 
 ### Task 2: Shared Feature Decision Model
 
@@ -76,7 +76,7 @@
 - Consumes: `CocoFeatureSelection`, `CocoFeaturePlan`, `CocoFeatures`.
 - Produces: Spring bean `CocoFeaturePlan`.
 
-- [ ] Add `enabled`, `disabled`, and `exclude` alias handling to `CocoFeatureProperties`.
+- [ ] Add `enabled` and `disabled` handling to `CocoFeatureProperties`.
 - [ ] Collect `@CocoFeatures` from Spring bean definitions without requiring business code to implement an interface.
 - [ ] Merge properties, `CocoConfigurer`, and annotation selections into one plan.
 - [ ] Prefer `META-INF/coco/features.json` when present.
@@ -99,7 +99,7 @@
 - Produces: Maven runtime dependencies for enabled feature modules.
 
 - [ ] Add plugin dependencies on `coco-api-core`, `coco-feature-registry`, Maven project APIs, Jackson, SnakeYAML, JUnit, and AssertJ.
-- [ ] Parse `coco.features.enabled`, `coco.features.disabled`, and `coco.features.exclude`.
+- [ ] Parse `coco.features.enabled` and `coco.features.disabled`.
 - [ ] Scan compiled project classes for `@CocoFeatures`.
 - [ ] Generate deterministic JSON manifest under `META-INF/coco/features.json`.
 - [ ] Add enabled feature module dependencies to the Maven project model if they are not already present.

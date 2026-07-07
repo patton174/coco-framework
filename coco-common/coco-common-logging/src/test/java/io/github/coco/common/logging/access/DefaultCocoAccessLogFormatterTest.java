@@ -1,6 +1,7 @@
 package io.github.coco.common.logging.access;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
@@ -53,10 +54,24 @@ class DefaultCocoAccessLogFormatterTest {
                         + "  headers            content-type=application/json\n"
                         + "  params             sku=COCO-STARTER&token=******\n"
                         + "◂ response\n"
+                        + "  traceId            trace-1001\n"
                         + "  status             201\n"
                         + "  duration           42ms\n"
                         + "  success            true",
                 normalize(formatter.format(accessLog, properties)));
+    }
+
+    @Test
+    void formatsTextEntriesAsIndependentRequestAndResponseMessages() {
+        CocoAccessLog accessLog = CocoAccessLog.of("trace-1001", "get", "/sample/products",
+                200, 12L, true, null);
+        DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
+
+        List<String> entries = formatter.formatEntries(accessLog, new CocoAccessLogProperties());
+
+        assertEquals(2, entries.size());
+        assertTrue(entries.get(0).startsWith("▸ request"));
+        assertTrue(entries.get(1).startsWith("◂ response"));
     }
 
     @Test

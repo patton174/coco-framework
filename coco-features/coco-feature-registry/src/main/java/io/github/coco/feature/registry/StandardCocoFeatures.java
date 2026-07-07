@@ -14,7 +14,7 @@ import io.github.coco.api.feature.CocoFeature;
 /**
  * Coco 标准功能元数据。
  * <p>
- * 维护框架标准功能清单，并根据排除项递归计算最终启用的功能集合。
+ * 维护框架标准功能清单，并根据显式禁用项递归计算最终启用的功能集合。
  * </p>
  * <p>
  * 项目信息：
@@ -81,14 +81,11 @@ public final class StandardCocoFeatures {
      * <p>
      * 根据显式禁用集合计算最终启用的功能集合。
      * </p>
-     * <p>
-     * 该方法保留给旧的排除式配置使用，内部会转换为 {@link CocoFeatureSelection} 后统一解析。
-     * </p>
-     * @param excluded 显式禁用的功能集合
+     * @param disabled 显式禁用的功能集合
      * @return 经过依赖传播后的最终启用功能集合
      */
-    public static Set<CocoFeature> resolveEnabled(Set<CocoFeature> excluded) {
-        return resolve(CocoFeatureSelection.ofDisabled(excluded)).enabledFeatures();
+    public static Set<CocoFeature> resolveEnabledFeatures(Set<CocoFeature> disabled) {
+        return resolve(CocoFeatureSelection.ofDisabled(disabled)).enabledFeatures();
     }
 
     /**

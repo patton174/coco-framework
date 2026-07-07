@@ -336,7 +336,7 @@ Tests should cover:
 7. `CocoException` preserves code, arguments, default message, and cause.
 8. `CocoMessage` rejects blank codes and can be resolved by `CocoMessageService`.
 
-## Scope Exclusions
+## Out Of Scope
 
 This stage does not implement:
 

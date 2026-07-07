@@ -25,14 +25,14 @@ Business projects should use Coco with a clean entry point:
 </dependencies>
 ```
 
-All standard framework abilities are enabled by default. Business projects only declare exclusions or custom parameters.
+All standard framework abilities are enabled by default. Business projects only declare disabled features or custom parameters.
 
 Configuration file style:
 
 ```yaml
 coco:
   features:
-    exclude:
+    disabled:
       - tenant
       - data-permission
 ```
@@ -45,7 +45,7 @@ public class CocoConfig implements CocoConfigurer {
 
     @Override
     public void configureFeatures(CocoFeatureRegistry features) {
-        features.exclude(
+        features.disable(
                 CocoFeature.TENANT,
                 CocoFeature.DATA_PERMISSION
         );
@@ -152,7 +152,7 @@ Build-time assembly plugin. Its target behavior is:
 
 - read `application.yml`, `application.yaml`, and `application.properties`
 - inspect compiled configuration classes that implement `CocoConfigurer`
-- resolve excluded features
+- resolve disabled features
 - assemble only enabled `coco-feature-*` modules into the final package
 - generate `target/coco/features-report.json`
 
@@ -187,7 +187,7 @@ Standard features planned for later implementation:
 - `openapi`
 - `codegen`
 
-All standard features are enabled by default unless excluded.
+All standard features are enabled by default unless disabled.
 
 Planned dependencies:
 
@@ -197,7 +197,7 @@ Planned dependencies:
 - `openapi` depends on `web` and `security`
 - `codegen` depends on `mybatis-plus`
 
-If a base feature is excluded, dependent features are excluded automatically.
+If a base feature is disabled, dependent features are disabled automatically.
 
 ## First Implementation Scope
 

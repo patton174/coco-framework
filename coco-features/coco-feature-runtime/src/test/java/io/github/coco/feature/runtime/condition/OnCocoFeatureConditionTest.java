@@ -37,7 +37,7 @@ class OnCocoFeatureConditionTest {
     @Test
     void skipsDisabledFeatureFromEnvironment() {
         this.contextRunner
-                .withPropertyValues("coco.features.exclude[0]=web")
+                .withPropertyValues("coco.features.disabled[0]=web")
                 .run(context -> assertThat(context).doesNotHaveBean("webFeatureBean"));
     }
 
@@ -45,7 +45,7 @@ class OnCocoFeatureConditionTest {
     void skipsFeatureWhenDependencyIsDisabled() {
         new ApplicationContextRunner()
                 .withUserConfiguration(DependentFeatureConfiguration.class)
-                .withPropertyValues("coco.features.exclude[0]=mybatis-plus")
+                .withPropertyValues("coco.features.disabled[0]=mybatis-plus")
                 .run(context -> assertThat(context).doesNotHaveBean("auditFeatureBean"));
     }
 

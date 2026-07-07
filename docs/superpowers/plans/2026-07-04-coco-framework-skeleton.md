@@ -12,7 +12,7 @@
 
 - First stage creates skeleton only; do not implement pagination, audit logging, security, tenant isolation, data permissions, OpenAPI integration, or code generation behavior.
 - Business projects should use `coco-parent` plus one `coco-spring-boot-starter` dependency.
-- Standard features are enabled by default unless excluded.
+- Standard features are enabled by default unless disabled.
 - Java config follows `CocoConfigurer`, similar to Spring `WebMvcConfigurer`.
 - Avoid annotation noise; annotations are only for declarative business policy in later feature work.
 - Static facade APIs are for runtime context access and manual enrichment in later feature work.
@@ -26,7 +26,7 @@
 - Create `.gitignore`, `LICENSE`, `README.md`, `.gitattributes`, and `.github/workflows/ci.yml`.
 - Create `coco-parent/pom.xml` for business projects.
 - Create `coco-bom/pom.xml` for dependency management.
-- Create `coco-api` Java interfaces and tests for feature exclusion config.
+- Create `coco-api` Java interfaces and tests for disabled feature config.
 - Create `coco-core` minimal module with a marker class.
 - Create `coco-features/coco-feature-registry` metadata resolver and tests.
 - Create `coco-spring-boot-starter` minimal auto-configuration.
@@ -83,13 +83,13 @@ Expected: build reaches module compilation. If code modules are still empty, fai
 
 **Interfaces:**
 - Produces: `CocoConfigurer#configureFeatures(CocoFeatureRegistry features)`.
-- Produces: `CocoFeatureRegistry#exclude(CocoFeature... features)`.
-- Produces: `CocoFeatureRegistry#isExcluded(CocoFeature feature)`.
-- Produces: `CocoFeatureRegistry#excludedFeatures()`.
+- Produces: `CocoFeatureRegistry#disable(CocoFeature... features)`.
+- Produces: `CocoFeatureRegistry#isDisabled(CocoFeature feature)`.
+- Produces: `CocoFeatureRegistry#disabledFeatures()`.
 
-- [ ] **Step 1: Write failing tests for feature exclusion API**
+- [ ] **Step 1: Write failing tests for feature enable/disable API**
 
-Write tests proving a registry starts empty, records excluded features, and ignores duplicate exclusions.
+Write tests proving a registry starts empty, records disabled features, and ignores duplicate disabled declarations.
 
 - [ ] **Step 2: Run API tests and verify RED**
 
@@ -129,11 +129,11 @@ Expected: API tests pass.
 **Interfaces:**
 - Consumes: `CocoFeature`.
 - Produces: `StandardCocoFeatures.all()`.
-- Produces: `StandardCocoFeatures.resolveEnabled(Set<CocoFeature> excluded)`.
+- Produces: `StandardCocoFeatures.resolveEnabledFeatures(Set<CocoFeature> disabled)`.
 
 - [ ] **Step 1: Write failing registry tests**
 
-Write tests proving all eight standard features are registered, dependencies are declared, and excluding `MYBATIS_PLUS` also excludes dependent features.
+Write tests proving all eight standard features are registered, dependencies are declared, and disabling `MYBATIS_PLUS` also disables dependent features.
 
 - [ ] **Step 2: Run registry tests and verify RED**
 
@@ -149,7 +149,7 @@ Expected: compilation fails because registry classes do not exist yet.
 
 - [ ] **Step 3: Implement minimal registry metadata**
 
-Implement immutable feature definitions and dependency-based exclusion resolution.
+Implement immutable feature definitions and dependency-based disabled feature resolution.
 
 - [ ] **Step 4: Run registry tests and verify GREEN**
 
@@ -190,7 +190,7 @@ Create `CocoFeaturesMojo` with `@Mojo(name = "features", threadSafe = true)`.
 
 - [ ] **Step 3: Add sample app**
 
-Create a sample Spring Boot application and a `CocoConfig implements CocoConfigurer` that excludes tenant and data-permission.
+Create a sample Spring Boot application and a `CocoConfig implements CocoConfigurer` that disables tenant and data-permission.
 
 - [ ] **Step 4: Verify reactor build**
 
@@ -240,6 +240,6 @@ Expected: commit succeeds.
 ## Self-Review
 
 - Spec coverage: root Maven skeleton, parent, BOM, API, core, starter, feature registry, feature shells, Maven plugin, sample, CI, README, license, and Maven Central metadata are covered.
-- Scope check: concrete pagination, logging, audit, security, tenant, data-permission, OpenAPI, and codegen behavior are explicitly excluded from this plan.
+- Scope check: concrete pagination, logging, audit, security, tenant, data-permission, OpenAPI, and codegen behavior are out of scope for this plan.
 - Placeholder scan: no task requires unbounded implementation work.
 - Type consistency: API names used by registry and sample are defined in Task 2.

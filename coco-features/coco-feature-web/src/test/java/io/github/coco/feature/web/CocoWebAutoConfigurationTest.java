@@ -15,6 +15,7 @@ import io.github.coco.common.context.CocoRequestContextHolder;
 import io.github.coco.common.exception.CocoBusinessCode;
 import io.github.coco.common.exception.CocoBusinessExceptions;
 import io.github.coco.common.exception.CocoCommonErrorCode;
+import io.github.coco.common.exception.CocoException;
 import io.github.coco.common.exception.CocoExceptions;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLog;
@@ -23,6 +24,12 @@ import io.github.coco.common.logging.access.CocoAccessLogProperties;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.CocoAccessLogStyle;
 import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
+import io.github.coco.common.logging.core.CocoLogHandleRegistry;
+import io.github.coco.common.logging.core.CocoLogHandles;
+import io.github.coco.common.logging.core.CocoLogLevel;
+import io.github.coco.common.logging.core.CocoLogManager;
+import io.github.coco.common.logging.core.CocoLogRecord;
+import io.github.coco.common.logging.core.CocoLogSink;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
@@ -112,6 +119,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -380,6 +388,31 @@ class CocoWebAutoConfigurationTest {
             assertNull(body.traceId());
             assertNull(body.path());
         });
+    }
+
+    @Test
+    void logsHandledCocoExceptionThroughExceptionLogHandle() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoTraceContext.setTraceId("trace-exception");
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    CocoException exception = CocoCommonErrorCode.INTERNAL_ERROR.exception();
+
+                    handler.handleCocoException(exception, new ServletWebRequest(request));
+
+                    assertEquals(1, sink.records().size());
+                    CocoLogRecord record = sink.records().get(0);
+                    assertEquals(CocoLogHandles.EXCEPTION, record.handle().name());
+                    assertEquals(CocoLogLevel.ERROR, record.level());
+                    assertTrue(record.message().contains("traceId=trace-exception"));
+                    assertTrue(record.message().contains("path=/api/users"));
+                    Throwable failure = record.failure().orElseThrow();
+                    assertEquals(CocoException.class, failure.getClass());
+                    assertEquals("服务器内部错误", failure.getMessage());
+                });
     }
 
     @Test
@@ -655,6 +688,7 @@ class CocoWebAutoConfigurationTest {
                         + "  userAgent          \"PostmanRuntime/7.37\"\n"
                         + "  params             sku=COCO-STARTER&token=******\n"
                         + "◂ response\n"
+                        + "  traceId            trace-1001\n"
                         + "  status             201\n"
                         + "  duration           42ms\n"
                         + "  success            true",
@@ -4983,6 +5017,12 @@ class CocoWebAutoConfigurationTest {
                 responseProperties);
     }
 
+    private static CocoLogManager cocoLogManager(CapturingCocoLogSink sink) {
+        CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
+        CocoLogHandles.registerDefaults(registry);
+        return new CocoLogManager(registry, sink);
+    }
+
     private static MethodParameter methodParameter(String methodName) throws NoSuchMethodException {
         return methodParameter(CocoWebAutoConfigurationTest.class, methodName);
     }
@@ -5178,6 +5218,20 @@ class CocoWebAutoConfigurationTest {
 
         private CocoAccessLog lastAccessLog() {
             return this.lastAccessLog.get();
+        }
+    }
+
+    private static final class CapturingCocoLogSink implements CocoLogSink {
+
+        private final List<CocoLogRecord> records = new ArrayList<>();
+
+        @Override
+        public void log(CocoLogRecord record) {
+            this.records.add(record);
+        }
+
+        private List<CocoLogRecord> records() {
+            return this.records;
         }
     }
 

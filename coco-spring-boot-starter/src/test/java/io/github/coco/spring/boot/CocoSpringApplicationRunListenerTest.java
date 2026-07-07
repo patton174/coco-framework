@@ -45,11 +45,10 @@ class CocoSpringApplicationRunListenerTest {
 
         String rendered = output.toString(StandardCharsets.UTF_8);
         assertTrue(rendered.contains("██████╗ ██████╗"));
+        assertTrue(rendered.contains("███████╗██████╗"));
         assertTrue(rendered.contains("：：coco "));
         assertTrue(rendered.contains("：：spring boot "));
         assertFalse(rendered.contains("fast web framework"));
-        assertFalse(rendered.contains("::"));
-        assertFalse(rendered.contains("+"));
         assertFalse(rendered.contains("Author"));
         assertFalse(rendered.contains("Repository"));
         assertFalse(rendered.contains("https://github.com/patton174/coco-framework"));

@@ -54,6 +54,32 @@ class CocoLogManagerTest {
         assertTrue(sink.lastRecord().isEmpty());
     }
 
+    @Test
+    void filtersRecordsBelowHandleThreshold() {
+        CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
+        registry.register(CocoLogHandle.of("sample", "io.github.coco.sample", CocoLogLevel.WARN));
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoLogManager manager = new CocoLogManager(registry, sink);
+
+        manager.log("sample", CocoLogLevel.INFO, "hidden coco", null);
+
+        assertTrue(sink.lastRecord().isEmpty());
+    }
+
+    @Test
+    void dispatchesRecordsAtOrAboveHandleThreshold() {
+        CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
+        registry.register(CocoLogHandle.of("sample", "io.github.coco.sample", CocoLogLevel.WARN));
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoLogManager manager = new CocoLogManager(registry, sink);
+
+        manager.log("sample", CocoLogLevel.ERROR, "visible coco", null);
+
+        CocoLogRecord record = sink.lastRecord().orElseThrow();
+        assertEquals(CocoLogLevel.ERROR, record.level());
+        assertEquals("visible coco", record.message());
+    }
+
     private static final class CapturingCocoLogSink implements CocoLogSink {
 
         private final AtomicReference<CocoLogRecord> lastRecord = new AtomicReference<>();

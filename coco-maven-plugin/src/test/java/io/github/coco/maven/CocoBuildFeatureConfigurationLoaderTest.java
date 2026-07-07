@@ -40,7 +40,7 @@ class CocoBuildFeatureConfigurationLoaderTest {
                   features:
                     enabled:
                       - tenant
-                    exclude:
+                    disabled:
                       - data-permission
                 """, StandardCharsets.UTF_8);
 

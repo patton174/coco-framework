@@ -24,6 +24,11 @@ public final class CocoLogHandles {
     public static final String ACCESS = "access";
 
     /**
+     * 框架异常日志句柄名称。
+     */
+    public static final String EXCEPTION = "exception";
+
+    /**
      * 应用生命周期日志句柄名称。
      */
     public static final String LIFECYCLE = "lifecycle";
@@ -39,6 +44,7 @@ public final class CocoLogHandles {
      */
     public static void registerDefaults(CocoLogHandleRegistry registry) {
         registry.register(CocoLogHandle.of(ACCESS, "io.github.coco.access", CocoLogLevel.INFO));
+        registry.register(CocoLogHandle.of(EXCEPTION, "io.github.coco.exception", CocoLogLevel.WARN));
         registry.register(CocoLogHandle.of(LIFECYCLE, "io.github.coco.lifecycle", CocoLogLevel.INFO));
     }
 }

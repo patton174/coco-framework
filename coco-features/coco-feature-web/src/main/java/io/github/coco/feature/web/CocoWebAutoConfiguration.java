@@ -10,6 +10,7 @@ import io.github.coco.common.i18n.api.CocoLocaleResolver;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.common.logging.core.CocoLogManager;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.web.body.CocoRequestBodyCachingFilter;
 import io.github.coco.feature.web.body.CocoRequestBodyResolver;
@@ -466,9 +467,10 @@ public class CocoWebAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoWebExceptionHandler cocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
-            CocoWebProperties properties, CocoResponseBodyFactory responseBodyFactory) {
+            CocoWebProperties properties, CocoResponseBodyFactory responseBodyFactory,
+            ObjectProvider<CocoLogManager> logManager) {
         return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider,
-                properties.getResponse(), properties.getTrace(), responseBodyFactory);
+                properties.getResponse(), properties.getTrace(), responseBodyFactory, logManager.getIfAvailable());
     }
 
     /**

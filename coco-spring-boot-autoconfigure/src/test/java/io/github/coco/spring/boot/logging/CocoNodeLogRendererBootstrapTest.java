@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -95,11 +96,36 @@ class CocoNodeLogRendererBootstrapTest {
     }
 
     @Test
+    void keepsPackagedRendererScriptSynchronizedWithWorkspaceCli() throws Exception {
+        Path workspaceScript = findWorkspaceCliRendererScript();
+        String packagedScript;
+        try (InputStream input = CocoNodeLogRendererBootstrap.class.getResourceAsStream(
+                CocoNodeLogRendererBootstrap.RESOURCE_PATH)) {
+            assertNotNull(input);
+            packagedScript = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+
+        assertEquals(Files.readString(workspaceScript), packagedScript);
+    }
+
+    @Test
     void locatesRendererScriptFromWorkspaceSourceTree(@TempDir Path tempDir) throws Exception {
         Path script = tempDir.resolve("tools/coco-log-renderer/bin/coco-log-renderer.mjs");
         Files.createDirectories(script.getParent());
         Files.writeString(script, "console.log('coco');");
 
         assertEquals(script, CocoNodeLogRendererBootstrap.findLocalRendererScript(tempDir));
+    }
+
+    private static Path findWorkspaceCliRendererScript() {
+        Path current = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+        while (current != null) {
+            Path script = current.resolve("tools/coco-log-renderer/bin/coco-log-renderer.mjs");
+            if (Files.isRegularFile(script)) {
+                return script;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("Coco Node log renderer CLI script not found.");
     }
 }

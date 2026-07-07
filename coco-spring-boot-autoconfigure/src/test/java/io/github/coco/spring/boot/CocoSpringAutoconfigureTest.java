@@ -71,21 +71,20 @@ class CocoSpringAutoconfigureTest {
         String rendered = banner.render("9.9.9", "4.1.0");
 
         assertEquals(String.join(System.lineSeparator(),
-                " ██████╗  ██████╗  ██████╗  ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ",
-                "██╔════╝ ██╔═══██╗██╔════╝ ██╔═══██╗      ██╔════╝██╔══██╗██╔══██╗██║████╗  ██║██╔════╝ ",
-                "██║      ██║   ██║██║      ██║   ██║█████╗███████╗██████╔╝██████╔╝██║██╔██╗ ██║██║  ███╗",
-                "██║      ██║   ██║██║      ██║   ██║╚════╝╚════██║██╔═══╝ ██╔══██╗██║██║╚██╗██║██║   ██║",
-                "╚██████╗ ╚██████╔╝╚██████╗ ╚██████╔╝      ███████║██║     ██║  ██║██║██║ ╚████║╚██████╔╝",
-                " ╚═════╝  ╚═════╝  ╚═════╝  ╚═════╝       ╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ",
+                " ██████╗ ██████╗  ██████╗ ██████╗       ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ",
+                "██╔════╝██╔═══██╗██╔════╝██╔═══██╗      ██╔════╝██╔══██╗██╔══██╗██║████╗  ██║██╔════╝ ",
+                "██║     ██║   ██║██║     ██║   ██║█████╗███████╗██████╔╝██████╔╝██║██╔██╗ ██║██║  ███╗",
+                "██║     ██║   ██║██║     ██║   ██║╚════╝╚════██║██╔═══╝ ██╔══██╗██║██║╚██╗██║██║   ██║",
+                "╚██████╗╚██████╔╝╚██████╗╚██████╔╝      ███████║██║     ██║  ██║██║██║ ╚████║╚██████╔╝",
+                " ╚═════╝ ╚═════╝  ╚═════╝ ╚═════╝       ╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ",
                 "",
                 "：：coco 9.9.9",
                 "：：spring boot 4.1.0"), rendered);
-        assertTrue(rendered.contains("██████╗  ██████╗"));
-        assertTrue(rendered.contains("█████╗███████╗"));
+        assertTrue(rendered.contains("██████╗ ██████╗"));
+        assertTrue(rendered.contains("███████╗██████╗"));
         assertTrue(rendered.contains("：：coco 9.9.9"));
         assertTrue(rendered.contains("：：spring boot 4.1.0"));
-        assertFalse(rendered.contains("::"));
-        assertFalse(rendered.contains("+"));
+        assertFalse(rendered.contains("fast web framework"));
         assertFalse(rendered.contains("Author"));
         assertFalse(rendered.contains("Repository"));
         assertFalse(rendered.contains(":: Spring Boot ::"));
@@ -101,12 +100,11 @@ class CocoSpringAutoconfigureTest {
                 new PrintStream(output, true, StandardCharsets.UTF_8));
 
         String rendered = output.toString(StandardCharsets.UTF_8);
-        assertTrue(rendered.contains("██████╗  ██████╗"));
+        assertTrue(rendered.contains("██████╗ ██████╗"));
+        assertTrue(rendered.contains("███████╗██████╗"));
         assertTrue(rendered.contains("：：coco "));
         assertTrue(rendered.contains("：：spring boot "));
         assertFalse(rendered.contains("fast web framework"));
-        assertFalse(rendered.contains("::"));
-        assertFalse(rendered.contains("+"));
         assertFalse(rendered.contains("____          _"));
     }
 

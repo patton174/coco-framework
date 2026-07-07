@@ -76,7 +76,7 @@ public final class CocoBuildFeatureConfigurationLoader {
             }
             return new CocoFeatureSelection(
                     parseFeatureValue(featureMap.get("enabled")),
-                    union(parseFeatureValue(featureMap.get("disabled")), parseFeatureValue(featureMap.get("exclude"))));
+                    parseFeatureValue(featureMap.get("disabled")));
         }
         catch (IOException ex) {
             throw new UncheckedIOException("Failed to read Coco feature YAML: " + path, ex);
@@ -103,8 +103,7 @@ public final class CocoBuildFeatureConfigurationLoader {
         }
         return new CocoFeatureSelection(
                 parseProperties(properties, "coco.features.enabled"),
-                union(parseProperties(properties, "coco.features.disabled"),
-                        parseProperties(properties, "coco.features.exclude")));
+                parseProperties(properties, "coco.features.disabled"));
     }
 
     private static Object nested(Map<?, ?> root, String first, String second) {
@@ -147,9 +146,4 @@ public final class CocoBuildFeatureConfigurationLoader {
         }
     }
 
-    private static Set<CocoFeature> union(Set<CocoFeature> left, Set<CocoFeature> right) {
-        LinkedHashSet<CocoFeature> features = new LinkedHashSet<>(left);
-        features.addAll(right);
-        return Set.copyOf(features);
-    }
 }

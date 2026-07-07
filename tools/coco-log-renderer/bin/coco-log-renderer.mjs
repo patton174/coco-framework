@@ -26,6 +26,8 @@ const LEVEL_COLORS = {
   ERROR: COLORS.red,
 };
 
+const LIFECYCLE_FIELDS = new Set(['app', 'profiles', 'time', 'java', 'pid']);
+
 /**
  * Coco 终端日志渲染器。
  * <p>
@@ -72,6 +74,9 @@ export function renderLine(line, options = {}) {
   if (isBannerLine(cleanLine)) {
     return color(cleanLine, COLORS.cyan, colors);
   }
+  if (isAccessSectionLine(cleanLine)) {
+    return color(cleanLine, COLORS.cyan, colors);
+  }
   if (STACK_PATTERN.test(cleanLine)) {
     return color(cleanLine, COLORS.red, colors);
   }
@@ -103,12 +108,18 @@ function renderLogLine(match, colors) {
   const dateText = color(date, COLORS.dim, colors);
   const loggerText = color(logger.padEnd(10), COLORS.cyan, colors);
   const threadText = color(thread || '-', COLORS.gray, colors);
-  return `${dateText} ${timeText} ${levelText} ${loggerText} ${threadText} ${message}`.trimEnd();
+  const renderedMessage = renderStructuredMessage(logger, message, colors);
+  return `${dateText} ${timeText} ${levelText} ${loggerText} ${threadText} ${renderedMessage}`.trimEnd();
 }
 
 function isBannerLine(line) {
   const trimmed = line.trimStart();
   return trimmed.startsWith('_|')
+    || line.startsWith(' ██████╗')
+    || line.startsWith('██╔════╝')
+    || line.startsWith('██║')
+    || line.startsWith('╚██████╗')
+    || line.startsWith(' ╚═════╝')
     || line.startsWith('：：')
     || line.startsWith('  ╔')
     || line.startsWith('  ║')
@@ -118,11 +129,33 @@ function isBannerLine(line) {
     || line.startsWith('▰▱ ')
     || line.startsWith('▱▰ ')
     || line.startsWith('     coco spring')
-    || line.startsWith('     fast web framework')
     || line.startsWith('     version')
     || line.startsWith('     spring boot')
     || line.startsWith('   version')
     || line.startsWith('   spring boot');
+}
+
+function isAccessSectionLine(line) {
+  return line.startsWith('▸ request') || line.startsWith('◂ response');
+}
+
+function renderStructuredMessage(logger, message, colors) {
+  if (logger === 'lifecycle' || logger.endsWith('.lifecycle')) {
+    return renderLifecycleMessage(message, colors);
+  }
+  return message;
+}
+
+function renderLifecycleMessage(message, colors) {
+  const match = /^(app|profiles|time|java|pid)\s+(.+)$/.exec(message);
+  if (!match) {
+    return message;
+  }
+  const [, key, value] = match;
+  if (!LIFECYCLE_FIELDS.has(key)) {
+    return message;
+  }
+  return `${color(key.padEnd(8), COLORS.cyan, colors)} ${color(value, COLORS.dim, colors)}`;
 }
 
 function color(value, code, enabled) {

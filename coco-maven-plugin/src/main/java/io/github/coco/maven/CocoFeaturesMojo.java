@@ -83,9 +83,6 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     @Parameter(property = "coco.features.disabled")
     private String disabled;
 
-    @Parameter(property = "coco.features.exclude")
-    private String exclude;
-
     @Parameter(property = "coco.features.featureGroupId", defaultValue = "io.github.patton174")
     private String featureGroupId;
 
@@ -122,7 +119,7 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 .load(this.project.getBasedir().toPath().resolve("src/main/resources"));
         CocoFeatureSelection parameterSelection = new CocoFeatureSelection(
                 parseFeatures(this.enabled),
-                union(parseFeatures(this.disabled), parseFeatures(this.exclude)));
+                parseFeatures(this.disabled));
         CocoFeatureSelection annotationSelection = new CocoAnnotatedFeatureScanner()
                 .scan(this.classesDirectory.toPath(), classpathUrls());
 
@@ -314,17 +311,4 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
-    /**
-     * <p>
-     * 合并两个功能集合。
-     * </p>
-     * @param left 左侧功能集合
-     * @param right 右侧功能集合
-     * @return 合并后的不可变功能集合
-     */
-    private static Set<CocoFeature> union(Set<CocoFeature> left, Set<CocoFeature> right) {
-        LinkedHashSet<CocoFeature> features = new LinkedHashSet<>(left);
-        features.addAll(right);
-        return Set.copyOf(features);
-    }
 }

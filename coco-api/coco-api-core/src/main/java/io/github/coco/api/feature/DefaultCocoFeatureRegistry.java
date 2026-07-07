@@ -6,9 +6,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 默认功能排除注册器。
+ * 默认功能选择注册器。
  * <p>
- * 在内存中记录被业务配置排除的标准功能，供构建期和运行期复用。
+ * 在内存中记录被业务配置显式启用或禁用的标准功能，供构建期和运行期复用。
  * </p>
  * <p>
  * 项目信息：
@@ -23,16 +23,16 @@ import java.util.Set;
  */
 public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
 
-    private final EnumSet<CocoFeature> includedFeatures = EnumSet.noneOf(CocoFeature.class);
+    private final EnumSet<CocoFeature> enabledFeatures = EnumSet.noneOf(CocoFeature.class);
 
-    private final EnumSet<CocoFeature> excludedFeatures = EnumSet.noneOf(CocoFeature.class);
+    private final EnumSet<CocoFeature> disabledFeatures = EnumSet.noneOf(CocoFeature.class);
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public CocoFeatureRegistry include(CocoFeature... features) {
-        addAll(this.includedFeatures, features);
+    public CocoFeatureRegistry enable(CocoFeature... features) {
+        addAll(this.enabledFeatures, features);
         return this;
     }
 
@@ -40,8 +40,8 @@ public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
      * {@inheritDoc}
      */
     @Override
-    public CocoFeatureRegistry exclude(CocoFeature... features) {
-        addAll(this.excludedFeatures, features);
+    public CocoFeatureRegistry disable(CocoFeature... features) {
+        addAll(this.disabledFeatures, features);
         return this;
     }
 
@@ -49,38 +49,38 @@ public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
      * {@inheritDoc}
      */
     @Override
-    public boolean isIncluded(CocoFeature feature) {
-        return this.includedFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
+    public boolean isEnabled(CocoFeature feature) {
+        return this.enabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public boolean isExcluded(CocoFeature feature) {
-        return this.excludedFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
+    public boolean isDisabled(CocoFeature feature) {
+        return this.disabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public Set<CocoFeature> includedFeatures() {
-        if (this.includedFeatures.isEmpty()) {
+    public Set<CocoFeature> enabledFeatures() {
+        if (this.enabledFeatures.isEmpty()) {
             return Collections.emptySet();
         }
-        return Collections.unmodifiableSet(EnumSet.copyOf(this.includedFeatures));
+        return Collections.unmodifiableSet(EnumSet.copyOf(this.enabledFeatures));
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public Set<CocoFeature> excludedFeatures() {
-        if (this.excludedFeatures.isEmpty()) {
+    public Set<CocoFeature> disabledFeatures() {
+        if (this.disabledFeatures.isEmpty()) {
             return Collections.emptySet();
         }
-        return Collections.unmodifiableSet(EnumSet.copyOf(this.excludedFeatures));
+        return Collections.unmodifiableSet(EnumSet.copyOf(this.disabledFeatures));
     }
 
     private static void addAll(EnumSet<CocoFeature> target, CocoFeature... features) {

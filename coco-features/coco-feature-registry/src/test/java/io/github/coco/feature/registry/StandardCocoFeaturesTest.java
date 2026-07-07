@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 /**
  * 标准功能元数据测试。
  * <p>
- * 验证标准功能清单、依赖声明和依赖排除传播规则。
+ * 验证标准功能清单、依赖声明和依赖禁用传播规则。
  * </p>
  * <p>
  * 项目信息：
@@ -58,8 +58,8 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
-    void excludesFeaturesThatDependOnExcludedBaseFeature() {
-        Set<CocoFeature> enabled = StandardCocoFeatures.resolveEnabled(Set.of(CocoFeature.MYBATIS_PLUS));
+    void disablesFeaturesThatDependOnDisabledBaseFeature() {
+        Set<CocoFeature> enabled = StandardCocoFeatures.resolveEnabledFeatures(Set.of(CocoFeature.MYBATIS_PLUS));
 
         assertFalse(enabled.contains(CocoFeature.MYBATIS_PLUS));
         assertFalse(enabled.contains(CocoFeature.AUDIT));

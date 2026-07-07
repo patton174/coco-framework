@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version, for example 1.0.0'
-        required: true
+        description: 'Release version, for example 1.0.0. Leave empty to generate the next patch version.'
+        required: false
+        default: ''
         type: string
       autoPublish:
         description: 'Publish automatically after Central validation'
@@ -17,7 +18,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -26,17 +27,72 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Resolve release inputs
+        id: release
         shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_AUTO_PUBLISH: ${{ github.event.inputs.autoPublish }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "RELEASE_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
-            echo "CENTRAL_AUTO_PUBLISH=${{ inputs.autoPublish }}" >> "$GITHUB_ENV"
+          set -euo pipefail
+
+          normalize_version() {
+            local raw_version="$1"
+            local version="${raw_version#v}"
+            if [[ ! "${version}" =~ ^[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Release version must be SemVer, for example 1.0.0 or v1.0.0."
+              exit 1
+            fi
+            if [[ "${version}" == *SNAPSHOT* ]]; then
+              echo "::error::Maven Central release version must not contain SNAPSHOT."
+              exit 1
+            fi
+            printf '%s' "${version}"
+          }
+
+          next_patch_version() {
+            local latest_tag
+            latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
+            if [[ -z "${latest_tag}" ]]; then
+              printf '1.0.0'
+              return
+            fi
+
+            local latest="${latest_tag#v}"
+            local major minor patch
+            IFS='.' read -r major minor patch <<< "${latest}"
+            patch="${patch%%-*}"
+            printf '%s.%s.%s' "${major}" "${minor}" "$((patch + 1))"
+          }
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            release_version="$(normalize_version "${GITHUB_REF_NAME}")"
+            central_auto_publish="false"
+          elif [[ -n "${INPUT_VERSION}" ]]; then
+            release_version="$(normalize_version "${INPUT_VERSION}")"
+            central_auto_publish="${INPUT_AUTO_PUBLISH:-false}"
           else
-            echo "RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-            echo "CENTRAL_AUTO_PUBLISH=false" >> "$GITHUB_ENV"
+            release_version="$(next_patch_version)"
+            central_auto_publish="${INPUT_AUTO_PUBLISH:-false}"
           fi
+
+          if [[ "${central_auto_publish}" != "true" ]]; then
+            central_auto_publish="false"
+          fi
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "RELEASE_TAG=v${release_version}" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          fi
+
+          echo "RELEASE_VERSION=${release_version}" >> "$GITHUB_ENV"
+          echo "CENTRAL_AUTO_PUBLISH=${central_auto_publish}" >> "$GITHUB_ENV"
+          echo "version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${release_version}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK and Maven credentials
         uses: actions/setup-java@v5
@@ -61,3 +117,20 @@ jobs:
           -Dcentral.auto-publish="${CENTRAL_AUTO_PUBLISH}"
           -DskipTests
           deploy
+
+      - name: Tag successful workflow-dispatch release
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" > /dev/null; then
+            echo "Release tag ${RELEASE_TAG} already exists."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_VERSION}"
+          git push origin "${RELEASE_TAG}"

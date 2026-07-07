@@ -49,11 +49,11 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
-    void appliesFeatureExclusionsFromApplicationProperties() {
+    void appliesDisabledFeaturesFromApplicationProperties() {
         this.contextRunner
                 .withPropertyValues(
-                        "coco.features.exclude[0]=tenant",
-                        "coco.features.exclude[1]=data-permission")
+                        "coco.features.disabled[0]=tenant",
+                        "coco.features.disabled[1]=data-permission")
                 .run(context -> {
                     CocoFeatureManager manager = context.getBean(CocoFeatureManager.class);
 
@@ -64,7 +64,7 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
-    void appliesDisabledAliasFromApplicationProperties() {
+    void appliesSingleDisabledFeatureFromApplicationProperties() {
         this.contextRunner
                 .withPropertyValues("coco.features.disabled[0]=openapi")
                 .run(context -> {
@@ -79,7 +79,7 @@ class CocoConfigAutoConfigurationTest {
     void codeConfigurationCanOverrideApplicationProperties() {
         this.contextRunner
                 .withUserConfiguration(AnnotatedCocoConfiguration.class)
-                .withPropertyValues("coco.features.exclude[0]=tenant")
+                .withPropertyValues("coco.features.disabled[0]=tenant")
                 .run(context -> {
                     CocoFeatureManager manager = context.getBean(CocoFeatureManager.class);
                     CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
@@ -90,10 +90,10 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
-    void mergesFeatureExclusionsFromCocoConfigurerBeans() {
+    void mergesDisabledFeaturesFromCocoConfigurerBeans() {
         this.contextRunner
                 .withUserConfiguration(UserCocoConfiguration.class)
-                .withPropertyValues("coco.features.exclude[0]=tenant")
+                .withPropertyValues("coco.features.disabled[0]=tenant")
                 .run(context -> {
                     CocoFeatureManager manager = context.getBean(CocoFeatureManager.class);
 
@@ -114,8 +114,8 @@ class CocoConfigAutoConfigurationTest {
                     CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
                     assertTrue(context.containsBean("cocoConfigMessageBundleRegistrar"));
-                    assertEquals("无效的 Coco 功能排除配置。",
-                            messageService.getMessage("coco.config.features.exclude.invalid"));
+                    assertEquals("无效的 Coco 功能禁用配置。",
+                            messageService.getMessage("coco.config.features.disabled.invalid"));
                 });
     }
 

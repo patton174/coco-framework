@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 /**
  * 默认功能注册器测试。
  * <p>
- * 验证功能排除配置的基础行为，保证后续构建期裁剪有稳定输入。
+ * 验证功能启用和禁用配置的基础行为，保证后续构建期裁剪有稳定输入。
  * </p>
  * <p>
  * 项目信息：
@@ -27,66 +27,66 @@ import org.junit.jupiter.api.Test;
 class DefaultCocoFeatureRegistryTest {
 
     @Test
-    void startsWithNoExcludedFeatures() {
+    void startsWithNoFeatureSelections() {
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
 
-        assertTrue(registry.includedFeatures().isEmpty());
-        assertTrue(registry.excludedFeatures().isEmpty());
-        assertFalse(registry.isIncluded(CocoFeature.WEB));
-        assertFalse(registry.isExcluded(CocoFeature.TENANT));
+        assertTrue(registry.enabledFeatures().isEmpty());
+        assertTrue(registry.disabledFeatures().isEmpty());
+        assertFalse(registry.isEnabled(CocoFeature.WEB));
+        assertFalse(registry.isDisabled(CocoFeature.TENANT));
     }
 
     @Test
-    void recordsIncludedFeatures() {
+    void recordsEnabledFeatures() {
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
 
-        registry.include(CocoFeature.WEB, CocoFeature.AUDIT);
+        registry.enable(CocoFeature.WEB, CocoFeature.AUDIT);
 
-        assertTrue(registry.isIncluded(CocoFeature.WEB));
-        assertTrue(registry.isIncluded(CocoFeature.AUDIT));
-        assertEquals(Set.of(CocoFeature.WEB, CocoFeature.AUDIT), registry.includedFeatures());
+        assertTrue(registry.isEnabled(CocoFeature.WEB));
+        assertTrue(registry.isEnabled(CocoFeature.AUDIT));
+        assertEquals(Set.of(CocoFeature.WEB, CocoFeature.AUDIT), registry.enabledFeatures());
     }
 
     @Test
-    void recordsExcludedFeatures() {
+    void recordsDisabledFeatures() {
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
 
-        registry.exclude(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION);
+        registry.disable(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION);
 
-        assertTrue(registry.isExcluded(CocoFeature.TENANT));
-        assertTrue(registry.isExcluded(CocoFeature.DATA_PERMISSION));
-        assertEquals(Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION), registry.excludedFeatures());
+        assertTrue(registry.isDisabled(CocoFeature.TENANT));
+        assertTrue(registry.isDisabled(CocoFeature.DATA_PERMISSION));
+        assertEquals(Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION), registry.disabledFeatures());
     }
 
     @Test
-    void ignoresDuplicateExclusions() {
+    void ignoresDuplicateDisabledFeatures() {
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
 
-        registry.exclude(CocoFeature.TENANT, CocoFeature.TENANT);
+        registry.disable(CocoFeature.TENANT, CocoFeature.TENANT);
 
-        assertEquals(Set.of(CocoFeature.TENANT), registry.excludedFeatures());
+        assertEquals(Set.of(CocoFeature.TENANT), registry.disabledFeatures());
     }
 
     @Test
-    void supportsEnableAndDisableAliases() {
+    void supportsEnableAndDisableChaining() {
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
 
         registry.enable(CocoFeature.OPENAPI).disable(CocoFeature.DATA_PERMISSION);
 
-        assertEquals(Set.of(CocoFeature.OPENAPI), registry.includedFeatures());
-        assertEquals(Set.of(CocoFeature.DATA_PERMISSION), registry.excludedFeatures());
+        assertEquals(Set.of(CocoFeature.OPENAPI), registry.enabledFeatures());
+        assertEquals(Set.of(CocoFeature.DATA_PERMISSION), registry.disabledFeatures());
     }
 
     @Test
     void ignoresNullFeatureArraysAndValues() {
         DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
 
-        registry.include((CocoFeature[]) null)
-                .exclude((CocoFeature[]) null)
-                .include(CocoFeature.WEB, null)
-                .exclude(null, CocoFeature.TENANT);
+        registry.enable((CocoFeature[]) null)
+                .disable((CocoFeature[]) null)
+                .enable(CocoFeature.WEB, null)
+                .disable(null, CocoFeature.TENANT);
 
-        assertEquals(Set.of(CocoFeature.WEB), registry.includedFeatures());
-        assertEquals(Set.of(CocoFeature.TENANT), registry.excludedFeatures());
+        assertEquals(Set.of(CocoFeature.WEB), registry.enabledFeatures());
+        assertEquals(Set.of(CocoFeature.TENANT), registry.disabledFeatures());
     }
 }

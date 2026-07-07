@@ -12,9 +12,11 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,8 @@ ORDER_PATH = "/sample/orders"
 SIGNATURE_ORDER_PATH = "/sample/secure/signature/orders"
 REPLAY_ORDER_PATH = "/sample/secure/replay/orders"
 ENCRYPTION_ORDER_PATH = "/sample/secure/encryption/orders"
+APPLICATION_OUTPUT_LIMIT = 400
+APPLICATION_OUTPUT: dict[int, deque[str]] = {}
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,12 @@ def main() -> int:
             run_signature_flow(base_url)
             run_replay_flow(base_url)
             run_encryption_flow(base_url)
+    except Exception:
+        if process is not None:
+            output = captured_application_output(process)
+            if output:
+                log(f"Application output before failure:\n{output}")
+        raise
     finally:
         if process is not None:
             stop_application(process)
@@ -107,12 +117,34 @@ def start_application(
     if not jar_path.is_file():
         raise AssertionError(f"Sample jar does not exist: {jar_path}")
     command = [java_command, "-jar", str(jar_path), f"--server.port={port}", *(extra_args or [])]
-    return subprocess.Popen(
+    process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
+    APPLICATION_OUTPUT[process.pid] = deque(maxlen=APPLICATION_OUTPUT_LIMIT)
+    threading.Thread(target=drain_application_output, args=(process,), daemon=True).start()
+    return process
+
+
+def drain_application_output(process: subprocess.Popen[str]) -> None:
+    if process.stdout is None:
+        return
+    output = APPLICATION_OUTPUT.get(process.pid)
+    if output is None:
+        return
+    for line in process.stdout:
+        output.append(line.rstrip())
+
+
+def captured_application_output(process: subprocess.Popen[str]) -> str:
+    output = APPLICATION_OUTPUT.get(process.pid)
+    if not output:
+        return ""
+    return "\n".join(output)
 
 
 def stop_application(process: subprocess.Popen[str]) -> None:
@@ -122,6 +154,7 @@ def stop_application(process: subprocess.Popen[str]) -> None:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=10)
+    APPLICATION_OUTPUT.pop(process.pid, None)
 
 
 def wait_until_ready(base_url: str, timeout_seconds: int, process: subprocess.Popen[str]) -> None:
@@ -131,7 +164,7 @@ def wait_until_ready(base_url: str, timeout_seconds: int, process: subprocess.Po
     while time.monotonic() < deadline:
         exit_code = process.poll()
         if exit_code is not None:
-            output = process.stdout.read() if process.stdout is not None else ""
+            output = captured_application_output(process)
             raise AssertionError(f"Application exited before becoming ready with code {exit_code}.\n{output}")
         try:
             response = request("GET", base_url, "/sample/products", trace_id="python-ready")

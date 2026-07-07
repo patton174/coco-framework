@@ -28,15 +28,23 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
      */
     @Override
     public String format(CocoAccessLog accessLog, CocoAccessLogProperties properties) {
+        return String.join(System.lineSeparator(), formatEntries(accessLog, properties));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public List<String> formatEntries(CocoAccessLog accessLog, CocoAccessLogProperties properties) {
         CocoAccessLog checkedAccessLog = Objects.requireNonNull(accessLog, "accessLog must not be null");
         CocoAccessLogProperties checkedProperties = properties == null ? new CocoAccessLogProperties() : properties;
         if (checkedProperties.getStyle() == CocoAccessLogStyle.JSON) {
-            return formatJson(checkedAccessLog);
+            return List.of(formatJson(checkedAccessLog));
         }
-        return formatText(checkedAccessLog);
+        return List.of(formatTextRequest(checkedAccessLog), formatTextResponse(checkedAccessLog));
     }
 
-    private static String formatText(CocoAccessLog accessLog) {
+    private static String formatTextRequest(CocoAccessLog accessLog) {
         StringBuilder builder = new StringBuilder();
         builder.append("▸ request").append(System.lineSeparator());
         builder.append(detail("traceId", accessLog.traceId())).append(System.lineSeparator());
@@ -60,8 +68,14 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
         if (!accessLog.requestParameters().isEmpty()) {
             builder.append(System.lineSeparator()).append(detail("params", formatParameters(accessLog.requestParameters())));
         }
-        builder.append(System.lineSeparator())
-                .append("◂ response")
+        return builder.toString();
+    }
+
+    private static String formatTextResponse(CocoAccessLog accessLog) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("◂ response")
+                .append(System.lineSeparator())
+                .append(detail("traceId", accessLog.traceId()))
                 .append(System.lineSeparator())
                 .append(detail("status", Integer.toString(accessLog.status())))
                 .append(System.lineSeparator())

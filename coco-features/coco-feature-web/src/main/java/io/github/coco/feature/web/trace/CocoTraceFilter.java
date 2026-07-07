@@ -260,7 +260,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
                 requestSnapshot.browserFingerprint().value(),
                 requestSnapshot.payloadParseStatus().id(),
                 requestSnapshot.targetResolution().source().name(),
-                requestSnapshot.parameters());
+                requestSnapshot.parameters())
+                .withFailure(failure);
         for (CocoAccessLogRecorder recorder : this.accessLogRecorders) {
             try {
                 recorder.record(accessLog);
