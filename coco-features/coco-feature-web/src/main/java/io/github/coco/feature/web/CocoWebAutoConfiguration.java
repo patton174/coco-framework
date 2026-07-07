@@ -490,7 +490,7 @@ public class CocoWebAutoConfiguration {
             CocoWebRequestMatcher requestMatcher) {
         FilterRegistrationBean<CocoRequestBodyCachingFilter> registration = new FilterRegistrationBean<>(
                 new CocoRequestBodyCachingFilter(properties.getRequestBody(), properties.getSignature(),
-                        properties.getEncryption(), exceptionResponseWriter, requestMatcher));
+                        properties.getEncryption(), properties.getReplay(), exceptionResponseWriter, requestMatcher));
         registration.setName("cocoRequestBodyCachingFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

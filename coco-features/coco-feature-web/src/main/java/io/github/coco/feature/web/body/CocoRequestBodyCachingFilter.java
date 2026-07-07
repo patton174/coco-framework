@@ -13,6 +13,7 @@ import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoPayloadTooLargeException;
+import io.github.coco.feature.web.replay.CocoReplayProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -43,6 +44,8 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
 
     private static final int STATUS_PAYLOAD_TOO_LARGE = 413;
 
+    private static final String FORM_URLENCODED = "application/x-www-form-urlencoded";
+
     private final CocoRequestBodyProperties properties;
 
     private final Set<String> triggerHeaderNames;
@@ -52,6 +55,8 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
     private final CocoSignatureProperties signatureProperties;
 
     private final CocoEncryptionProperties encryptionProperties;
+
+    private final CocoReplayProperties replayProperties;
 
     private final CocoWebRequestMatcher requestMatcher;
 
@@ -64,7 +69,7 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
      * @param properties 请求体缓存配置属性
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties) {
-        this(properties, null, null, null);
+        this(properties, null, null, null, null, null);
     }
 
     /**
@@ -77,7 +82,18 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
      */
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
-        this(properties, signatureProperties, encryptionProperties, null);
+        this(properties, signatureProperties, encryptionProperties, null, null, null);
+    }
+
+    /**
+     * <p>
+     * 鍒涘缓 Coco 璇锋眰浣撶紦瀛樿繃婊ゅ櫒銆?     * </p>
+     * @param properties 璇锋眰浣撶紦瀛橀厤缃睘鎬?     * @param signatureProperties 璇锋眰绛惧悕閰嶇疆灞炴€?     * @param encryptionProperties 璇锋眰鍔犲瘑閰嶇疆灞炴€?     * @param replayProperties 闃查噸鏀鹃厤缃睘鎬?
+     */
+    public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoReplayProperties replayProperties) {
+        this(properties, signatureProperties, encryptionProperties, replayProperties, null, null);
     }
 
     /**
@@ -92,7 +108,18 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
             CocoFilterExceptionResponseWriter exceptionResponseWriter) {
-        this(properties, signatureProperties, encryptionProperties, exceptionResponseWriter, null);
+        this(properties, signatureProperties, encryptionProperties, null, exceptionResponseWriter, null);
+    }
+
+    /**
+     * <p>
+     * 鍒涘缓 Coco 璇锋眰浣撶紦瀛樿繃婊ゅ櫒銆?     * </p>
+     * @param properties 璇锋眰浣撶紦瀛橀厤缃睘鎬?     * @param signatureProperties 璇锋眰绛惧悕閰嶇疆灞炴€?     * @param encryptionProperties 璇锋眰鍔犲瘑閰嶇疆灞炴€?     * @param replayProperties 闃查噸鏀鹃厤缃睘鎬?     * @param exceptionResponseWriter 杩囨护鍣ㄥ紓甯稿搷搴斿啓鍑哄櫒
+     */
+    public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoReplayProperties replayProperties, CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+        this(properties, signatureProperties, encryptionProperties, replayProperties, exceptionResponseWriter, null);
     }
 
     /**
@@ -108,11 +135,27 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
     public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
             CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
             CocoFilterExceptionResponseWriter exceptionResponseWriter, CocoWebRequestMatcher requestMatcher) {
+        this(properties, signatureProperties, encryptionProperties, null, exceptionResponseWriter, requestMatcher);
+    }
+
+    /**
+     * <p>
+     * 鍒涘缓 Coco 璇锋眰浣撶紦瀛樿繃婊ゅ櫒銆?     * </p>
+     * @param properties 璇锋眰浣撶紦瀛橀厤缃睘鎬?     * @param signatureProperties 璇锋眰绛惧悕閰嶇疆灞炴€?     * @param encryptionProperties 璇锋眰鍔犲瘑閰嶇疆灞炴€?     * @param replayProperties 闃查噸鏀鹃厤缃睘鎬?     * @param exceptionResponseWriter 杩囨护鍣ㄥ紓甯稿搷搴斿啓鍑哄櫒
+     * @param requestMatcher Web 璇锋眰鍖归厤鍣?
+     */
+    public CocoRequestBodyCachingFilter(CocoRequestBodyProperties properties,
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoReplayProperties replayProperties, CocoFilterExceptionResponseWriter exceptionResponseWriter,
+            CocoWebRequestMatcher requestMatcher) {
         this.properties = properties == null ? new CocoRequestBodyProperties() : properties;
         this.signatureProperties = signatureProperties == null ? new CocoSignatureProperties() : signatureProperties;
         this.encryptionProperties = encryptionProperties == null ? new CocoEncryptionProperties() : encryptionProperties;
-        this.triggerHeaderNames = triggerHeaderNames(this.properties, this.signatureProperties, this.encryptionProperties);
-        this.triggerParameterNames = triggerParameterNames(this.signatureProperties, this.encryptionProperties);
+        this.replayProperties = replayProperties == null ? new CocoReplayProperties() : replayProperties;
+        this.triggerHeaderNames = triggerHeaderNames(this.properties, this.signatureProperties,
+                this.encryptionProperties, this.replayProperties);
+        this.triggerParameterNames = triggerParameterNames(this.signatureProperties, this.encryptionProperties,
+                this.replayProperties);
         this.requestMatcher = requestMatcher == null ? new DefaultCocoWebRequestMatcher() : requestMatcher;
         this.exceptionResponseWriter = exceptionResponseWriter;
     }
@@ -160,6 +203,9 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
             return true;
         }
         if (securityCapabilityRequiresBodyCaching(request)) {
+            return true;
+        }
+        if (parameterMetadataRequiresFormBodyCaching(request)) {
             return true;
         }
         return CocoRequestBodyCachingMode.ALWAYS.equals(this.properties.getMode())
@@ -233,6 +279,12 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         return signatureRequiresBodyCaching(request) || encryptionRequiresBodyCaching(request);
     }
 
+    private boolean parameterMetadataRequiresFormBodyCaching(HttpServletRequest request) {
+        return isFormUrlencodedRequest(request)
+                && (signatureParameterMetadataMayAppearInBody(request)
+                        || replayParameterMetadataMayAppearInBody(request));
+    }
+
     private boolean signatureRequiresBodyCaching(HttpServletRequest request) {
         if (!this.signatureProperties.isEnabled()
                 || this.requestMatcher.matches(request, this.signatureProperties.getMatcher().getIgnored())) {
@@ -251,17 +303,34 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
                 || this.requestMatcher.matches(request, this.encryptionProperties.getMatcher().getRequired());
     }
 
+    private boolean signatureParameterMetadataMayAppearInBody(HttpServletRequest request) {
+        return this.signatureProperties.isEnabled()
+                && this.signatureProperties.getMetadataSource().supportsParameter()
+                && !this.requestMatcher.matches(request, this.signatureProperties.getMatcher().getIgnored());
+    }
+
+    private boolean replayParameterMetadataMayAppearInBody(HttpServletRequest request) {
+        return this.replayProperties.isEnabled()
+                && this.replayProperties.getMetadataSource().supportsParameter()
+                && !this.requestMatcher.matches(request, this.replayProperties.getMatcher().getIgnored());
+    }
+
     private static Set<String> triggerHeaderNames(CocoRequestBodyProperties properties,
-            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties) {
+            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
+            CocoReplayProperties replayProperties) {
         LinkedHashSet<String> headerNames = new LinkedHashSet<>(properties.getTriggerHeaderNames());
         add(headerNames, signatureProperties.getSignatureHeaderName());
         add(headerNames, signatureProperties.getSignatureFallbackHeaderName());
         add(headerNames, encryptionProperties.getEncryptedHeaderName());
+        addIfHeaderSource(headerNames, replayProperties.getMetadataSource(), replayProperties.getAppIdHeaderName());
+        addIfHeaderSource(headerNames, replayProperties.getMetadataSource(), replayProperties.getKeyIdHeaderName());
+        addIfHeaderSource(headerNames, replayProperties.getMetadataSource(), replayProperties.getTimestampHeaderName());
+        addIfHeaderSource(headerNames, replayProperties.getMetadataSource(), replayProperties.getNonceHeaderName());
         return Set.copyOf(headerNames);
     }
 
     private static Set<String> triggerParameterNames(CocoSignatureProperties signatureProperties,
-            CocoEncryptionProperties encryptionProperties) {
+            CocoEncryptionProperties encryptionProperties, CocoReplayProperties replayProperties) {
         LinkedHashSet<String> parameterNames = new LinkedHashSet<>();
         addIfParameterSource(parameterNames, signatureProperties.getMetadataSource(),
                 signatureProperties.getSignatureParameterName());
@@ -269,7 +338,23 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
                 signatureProperties.getSignatureFallbackParameterName());
         addIfParameterSource(parameterNames, encryptionProperties.getMetadataSource(),
                 encryptionProperties.getEncryptedParameterName());
+        addIfParameterSource(parameterNames, replayProperties.getMetadataSource(),
+                replayProperties.getAppIdParameterName());
+        addIfParameterSource(parameterNames, replayProperties.getMetadataSource(),
+                replayProperties.getKeyIdParameterName());
+        addIfParameterSource(parameterNames, replayProperties.getMetadataSource(),
+                replayProperties.getTimestampParameterName());
+        addIfParameterSource(parameterNames, replayProperties.getMetadataSource(),
+                replayProperties.getNonceParameterName());
         return Set.copyOf(parameterNames);
+    }
+
+    private static void addIfHeaderSource(Set<String> headerNames, CocoWebSecurityMetadataSource source,
+            String headerName) {
+        CocoWebSecurityMetadataSource metadataSource = source == null ? CocoWebSecurityMetadataSource.HEADER : source;
+        if (metadataSource.supportsHeader()) {
+            add(headerNames, headerName);
+        }
     }
 
     private static void addIfParameterSource(Set<String> parameterNames, CocoWebSecurityMetadataSource source,
@@ -294,6 +379,10 @@ public final class CocoRequestBodyCachingFilter extends OncePerRequestFilter {
         if (normalizedName != null) {
             headerNames.add(normalizedName);
         }
+    }
+
+    private static boolean isFormUrlencodedRequest(HttpServletRequest request) {
+        return FORM_URLENCODED.equals(normalizeMediaType(request.getContentType()));
     }
 
     private boolean isKnownOversized(HttpServletRequest request) {

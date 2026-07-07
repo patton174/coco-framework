@@ -309,6 +309,26 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
                 this.canonicalHeaderValues, this.canonicalCookies, parameterSnapshot.payloadSource());
     }
 
+    /**
+     * <p>
+     * 返回移除请求体摘要元数据后的安全输入副本。
+     * </p>
+     * <p>
+     * 当签名参数本身位于请求体中时，传输层 {@code bodySha256} 和 {@code bodyLength} 会随签名值一起变化，
+     * 直接参与签名会形成循环依赖。此方法用于在生成规范化文本前显式移除这类传输层摘要字段。
+     * </p>
+     * @return 不包含请求体摘要元数据的安全输入
+     */
+    public CocoWebRequestSecurityInput withoutBodyMetadata() {
+        if (this.bodySha256 == null && this.bodyLength == null && !this.bodyCached) {
+            return this;
+        }
+        return new CocoWebRequestSecurityInput(this.method, this.path, this.queryString,
+                this.parameters, this.queryParameters, this.payloadParameters, this.securityHeaders,
+                this.canonicalHeaders, null, null, false, this.canonicalHeaderValues,
+                this.canonicalCookies, this.payloadSource);
+    }
+
     private static Optional<String> header(Map<String, String> headers, String name) {
         if (name == null || name.isBlank()) {
             return Optional.empty();

@@ -2,7 +2,9 @@ package io.github.coco.feature.web.context;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,15 +57,29 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
         if (isTrustedProxy(remoteAddr)) {
             for (String headerName : this.properties.getClientIpHeaderNames()) {
                 String headerValue = checkedRequest.getHeader(headerName);
-                String clientIp = "Forwarded".equalsIgnoreCase(headerName)
-                        ? firstForwardedForValue(headerValue)
-                        : firstHeaderValue(headerValue);
+                String clientIp = clientIpFromTrustedProxyHeader(headerName, headerValue);
                 if (clientIp != null) {
                     return CocoClientIpResolution.forwardedHeader(clientIp, headerName, headerValue, remoteAddr);
                 }
             }
         }
         return remoteAddr == null ? CocoClientIpResolution.unresolved() : CocoClientIpResolution.remoteAddress(remoteAddr);
+    }
+
+    private String clientIpFromTrustedProxyHeader(String headerName, String headerValue) {
+        List<String> candidates = "Forwarded".equalsIgnoreCase(headerName)
+                ? forwardedForValues(headerValue)
+                : headerValues(headerValue);
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        for (int index = candidates.size() - 1; index >= 0; index--) {
+            String candidate = candidates.get(index);
+            if (!isTrustedProxy(candidate)) {
+                return candidate;
+            }
+        }
+        return candidates.get(0);
     }
 
     private boolean isTrustedProxy(String remoteAddr) {
@@ -120,16 +136,17 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
         }
     }
 
-    private static String firstForwardedForValue(String headerValue) {
+    private static List<String> forwardedForValues(String headerValue) {
         if (headerValue == null || headerValue.isBlank()) {
-            return null;
+            return List.of();
         }
-        return Arrays.stream(headerValue.split(","))
+        List<String> values = new ArrayList<>();
+        Arrays.stream(headerValue.split(","))
                 .map(DefaultCocoClientIpResolver::forwardedForValue)
                 .map(DefaultCocoClientIpResolver::normalizeClientIp)
                 .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
+                .forEach(values::add);
+        return values.isEmpty() ? List.of() : List.copyOf(values);
     }
 
     private static String forwardedForValue(String segment) {
@@ -145,16 +162,17 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
                 .orElse(null);
     }
 
-    private static String firstHeaderValue(String headerValue) {
+    private static List<String> headerValues(String headerValue) {
         if (headerValue == null || headerValue.isBlank()) {
-            return null;
+            return List.of();
         }
-        return Arrays.stream(headerValue.split(","))
+        List<String> values = new ArrayList<>();
+        Arrays.stream(headerValue.split(","))
                 .map(DefaultCocoClientIpResolver::cleanClientIpToken)
                 .map(DefaultCocoClientIpResolver::normalizeClientIp)
                 .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
+                .forEach(values::add);
+        return values.isEmpty() ? List.of() : List.copyOf(values);
     }
 
     private static String cleanClientIpToken(String value) {

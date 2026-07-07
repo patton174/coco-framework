@@ -349,9 +349,24 @@ public final class CocoSignatureFilter extends OncePerRequestFilter {
         if (!this.properties.getMetadataSource().supportsParameter()) {
             return securityInput;
         }
-        return securityInput.withoutParameters(Set.of(
+        CocoWebRequestSecurityInput canonicalInput = securityInput.withoutParameters(Set.of(
                 this.properties.getSignatureParameterName(),
                 this.properties.getSignatureFallbackParameterName()));
+        if (payloadSignatureParameterPresent(securityInput)) {
+            return canonicalInput.withoutBodyMetadata();
+        }
+        return canonicalInput;
+    }
+
+    private boolean payloadSignatureParameterPresent(CocoWebRequestSecurityInput securityInput) {
+        return hasPayloadParameter(securityInput, this.properties.getSignatureParameterName())
+                || hasPayloadParameter(securityInput, this.properties.getSignatureFallbackParameterName());
+    }
+
+    private static boolean hasPayloadParameter(CocoWebRequestSecurityInput securityInput, String parameterName) {
+        return securityInput.payloadParameter(parameterName)
+                .filter(values -> values.stream().anyMatch(value -> value != null && !value.isBlank()))
+                .isPresent();
     }
 
 }
