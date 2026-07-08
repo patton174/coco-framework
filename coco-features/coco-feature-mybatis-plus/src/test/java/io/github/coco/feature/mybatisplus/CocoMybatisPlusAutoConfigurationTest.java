@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusInnerInterceptorAutoConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.BlockAttackInnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.IllegalSQLInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
@@ -89,6 +91,46 @@ class CocoMybatisPlusAutoConfigurationTest {
                     assertThat(interceptor.getInterceptors()).hasSize(2);
                     assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(OptimisticLockerInnerInterceptor.class);
                     assertThat(interceptor.getInterceptors().get(1)).isInstanceOf(PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void registersSqlGuardInterceptorsBeforePagination() {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.mybatis-plus.sql-guard.block-attack-enabled=true",
+                        "coco.mybatis-plus.sql-guard.illegal-sql-enabled=true")
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors()).hasSize(3);
+                    assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(BlockAttackInnerInterceptor.class);
+                    assertThat(interceptor.getInterceptors().get(1)).isInstanceOf(IllegalSQLInnerInterceptor.class);
+                    assertThat(interceptor.getInterceptors().get(2)).isInstanceOf(PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void keepsSqlGuardDisabledByDefault() {
+        this.contextRunner.run(context -> {
+            MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+            assertThat(interceptor.getInterceptors()).noneMatch(BlockAttackInnerInterceptor.class::isInstance);
+            assertThat(interceptor.getInterceptors()).noneMatch(IllegalSQLInnerInterceptor.class::isInstance);
+        });
+    }
+
+    @Test
+    void keepsSqlGuardWhenPaginationIsDisabled() {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.mybatis-plus.pagination.enabled=false",
+                        "coco.mybatis-plus.sql-guard.block-attack-enabled=true")
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors()).hasSize(1);
+                    assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(BlockAttackInnerInterceptor.class);
                 });
     }
 

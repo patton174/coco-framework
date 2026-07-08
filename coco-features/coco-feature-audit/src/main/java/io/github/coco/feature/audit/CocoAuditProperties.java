@@ -1,12 +1,13 @@
 package io.github.coco.feature.audit;
 
+import io.github.coco.feature.audit.core.CocoAuditFailurePolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
  * Coco 审计功能配置属性。
  * <p>
- * 绑定 {@code coco.audit} 命名空间，控制审计事件基础设施和访问日志审计适配器。
+ * 绑定 {@code coco.audit} 命名空间，控制审计事件基础设施、记录失败策略和访问日志审计适配器。
  * </p>
  * <p>
  * 项目信息：
@@ -23,6 +24,8 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 public class CocoAuditProperties {
 
     private boolean enabled = true;
+
+    private CocoAuditFailurePolicy failurePolicy = CocoAuditFailurePolicy.IGNORE;
 
     @NestedConfigurationProperty
     private AccessLogProperties accessLog = new AccessLogProperties();
@@ -45,6 +48,26 @@ public class CocoAuditProperties {
      */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    /**
+     * <p>
+     * 返回审计记录失败策略。
+     * </p>
+     * @return 审计记录失败策略
+     */
+    public CocoAuditFailurePolicy getFailurePolicy() {
+        return this.failurePolicy;
+    }
+
+    /**
+     * <p>
+     * 设置审计记录失败策略。
+     * </p>
+     * @param failurePolicy 审计记录失败策略
+     */
+    public void setFailurePolicy(CocoAuditFailurePolicy failurePolicy) {
+        this.failurePolicy = failurePolicy == null ? CocoAuditFailurePolicy.IGNORE : failurePolicy;
     }
 
     /**

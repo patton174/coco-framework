@@ -4,11 +4,14 @@ import java.util.Objects;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.BlockAttackInnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.IllegalSQLInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import io.github.coco.feature.mybatisplus.CocoMybatisPlusProperties;
 import io.github.coco.feature.mybatisplus.pagination.CocoMybatisPlusDbTypeResolver;
 import io.github.coco.feature.mybatisplus.pagination.CocoMybatisPlusPaginationProperties;
+import io.github.coco.feature.mybatisplus.sqlguard.CocoMybatisPlusSqlGuardProperties;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
@@ -62,11 +65,22 @@ public final class CocoMybatisPlusInterceptorFactory {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
         this.innerInterceptors.orderedStream().forEach(interceptor::addInnerInterceptor);
         this.customizers.orderedStream().forEach(customizer -> customizer.customize(interceptor));
+        addSqlGuardInnerInterceptors(interceptor, this.properties.getSqlGuard());
         CocoMybatisPlusPaginationProperties pagination = this.properties.getPagination();
         if (pagination.isEnabled()) {
             interceptor.addInnerInterceptor(createPaginationInnerInterceptor(pagination));
         }
         return interceptor;
+    }
+
+    private static void addSqlGuardInnerInterceptors(MybatisPlusInterceptor interceptor,
+            CocoMybatisPlusSqlGuardProperties properties) {
+        if (properties.isBlockAttackEnabled()) {
+            interceptor.addInnerInterceptor(new BlockAttackInnerInterceptor());
+        }
+        if (properties.isIllegalSqlEnabled()) {
+            interceptor.addInnerInterceptor(new IllegalSQLInnerInterceptor());
+        }
     }
 
     private static PaginationInnerInterceptor createPaginationInnerInterceptor(

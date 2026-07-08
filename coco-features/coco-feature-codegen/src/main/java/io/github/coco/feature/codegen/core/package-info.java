@@ -1,9 +1,7 @@
-package io.github.coco.feature.codegen;
-
 /**
- * 代码生成功能模块标记。
+ * Coco 代码生成核心契约。
  * <p>
- * 标识 Coco 代码生成能力。该模块提供生成请求、生成结果和生成器 SPI，并为后续模板和生成流程保留扩展边界。
+ * 定义生成请求、生成结果、生成文件模型和生成器 SPI。该包不绑定业务表结构、模板引擎或文件落盘策略。
  * </p>
  * <p>
  * 项目信息：
@@ -16,8 +14,4 @@ package io.github.coco.feature.codegen;
  * @author patton174
  * @since 1.0.0
  */
-public final class CocoCodegenFeature {
-
-    private CocoCodegenFeature() {
-    }
-}
+package io.github.coco.feature.codegen.core;

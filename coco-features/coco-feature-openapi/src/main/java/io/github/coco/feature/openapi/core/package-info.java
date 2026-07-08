@@ -1,9 +1,7 @@
-package io.github.coco.feature.openapi;
-
 /**
- * OpenAPI 功能模块标记。
+ * Coco OpenAPI 核心契约。
  * <p>
- * 标识 Coco OpenAPI 能力。该模块提供文档元数据配置、元数据提供器 SPI，并为后续 OpenAPI 渲染适配保留扩展边界。
+ * 定义文档元数据模型和提供器 SPI，具体 OpenAPI 渲染库通过该契约适配 Coco 框架基础设施。
  * </p>
  * <p>
  * 项目信息：
@@ -16,8 +14,4 @@ package io.github.coco.feature.openapi;
  * @author patton174
  * @since 1.0.0
  */
-public final class CocoOpenApiFeature {
-
-    private CocoOpenApiFeature() {
-    }
-}
+package io.github.coco.feature.openapi.core;

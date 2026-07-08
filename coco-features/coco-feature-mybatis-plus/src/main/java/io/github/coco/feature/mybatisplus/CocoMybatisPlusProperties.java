@@ -1,6 +1,7 @@
 package io.github.coco.feature.mybatisplus;
 
 import io.github.coco.feature.mybatisplus.pagination.CocoMybatisPlusPaginationProperties;
+import io.github.coco.feature.mybatisplus.sqlguard.CocoMybatisPlusSqlGuardProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -26,6 +27,9 @@ public class CocoMybatisPlusProperties {
     @NestedConfigurationProperty
     private CocoMybatisPlusPaginationProperties pagination = new CocoMybatisPlusPaginationProperties();
 
+    @NestedConfigurationProperty
+    private CocoMybatisPlusSqlGuardProperties sqlGuard = new CocoMybatisPlusSqlGuardProperties();
+
     /**
      * <p>
      * 返回分页拦截器配置属性。
@@ -44,5 +48,25 @@ public class CocoMybatisPlusProperties {
      */
     public void setPagination(CocoMybatisPlusPaginationProperties pagination) {
         this.pagination = pagination == null ? new CocoMybatisPlusPaginationProperties() : pagination;
+    }
+
+    /**
+     * <p>
+     * 返回 SQL 防护配置属性。
+     * </p>
+     * @return SQL 防护配置属性
+     */
+    public CocoMybatisPlusSqlGuardProperties getSqlGuard() {
+        return this.sqlGuard;
+    }
+
+    /**
+     * <p>
+     * 设置 SQL 防护配置属性。
+     * </p>
+     * @param sqlGuard SQL 防护配置属性
+     */
+    public void setSqlGuard(CocoMybatisPlusSqlGuardProperties sqlGuard) {
+        this.sqlGuard = sqlGuard == null ? new CocoMybatisPlusSqlGuardProperties() : sqlGuard;
     }
 }

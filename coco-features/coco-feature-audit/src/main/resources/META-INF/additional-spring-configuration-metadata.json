@@ -7,10 +7,31 @@
       "defaultValue": true
     },
     {
+      "name": "coco.audit.failure-policy",
+      "type": "io.github.coco.feature.audit.core.CocoAuditFailurePolicy",
+      "description": "How Coco handles a recorder failure while publishing an audit event.",
+      "defaultValue": "ignore"
+    },
+    {
       "name": "coco.audit.access-log.enabled",
       "type": "java.lang.Boolean",
       "description": "Whether Coco converts access log events to audit events.",
       "defaultValue": true
+    }
+  ],
+  "hints": [
+    {
+      "name": "coco.audit.failure-policy",
+      "values": [
+        {
+          "value": "ignore",
+          "description": "Ignore the failed recorder and continue publishing to remaining recorders."
+        },
+        {
+          "value": "throw",
+          "description": "Throw the recorder failure immediately."
+        }
+      ]
     }
   ]
 }
