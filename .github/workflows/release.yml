@@ -84,6 +84,12 @@ jobs:
             central_auto_publish="false"
           fi
 
+          if [[ "${central_auto_publish}" == "true" ]]; then
+            central_wait_until="PUBLISHED"
+          else
+            central_wait_until="VALIDATED"
+          fi
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "RELEASE_TAG=v${release_version}" >> "$GITHUB_ENV"
           else
@@ -92,8 +98,10 @@ jobs:
 
           echo "RELEASE_VERSION=${release_version}" >> "$GITHUB_ENV"
           echo "CENTRAL_AUTO_PUBLISH=${central_auto_publish}" >> "$GITHUB_ENV"
+          echo "CENTRAL_WAIT_UNTIL=${central_wait_until}" >> "$GITHUB_ENV"
           echo "version=${release_version}" >> "$GITHUB_OUTPUT"
           echo "tag=v${release_version}" >> "$GITHUB_OUTPUT"
+          echo "central-wait-until=${central_wait_until}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK and Maven credentials
         uses: actions/setup-java@v5
@@ -104,8 +112,35 @@ jobs:
           server-id: central
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_PASSWORD
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Prepare GPG signing key
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GPG_PRIVATE_KEY}" ]]; then
+            echo "::error::GPG_PRIVATE_KEY secret is required."
+            exit 1
+          fi
+
+          if [[ "${GPG_PRIVATE_KEY}" == *"BEGIN PGP PRIVATE KEY BLOCK"* ]]; then
+            signing_key="${GPG_PRIVATE_KEY//\\n/$'\n'}"
+          else
+            signing_key="$(printf '%s' "${GPG_PRIVATE_KEY}" | base64 --decode)"
+          fi
+
+          if [[ "${signing_key}" != *"BEGIN PGP PRIVATE KEY BLOCK"* ]]; then
+            echo "::error::GPG_PRIVATE_KEY must be an ASCII-armored private key or base64-encoded ASCII-armored private key."
+            exit 1
+          fi
+
+          {
+            echo 'MAVEN_GPG_KEY<<COCO_GPG_KEY'
+            printf '%s\n' "${signing_key}"
+            echo 'COCO_GPG_KEY'
+          } >> "${GITHUB_ENV}"
 
       - name: Publish
         env:
@@ -116,6 +151,7 @@ jobs:
           mvn -B -ntp -Prelease
           -Drevision="${RELEASE_VERSION}"
           -Dcentral.auto-publish="${CENTRAL_AUTO_PUBLISH}"
+          -Dcentral.wait-until="${CENTRAL_WAIT_UNTIL}"
           -DskipTests
           deploy
 
