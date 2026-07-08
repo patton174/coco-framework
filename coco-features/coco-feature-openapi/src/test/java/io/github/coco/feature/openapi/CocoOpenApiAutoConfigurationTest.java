@@ -1,18 +1,24 @@
 package io.github.coco.feature.openapi;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.feature.openapi.core.CocoOpenApiMetadata;
+import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
+import io.github.coco.feature.openapi.core.DefaultCocoOpenApiMetadataProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * Coco OpenAPI 功能自动配置测试。
  * <p>
- * 验证 OpenAPI 功能模块可以通过 Coco 国际化基础设施注册自己的消息资源。
+ * 验证 OpenAPI 功能模块可以注册消息资源、绑定配置属性，并提供可替换的文档元数据 SPI。
  * </p>
  * <p>
  * 项目信息：
@@ -42,5 +48,77 @@ class CocoOpenApiAutoConfigurationTest {
             assertEquals("Coco OpenAPI 功能消息资源已就绪。",
                     messageService.getMessage("coco.feature.openapi.ready"));
         });
+    }
+
+    @Test
+    void createsDefaultOpenApiMetadataProvider() {
+        this.contextRunner.run(context -> {
+            assertThat(context).hasSingleBean(CocoOpenApiProperties.class);
+            assertThat(context).hasSingleBean(CocoOpenApiMetadataProvider.class);
+            assertThat(context.getBean(CocoOpenApiMetadataProvider.class))
+                    .isInstanceOf(DefaultCocoOpenApiMetadataProvider.class);
+
+            CocoOpenApiMetadata metadata = context.getBean(CocoOpenApiMetadataProvider.class).metadata();
+            assertThat(metadata.title()).isEqualTo("Coco API");
+            assertThat(metadata.version()).isEqualTo("1.0.0");
+            assertThat(metadata.descriptionOptional()).contains("Coco Framework API");
+        });
+    }
+
+    @Test
+    void bindsOpenApiMetadataProperties() {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.openapi.info.title=Sample API",
+                        "coco.openapi.info.version=2.1.0",
+                        "coco.openapi.info.description=Sample description")
+                .run(context -> {
+                    CocoOpenApiMetadata metadata = context.getBean(CocoOpenApiMetadataProvider.class).metadata();
+
+                    assertThat(metadata.title()).isEqualTo("Sample API");
+                    assertThat(metadata.version()).isEqualTo("2.1.0");
+                    assertThat(metadata.descriptionOptional()).contains("Sample description");
+                });
+    }
+
+    @Test
+    void backsOffWhenCustomOpenApiMetadataProviderExists() {
+        this.contextRunner
+                .withUserConfiguration(CustomOpenApiConfiguration.class)
+                .run(context -> {
+                    CocoOpenApiMetadataProvider provider = context.getBean(CocoOpenApiMetadataProvider.class);
+
+                    assertThat(provider.metadata().title()).isEqualTo("Custom API");
+                    assertThat(provider).isNotInstanceOf(DefaultCocoOpenApiMetadataProvider.class);
+                });
+    }
+
+    @Test
+    void disablesOpenApiMetadataProvider() {
+        this.contextRunner
+                .withPropertyValues("coco.openapi.enabled=false")
+                .run(context -> {
+                    assertTrue(context.containsBean("cocoOpenApiMessageBundleRegistrar"));
+                    assertThat(context).doesNotHaveBean(CocoOpenApiMetadataProvider.class);
+                });
+    }
+
+    @Test
+    void backsOffWhenOpenApiFeatureIsDisabled() {
+        this.contextRunner
+                .withPropertyValues("coco.features.disabled[0]=openapi")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean("cocoOpenApiMessageBundleRegistrar");
+                    assertThat(context).doesNotHaveBean(CocoOpenApiMetadataProvider.class);
+                });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomOpenApiConfiguration {
+
+        @Bean
+        CocoOpenApiMetadataProvider customCocoOpenApiMetadataProvider() {
+            return () -> new CocoOpenApiMetadata("Custom API", "9.9.9", null);
+        }
     }
 }

@@ -1,0 +1,28 @@
+{
+  "properties": [
+    {
+      "name": "coco.openapi.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco OpenAPI infrastructure is enabled.",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.openapi.info.title",
+      "type": "java.lang.String",
+      "description": "Default OpenAPI document title.",
+      "defaultValue": "Coco API"
+    },
+    {
+      "name": "coco.openapi.info.version",
+      "type": "java.lang.String",
+      "description": "Default OpenAPI document version.",
+      "defaultValue": "1.0.0"
+    },
+    {
+      "name": "coco.openapi.info.description",
+      "type": "java.lang.String",
+      "description": "Default OpenAPI document description.",
+      "defaultValue": "Coco Framework API"
+    }
+  ]
+}

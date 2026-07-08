@@ -2,9 +2,12 @@ package io.github.coco.feature.audit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoMessageService;
@@ -14,8 +17,13 @@ import io.github.coco.common.logging.access.Slf4jCocoAccessLogRecorder;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.feature.audit.accesslog.CocoAccessLogAuditRecorder;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
+import io.github.coco.feature.audit.core.CocoAuditErrorHandler;
+import io.github.coco.feature.audit.core.CocoAuditFailurePolicy;
+import io.github.coco.feature.audit.core.CocoAuditPublisher;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
+import io.github.coco.feature.audit.core.CompositeCocoAuditPublisher;
 import io.github.coco.feature.audit.core.NoOpCocoAuditRecorder;
+import io.github.coco.feature.audit.core.PolicyCocoAuditErrorHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -61,9 +69,50 @@ class CocoAuditAutoConfigurationTest {
         this.contextRunner.run(context -> {
             assertThat(context).hasSingleBean(CocoAuditRecorder.class);
             assertThat(context.getBean(CocoAuditRecorder.class)).isInstanceOf(NoOpCocoAuditRecorder.class);
+            assertThat(context).hasSingleBean(CocoAuditErrorHandler.class);
+            assertThat(context).hasSingleBean(CocoAuditPublisher.class);
+            assertThat(context.getBean(CocoAuditPublisher.class)).isInstanceOf(CompositeCocoAuditPublisher.class);
             assertThat(context).hasBean("cocoAccessLogAuditRecorder");
             assertThat(context.getBean("cocoAccessLogAuditRecorder")).isInstanceOf(CocoAccessLogAuditRecorder.class);
         });
+    }
+
+    @Test
+    void publishesAuditEventToMultipleRecordersAndIgnoresFailuresByDefault() {
+        AtomicInteger firstRecorderCount = new AtomicInteger();
+        AtomicInteger secondRecorderCount = new AtomicInteger();
+        CocoAuditRecorder failingRecorder = event -> {
+            throw new IllegalStateException("audit failed");
+        };
+        CocoAuditPublisher publisher = new CompositeCocoAuditPublisher(List.of(
+                failingRecorder,
+                event -> firstRecorderCount.incrementAndGet(),
+                event -> secondRecorderCount.incrementAndGet()),
+                new PolicyCocoAuditErrorHandler(CocoAuditFailurePolicy.IGNORE));
+
+        publisher.publish(CocoAuditEvent.builder("test").build());
+
+        assertThat(firstRecorderCount).hasValue(1);
+        assertThat(secondRecorderCount).hasValue(1);
+    }
+
+    @Test
+    void throwsAuditRecorderFailureWhenFailurePolicyIsThrow() {
+        AtomicInteger nextRecorderCount = new AtomicInteger();
+        IllegalStateException failure = new IllegalStateException("audit failed");
+        CocoAuditRecorder failingRecorder = event -> {
+            throw failure;
+        };
+        CocoAuditPublisher publisher = new CompositeCocoAuditPublisher(List.of(
+                failingRecorder,
+                event -> nextRecorderCount.incrementAndGet()),
+                new PolicyCocoAuditErrorHandler(CocoAuditFailurePolicy.THROW));
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> publisher.publish(CocoAuditEvent.builder("test").build()));
+
+        assertThat(thrown).isSameAs(failure);
+        assertThat(nextRecorderCount).hasValue(0);
     }
 
     @Test
@@ -122,6 +171,8 @@ class CocoAuditAutoConfigurationTest {
                 .withPropertyValues("coco.audit.enabled=false")
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(CocoAuditRecorder.class);
+                    assertThat(context).doesNotHaveBean(CocoAuditErrorHandler.class);
+                    assertThat(context).doesNotHaveBean(CocoAuditPublisher.class);
                     assertThat(context).doesNotHaveBean("cocoAccessLogAuditRecorder");
                 });
     }

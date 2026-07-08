@@ -1,12 +1,18 @@
 package io.github.coco.feature.audit;
 
+import java.util.Collection;
+
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.feature.audit.accesslog.CocoAccessLogAuditRecorder;
+import io.github.coco.feature.audit.core.CocoAuditErrorHandler;
+import io.github.coco.feature.audit.core.CocoAuditPublisher;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
+import io.github.coco.feature.audit.core.CompositeCocoAuditPublisher;
 import io.github.coco.feature.audit.core.NoOpCocoAuditRecorder;
+import io.github.coco.feature.audit.core.PolicyCocoAuditErrorHandler;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -18,7 +24,7 @@ import org.springframework.context.annotation.Bean;
 /**
  * Coco 审计功能自动配置。
  * <p>
- * 负责为审计功能模块注册国际化消息资源、审计记录器 SPI 和访问日志审计适配器。
+ * 负责为审计功能模块注册国际化消息资源、审计记录器 SPI、审计发布器和访问日志审计适配器。
  * </p>
  * <p>
  * 项目信息：
@@ -63,17 +69,48 @@ public class CocoAuditAutoConfiguration {
 
     /**
      * <p>
-     * 创建访问日志审计适配器。
+     * 创建审计记录失败处理器。
      * </p>
-     * @param auditRecorder 审计记录器
-     * @return 访问日志记录器
+     * @param properties 审计配置属性
+     * @return 审计记录失败处理器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public CocoAuditErrorHandler cocoAuditErrorHandler(CocoAuditProperties properties) {
+        return new PolicyCocoAuditErrorHandler(properties.getFailurePolicy());
+    }
+
+    /**
+     * <p>
+     * 创建审计事件发布器。
+     * </p>
+     * @param auditRecorders 审计记录器集合
+     * @param errorHandler 审计记录失败处理器
+     * @return 审计事件发布器
      */
     @Bean
     @ConditionalOnBean(CocoAuditRecorder.class)
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public CocoAuditPublisher cocoAuditPublisher(Collection<CocoAuditRecorder> auditRecorders,
+            CocoAuditErrorHandler errorHandler) {
+        return new CompositeCocoAuditPublisher(auditRecorders, errorHandler);
+    }
+
+    /**
+     * <p>
+     * 创建访问日志审计适配器。
+     * </p>
+     * @param auditPublisher 审计事件发布器
+     * @return 访问日志记录器
+     */
+    @Bean
+    @ConditionalOnBean(CocoAuditPublisher.class)
     @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
     @ConditionalOnProperty(prefix = "coco.audit.access-log", name = "enabled", havingValue = "true",
             matchIfMissing = true)
-    public CocoAccessLogRecorder cocoAccessLogAuditRecorder(CocoAuditRecorder auditRecorder) {
-        return new CocoAccessLogAuditRecorder(auditRecorder);
+    public CocoAccessLogRecorder cocoAccessLogAuditRecorder(CocoAuditPublisher auditPublisher) {
+        return new CocoAccessLogAuditRecorder(auditPublisher);
     }
 }

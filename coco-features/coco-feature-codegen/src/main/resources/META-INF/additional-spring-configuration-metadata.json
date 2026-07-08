@@ -1,0 +1,22 @@
+{
+  "properties": [
+    {
+      "name": "coco.codegen.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco code generation infrastructure is enabled.",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.codegen.templates.location",
+      "type": "java.lang.String",
+      "description": "Default Coco code generation template location.",
+      "defaultValue": "classpath:/coco/codegen/templates"
+    },
+    {
+      "name": "coco.codegen.templates.encoding",
+      "type": "java.lang.String",
+      "description": "Default Coco code generation template encoding.",
+      "defaultValue": "UTF-8"
+    }
+  ]
+}

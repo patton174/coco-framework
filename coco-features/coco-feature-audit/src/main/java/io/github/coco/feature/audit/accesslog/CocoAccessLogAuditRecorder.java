@@ -6,6 +6,7 @@ import java.util.Objects;
 import io.github.coco.common.logging.access.CocoAccessLog;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
+import io.github.coco.feature.audit.core.CocoAuditPublisher;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
 
 /**
@@ -33,7 +34,7 @@ public final class CocoAccessLogAuditRecorder implements CocoAccessLogRecorder {
 
     private static final String RESOURCE_TYPE = "http-request";
 
-    private final CocoAuditRecorder auditRecorder;
+    private final CocoAuditPublisher auditPublisher;
 
     /**
      * <p>
@@ -42,7 +43,17 @@ public final class CocoAccessLogAuditRecorder implements CocoAccessLogRecorder {
      * @param auditRecorder 审计记录器
      */
     public CocoAccessLogAuditRecorder(CocoAuditRecorder auditRecorder) {
-        this.auditRecorder = Objects.requireNonNull(auditRecorder, "auditRecorder must not be null");
+        this(adapt(auditRecorder));
+    }
+
+    /**
+     * <p>
+     * 创建访问日志审计适配器。
+     * </p>
+     * @param auditPublisher 审计事件发布器
+     */
+    public CocoAccessLogAuditRecorder(CocoAuditPublisher auditPublisher) {
+        this.auditPublisher = Objects.requireNonNull(auditPublisher, "auditPublisher must not be null");
     }
 
     /**
@@ -66,6 +77,12 @@ public final class CocoAccessLogAuditRecorder implements CocoAccessLogRecorder {
         checkedAccessLog.contentType().ifPresent(contentType -> builder.attribute("contentType", contentType));
         checkedAccessLog.exceptionType().ifPresent(exceptionType -> builder.attribute("exceptionType", exceptionType));
         checkedAccessLog.browserFingerprint().ifPresent(fingerprint -> builder.attribute("browserFingerprint", fingerprint));
-        this.auditRecorder.record(builder.build());
+        this.auditPublisher.publish(builder.build());
+    }
+
+    private static CocoAuditPublisher adapt(CocoAuditRecorder auditRecorder) {
+        CocoAuditRecorder checkedAuditRecorder = Objects.requireNonNull(auditRecorder,
+                "auditRecorder must not be null");
+        return checkedAuditRecorder::record;
     }
 }

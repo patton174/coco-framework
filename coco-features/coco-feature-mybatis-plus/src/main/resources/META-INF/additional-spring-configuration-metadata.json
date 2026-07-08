@@ -27,6 +27,18 @@
       "type": "java.lang.Boolean",
       "description": "Whether the pagination count SQL should optimize join clauses.",
       "defaultValue": true
+    },
+    {
+      "name": "coco.mybatis-plus.sql-guard.block-attack-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco registers the MyBatis-Plus block attack inner interceptor to prevent full-table update and delete statements.",
+      "defaultValue": false
+    },
+    {
+      "name": "coco.mybatis-plus.sql-guard.illegal-sql-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco registers the MyBatis-Plus illegal SQL inner interceptor.",
+      "defaultValue": false
     }
   ],
   "hints": [
