@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.common.logging.access.Slf4jCocoAccessLogRecorder;
+import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
+import io.github.coco.feature.audit.accesslog.NoOpCocoAccessLogRecorder;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -50,6 +53,19 @@ class CocoAuditAutoConfigurationTest {
         this.contextRunner.run(context -> {
             assertTrue(context.containsBean("cocoAccessLogRecorder"));
             assertNotNull(context.getBean(CocoAccessLogRecorder.class));
+            assertTrue(context.getBean(CocoAccessLogRecorder.class) instanceof NoOpCocoAccessLogRecorder);
         });
+    }
+
+    @Test
+    void doesNotOverrideCommonLoggingAccessLogRecorder() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        CocoCommonAutoConfiguration.class,
+                        CocoCommonLoggingAutoConfiguration.class,
+                        CocoAuditAutoConfiguration.class))
+                .withPropertyValues("coco.common.i18n.basename=coco-messages")
+                .run(context -> assertTrue(context.getBean(CocoAccessLogRecorder.class)
+                        instanceof Slf4jCocoAccessLogRecorder));
     }
 }

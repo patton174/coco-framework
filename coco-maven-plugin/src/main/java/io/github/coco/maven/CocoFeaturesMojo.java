@@ -42,7 +42,7 @@ import org.eclipse.aether.resolution.ArtifactResolutionException;
 /**
  * Coco 功能装配 Maven Goal。
  * <p>
- * 骨架阶段只提供 no-op goal，后续用于根据配置装配启用的功能模块。
+ * 根据业务项目的配置文件、插件参数和 {@code @CocoFeatures} 注解计算最终启用功能，生成构建清单，并注入对应功能模块依赖。
  * </p>
  * <p>
  * 项目信息：
@@ -115,20 +115,29 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             return;
         }
 
-        CocoFeatureSelection applicationSelection = new CocoBuildFeatureConfigurationLoader()
-                .load(this.project.getBasedir().toPath().resolve("src/main/resources"));
-        CocoFeatureSelection parameterSelection = new CocoFeatureSelection(
-                parseFeatures(this.enabled),
-                parseFeatures(this.disabled));
-        CocoFeatureSelection annotationSelection = new CocoAnnotatedFeatureScanner()
-                .scan(this.classesDirectory.toPath(), classpathUrls());
-
-        CocoFeaturePlan plan = StandardCocoFeatures.resolve(
-                applicationSelection.merge(parameterSelection).merge(annotationSelection));
+        CocoFeaturePlan plan = resolveFeaturePlan();
         writeManifest(plan);
         applyFeatureDependencies(plan);
         pruneDisabledFeatureArtifacts(plan);
         getLog().info("Coco feature manifest generated with " + plan.enabledFeatures().size() + " enabled features.");
+    }
+
+    private CocoFeaturePlan resolveFeaturePlan() throws MojoExecutionException {
+        try {
+            CocoFeatureSelection applicationSelection = new CocoBuildFeatureConfigurationLoader()
+                    .load(this.project.getBasedir().toPath().resolve("src/main/resources"));
+            CocoFeatureSelection parameterSelection = new CocoFeatureSelection(
+                    parseFeatures(this.enabled, "Maven parameter coco.features.enabled"),
+                    parseFeatures(this.disabled, "Maven parameter coco.features.disabled"));
+            CocoFeatureSelection annotationSelection = new CocoAnnotatedFeatureScanner()
+                    .scan(this.classesDirectory.toPath(), classpathUrls());
+
+            return StandardCocoFeatures.resolve(
+                    applicationSelection.merge(parameterSelection).merge(annotationSelection));
+        }
+        catch (IllegalArgumentException | UncheckedIOException ex) {
+            throw new MojoExecutionException("Failed to resolve Coco feature selection.", ex);
+        }
     }
 
     /**
@@ -299,16 +308,11 @@ public final class CocoFeaturesMojo extends AbstractMojo {
      * @param value 功能标识文本
      * @return 功能集合
      */
-    private static Set<CocoFeature> parseFeatures(String value) {
+    private static Set<CocoFeature> parseFeatures(String value, String source) {
         if (value == null || value.isBlank()) {
             return Set.of();
         }
-        return java.util.Arrays.stream(value.split(","))
-                .map(String::trim)
-                .filter(token -> !token.isEmpty())
-                .map(CocoFeature::fromId)
-                .flatMap(java.util.Optional::stream)
-                .collect(Collectors.toUnmodifiableSet());
+        return CocoFeatureIdParser.parse(value, source);
     }
 
 }

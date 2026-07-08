@@ -3,8 +3,15 @@ package io.github.coco.feature.datapermission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Set;
+
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.exception.type.CocoForbiddenException;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.feature.datapermission.context.CocoDataPermissionContext;
+import io.github.coco.feature.datapermission.context.CocoDataPermissionContextHolder;
+import io.github.coco.feature.datapermission.context.CocoDataPermissionContextResolver;
+import io.github.coco.feature.datapermission.context.CocoDataPermissionRule;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -41,6 +48,35 @@ class CocoDataPermissionAutoConfigurationTest {
             assertTrue(context.containsBean("cocoDataPermissionMessageBundleRegistrar"));
             assertEquals("Coco 数据权限功能消息资源已就绪。",
                     messageService.getMessage("coco.feature.data-permission.ready"));
+            assertEquals("当前请求缺少数据权限上下文。",
+                    messageService.getMessage("coco.feature.data-permission.error.context-missing"));
         });
+    }
+
+    @Test
+    void registersDataPermissionContextResolver() {
+        this.contextRunner.run(context -> {
+            CocoDataPermissionContextResolver resolver = context.getBean(CocoDataPermissionContextResolver.class);
+            CocoDataPermissionContext dataPermissionContext = CocoDataPermissionContext.of(
+                    Set.of(CocoDataPermissionRule.all("sample-order")));
+
+            CocoDataPermissionContextHolder.runWithContext(dataPermissionContext,
+                    () -> assertEquals(dataPermissionContext, resolver.resolve().orElseThrow()));
+        });
+    }
+
+    @Test
+    void missingContextUsesDataPermissionErrorCode() {
+        CocoDataPermissionContextHolder.clear();
+
+        try {
+            CocoDataPermissionContextHolder.requireCurrent();
+        }
+        catch (CocoForbiddenException exception) {
+            assertEquals("coco.feature.data-permission.error.context-missing", exception.message().code());
+            return;
+        }
+
+        throw new AssertionError("Expected CocoForbiddenException");
     }
 }

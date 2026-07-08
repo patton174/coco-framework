@@ -1,0 +1,119 @@
+package io.github.coco.feature.tenant.context;
+
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
+
+import io.github.coco.feature.tenant.CocoTenantErrorCode;
+
+/**
+ * Coco 租户上下文持有器。
+ * <p>
+ * 使用 {@link ThreadLocal} 保存当前线程租户上下文，入口适配器负责设置和清理，业务逻辑只读取当前上下文。
+ * </p>
+ * <p>
+ * 项目信息：
+ * </p>
+ * <ul>
+ *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+ *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>模块：{@code coco-feature-tenant}</li>
+ * </ul>
+ * @author patton174
+ * @since 1.0.0
+ */
+public final class CocoTenantContextHolder {
+
+    private static final ThreadLocal<CocoTenantContext> TENANT_CONTEXT = new ThreadLocal<>();
+
+    private CocoTenantContextHolder() {
+    }
+
+    /**
+     * <p>
+     * 返回当前租户上下文。
+     * </p>
+     * @return 当前租户上下文；未设置时为空
+     */
+    public static Optional<CocoTenantContext> current() {
+        return Optional.ofNullable(TENANT_CONTEXT.get());
+    }
+
+    /**
+     * <p>
+     * 返回当前租户上下文，不存在时抛出请求异常。
+     * </p>
+     * @return 当前租户上下文
+     */
+    public static CocoTenantContext requireCurrent() {
+        return current().orElseThrow(() -> CocoTenantErrorCode.CONTEXT_MISSING.request());
+    }
+
+    /**
+     * <p>
+     * 设置当前租户上下文。
+     * </p>
+     * @param tenantContext 租户上下文
+     * @return 已设置的租户上下文
+     */
+    public static CocoTenantContext set(CocoTenantContext tenantContext) {
+        CocoTenantContext checkedContext = Objects.requireNonNull(tenantContext,
+                "tenantContext must not be null");
+        TENANT_CONTEXT.set(checkedContext);
+        return checkedContext;
+    }
+
+    /**
+     * <p>
+     * 清除当前租户上下文。
+     * </p>
+     */
+    public static void clear() {
+        TENANT_CONTEXT.remove();
+    }
+
+    /**
+     * <p>
+     * 在指定租户上下文中执行逻辑，并在结束后恢复之前的上下文。
+     * </p>
+     * @param tenantContext 临时租户上下文
+     * @param runnable 待执行逻辑
+     */
+    public static void runWithContext(CocoTenantContext tenantContext, Runnable runnable) {
+        Objects.requireNonNull(runnable, "runnable must not be null");
+        callWithContext(tenantContext, () -> {
+            runnable.run();
+            return null;
+        });
+    }
+
+    /**
+     * <p>
+     * 在指定租户上下文中执行逻辑，返回执行结果，并在结束后恢复之前的上下文。
+     * </p>
+     * @param tenantContext 临时租户上下文
+     * @param supplier 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 逻辑执行结果
+     */
+    public static <T> T callWithContext(CocoTenantContext tenantContext, Supplier<T> supplier) {
+        Objects.requireNonNull(supplier, "supplier must not be null");
+        Optional<CocoTenantContext> previous = current();
+        set(tenantContext);
+        try {
+            return supplier.get();
+        }
+        finally {
+            restore(previous);
+        }
+    }
+
+    private static void restore(Optional<CocoTenantContext> previous) {
+        if (previous.isPresent()) {
+            TENANT_CONTEXT.set(previous.get());
+        }
+        else {
+            clear();
+        }
+    }
+}

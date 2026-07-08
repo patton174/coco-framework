@@ -3,6 +3,8 @@ package io.github.coco.feature.tenant;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
+import io.github.coco.feature.tenant.context.HolderCocoTenantContextResolver;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -37,5 +39,17 @@ public class CocoTenantAutoConfiguration {
     @ConditionalOnMissingBean(name = "cocoTenantMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoTenantMessageBundleRegistrar() {
         return registry -> registry.add("coco-feature-tenant-messages");
+    }
+
+    /**
+     * <p>
+     * 创建默认租户上下文解析器。
+     * </p>
+     * @return 租户上下文解析器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoTenantContextResolver cocoTenantContextResolver() {
+        return new HolderCocoTenantContextResolver();
     }
 }

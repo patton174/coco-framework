@@ -3,6 +3,7 @@ package io.github.coco.feature.audit;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.audit.accesslog.NoOpCocoAccessLogRecorder;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -25,7 +26,7 @@ import org.springframework.context.annotation.Bean;
  * @author patton174
  * @since 1.0.0
  */
-@AutoConfiguration
+@AutoConfiguration(after = CocoCommonLoggingAutoConfiguration.class)
 @ConditionalOnCocoFeature(CocoFeature.AUDIT)
 public class CocoAuditAutoConfiguration {
 

@@ -2,9 +2,9 @@ package io.github.coco.feature.registry;
 
 import java.util.EnumSet;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -159,20 +159,42 @@ public final class StandardCocoFeatures {
      * </p>
      * @param manifest 构建期功能清单
      * @return 最终功能启用计划
+     * @throws IllegalArgumentException 清单结构版本不支持、包含未知功能标识或重复功能条目时抛出
      */
     public static CocoFeaturePlan fromManifest(CocoFeatureManifest manifest) {
         if (manifest == null) {
             return resolve(CocoFeatureSelection.empty());
         }
+        validateManifest(manifest);
         Set<CocoFeature> enabled = manifest.features().stream()
                 .filter(CocoFeatureManifestEntry::enabled)
                 .map(CocoFeatureManifestEntry::id)
-                .map(CocoFeature::fromId)
-                .flatMap(Optional::stream)
+                .map(StandardCocoFeatures::requireManifestFeature)
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(CocoFeature.class)));
         EnumSet<CocoFeature> disabled = EnumSet.allOf(CocoFeature.class);
         disabled.removeAll(enabled);
         return new CocoFeaturePlan(enabled, disabled, FEATURES);
+    }
+
+    private static void validateManifest(CocoFeatureManifest manifest) {
+        if (!CocoFeatureManifest.CURRENT_SCHEMA_VERSION.equals(manifest.schemaVersion())) {
+            throw new IllegalArgumentException("Unsupported Coco feature manifest schema version '"
+                    + manifest.schemaVersion() + "'. Supported schema version: "
+                    + CocoFeatureManifest.CURRENT_SCHEMA_VERSION + ".");
+        }
+        Set<String> featureIds = new HashSet<>();
+        for (CocoFeatureManifestEntry entry : manifest.features()) {
+            requireManifestFeature(entry.id());
+            if (!featureIds.add(entry.id())) {
+                throw new IllegalArgumentException("Duplicate Coco feature manifest entry '" + entry.id() + "'.");
+            }
+        }
+    }
+
+    private static CocoFeature requireManifestFeature(String featureId) {
+        return CocoFeature.fromId(featureId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown Coco feature id '" + featureId
+                        + "' in feature manifest."));
     }
 
     private static CocoFeatureDefinition feature(CocoFeature feature, String artifactId, String autoConfigurationClassName,

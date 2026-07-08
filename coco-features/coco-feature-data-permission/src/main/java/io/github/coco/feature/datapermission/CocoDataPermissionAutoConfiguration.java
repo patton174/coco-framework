@@ -2,6 +2,8 @@ package io.github.coco.feature.datapermission;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.feature.datapermission.context.CocoDataPermissionContextResolver;
+import io.github.coco.feature.datapermission.context.HolderCocoDataPermissionContextResolver;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -37,5 +39,17 @@ public class CocoDataPermissionAutoConfiguration {
     @ConditionalOnMissingBean(name = "cocoDataPermissionMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoDataPermissionMessageBundleRegistrar() {
         return registry -> registry.add("coco-feature-data-permission-messages");
+    }
+
+    /**
+     * <p>
+     * 创建默认数据权限上下文解析器。
+     * </p>
+     * @return 数据权限上下文解析器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoDataPermissionContextResolver cocoDataPermissionContextResolver() {
+        return new HolderCocoDataPermissionContextResolver();
     }
 }
