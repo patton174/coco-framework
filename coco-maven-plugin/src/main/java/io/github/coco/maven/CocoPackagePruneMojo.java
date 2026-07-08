@@ -8,14 +8,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
 
 import io.github.coco.feature.registry.CocoFeatureManifest;
-import io.github.coco.feature.registry.CocoFeatureManifestEntry;
 import io.github.coco.feature.registry.CocoFeatureManifestLoader;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -74,8 +77,8 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             getLog().info("Coco package pruning skipped for pom packaging.");
             return;
         }
-        Set<String> disabledArtifactIds = disabledArtifactIds();
-        if (disabledArtifactIds.isEmpty()) {
+        Set<String> pruneArtifactIds = pruneArtifactIds();
+        if (pruneArtifactIds.isEmpty()) {
             getLog().info("Coco package pruning skipped because no feature is disabled.");
             return;
         }
@@ -85,7 +88,7 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             return;
         }
         try {
-            int removed = pruneBootArchive(archivePath, disabledArtifactIds);
+            int removed = pruneBootArchive(archivePath, pruneArtifactIds);
             getLog().info("Coco package pruning removed " + removed + " disabled feature artifact(s).");
         }
         catch (IOException ex) {
@@ -95,12 +98,12 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     /**
      * <p>
-     * 从功能清单中读取被禁用的功能模块 artifactId。
+     * 从功能清单中读取被禁用功能对应的可裁剪 artifactId。
      * </p>
-     * @return 被禁用功能模块 artifactId 集合
+     * @return 被禁用功能对应的可裁剪 artifactId 集合
      * @throws MojoExecutionException 功能清单读取失败时抛出
      */
-    private Set<String> disabledArtifactIds() throws MojoExecutionException {
+    private Set<String> pruneArtifactIds() throws MojoExecutionException {
         Path manifestPath = this.classesDirectory.toPath().resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
         if (!Files.isRegularFile(manifestPath)) {
             return Set.of();
@@ -109,7 +112,7 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(inputStream);
             return manifest.features().stream()
                     .filter(entry -> !entry.enabled())
-                    .map(CocoFeatureManifestEntry::artifactId)
+                    .flatMap(entry -> entry.pruneArtifactIds().stream())
                     .collect(Collectors.toUnmodifiableSet());
         }
         catch (IOException ex) {
@@ -135,11 +138,12 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
      * 重写 Spring Boot 可执行 jar，移除禁用功能模块对应的嵌套依赖。
      * </p>
      * @param archivePath Spring Boot 可执行 jar 路径
-     * @param disabledArtifactIds 被禁用功能模块 artifactId 集合
+     * @param pruneArtifactIds 被禁用功能对应的可裁剪 artifactId 集合
      * @return 实际移除的嵌套依赖数量
      * @throws IOException jar 读写失败时抛出
      */
-    int pruneBootArchive(Path archivePath, Set<String> disabledArtifactIds) throws IOException {
+    int pruneBootArchive(Path archivePath, Set<String> pruneArtifactIds) throws IOException {
+        List<String> sortedPruneArtifactIds = sortedPruneArtifactIds(pruneArtifactIds);
         Path temporaryPath = Files.createTempFile(archivePath.getParent(), archivePath.getFileName().toString(), ".tmp");
         int removed = 0;
         boolean changed = false;
@@ -148,14 +152,15 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             var entries = source.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
-                if (shouldPrune(entry, disabledArtifactIds)) {
+                if (shouldPrune(entry, sortedPruneArtifactIds)) {
                     removed++;
                     changed = true;
                     continue;
                 }
-                target.putNextEntry(new JarEntry(entry));
-                if (isBootIndex(entry)) {
-                    changed = writeFilteredBootIndex(source, entry, disabledArtifactIds, target) || changed;
+                boolean bootIndex = isBootIndex(entry);
+                target.putNextEntry(targetEntry(entry, !bootIndex));
+                if (bootIndex) {
+                    changed = writeFilteredBootIndex(source, entry, sortedPruneArtifactIds, target) || changed;
                 }
                 else if (!entry.isDirectory()) {
                     try (InputStream inputStream = source.getInputStream(entry)) {
@@ -175,19 +180,19 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     /**
      * <p>
-     * 判断 jar 条目是否为被禁用的 Coco 功能模块依赖。
+     * 判断 jar 条目是否为被禁用功能对应的可裁剪依赖。
      * </p>
      * @param entry jar 条目
-     * @param disabledArtifactIds 被禁用功能模块 artifactId 集合
+     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
      * @return 需要移除时返回 {@code true}
      */
-    private boolean shouldPrune(JarEntry entry, Set<String> disabledArtifactIds) {
+    private boolean shouldPrune(JarEntry entry, List<String> pruneArtifactIds) {
         String name = entry.getName();
         if (!name.startsWith("BOOT-INF/lib/") || !name.endsWith(".jar")) {
             return false;
         }
         String fileName = name.substring("BOOT-INF/lib/".length());
-        return disabledArtifactIds.stream().anyMatch(artifactId -> fileName.startsWith(artifactId + "-"));
+        return shouldPruneFileName(fileName, pruneArtifactIds);
     }
 
     /**
@@ -203,23 +208,23 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     /**
      * <p>
-     * 重写 Spring Boot 索引文件，移除被禁用功能模块对应的嵌套依赖行。
+     * 重写 Spring Boot 索引文件，移除被禁用功能对应的嵌套依赖行。
      * </p>
      * @param source 原始 jar
      * @param entry 索引条目
-     * @param disabledArtifactIds 被禁用功能模块 artifactId 集合
+     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
      * @param target 目标 jar 输出流
      * @return 索引内容发生变化时返回 {@code true}
      * @throws IOException 索引读写失败时抛出
      */
-    private boolean writeFilteredBootIndex(JarFile source, JarEntry entry, Set<String> disabledArtifactIds,
+    private boolean writeFilteredBootIndex(JarFile source, JarEntry entry, List<String> pruneArtifactIds,
             JarOutputStream target) throws IOException {
         String content;
         try (InputStream inputStream = source.getInputStream(entry)) {
             content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         }
         String filtered = content.lines()
-                .filter(line -> !containsDisabledFeature(line, disabledArtifactIds))
+                .filter(line -> !containsDisabledFeature(line, pruneArtifactIds))
                 .collect(Collectors.joining("\n"));
         if (content.endsWith("\n") && !filtered.isEmpty()) {
             filtered = filtered + "\n";
@@ -230,15 +235,114 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     /**
      * <p>
-     * 判断索引行是否引用被禁用的 Coco 功能模块。
+     * 判断索引行是否引用被禁用功能对应的可裁剪 artifactId。
      * </p>
      * @param line 索引行
-     * @param disabledArtifactIds 被禁用功能模块 artifactId 集合
+     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
      * @return 引用禁用功能模块时返回 {@code true}
      */
-    private boolean containsDisabledFeature(String line, Set<String> disabledArtifactIds) {
-        return disabledArtifactIds.stream()
-                .anyMatch(artifactId -> line.contains("BOOT-INF/lib/" + artifactId + "-"));
+    private boolean containsDisabledFeature(String line, List<String> pruneArtifactIds) {
+        int index = line.indexOf("BOOT-INF/lib/");
+        if (index < 0) {
+            return false;
+        }
+        String fileName = line.substring(index + "BOOT-INF/lib/".length());
+        int endIndex = fileName.indexOf(".jar");
+        if (endIndex < 0) {
+            return false;
+        }
+        return shouldPruneFileName(fileName.substring(0, endIndex + ".jar".length()), pruneArtifactIds);
+    }
+
+    /**
+     * <p>
+     * 判断 Spring Boot 嵌套 jar 文件名是否匹配可裁剪 artifactId。
+     * </p>
+     * @param fileName 嵌套 jar 文件名
+     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
+     * @return 需要移除时返回 {@code true}
+     */
+    private boolean shouldPruneFileName(String fileName, List<String> pruneArtifactIds) {
+        return pruneArtifactIds.stream().anyMatch(artifactId -> isArtifactJar(fileName, artifactId));
+    }
+
+    /**
+     * <p>
+     * 判断 jar 文件名是否属于指定 artifactId，避免短 artifactId 误匹配业务扩展 jar。
+     * </p>
+     * @param fileName 嵌套 jar 文件名
+     * @param artifactId Maven artifactId
+     * @return 文件名属于该 artifactId 时返回 {@code true}
+     */
+    private boolean isArtifactJar(String fileName, String artifactId) {
+        String prefix = artifactId + "-";
+        if (!fileName.startsWith(prefix) || !fileName.endsWith(".jar")) {
+            return false;
+        }
+        String version = fileName.substring(prefix.length(), fileName.length() - ".jar".length());
+        return isVersionLike(version);
+    }
+
+    /**
+     * <p>
+     * 判断文件名中的版本片段是否像 Maven 版本，降低短 artifactId 对业务扩展 jar 的误匹配概率。
+     * </p>
+     * @param version 文件名中的版本片段
+     * @return 像 Maven 版本时返回 {@code true}
+     */
+    private boolean isVersionLike(String version) {
+        if (version.isBlank()) {
+            return false;
+        }
+        char first = version.charAt(0);
+        if (Character.isDigit(first) || Character.isUpperCase(first)) {
+            return true;
+        }
+        return (version.length() > 1 && (first == 'v' || first == 'V') && Character.isDigit(version.charAt(1)))
+                || version.equals(version.toUpperCase(Locale.ROOT));
+    }
+
+    /**
+     * <p>
+     * 按 artifactId 长度倒序排列，优先匹配更具体的 artifactId。
+     * </p>
+     * @param pruneArtifactIds 可裁剪 artifactId 集合
+     * @return 排序后的 artifactId 列表
+     */
+    private List<String> sortedPruneArtifactIds(Set<String> pruneArtifactIds) {
+        return pruneArtifactIds.stream()
+                .sorted(Comparator.comparingInt(String::length).reversed())
+                .toList();
+    }
+
+    /**
+     * <p>
+     * 创建目标 jar 条目。
+     * <p>
+     * 未修改条目保留原始压缩方式；被重写的索引文件仅复制安全元数据，避免沿用 STORED 条目的旧 size 和 CRC。
+     * </p>
+     * @param source 原始 jar 条目
+     * @param preserveStorage 是否保留原始 STORED 元数据
+     * @return 目标 jar 条目
+     */
+    private JarEntry targetEntry(JarEntry source, boolean preserveStorage) {
+        JarEntry target = new JarEntry(source.getName());
+        if (source.getTime() >= 0) {
+            target.setTime(source.getTime());
+        }
+        if (source.getComment() != null) {
+            target.setComment(source.getComment());
+        }
+        if (source.getExtra() != null) {
+            target.setExtra(source.getExtra());
+        }
+        if (preserveStorage && source.getMethod() == ZipEntry.STORED) {
+            target.setMethod(ZipEntry.STORED);
+            target.setSize(source.getSize());
+            target.setCompressedSize(source.getCompressedSize());
+            target.setCrc(source.getCrc());
+        }
+        return target;
     }
 
     /**

@@ -1,0 +1,16 @@
+{
+  "properties": [
+    {
+      "name": "coco.audit.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco audit infrastructure is enabled.",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.audit.access-log.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco converts access log events to audit events.",
+      "defaultValue": true
+    }
+  ]
+}

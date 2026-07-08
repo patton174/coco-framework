@@ -1,7 +1,7 @@
 /**
- * Coco 审计功能模块。
+ * Coco 审计核心契约。
  * <p>
- * 承载审计能力的自动配置入口、模块级消息资源注册和模块配置属性。
+ * 定义审计事件模型和审计记录器 SPI。该包不绑定具体存储实现，业务系统可按需接入数据库、消息队列或外部审计平台。
  * </p>
  * <p>
  * 项目信息：
@@ -14,4 +14,4 @@
  * @author patton174
  * @since 1.0.0
  */
-package io.github.coco.feature.audit;
+package io.github.coco.feature.audit.core;

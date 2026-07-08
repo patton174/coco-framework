@@ -1,6 +1,7 @@
 coco:
   features:
     disabled:
+      - mybatis-plus
       - tenant
       - data-permission
   common:

@@ -30,10 +30,12 @@ jobs:
           jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
             | grep 'BOOT-INF/lib/coco-feature'
           ! jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
-            | grep -E 'coco-feature-(tenant|data-permission)-'
+            | grep -E 'coco-feature-(mybatis-plus|tenant|data-permission)-'
+          ! jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
+            | grep -E 'BOOT-INF/lib/(mybatis|mybatis-plus)-'
           jar xf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
             BOOT-INF/classpath.idx BOOT-INF/layers.idx
-          ! grep -E 'coco-feature-(tenant|data-permission)-' BOOT-INF/classpath.idx BOOT-INF/layers.idx
+          ! grep -E 'coco-feature-(mybatis-plus|tenant|data-permission)-|/(mybatis|mybatis-plus)-' BOOT-INF/classpath.idx BOOT-INF/layers.idx
 
       - name: Verify sample business flow with Python
         run: python3 coco-samples/coco-sample-basic/scripts/verify_business_flow.py
