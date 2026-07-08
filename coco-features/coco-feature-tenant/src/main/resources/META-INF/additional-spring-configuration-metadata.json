@@ -1,0 +1,27 @@
+{
+  "properties": [
+    {
+      "name": "coco.tenant.sql.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco registers the MyBatis-Plus tenant line inner interceptor when tenant and MyBatis-Plus are available.",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.tenant.sql.tenant-id-column",
+      "type": "java.lang.String",
+      "description": "Database column used by the tenant line interceptor.",
+      "defaultValue": "tenant_id"
+    },
+    {
+      "name": "coco.tenant.sql.ignore-tables",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "Table names that should not receive tenant SQL conditions."
+    },
+    {
+      "name": "coco.tenant.sql.fail-on-missing-context",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco throws a tenant context exception when SQL isolation needs a tenant but no tenant context exists.",
+      "defaultValue": true
+    }
+  ]
+}

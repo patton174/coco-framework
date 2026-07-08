@@ -1,17 +1,31 @@
 package io.github.coco.feature.tenant;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
+import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration;
 import io.github.coco.feature.tenant.context.CocoTenantContext;
 import io.github.coco.feature.tenant.context.CocoTenantContextHolder;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
+import io.github.coco.feature.tenant.sql.CocoTenantIdExpressionResolver;
+import io.github.coco.feature.tenant.sql.CocoTenantMybatisPlusAutoConfiguration;
+import net.sf.jsqlparser.expression.LongValue;
+import net.sf.jsqlparser.expression.NullValue;
+import net.sf.jsqlparser.expression.StringValue;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * Coco 租户功能自动配置测试。
@@ -35,6 +49,14 @@ class CocoTenantAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
                     CocoTenantAutoConfiguration.class))
+            .withPropertyValues("coco.common.i18n.basename=coco-messages");
+
+    private final ApplicationContextRunner mybatisContextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(
+                    CocoCommonAutoConfiguration.class,
+                    CocoTenantAutoConfiguration.class,
+                    CocoTenantMybatisPlusAutoConfiguration.class,
+                    CocoMybatisPlusAutoConfiguration.class))
             .withPropertyValues("coco.common.i18n.basename=coco-messages");
 
     @Test
@@ -73,5 +95,117 @@ class CocoTenantAutoConfigurationTest {
         }
 
         throw new AssertionError("Expected CocoRequestException");
+    }
+
+    @Test
+    void registersTenantLineInterceptorBeforePagination() {
+        this.mybatisContextRunner.run(context -> {
+            MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+            assertThat(context).hasSingleBean(CocoTenantIdExpressionResolver.class);
+            assertThat(context).hasBean("cocoTenantMybatisPlusInterceptorCustomizer");
+            assertThat(interceptor.getInterceptors()).hasSize(2);
+            assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(TenantLineInnerInterceptor.class);
+            assertThat(interceptor.getInterceptors().get(1)).isInstanceOf(PaginationInnerInterceptor.class);
+        });
+    }
+
+    @Test
+    void bindsTenantSqlProperties() {
+        this.mybatisContextRunner
+                .withPropertyValues(
+                        "coco.tenant.sql.tenant-id-column=org_id",
+                        "coco.tenant.sql.ignore-tables[0]=sys_tenant",
+                        "coco.tenant.sql.ignore-tables[1]=coco_dictionary",
+                        "coco.tenant.sql.fail-on-missing-context=false")
+                .run(context -> {
+                    CocoTenantProperties properties = context.getBean(CocoTenantProperties.class);
+                    TenantLineHandler handler = tenantLineHandler(context);
+
+                    assertThat(properties.getSql().getTenantIdColumn()).isEqualTo("org_id");
+                    assertThat(properties.getSql().getIgnoreTables()).containsExactly("sys_tenant",
+                            "coco_dictionary");
+                    assertThat(properties.getSql().isFailOnMissingContext()).isFalse();
+                    assertThat(handler.getTenantIdColumn()).isEqualTo("org_id");
+                    assertThat(handler.ignoreTable("SYS_TENANT")).isTrue();
+                    assertThat(handler.ignoreTable("business_order")).isFalse();
+                    assertThat(handler.getTenantId()).isInstanceOf(NullValue.class);
+                });
+    }
+
+    @Test
+    void disablesTenantSqlCustomizer() {
+        this.mybatisContextRunner
+                .withPropertyValues("coco.tenant.sql.enabled=false")
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(context).doesNotHaveBean(CocoTenantIdExpressionResolver.class);
+                    assertThat(context).doesNotHaveBean("cocoTenantMybatisPlusInterceptorCustomizer");
+                    assertThat(interceptor.getInterceptors()).hasSize(1);
+                    assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void resolvesTenantIdFromCurrentContext() {
+        this.mybatisContextRunner.run(context -> {
+            TenantLineHandler handler = tenantLineHandler(context);
+            CocoTenantContext tenantContext = CocoTenantContext.of("tenant-1001", "租户 1001");
+
+            CocoTenantContextHolder.runWithContext(tenantContext, () -> {
+                StringValue tenantId = (StringValue) handler.getTenantId();
+
+                assertThat(tenantId.getValue()).isEqualTo("tenant-1001");
+            });
+        });
+    }
+
+    @Test
+    void failsWhenTenantContextIsMissing() {
+        CocoTenantContextHolder.clear();
+
+        this.mybatisContextRunner.run(context -> {
+            TenantLineHandler handler = tenantLineHandler(context);
+
+            assertThatThrownBy(handler::getTenantId)
+                    .isInstanceOf(CocoRequestException.class)
+                    .hasMessage("coco.feature.tenant.error.context-missing");
+        });
+    }
+
+    @Test
+    void customTenantIdExpressionResolverBacksOffDefaultResolver() {
+        this.mybatisContextRunner
+                .withUserConfiguration(CustomTenantExpressionConfiguration.class)
+                .run(context -> {
+                    TenantLineHandler handler = tenantLineHandler(context);
+                    CocoTenantContext tenantContext = CocoTenantContext.of("ignored", "ignored");
+
+                    CocoTenantContextHolder.runWithContext(tenantContext, () -> {
+                        LongValue tenantId = (LongValue) handler.getTenantId();
+
+                        assertThat(tenantId.getValue()).isEqualTo(1001L);
+                    });
+                });
+    }
+
+    private static TenantLineHandler tenantLineHandler(org.springframework.context.ApplicationContext context) {
+        MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+        return interceptor.getInterceptors().stream()
+                .filter(TenantLineInnerInterceptor.class::isInstance)
+                .map(TenantLineInnerInterceptor.class::cast)
+                .findFirst()
+                .map(TenantLineInnerInterceptor::getTenantLineHandler)
+                .orElseThrow();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomTenantExpressionConfiguration {
+
+        @Bean
+        CocoTenantIdExpressionResolver cocoTenantIdExpressionResolver() {
+            return tenantContext -> new LongValue(1001L);
+        }
     }
 }

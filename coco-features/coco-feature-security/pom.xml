@@ -11,7 +11,7 @@
     </parent>
     <artifactId>coco-feature-security</artifactId>
     <name>Coco Feature Security</name>
-    <description>Security feature implementation shell.</description>
+    <description>Security context feature implementation.</description>
 
     <dependencies>
         <dependency>

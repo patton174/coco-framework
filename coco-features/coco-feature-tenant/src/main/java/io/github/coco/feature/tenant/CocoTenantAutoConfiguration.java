@@ -7,6 +7,7 @@ import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
 import io.github.coco.feature.tenant.context.HolderCocoTenantContextResolver;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -27,6 +28,7 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @ConditionalOnCocoFeature(CocoFeature.TENANT)
+@EnableConfigurationProperties(CocoTenantProperties.class)
 public class CocoTenantAutoConfiguration {
 
     /**

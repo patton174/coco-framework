@@ -11,7 +11,7 @@
     </parent>
     <artifactId>coco-feature-audit</artifactId>
     <name>Coco Feature Audit</name>
-    <description>Audit feature implementation shell.</description>
+    <description>Audit event publishing and access log recording feature implementation.</description>
 
     <dependencies>
         <dependency>

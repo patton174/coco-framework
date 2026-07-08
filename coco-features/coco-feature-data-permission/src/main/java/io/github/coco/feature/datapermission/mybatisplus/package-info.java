@@ -1,9 +1,7 @@
-package io.github.coco.feature.datapermission;
-
 /**
- * 数据权限功能模块标记。
+ * Coco 数据权限 MyBatis-Plus 适配。
  * <p>
- * 标识 Coco 数据权限功能模块，当前模块提供数据权限上下文、SQL 资源解析、权限谓词生成和 MyBatis-Plus 接入能力。
+ * 通过 MyBatis-Plus 数据权限拦截器接入 Coco 数据权限上下文，并保持分页插件在最后执行。
  * </p>
  * <p>
  * 项目信息：
@@ -16,8 +14,4 @@ package io.github.coco.feature.datapermission;
  * @author patton174
  * @since 1.0.0
  */
-public final class CocoDataPermissionFeature {
-
-    private CocoDataPermissionFeature() {
-    }
-}
+package io.github.coco.feature.datapermission.mybatisplus;
