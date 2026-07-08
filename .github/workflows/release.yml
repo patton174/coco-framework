@@ -104,8 +104,35 @@ jobs:
           server-id: central
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_PASSWORD
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Prepare GPG signing key
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GPG_PRIVATE_KEY}" ]]; then
+            echo "::error::GPG_PRIVATE_KEY secret is required."
+            exit 1
+          fi
+
+          if [[ "${GPG_PRIVATE_KEY}" == *"BEGIN PGP PRIVATE KEY BLOCK"* ]]; then
+            signing_key="${GPG_PRIVATE_KEY//\\n/$'\n'}"
+          else
+            signing_key="$(printf '%s' "${GPG_PRIVATE_KEY}" | base64 --decode)"
+          fi
+
+          if [[ "${signing_key}" != *"BEGIN PGP PRIVATE KEY BLOCK"* ]]; then
+            echo "::error::GPG_PRIVATE_KEY must be an ASCII-armored private key or base64-encoded ASCII-armored private key."
+            exit 1
+          fi
+
+          {
+            echo 'MAVEN_GPG_KEY<<COCO_GPG_KEY'
+            printf '%s\n' "${signing_key}"
+            echo 'COCO_GPG_KEY'
+          } >> "${GITHUB_ENV}"
 
       - name: Publish
         env:
