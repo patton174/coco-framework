@@ -84,6 +84,12 @@ jobs:
             central_auto_publish="false"
           fi
 
+          if [[ "${central_auto_publish}" == "true" ]]; then
+            central_wait_until="PUBLISHED"
+          else
+            central_wait_until="VALIDATED"
+          fi
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "RELEASE_TAG=v${release_version}" >> "$GITHUB_ENV"
           else
@@ -92,8 +98,10 @@ jobs:
 
           echo "RELEASE_VERSION=${release_version}" >> "$GITHUB_ENV"
           echo "CENTRAL_AUTO_PUBLISH=${central_auto_publish}" >> "$GITHUB_ENV"
+          echo "CENTRAL_WAIT_UNTIL=${central_wait_until}" >> "$GITHUB_ENV"
           echo "version=${release_version}" >> "$GITHUB_OUTPUT"
           echo "tag=v${release_version}" >> "$GITHUB_OUTPUT"
+          echo "central-wait-until=${central_wait_until}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK and Maven credentials
         uses: actions/setup-java@v5
@@ -143,6 +151,7 @@ jobs:
           mvn -B -ntp -Prelease
           -Drevision="${RELEASE_VERSION}"
           -Dcentral.auto-publish="${CENTRAL_AUTO_PUBLISH}"
+          -Dcentral.wait-until="${CENTRAL_WAIT_UNTIL}"
           -DskipTests
           deploy
 
