@@ -102,15 +102,21 @@ class CocoFeaturesMojoTest {
                 coco:
                   features:
                     disabled:
-                      - tenant
-                      - data-permission
+                      - mybatis-plus
                 """, StandardCharsets.UTF_8);
 
         MavenProject project = project(baseDir, output);
         Set<Artifact> artifacts = new LinkedHashSet<>(Set.of(
+                artifact("com.baomidou", "mybatis-plus-core"),
+                artifact("com.baomidou", "mybatis-plus-jsqlparser-common"),
+                artifact("com.baomidou", "mybatis-plus-spring-boot4-starter"),
+                artifact("com.example", "mybatis"),
                 artifact("coco-feature-web"),
-                artifact("coco-feature-tenant"),
-                artifact("coco-feature-data-permission")));
+                artifact("coco-feature-mybatis-plus"),
+                artifact("org.mybatis", "mybatis"),
+                artifact("org.mybatis", "mybatis-extra"),
+                artifact("org.mybatis", "mybatis-spring"),
+                artifact("org.springframework", "spring-jdbc")));
         project.setArtifacts(artifacts);
         project.setDependencyArtifacts(new LinkedHashSet<>(artifacts));
         CocoFeaturesMojo mojo = new CocoFeaturesMojo();
@@ -124,16 +130,32 @@ class CocoFeaturesMojoTest {
 
         assertThat(project.getArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .contains("io.github.patton174:coco-feature-web")
+                .contains(
+                        "io.github.patton174:coco-feature-web",
+                        "com.example:mybatis",
+                        "org.mybatis:mybatis-extra",
+                        "org.springframework:spring-jdbc")
                 .doesNotContain(
-                        "io.github.patton174:coco-feature-tenant",
-                        "io.github.patton174:coco-feature-data-permission");
+                        "com.baomidou:mybatis-plus-core",
+                        "com.baomidou:mybatis-plus-jsqlparser-common",
+                        "com.baomidou:mybatis-plus-spring-boot4-starter",
+                        "io.github.patton174:coco-feature-mybatis-plus",
+                        "org.mybatis:mybatis",
+                        "org.mybatis:mybatis-spring");
         assertThat(project.getDependencyArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .contains("io.github.patton174:coco-feature-web")
+                .contains(
+                        "io.github.patton174:coco-feature-web",
+                        "com.example:mybatis",
+                        "org.mybatis:mybatis-extra",
+                        "org.springframework:spring-jdbc")
                 .doesNotContain(
-                        "io.github.patton174:coco-feature-tenant",
-                        "io.github.patton174:coco-feature-data-permission");
+                        "com.baomidou:mybatis-plus-core",
+                        "com.baomidou:mybatis-plus-jsqlparser-common",
+                        "com.baomidou:mybatis-plus-spring-boot4-starter",
+                        "io.github.patton174:coco-feature-mybatis-plus",
+                        "org.mybatis:mybatis",
+                        "org.mybatis:mybatis-spring");
     }
 
     @Test
@@ -170,7 +192,11 @@ class CocoFeaturesMojoTest {
     }
 
     private Artifact artifact(String artifactId) {
-        return new DefaultArtifact("io.github.patton174", artifactId, "1.0.0-SNAPSHOT",
+        return artifact("io.github.patton174", artifactId);
+    }
+
+    private Artifact artifact(String groupId, String artifactId) {
+        return new DefaultArtifact(groupId, artifactId, "1.0.0-SNAPSHOT",
                 Artifact.SCOPE_RUNTIME, "jar", null, new DefaultArtifactHandler("jar"));
     }
 

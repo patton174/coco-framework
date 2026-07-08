@@ -1,7 +1,7 @@
 /**
- * Coco MyBatis-Plus 功能模块。
+ * Coco MyBatis-Plus 拦截器扩展点。
  * <p>
- * 承载 MyBatis-Plus 集成的自动配置入口、模块级消息资源注册、默认分页拦截器和 SQL 拦截扩展点。
+ * 提供框架模块共享的 MyBatis-Plus 拦截器组装入口，租户、数据权限和审计模块可通过定制器注册自己的 SQL 拦截逻辑。
  * </p>
  * <p>
  * 项目信息：
@@ -14,4 +14,4 @@
  * @author patton174
  * @since 1.0.0
  */
-package io.github.coco.feature.mybatisplus;
+package io.github.coco.feature.mybatisplus.interceptor;

@@ -3,7 +3,8 @@ package io.github.coco.feature.mybatisplus;
 /**
  * MyBatis-Plus 功能模块标记。
  * <p>
- * 当前阶段仅作为 MyBatis-Plus 功能模块空壳，后续承载智能分页和 SQL 扩展。
+ * 标识 Coco 对 MyBatis-Plus 的集成能力。该模块提供默认分页拦截器和 SQL 拦截器扩展点，
+ * 后续智能分页、租户、数据权限和表变更审计均基于该能力扩展。
  * </p>
  * <p>
  * 项目信息：

@@ -1,0 +1,60 @@
+{
+  "properties": [
+    {
+      "name": "coco.mybatis-plus.pagination.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco registers the default MyBatis-Plus pagination inner interceptor.",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.mybatis-plus.pagination.db-type",
+      "type": "java.lang.String",
+      "description": "Database type used by the pagination inner interceptor. Leave empty to let MyBatis-Plus infer it from the current data source."
+    },
+    {
+      "name": "coco.mybatis-plus.pagination.overflow",
+      "type": "java.lang.Boolean",
+      "description": "Whether an overflow page number should fall back to the first page.",
+      "defaultValue": false
+    },
+    {
+      "name": "coco.mybatis-plus.pagination.max-limit",
+      "type": "java.lang.Long",
+      "description": "Maximum page size allowed by the pagination inner interceptor. Empty or non-positive values mean unlimited."
+    },
+    {
+      "name": "coco.mybatis-plus.pagination.optimize-join",
+      "type": "java.lang.Boolean",
+      "description": "Whether the pagination count SQL should optimize join clauses.",
+      "defaultValue": true
+    }
+  ],
+  "hints": [
+    {
+      "name": "coco.mybatis-plus.pagination.db-type",
+      "values": [
+        {
+          "value": "mysql"
+        },
+        {
+          "value": "mariadb"
+        },
+        {
+          "value": "h2"
+        },
+        {
+          "value": "postgre-sql"
+        },
+        {
+          "value": "oracle"
+        },
+        {
+          "value": "sql-server"
+        },
+        {
+          "value": "other"
+        }
+      ]
+    }
+  ]
+}

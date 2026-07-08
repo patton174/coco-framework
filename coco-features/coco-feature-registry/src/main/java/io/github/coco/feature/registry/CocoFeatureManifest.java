@@ -23,7 +23,9 @@ import java.util.stream.Collectors;
  */
 public record CocoFeatureManifest(String schemaVersion, String generatedBy, List<CocoFeatureManifestEntry> features) {
 
-    public static final String CURRENT_SCHEMA_VERSION = "1.0";
+    public static final String CURRENT_SCHEMA_VERSION = "1.1";
+
+    public static final List<String> SUPPORTED_SCHEMA_VERSIONS = List.of("1.0", CURRENT_SCHEMA_VERSION);
 
     /**
      * <p>

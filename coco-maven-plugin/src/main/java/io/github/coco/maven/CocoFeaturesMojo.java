@@ -172,39 +172,63 @@ public final class CocoFeaturesMojo extends AbstractMojo {
 
     /**
      * <p>
-     * 从 Maven 已解析 artifact 集合中移除被禁用的 Coco 功能模块，避免后续打包插件把禁用能力写入业务应用产物。
+     * 从 Maven 已解析 artifact 集合中移除被禁用功能声明的可裁剪 artifact，避免后续打包插件把禁用能力写入业务应用产物。
      * </p>
      * @param plan 最终功能启用计划
      */
     void pruneDisabledFeatureArtifacts(CocoFeaturePlan plan) {
-        Set<String> disabledCoordinates = plan.definitions().stream()
+        Set<String> disabledArtifactIds = plan.definitions().stream()
                 .filter(definition -> !plan.isEnabled(definition.feature()))
-                .map(definition -> this.featureGroupId + ":" + definition.artifactId())
+                .flatMap(definition -> definition.pruneArtifactIds().stream())
                 .collect(Collectors.toUnmodifiableSet());
-        if (disabledCoordinates.isEmpty()) {
+        if (disabledArtifactIds.isEmpty()) {
             return;
         }
-        this.project.setArtifacts(pruneArtifacts(this.project.getArtifacts(), disabledCoordinates));
+        this.project.setArtifacts(pruneArtifacts(this.project.getArtifacts(), disabledArtifactIds));
         if (this.project.getDependencyArtifacts() != null) {
-            this.project.setDependencyArtifacts(pruneArtifacts(this.project.getDependencyArtifacts(), disabledCoordinates));
+            this.project.setDependencyArtifacts(pruneArtifacts(this.project.getDependencyArtifacts(), disabledArtifactIds));
         }
     }
 
     /**
      * <p>
-     * 从 artifact 集合中过滤指定坐标。
+     * 从 artifact 集合中过滤指定 artifactId。
      * </p>
      * @param artifacts 原始 artifact 集合
-     * @param excludedCoordinates 需要过滤的 {@code groupId:artifactId} 坐标
+     * @param excludedArtifactIds 需要过滤的 artifactId 集合
      * @return 过滤后的 artifact 集合
      */
-    private Set<Artifact> pruneArtifacts(Set<Artifact> artifacts, Set<String> excludedCoordinates) {
+    private Set<Artifact> pruneArtifacts(Set<Artifact> artifacts, Set<String> excludedArtifactIds) {
         if (artifacts == null || artifacts.isEmpty()) {
             return Set.of();
         }
         return artifacts.stream()
-                .filter(artifact -> !excludedCoordinates.contains(artifact.getGroupId() + ":" + artifact.getArtifactId()))
+                .filter(artifact -> !isPrunableArtifact(artifact, excludedArtifactIds))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * <p>
+     * 判断已解析 artifact 是否属于 Coco 禁用功能可裁剪范围。
+     * </p>
+     * @param artifact 已解析 Maven artifact
+     * @param excludedArtifactIds 功能清单声明的可裁剪 artifactId 集合
+     * @return 需要裁剪时返回 {@code true}
+     */
+    private boolean isPrunableArtifact(Artifact artifact, Set<String> excludedArtifactIds) {
+        String artifactId = artifact.getArtifactId();
+        if (!excludedArtifactIds.contains(artifactId)) {
+            return false;
+        }
+        String groupId = artifact.getGroupId();
+        if (artifactId.startsWith("coco-feature-")) {
+            return this.featureGroupId.equals(groupId);
+        }
+        if (artifactId.startsWith("mybatis-plus")) {
+            return "com.baomidou".equals(groupId);
+        }
+        return ("mybatis".equals(artifactId) || "mybatis-spring".equals(artifactId))
+                && "org.mybatis".equals(groupId);
     }
 
     /**

@@ -33,7 +33,20 @@ public final class StandardCocoFeatures {
             feature(CocoFeature.WEB, "coco-feature-web",
                     "io.github.coco.feature.web.CocoWebAutoConfiguration"),
             feature(CocoFeature.MYBATIS_PLUS, "coco-feature-mybatis-plus",
-                    "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration"),
+                    "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration",
+                    Set.of(
+                            "coco-feature-mybatis-plus",
+                            "mybatis",
+                            "mybatis-plus",
+                            "mybatis-plus-annotation",
+                            "mybatis-plus-core",
+                            "mybatis-plus-extension",
+                            "mybatis-plus-jsqlparser-4.9",
+                            "mybatis-plus-jsqlparser-common",
+                            "mybatis-plus-spring",
+                            "mybatis-plus-spring-boot-autoconfigure",
+                            "mybatis-plus-spring-boot4-starter",
+                            "mybatis-spring")),
             feature(CocoFeature.AUDIT, "coco-feature-audit",
                     "io.github.coco.feature.audit.CocoAuditAutoConfiguration",
                     CocoFeature.WEB, CocoFeature.MYBATIS_PLUS),
@@ -145,6 +158,9 @@ public final class StandardCocoFeatures {
                         definition.dependencies().stream()
                                 .map(CocoFeature::id)
                                 .sorted()
+                                .toList(),
+                        definition.pruneArtifactIds().stream()
+                                .sorted()
                                 .toList()))
                 .toList();
         return new CocoFeatureManifest(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, generatedBy, entries);
@@ -177,10 +193,10 @@ public final class StandardCocoFeatures {
     }
 
     private static void validateManifest(CocoFeatureManifest manifest) {
-        if (!CocoFeatureManifest.CURRENT_SCHEMA_VERSION.equals(manifest.schemaVersion())) {
+        if (!CocoFeatureManifest.SUPPORTED_SCHEMA_VERSIONS.contains(manifest.schemaVersion())) {
             throw new IllegalArgumentException("Unsupported Coco feature manifest schema version '"
-                    + manifest.schemaVersion() + "'. Supported schema version: "
-                    + CocoFeatureManifest.CURRENT_SCHEMA_VERSION + ".");
+                    + manifest.schemaVersion() + "'. Supported schema versions: "
+                    + CocoFeatureManifest.SUPPORTED_SCHEMA_VERSIONS + ".");
         }
         Set<String> featureIds = new HashSet<>();
         for (CocoFeatureManifestEntry entry : manifest.features()) {
@@ -202,5 +218,12 @@ public final class StandardCocoFeatures {
         return new CocoFeatureDefinition(feature, artifactId, autoConfigurationClassName, true, dependencies.length == 0
                 ? Set.of()
                 : Set.of(dependencies));
+    }
+
+    private static CocoFeatureDefinition feature(CocoFeature feature, String artifactId, String autoConfigurationClassName,
+            Set<String> pruneArtifactIds, CocoFeature... dependencies) {
+        return new CocoFeatureDefinition(feature, artifactId, autoConfigurationClassName, true, dependencies.length == 0
+                ? Set.of()
+                : Set.of(dependencies), pruneArtifactIds);
     }
 }

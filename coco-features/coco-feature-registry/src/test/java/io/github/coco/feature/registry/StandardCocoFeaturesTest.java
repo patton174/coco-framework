@@ -113,6 +113,58 @@ class StandardCocoFeaturesTest {
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.TENANT));
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.DATA_PERMISSION));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
+        assertEquals(List.of(
+                "coco-feature-mybatis-plus",
+                "mybatis",
+                "mybatis-plus",
+                "mybatis-plus-annotation",
+                "mybatis-plus-core",
+                "mybatis-plus-extension",
+                "mybatis-plus-jsqlparser-4.9",
+                "mybatis-plus-jsqlparser-common",
+                "mybatis-plus-spring",
+                "mybatis-plus-spring-boot-autoconfigure",
+                "mybatis-plus-spring-boot4-starter",
+                "mybatis-spring"), manifest.features().stream()
+                .filter(entry -> "mybatis-plus".equals(entry.id()))
+                .findFirst()
+                .orElseThrow()
+                .pruneArtifactIds());
+    }
+
+    @Test
+    void defaultsPruneArtifactIdsToFeatureArtifactId() {
+        CocoFeatureDefinition definition = new CocoFeatureDefinition(CocoFeature.WEB, "coco-feature-web",
+                "io.github.coco.feature.web.CocoWebAutoConfiguration", true, Set.of());
+        CocoFeatureManifestEntry entry = new CocoFeatureManifestEntry("web", "coco-feature-web",
+                "io.github.coco.feature.web.CocoWebAutoConfiguration", true, true, List.of());
+
+        assertEquals(Set.of("coco-feature-web"), definition.pruneArtifactIds());
+        assertEquals(List.of("coco-feature-web"), entry.pruneArtifactIds());
+    }
+
+    @Test
+    void readsLegacyFeatureManifestWithoutPruneArtifactIds() {
+        CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(new java.io.ByteArrayInputStream("""
+                {
+                  "schemaVersion" : "1.0",
+                  "generatedBy" : "legacy-test",
+                  "features" : [ {
+                    "id" : "web",
+                    "artifactId" : "coco-feature-web",
+                    "autoConfigurationClassName" : "io.github.coco.feature.web.CocoWebAutoConfiguration",
+                    "defaultEnabled" : true,
+                    "enabled" : true,
+                    "dependencies" : [ ],
+                    "futureField" : "ignored"
+                  } ],
+                  "futureRootField" : "ignored"
+                }
+                """.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertEquals("1.0", manifest.schemaVersion());
+        assertEquals(List.of("coco-feature-web"), manifest.features().get(0).pruneArtifactIds());
+        assertTrue(StandardCocoFeatures.fromManifest(manifest).enabledFeatures().contains(CocoFeature.WEB));
     }
 
     @Test
@@ -122,7 +174,7 @@ class StandardCocoFeaturesTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> StandardCocoFeatures.fromManifest(manifest));
 
-        assertEquals("Unsupported Coco feature manifest schema version '2.0'. Supported schema version: 1.0.",
+        assertEquals("Unsupported Coco feature manifest schema version '2.0'. Supported schema versions: [1.0, 1.1].",
                 exception.getMessage());
     }
 
