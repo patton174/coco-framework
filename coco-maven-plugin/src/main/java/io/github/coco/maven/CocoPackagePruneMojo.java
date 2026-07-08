@@ -16,6 +16,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
 
 import io.github.coco.feature.registry.CocoFeatureManifest;
 import io.github.coco.feature.registry.CocoFeatureManifestLoader;
@@ -156,8 +157,9 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
                     changed = true;
                     continue;
                 }
-                target.putNextEntry(targetEntry(entry));
-                if (isBootIndex(entry)) {
+                boolean bootIndex = isBootIndex(entry);
+                target.putNextEntry(targetEntry(entry, !bootIndex));
+                if (bootIndex) {
                     changed = writeFilteredBootIndex(source, entry, sortedPruneArtifactIds, target) || changed;
                 }
                 else if (!entry.isDirectory()) {
@@ -315,12 +317,15 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     /**
      * <p>
-     * 创建目标 jar 条目，仅复制安全元数据，避免过滤索引内容后沿用 STORED 条目的旧 size 和 CRC。
+     * 创建目标 jar 条目。
+     * <p>
+     * 未修改条目保留原始压缩方式；被重写的索引文件仅复制安全元数据，避免沿用 STORED 条目的旧 size 和 CRC。
      * </p>
      * @param source 原始 jar 条目
+     * @param preserveStorage 是否保留原始 STORED 元数据
      * @return 目标 jar 条目
      */
-    private JarEntry targetEntry(JarEntry source) {
+    private JarEntry targetEntry(JarEntry source, boolean preserveStorage) {
         JarEntry target = new JarEntry(source.getName());
         if (source.getTime() >= 0) {
             target.setTime(source.getTime());
@@ -330,6 +335,12 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
         }
         if (source.getExtra() != null) {
             target.setExtra(source.getExtra());
+        }
+        if (preserveStorage && source.getMethod() == ZipEntry.STORED) {
+            target.setMethod(ZipEntry.STORED);
+            target.setSize(source.getSize());
+            target.setCompressedSize(source.getCompressedSize());
+            target.setCrc(source.getCrc());
         }
         return target;
     }

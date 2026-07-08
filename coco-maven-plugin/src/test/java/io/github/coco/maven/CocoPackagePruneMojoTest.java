@@ -163,7 +163,10 @@ class CocoPackagePruneMojoTest {
                         "BOOT-INF/lib/mybatis-RELEASE.jar",
                         "BOOT-INF/lib/mybatis-v1.jar")
                 .contains(
+                        "BOOT-INF/lib/spring-boot-4.1.0.jar",
                         "BOOT-INF/lib/mybatis-extra-1.0.0.jar");
+        assertThat(entryMethod(archivePath, "BOOT-INF/lib/spring-boot-4.1.0.jar"))
+                .isEqualTo(ZipEntry.STORED);
     }
 
     private void writeManifest(Path classesDirectory, Set<CocoFeature> disabledFeatures) throws Exception {
@@ -261,6 +264,7 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/lib/mybatis-RELEASE.jar", "mybatis-release");
             add(outputStream, "BOOT-INF/lib/mybatis-v1.jar", "mybatis-v1");
             add(outputStream, "BOOT-INF/lib/mybatis-extra-1.0.0.jar", "mybatis-extra");
+            addStored(outputStream, "BOOT-INF/lib/spring-boot-4.1.0.jar", "spring-boot");
         }
     }
 
@@ -291,6 +295,12 @@ class CocoPackagePruneMojoTest {
             try (var inputStream = jarFile.getInputStream(jarFile.getEntry(name))) {
                 return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
             }
+        }
+    }
+
+    private int entryMethod(Path archivePath, String name) throws Exception {
+        try (JarFile jarFile = new JarFile(archivePath.toFile())) {
+            return jarFile.getEntry(name).getMethod();
         }
     }
 

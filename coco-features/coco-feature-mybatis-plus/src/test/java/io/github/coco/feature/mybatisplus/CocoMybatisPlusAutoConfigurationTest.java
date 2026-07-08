@@ -14,11 +14,13 @@ import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptorCustomizer;
+import io.github.coco.feature.runtime.autoconfigure.CocoFeatureAutoConfigurationImportFilter;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.mock.env.MockEnvironment;
 
 /**
  * Coco MyBatis-Plus 功能自动配置测试。
@@ -122,6 +124,49 @@ class CocoMybatisPlusAutoConfigurationTest {
     }
 
     @Test
+    void keepsThirdPartyAutoConfigurationsWhenFeatureIsEnabled() {
+        CocoFeatureAutoConfigurationImportFilter filter = autoConfigurationImportFilter(new MockEnvironment());
+
+        boolean[] matches = filter.match(new String[] {
+                "com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration",
+                "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+                "org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration",
+                null
+        }, null);
+
+        assertThat(matches).containsExactly(true, true, true, true);
+    }
+
+    @Test
+    void filtersThirdPartyAutoConfigurationsWhenFeatureIsDisabledWithoutDataSource() {
+        CocoFeatureAutoConfigurationImportFilter filter = autoConfigurationImportFilter(new MockEnvironment()
+                .withProperty("coco.features.disabled[0]", "mybatis-plus"));
+
+        boolean[] matches = filter.match(new String[] {
+                "com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration",
+                "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+                "org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration",
+                null
+        }, null);
+
+        assertThat(matches).containsExactly(false, false, true, true);
+    }
+
+    @Test
+    void keepsDataSourceAutoConfigurationWhenFeatureIsDisabledWithDataSourceConfiguration() {
+        CocoFeatureAutoConfigurationImportFilter filter = autoConfigurationImportFilter(new MockEnvironment()
+                .withProperty("coco.features.disabled[0]", "mybatis-plus")
+                .withProperty("spring.datasource.url", "jdbc:postgresql://localhost:5432/coco"));
+
+        boolean[] matches = filter.match(new String[] {
+                "com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration",
+                "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration"
+        }, null);
+
+        assertThat(matches).containsExactly(false, true);
+    }
+
+    @Test
     void failsWhenPaginationDbTypeIsInvalid() {
         this.contextRunner
                 .withPropertyValues("coco.mybatis-plus.pagination.db-type=unknown-database")
@@ -143,6 +188,14 @@ class CocoMybatisPlusAutoConfigurationTest {
             currentFailure = currentFailure.getCause();
         }
         return failure;
+    }
+
+    private static CocoFeatureAutoConfigurationImportFilter autoConfigurationImportFilter(
+            MockEnvironment environment) {
+        CocoFeatureAutoConfigurationImportFilter filter = new CocoFeatureAutoConfigurationImportFilter();
+        filter.setEnvironment(environment);
+        filter.setBeanClassLoader(CocoMybatisPlusAutoConfigurationTest.class.getClassLoader());
+        return filter;
     }
 
     @Configuration(proxyBeanMethods = false)

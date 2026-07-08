@@ -87,9 +87,10 @@ class CocoSampleBusinessIntegrationTest {
         for (PropertySource<?> source : sources) {
             addIfPresent(disabledFeatures, source.getProperty("coco.features.disabled[0]"));
             addIfPresent(disabledFeatures, source.getProperty("coco.features.disabled[1]"));
+            addIfPresent(disabledFeatures, source.getProperty("coco.features.disabled[2]"));
         }
 
-        assertEquals(List.of("tenant", "data-permission"), disabledFeatures);
+        assertEquals(List.of("mybatis-plus", "tenant", "data-permission"), disabledFeatures);
     }
 
     /**
