@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -75,8 +74,8 @@ public final class CocoBuildFeatureConfigurationLoader {
                 return CocoFeatureSelection.empty();
             }
             return new CocoFeatureSelection(
-                    parseFeatureValue(featureMap.get("enabled")),
-                    parseFeatureValue(featureMap.get("disabled")));
+                    parseFeatureValue(featureMap.get("enabled"), path + " coco.features.enabled"),
+                    parseFeatureValue(featureMap.get("disabled"), path + " coco.features.disabled"));
         }
         catch (IOException ex) {
             throw new UncheckedIOException("Failed to read Coco feature YAML: " + path, ex);
@@ -115,35 +114,18 @@ public final class CocoBuildFeatureConfigurationLoader {
     }
 
     private static Set<CocoFeature> parseProperties(Properties properties, String key) {
-        LinkedHashSet<CocoFeature> features = new LinkedHashSet<>();
-        features.addAll(parseFeatureValue(properties.getProperty(key)));
+        Set<CocoFeature> features = new java.util.LinkedHashSet<>();
+        features.addAll(parseFeatureValue(properties.getProperty(key), key));
         for (String propertyName : properties.stringPropertyNames()) {
             if (propertyName.startsWith(key + "[")) {
-                features.addAll(parseFeatureValue(properties.getProperty(propertyName)));
+                features.addAll(parseFeatureValue(properties.getProperty(propertyName), propertyName));
             }
         }
         return Set.copyOf(features);
     }
 
-    private static Set<CocoFeature> parseFeatureValue(Object value) {
-        LinkedHashSet<CocoFeature> features = new LinkedHashSet<>();
-        if (value instanceof Iterable<?> iterable) {
-            for (Object item : iterable) {
-                addFeature(features, item);
-            }
-            return Set.copyOf(features);
-        }
-        addFeature(features, value);
-        return Set.copyOf(features);
-    }
-
-    private static void addFeature(Set<CocoFeature> target, Object value) {
-        if (value == null) {
-            return;
-        }
-        for (String token : value.toString().split(",")) {
-            CocoFeature.fromId(token.trim()).ifPresent(target::add);
-        }
+    private static Set<CocoFeature> parseFeatureValue(Object value, String source) {
+        return CocoFeatureIdParser.parse(value, source);
     }
 
 }

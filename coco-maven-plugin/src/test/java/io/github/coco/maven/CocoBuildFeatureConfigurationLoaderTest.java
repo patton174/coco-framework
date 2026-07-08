@@ -1,6 +1,7 @@
 package io.github.coco.maven;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -62,5 +63,34 @@ class CocoBuildFeatureConfigurationLoaderTest {
 
         assertThat(selection.enabled()).containsExactly(CocoFeature.OPENAPI);
         assertThat(selection.disabled()).containsExactlyInAnyOrder(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION);
+    }
+
+    @Test
+    void rejectsUnknownYamlFeatureConfiguration() throws Exception {
+        Path resources = Files.createDirectories(this.tempDir.resolve("resources"));
+        Files.writeString(resources.resolve("application.yml"), """
+                coco:
+                  features:
+                    disabled:
+                      - unknow-feature
+                """, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> new CocoBuildFeatureConfigurationLoader().load(resources))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown Coco feature id 'unknow-feature'")
+                .hasMessageContaining("Valid feature ids");
+    }
+
+    @Test
+    void rejectsUnknownPropertiesFeatureConfiguration() throws Exception {
+        Path resources = Files.createDirectories(this.tempDir.resolve("resources"));
+        Files.writeString(resources.resolve("application.properties"), """
+                coco.features.enabled=web,wrong-feature
+                """, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> new CocoBuildFeatureConfigurationLoader().load(resources))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown Coco feature id 'wrong-feature'")
+                .hasMessageContaining("coco.features.enabled");
     }
 }

@@ -3,6 +3,8 @@ package io.github.coco.feature.security;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import io.github.coco.feature.security.context.CocoSecurityContextResolver;
+import io.github.coco.feature.security.context.HolderCocoSecurityContextResolver;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -37,5 +39,17 @@ public class CocoSecurityAutoConfiguration {
     @ConditionalOnMissingBean(name = "cocoSecurityMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoSecurityMessageBundleRegistrar() {
         return registry -> registry.add("coco-feature-security-messages");
+    }
+
+    /**
+     * <p>
+     * 创建默认安全上下文解析器。
+     * </p>
+     * @return 安全上下文解析器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoSecurityContextResolver cocoSecurityContextResolver() {
+        return new HolderCocoSecurityContextResolver();
     }
 }

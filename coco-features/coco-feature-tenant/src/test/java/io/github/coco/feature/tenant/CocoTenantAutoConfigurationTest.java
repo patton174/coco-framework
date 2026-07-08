@@ -4,7 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.feature.tenant.context.CocoTenantContext;
+import io.github.coco.feature.tenant.context.CocoTenantContextHolder;
+import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -40,6 +44,34 @@ class CocoTenantAutoConfigurationTest {
 
             assertTrue(context.containsBean("cocoTenantMessageBundleRegistrar"));
             assertEquals("Coco 租户功能消息资源已就绪。", messageService.getMessage("coco.feature.tenant.ready"));
+            assertEquals("当前请求缺少租户上下文。",
+                    messageService.getMessage("coco.feature.tenant.error.context-missing"));
         });
+    }
+
+    @Test
+    void registersTenantContextResolver() {
+        this.contextRunner.run(context -> {
+            CocoTenantContextResolver resolver = context.getBean(CocoTenantContextResolver.class);
+            CocoTenantContext tenantContext = CocoTenantContext.of("tenant-1", "默认租户");
+
+            CocoTenantContextHolder.runWithContext(tenantContext,
+                    () -> assertEquals(tenantContext, resolver.resolve().orElseThrow()));
+        });
+    }
+
+    @Test
+    void missingContextUsesTenantErrorCode() {
+        CocoTenantContextHolder.clear();
+
+        try {
+            CocoTenantContextHolder.requireCurrent();
+        }
+        catch (CocoRequestException exception) {
+            assertEquals("coco.feature.tenant.error.context-missing", exception.message().code());
+            return;
+        }
+
+        throw new AssertionError("Expected CocoRequestException");
     }
 }

@@ -2,9 +2,11 @@ package io.github.coco.feature.registry;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -111,5 +113,43 @@ class StandardCocoFeaturesTest {
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.TENANT));
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.DATA_PERMISSION));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
+    }
+
+    @Test
+    void rejectsUnsupportedFeatureManifestSchemaVersion() {
+        CocoFeatureManifest manifest = new CocoFeatureManifest("2.0", "test", List.of());
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> StandardCocoFeatures.fromManifest(manifest));
+
+        assertEquals("Unsupported Coco feature manifest schema version '2.0'. Supported schema version: 1.0.",
+                exception.getMessage());
+    }
+
+    @Test
+    void rejectsUnknownFeatureManifestEntry() {
+        CocoFeatureManifest manifest = new CocoFeatureManifest(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, "test",
+                List.of(new CocoFeatureManifestEntry("wrong-feature", "wrong-artifact",
+                        "com.example.WrongAutoConfiguration", true, true, List.of())));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> StandardCocoFeatures.fromManifest(manifest));
+
+        assertEquals("Unknown Coco feature id 'wrong-feature' in feature manifest.", exception.getMessage());
+    }
+
+    @Test
+    void rejectsDuplicateFeatureManifestEntry() {
+        CocoFeatureManifest manifest = new CocoFeatureManifest(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, "test",
+                List.of(
+                        new CocoFeatureManifestEntry("web", "coco-feature-web",
+                                "io.github.coco.feature.web.CocoWebAutoConfiguration", true, true, List.of()),
+                        new CocoFeatureManifestEntry("web", "coco-feature-web",
+                                "io.github.coco.feature.web.CocoWebAutoConfiguration", true, true, List.of())));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> StandardCocoFeatures.fromManifest(manifest));
+
+        assertEquals("Duplicate Coco feature manifest entry 'web'.", exception.getMessage());
     }
 }

@@ -16,6 +16,10 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>coco-common-exception</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>coco-common-i18n</artifactId>
         </dependency>
         <dependency>

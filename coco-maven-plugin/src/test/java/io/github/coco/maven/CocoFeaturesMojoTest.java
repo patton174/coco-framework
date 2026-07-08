@@ -1,6 +1,7 @@
 package io.github.coco.maven;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
@@ -16,6 +17,7 @@ import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
+import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -132,6 +134,25 @@ class CocoFeaturesMojoTest {
                 .doesNotContain(
                         "io.github.patton174:coco-feature-tenant",
                         "io.github.patton174:coco-feature-data-permission");
+    }
+
+    @Test
+    void failsWhenMavenParameterContainsUnknownFeature() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("invalid-parameter"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "outputDirectory", output.toFile());
+        set(mojo, "classesDirectory", output.toFile());
+        set(mojo, "enabled", "web,wrong-feature");
+
+        assertThatThrownBy(mojo::execute)
+                .isInstanceOf(MojoExecutionException.class)
+                .hasMessageContaining("Failed to resolve Coco feature selection")
+                .hasRootCauseMessage("Unknown Coco feature id 'wrong-feature' in Maven parameter "
+                        + "coco.features.enabled. Valid feature ids: web, mybatis-plus, audit, security, tenant, "
+                        + "data-permission, openapi, codegen.");
     }
 
     private MavenProject project(Path baseDir, Path output) throws Exception {

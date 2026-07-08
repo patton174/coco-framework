@@ -4,7 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.exception.type.CocoUnauthorizedException;
 import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.feature.security.context.CocoSecurityContext;
+import io.github.coco.feature.security.context.CocoSecurityContextHolder;
+import io.github.coco.feature.security.context.CocoSecurityContextResolver;
+import io.github.coco.feature.security.context.CocoSecurityPrincipal;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -40,6 +45,35 @@ class CocoSecurityAutoConfigurationTest {
 
             assertTrue(context.containsBean("cocoSecurityMessageBundleRegistrar"));
             assertEquals("Coco 安全功能消息资源已就绪。", messageService.getMessage("coco.feature.security.ready"));
+            assertEquals("当前请求缺少安全上下文。",
+                    messageService.getMessage("coco.feature.security.error.context-missing"));
         });
+    }
+
+    @Test
+    void registersSecurityContextResolver() {
+        this.contextRunner.run(context -> {
+            CocoSecurityContextResolver resolver = context.getBean(CocoSecurityContextResolver.class);
+            CocoSecurityContext securityContext = CocoSecurityContext.authenticated(
+                    CocoSecurityPrincipal.of("1001", "Patton"));
+
+            CocoSecurityContextHolder.runWithContext(securityContext,
+                    () -> assertEquals(securityContext, resolver.resolve().orElseThrow()));
+        });
+    }
+
+    @Test
+    void missingContextUsesSecurityErrorCode() {
+        CocoSecurityContextHolder.clear();
+
+        try {
+            CocoSecurityContextHolder.requireCurrent();
+        }
+        catch (CocoUnauthorizedException exception) {
+            assertEquals("coco.feature.security.error.context-missing", exception.message().code());
+            return;
+        }
+
+        throw new AssertionError("Expected CocoUnauthorizedException");
     }
 }
