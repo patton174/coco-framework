@@ -20,6 +20,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Publish to Maven Central
@@ -102,6 +106,25 @@ jobs:
           echo "version=${release_version}" >> "$GITHUB_OUTPUT"
           echo "tag=v${release_version}" >> "$GITHUB_OUTPUT"
           echo "central-wait-until=${central_wait_until}" >> "$GITHUB_OUTPUT"
+
+      - name: Guard duplicate workflow-dispatch release
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" > /dev/null; then
+            echo "::error::Release tag ${RELEASE_TAG} already exists. Leave version empty for the next patch version, or provide a higher SemVer."
+            exit 1
+          fi
+
+          central_url="https://repo1.maven.org/maven2/io/github/patton174/coco-framework/${RELEASE_VERSION}/"
+          central_status="$(curl -L -s -o /dev/null -w '%{http_code}' "${central_url}")"
+          if [[ "${central_status}" == "200" ]]; then
+            echo "::error::Maven Central version ${RELEASE_VERSION} already exists at ${central_url}."
+            exit 1
+          fi
 
       - name: Set up JDK and Maven credentials
         uses: actions/setup-java@v5
