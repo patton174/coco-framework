@@ -1,9 +1,7 @@
-package io.github.coco.feature.datapermission;
-
 /**
- * 数据权限功能模块标记。
+ * Coco 数据权限 SQL 基础设施。
  * <p>
- * 标识 Coco 数据权限功能模块，当前模块提供数据权限上下文、SQL 资源解析、权限谓词生成和 MyBatis-Plus 接入能力。
+ * 包含数据权限 SQL 配置、资源解析 SPI 和权限谓词生成 SPI，不绑定具体业务组织模型。
  * </p>
  * <p>
  * 项目信息：
@@ -16,8 +14,4 @@ package io.github.coco.feature.datapermission;
  * @author patton174
  * @since 1.0.0
  */
-public final class CocoDataPermissionFeature {
-
-    private CocoDataPermissionFeature() {
-    }
-}
+package io.github.coco.feature.datapermission.sql;

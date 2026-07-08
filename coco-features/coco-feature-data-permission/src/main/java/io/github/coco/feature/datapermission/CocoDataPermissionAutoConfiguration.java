@@ -7,6 +7,7 @@ import io.github.coco.feature.datapermission.context.HolderCocoDataPermissionCon
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -27,6 +28,7 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @ConditionalOnCocoFeature(CocoFeature.DATA_PERMISSION)
+@EnableConfigurationProperties(CocoDataPermissionProperties.class)
 public class CocoDataPermissionAutoConfiguration {
 
     /**

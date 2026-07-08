@@ -11,7 +11,7 @@
     </parent>
     <artifactId>coco-feature-openapi</artifactId>
     <name>Coco Feature OpenAPI</name>
-    <description>OpenAPI feature implementation shell.</description>
+    <description>OpenAPI metadata provider feature implementation.</description>
 
     <dependencies>
         <dependency>

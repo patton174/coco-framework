@@ -1,9 +1,7 @@
-package io.github.coco.feature.tenant;
-
 /**
- * 租户功能模块标记。
+ * Coco 租户 SQL 隔离基础设施。
  * <p>
- * 标识 Coco 租户功能模块，当前模块提供租户上下文、租户 ID 表达式解析和 MyBatis-Plus 租户 SQL 隔离接入能力。
+ * 提供租户 SQL 配置、租户 ID 表达式 SPI 以及 MyBatis-Plus 租户行拦截器接入。
  * </p>
  * <p>
  * 项目信息：
@@ -16,8 +14,4 @@ package io.github.coco.feature.tenant;
  * @author patton174
  * @since 1.0.0
  */
-public final class CocoTenantFeature {
-
-    private CocoTenantFeature() {
-    }
-}
+package io.github.coco.feature.tenant.sql;

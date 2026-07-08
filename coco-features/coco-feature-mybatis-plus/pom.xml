@@ -11,7 +11,7 @@
     </parent>
     <artifactId>coco-feature-mybatis-plus</artifactId>
     <name>Coco Feature MyBatis Plus</name>
-    <description>MyBatis-Plus feature implementation shell.</description>
+    <description>MyBatis-Plus pagination, SQL guard, and interceptor composition feature implementation.</description>
 
     <dependencies>
         <dependency>
