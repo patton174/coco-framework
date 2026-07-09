@@ -41,7 +41,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | Replay 默认 store 单进程 | framework B1 | accepted | 启动 WARN，文档标明集群必须替换 `CocoReplayStore`，后续提供 JDBC 参考实现。 |
 | TraceId 无校验 | framework B2 | accepted | 增加 validator，默认限制字符集和长度。 |
 | Replay 使用客户端时间计算过期 | framework B3 | accepted | 改为服务端入站时间加 TTL，并增加时钟偏差配置。 |
-| Replay 清理在写路径 | framework B4, B13 | deferred | 先修安全语义和告警，清理线程优化放到 Web 性能治理批次。 |
+| Replay 清理在写路径 | framework B4, B13 | accepted | PR27 将默认内存 replay store 的过期键清理移出请求写路径，改为懒启动后台守护线程清理。 |
 | 加密异常错误码过粗 | framework B5 | deferred | 与审计事件和安全错误码整理一起做。 |
 | SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，PR18 已补生产建议、启动 INFO 和中英文 README 说明，避免误伤现有合法 SQL。 |
 | 过滤器顺序可被消耗 CPU | framework B7 | deferred | 放入 Web 安全硬化批次，先补请求形态粗筛设计。 |
@@ -621,6 +621,27 @@ mvn -B -pl :coco-test,:coco-feature-codegen -am test
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-feature-security -am test
+```
+
+### PR 27：Replay 内存存储后台清理
+
+状态：done。默认 `InMemoryCocoReplayStore` 不再在请求写路径上扫描全部已占用 replay key，过期键清理改为首次使用后懒启动的后台 daemon 任务。
+
+目标：收口 B4 / B13，避免高并发或大 key 集合下由单个请求线程承担全表过期清理，同时保持默认内存实现的单进程开发体验。
+
+范围：
+
+- `reserve()` 只执行当前 key 的原子占用与过期覆盖判断，不再触发全表清理。
+- 默认内存 store 在首次 `reserve()` 时懒启动 `coco-replay-cleanup` 守护线程，按 `coco.web.replay.cleanup-interval-seconds` 清理过期 key。
+- 默认 store 实现 `AutoCloseable`，Spring Bean 销毁时关闭后台清理线程。
+- 补充 `InMemoryCocoReplayStoreTest`，固定写路径不清理、过期同 key 可复用和未过期同 key 拒绝行为。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-web -am test
 ```
 
 ## 执行纪律

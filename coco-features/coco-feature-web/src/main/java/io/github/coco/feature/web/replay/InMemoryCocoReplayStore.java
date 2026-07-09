@@ -1,13 +1,16 @@
 package io.github.coco.feature.web.replay;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +31,7 @@ import org.slf4j.LoggerFactory;
  * @author patton174
  * @since 1.0.0
  */
-public final class InMemoryCocoReplayStore implements CocoReplayStore {
+public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoCloseable {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(InMemoryCocoReplayStore.class);
 
@@ -36,11 +39,15 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore {
 
     private final ConcurrentMap<String, Instant> reservedKeys = new ConcurrentHashMap<>();
 
-    private final Duration cleanupInterval;
+    private final long cleanupIntervalSeconds;
 
     private final Clock clock;
 
-    private final AtomicReference<Instant> nextCleanupAt;
+    private final ScheduledExecutorService cleanupExecutor;
+
+    private final AtomicBoolean cleanupStarted = new AtomicBoolean();
+
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
      * <p>
@@ -60,10 +67,16 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore {
      * @param clock 时钟
      */
     public InMemoryCocoReplayStore(CocoReplayProperties properties, Clock clock) {
+        this(properties, clock, true);
+    }
+
+    InMemoryCocoReplayStore(CocoReplayProperties properties, Clock clock, boolean backgroundCleanupEnabled) {
         CocoReplayProperties replayProperties = properties == null ? new CocoReplayProperties() : properties;
-        this.cleanupInterval = Duration.ofSeconds(replayProperties.getCleanupIntervalSeconds());
+        this.cleanupIntervalSeconds = replayProperties.getCleanupIntervalSeconds();
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.nextCleanupAt = new AtomicReference<>(this.clock.instant().plus(this.cleanupInterval));
+        this.cleanupExecutor = backgroundCleanupEnabled
+                ? Executors.newSingleThreadScheduledExecutor(new CleanupThreadFactory())
+                : null;
         warnClusterDeploymentRisk();
     }
 
@@ -74,8 +87,8 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore {
     public boolean reserve(CocoReplayKey key, Instant expiresAt) {
         CocoReplayKey checkedKey = Objects.requireNonNull(key, "key must not be null");
         Instant checkedExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
+        startCleanupTaskIfNecessary();
         Instant now = this.clock.instant();
-        cleanupIfNeeded(now);
         AtomicBoolean reserved = new AtomicBoolean(false);
         this.reservedKeys.compute(checkedKey.value(), (ignored, currentExpiresAt) -> {
             if (currentExpiresAt == null || !currentExpiresAt.isAfter(now)) {
@@ -87,14 +100,48 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore {
         return reserved.get();
     }
 
-    private void cleanupIfNeeded(Instant now) {
-        Instant currentNextCleanupAt = this.nextCleanupAt.get();
-        if (now.isBefore(currentNextCleanupAt)) {
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void close() {
+        if (this.cleanupExecutor != null && this.closed.compareAndSet(false, true)) {
+            this.cleanupExecutor.shutdownNow();
+        }
+    }
+
+    int cleanupExpiredKeys() {
+        Instant now = this.clock.instant();
+        AtomicInteger removed = new AtomicInteger();
+        this.reservedKeys.entrySet().removeIf(entry -> {
+            boolean expired = !entry.getValue().isAfter(now);
+            if (expired) {
+                removed.incrementAndGet();
+            }
+            return expired;
+        });
+        return removed.get();
+    }
+
+    int reservedKeyCount() {
+        return this.reservedKeys.size();
+    }
+
+    private void startCleanupTaskIfNecessary() {
+        if (this.cleanupExecutor == null || this.closed.get()
+                || !this.cleanupStarted.compareAndSet(false, true)) {
             return;
         }
-        Instant nextCleanup = now.plus(this.cleanupInterval);
-        if (this.nextCleanupAt.compareAndSet(currentNextCleanupAt, nextCleanup)) {
-            this.reservedKeys.entrySet().removeIf(entry -> !entry.getValue().isAfter(now));
+        this.cleanupExecutor.scheduleWithFixedDelay(this::cleanupExpiredKeysSafely,
+                this.cleanupIntervalSeconds, this.cleanupIntervalSeconds, TimeUnit.SECONDS);
+    }
+
+    private void cleanupExpiredKeysSafely() {
+        try {
+            cleanupExpiredKeys();
+        }
+        catch (RuntimeException ex) {
+            LOGGER.warn("Coco replay cleanup failed; expired replay keys will be retried later.", ex);
         }
     }
 
@@ -102,6 +149,16 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore {
         if (WARNING_LOGGED.compareAndSet(false, true)) {
             LOGGER.warn("Coco replay uses process-local InMemoryCocoReplayStore; replace CocoReplayStore "
                     + "with a shared implementation for clustered deployments.");
+        }
+    }
+
+    private static final class CleanupThreadFactory implements ThreadFactory {
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "coco-replay-cleanup");
+            thread.setDaemon(true);
+            return thread;
         }
     }
 }
