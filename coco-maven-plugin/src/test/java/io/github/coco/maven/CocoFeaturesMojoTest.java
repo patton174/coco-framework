@@ -4,21 +4,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
+import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.registry.CocoFeaturePlan;
 import io.github.coco.feature.registry.CocoFeatureManifest;
 import io.github.coco.feature.registry.CocoFeatureManifestLoader;
+import io.github.coco.feature.registry.StandardCocoFeatures;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.project.MavenProject;
+import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.resolution.ArtifactRequest;
+import org.eclipse.aether.resolution.ArtifactResolutionException;
+import org.eclipse.aether.resolution.ArtifactResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -74,6 +86,7 @@ class CocoFeaturesMojoTest {
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
                 .contains("io.github.patton174:coco-feature-web")
                 .doesNotContain("io.github.patton174:coco-feature-tenant");
+        assertThat(project.getArtifacts()).isEmpty();
     }
 
     @Test
@@ -177,6 +190,56 @@ class CocoFeaturesMojoTest {
                         + "data-permission, openapi, codegen.");
     }
 
+    @Test
+    void keepsModelDependencyWhenRuntimeArtifactResolverIsUnavailable() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("resolver-unavailable"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .singleElement()
+                .satisfies(dependency -> {
+                    assertThat(dependency.getGroupId()).isEqualTo("io.github.patton174");
+                    assertThat(dependency.getArtifactId()).isEqualTo("coco-feature-web");
+                    assertThat(dependency.getVersion()).isEqualTo("1.0.0-SNAPSHOT");
+                    assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_RUNTIME);
+                });
+        assertThat(project.getArtifacts()).isEmpty();
+    }
+
+    @Test
+    void keepsModelDependencyWhenRuntimeArtifactResolutionFails() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("resolver-fails"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        set(mojo, "repositorySystem", failingRepositorySystem());
+        set(mojo, "repositorySystemSession", repositorySystemSession());
+        set(mojo, "remoteRepositories", List.of());
+        mojo.setLog(noOpLog());
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .singleElement()
+                .satisfies(dependency -> {
+                    assertThat(dependency.getGroupId()).isEqualTo("io.github.patton174");
+                    assertThat(dependency.getArtifactId()).isEqualTo("coco-feature-web");
+                    assertThat(dependency.getVersion()).isEqualTo("1.0.0-SNAPSHOT");
+                    assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_RUNTIME);
+                });
+        assertThat(project.getArtifacts()).isEmpty();
+    }
+
     private MavenProject project(Path baseDir, Path output) throws Exception {
         Model model = new Model();
         model.setGroupId("com.example");
@@ -198,6 +261,63 @@ class CocoFeaturesMojoTest {
     private Artifact artifact(String groupId, String artifactId) {
         return new DefaultArtifact(groupId, artifactId, "1.0.0-SNAPSHOT",
                 Artifact.SCOPE_RUNTIME, "jar", null, new DefaultArtifactHandler("jar"));
+    }
+
+    private CocoFeaturePlan planWithOnly(CocoFeature feature) {
+        EnumSet<CocoFeature> disabled = EnumSet.allOf(CocoFeature.class);
+        disabled.remove(feature);
+        return new CocoFeaturePlan(Set.of(feature), disabled, StandardCocoFeatures.all());
+    }
+
+    private RepositorySystem failingRepositorySystem() {
+        return (RepositorySystem) Proxy.newProxyInstance(
+                RepositorySystem.class.getClassLoader(),
+                new Class<?>[] { RepositorySystem.class },
+                (proxy, method, arguments) -> {
+                    if ("resolveArtifact".equals(method.getName())) {
+                        ArtifactRequest request = (ArtifactRequest) arguments[1];
+                        ArtifactResult result = new ArtifactResult(request);
+                        result.setArtifact(request.getArtifact());
+                        result.addException(new IllegalStateException("artifact unavailable"));
+                        throw new ArtifactResolutionException(List.of(result), "artifact unavailable");
+                    }
+                    return proxyObjectMethod(proxy, method.getName(), arguments);
+                });
+    }
+
+    private RepositorySystemSession repositorySystemSession() {
+        return (RepositorySystemSession) Proxy.newProxyInstance(
+                RepositorySystemSession.class.getClassLoader(),
+                new Class<?>[] { RepositorySystemSession.class },
+                (proxy, method, arguments) -> proxyObjectMethod(proxy, method.getName(), arguments));
+    }
+
+    private Log noOpLog() {
+        return (Log) Proxy.newProxyInstance(
+                Log.class.getClassLoader(),
+                new Class<?>[] { Log.class },
+                (proxy, method, arguments) -> {
+                    if (method.getReturnType() == boolean.class) {
+                        return false;
+                    }
+                    if (method.getReturnType() == void.class) {
+                        return null;
+                    }
+                    return proxyObjectMethod(proxy, method.getName(), arguments);
+                });
+    }
+
+    private Object proxyObjectMethod(Object proxy, String methodName, Object[] arguments) {
+        if ("toString".equals(methodName)) {
+            return proxy.getClass().getInterfaces()[0].getSimpleName() + "Proxy";
+        }
+        if ("hashCode".equals(methodName)) {
+            return System.identityHashCode(proxy);
+        }
+        if ("equals".equals(methodName)) {
+            return proxy == arguments[0];
+        }
+        throw new UnsupportedOperationException(methodName);
     }
 
     private void set(Object target, String fieldName, Object value) throws Exception {

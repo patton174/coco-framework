@@ -60,6 +60,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
+| Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 
 ## PR 队列
 
@@ -333,6 +334,26 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-feature-data-permission -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 14：Maven 运行期 artifact 解析回退测试
+
+状态：done。`CocoFeaturesMojo.applyFeatureDependencies` 现在覆盖 Maven Resolver 不可用和 `resolveArtifact` 失败两条回退路径。
+
+目标：确保构建期功能依赖注入在 artifact 解析环境缺失或仓库解析失败时保持可降级，不阻断 Maven model dependency 写入，也不把未解析 artifact 放入 runtime classpath。
+
+范围：
+
+- 在 `CocoFeaturesMojoTest` 中补充 Resolver 不可用路径测试。
+- 使用 JDK 动态代理模拟 `RepositorySystem.resolveArtifact` 抛出 `ArtifactResolutionException`。
+- 断言回退后 `coco-feature-web` 仍写入 Maven model，`project.getArtifacts()` 保持为空。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-maven-plugin -am test
 git diff --check
 codegraph sync .
 ```
