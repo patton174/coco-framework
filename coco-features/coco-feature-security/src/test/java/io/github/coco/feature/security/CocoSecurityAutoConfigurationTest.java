@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.exception.type.CocoForbiddenException;
@@ -16,9 +18,17 @@ import io.github.coco.feature.security.context.CocoSecurityContext;
 import io.github.coco.feature.security.context.CocoSecurityContextHolder;
 import io.github.coco.feature.security.context.CocoSecurityContextResolver;
 import io.github.coco.feature.security.context.CocoSecurityPrincipal;
+import io.github.coco.feature.security.web.CocoSecurityWebFilter;
+import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.core.Ordered;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 /**
  * Coco 安全功能自动配置测试。
@@ -43,6 +53,17 @@ class CocoSecurityAutoConfigurationTest {
                     CocoCommonAutoConfiguration.class,
                     CocoSecurityAutoConfiguration.class))
             .withPropertyValues("coco.common.i18n.basename=coco-messages");
+
+    private final WebApplicationContextRunner webContextRunner = new WebApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(
+                    CocoCommonAutoConfiguration.class,
+                    CocoSecurityAutoConfiguration.class))
+            .withPropertyValues("coco.common.i18n.basename=coco-messages");
+
+    @AfterEach
+    void clearSecurityContext() {
+        CocoSecurityContextHolder.clear();
+    }
 
     @Test
     void registersSecurityMessageBundle() {
@@ -70,6 +91,94 @@ class CocoSecurityAutoConfigurationTest {
             CocoSecurityContextHolder.runWithContext(securityContext,
                     () -> assertEquals(securityContext, resolver.resolve().orElseThrow()));
         });
+    }
+
+    @Test
+    void registersSecurityPropertiesAndWebFilterInServletApplication() {
+        this.webContextRunner.run(context -> {
+            assertTrue(context.containsBean("cocoWebSecurityContextResolver"));
+            assertTrue(context.containsBean("cocoSecurityWebFilterRegistration"));
+
+            CocoSecurityProperties properties = context.getBean(CocoSecurityProperties.class);
+            assertTrue(properties.getWeb().isEnabled());
+            assertFalse(properties.getWeb().getHeader().isEnabled());
+            FilterRegistrationBean<?> registration = context.getBean("cocoSecurityWebFilterRegistration",
+                    FilterRegistrationBean.class);
+            assertTrue(registration.getFilter() instanceof CocoSecurityWebFilter);
+            assertEquals(Ordered.HIGHEST_PRECEDENCE + 5, registration.getOrder());
+        });
+    }
+
+    @Test
+    void disablesSecurityWebFilterByProperty() {
+        this.webContextRunner
+                .withPropertyValues("coco.security.web.enabled=false")
+                .run(context -> assertFalse(context.containsBean("cocoSecurityWebFilterRegistration")));
+    }
+
+    @Test
+    void webFilterClearsMissingContextDuringRequestAndRestoresPreviousContext() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoSecurityWebFilter filter = securityWebFilter(context);
+            CocoSecurityContext previous = CocoSecurityContext.authenticated(
+                    CocoSecurityPrincipal.of("previous", "Previous"));
+            AtomicReference<Optional<CocoSecurityContext>> currentInChain = new AtomicReference<>();
+            CocoSecurityContextHolder.set(previous);
+
+            filter.doFilter(new MockHttpServletRequest("GET", "/api/users"), new MockHttpServletResponse(),
+                    (request, response) -> currentInChain.set(CocoSecurityContextHolder.current()));
+
+            assertTrue(currentInChain.get().isEmpty());
+            assertEquals(previous, CocoSecurityContextHolder.current().orElseThrow());
+        });
+    }
+
+    @Test
+    void webFilterBindsTrustedHeaderSecurityContextAndRestoresPreviousContext() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.security.web.header.enabled=true")
+                .run(context -> {
+                    CocoSecurityWebFilter filter = securityWebFilter(context);
+                    CocoSecurityContext previous = CocoSecurityContext.authenticated(
+                            CocoSecurityPrincipal.of("previous", "Previous"));
+                    AtomicReference<CocoSecurityContext> currentInChain = new AtomicReference<>();
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    request.addHeader("X-Coco-Principal-Id", "1001");
+                    request.addHeader("X-Coco-Principal-Name", "Patton");
+                    request.addHeader("X-Coco-Roles", "admin, operator");
+                    request.addHeader("X-Coco-Permissions", "order:read, order:write");
+                    CocoSecurityContextHolder.set(previous);
+
+                    filter.doFilter(request, new MockHttpServletResponse(),
+                            (servletRequest, response) -> currentInChain.set(CocoSecurity.requireCurrent()));
+
+                    CocoSecurityContext securityContext = currentInChain.get();
+                    assertEquals("1001", securityContext.principal().principalId());
+                    assertEquals("Patton", securityContext.principal().principalName());
+                    assertTrue(securityContext.principal().hasRole("admin"));
+                    assertTrue(securityContext.principal().hasRole("operator"));
+                    assertTrue(securityContext.principal().hasPermission("order:read"));
+                    assertTrue(securityContext.principal().hasPermission("order:write"));
+                    assertEquals(previous, CocoSecurityContextHolder.current().orElseThrow());
+                });
+    }
+
+    @Test
+    void customWebSecurityContextResolverOverridesDefaultHeaderAdapter() throws Exception {
+        CocoSecurityContext customContext = CocoSecurityContext.authenticated(
+                CocoSecurityPrincipal.of("custom", "Custom User"));
+        this.webContextRunner
+                .withBean(CocoWebSecurityContextResolver.class, () -> request -> Optional.of(customContext))
+                .run(context -> {
+                    CocoSecurityWebFilter filter = securityWebFilter(context);
+                    AtomicReference<CocoSecurityContext> currentInChain = new AtomicReference<>();
+
+                    filter.doFilter(new MockHttpServletRequest("GET", "/api/users"), new MockHttpServletResponse(),
+                            (request, response) -> currentInChain.set(CocoSecurity.requireCurrent()));
+
+                    assertEquals(customContext, currentInChain.get());
+                    assertTrue(CocoSecurityContextHolder.current().isEmpty());
+                });
     }
 
     @Test
@@ -123,5 +232,11 @@ class CocoSecurityAutoConfigurationTest {
             assertEquals("coco.feature.security.error.access-denied", roleException.message().code());
             assertEquals("coco.feature.security.error.access-denied", permissionException.message().code());
         });
+    }
+
+    private static CocoSecurityWebFilter securityWebFilter(org.springframework.context.ApplicationContext context) {
+        FilterRegistrationBean<?> registration = context.getBean("cocoSecurityWebFilterRegistration",
+                FilterRegistrationBean.class);
+        return (CocoSecurityWebFilter) registration.getFilter();
     }
 }
