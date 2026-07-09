@@ -79,7 +79,7 @@ public class CocoWebSignatureAutoConfiguration {
                         requestContextResolver, requestCanonicalizer, exceptionResponseWriter,
                         securityMetadataResolver, requestMatcher, null));
         registration.setName("cocoSignatureFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 2);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
         return registration;
     }
 }

@@ -80,7 +80,7 @@ public class CocoWebEncryptionAutoConfiguration {
                         requestContextResolver, exceptionResponseWriter, securityMetadataResolver, requestMatcher,
                         requestBodyResolver));
         registration.setName("cocoEncryptionFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 3);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 4);
         return registration;
     }
 }

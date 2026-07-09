@@ -5,6 +5,7 @@ import io.github.coco.feature.web.context.CocoWebRequestMatcher;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.replay.CocoReplayFilter;
 import io.github.coco.feature.web.replay.CocoReplayKeyResolver;
+import io.github.coco.feature.web.replay.CocoReplayRequestShapeFilter;
 import io.github.coco.feature.web.replay.CocoReplayStore;
 import io.github.coco.feature.web.replay.DefaultCocoReplayKeyResolver;
 import io.github.coco.feature.web.replay.InMemoryCocoReplayStore;
@@ -55,6 +56,36 @@ public class CocoWebReplayAutoConfiguration {
 
     /**
      * <p>
+     * 创建 Coco Web 防重放请求形态预检过滤器注册器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param replayKeyResolver 防重放键解析器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param securityMetadataResolver Web 请求安全元数据解析器
+     * @param requestMatcher Web 请求匹配器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     * @return 防重放请求形态预检过滤器注册器
+     */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnProperty(prefix = "coco.web.replay", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnMissingBean(name = "cocoReplayRequestShapeFilterRegistration")
+    public FilterRegistrationBean<CocoReplayRequestShapeFilter> cocoReplayRequestShapeFilterRegistration(
+            CocoWebProperties properties, CocoReplayKeyResolver replayKeyResolver,
+            CocoWebRequestContextResolver requestContextResolver,
+            CocoWebRequestSecurityMetadataResolver securityMetadataResolver,
+            CocoWebRequestMatcher requestMatcher,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
+        FilterRegistrationBean<CocoReplayRequestShapeFilter> registration = new FilterRegistrationBean<>(
+                new CocoReplayRequestShapeFilter(properties.getReplay(), replayKeyResolver, requestContextResolver,
+                        securityMetadataResolver, exceptionResponseWriter, requestMatcher));
+        registration.setName("cocoReplayRequestShapeFilter");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 2);
+        return registration;
+    }
+
+    /**
+     * <p>
      * 创建 Coco Web 防重放过滤器注册器�?     * </p>
      * @param properties Coco Web 配置属�?     * @param replayStore 防重放存�?     * @param replayKeyResolver 防重放键解析�?     * @param requestContextResolver Web 请求上下文解析器
      * @param securityMetadataResolver Web 请求安全元数据解析器
@@ -74,7 +105,7 @@ public class CocoWebReplayAutoConfiguration {
                 new CocoReplayFilter(properties.getReplay(), replayStore, replayKeyResolver, requestContextResolver,
                         securityMetadataResolver, exceptionResponseWriter, requestMatcher, null));
         registration.setName("cocoReplayFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 4);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         return registration;
     }
 }

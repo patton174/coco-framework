@@ -44,7 +44,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | Replay 清理在写路径 | framework B4, B13 | accepted | PR27 将默认内存 replay store 的过期键清理移出请求写路径，改为懒启动后台守护线程清理。 |
 | 加密异常错误码过粗 | framework B5 | accepted | PR28 将加密请求格式错误映射为 400，将密文认证/完整性失败保留为 401，并补回归测试。 |
 | SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，PR18 已补生产建议、启动 INFO 和中英文 README 说明，避免误伤现有合法 SQL。 |
-| 过滤器顺序可被消耗 CPU | framework B7 | deferred | 放入 Web 安全硬化批次，先补请求形态粗筛设计。 |
+| 过滤器顺序可被消耗 CPU | framework B7 | accepted | PR29 增加 replay 请求形态预检过滤器，先做缺字段和时间戳格式粗筛，再进入签名、解密和 replay store。 |
 | 客户端断开误报 500 | framework B8, D31 | accepted | `CocoWebExceptionHandler` 识别 Spring 客户端断开异常并透传，避免统一响应和异常日志误报。 |
 | 过滤器异常响应请求上下文 | framework B9, quality D35 | accepted | PR20 改为显式传递请求语言，不再临时替换 `RequestContextHolder`；回归测试覆盖旧上下文保留和 `Accept-Language` 本地化。 |
 | Trace MDC 恢复语义 | framework B11, quality D37 | accepted | PR19 已确认显式 null 恢复逻辑，并补默认和自定义 MDC key 的请求内覆盖、请求后恢复回归测试。 |
@@ -656,6 +656,27 @@ mvn -B -pl :coco-feature-web -am test
 - `AesGcmCocoRequestDecryptor` 将算法不支持、IV / payload 编码错误、空 IV、payload 短于 GCM tag 长度标记为格式错误。
 - `CocoEncryptionFilter` 将格式错误映射为 `coco.web.encryption.malformed-request` 请求异常，将 GCM tag、密钥不匹配等认证失败保留为 `coco.web.encryption.decrypt-failed` 未认证异常。
 - 补充中英文消息资源和 Web 加密过滤器回归测试。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-web -am test
+```
+
+### PR 29：Replay 请求形态预检
+
+状态：done。新增 `CocoReplayRequestShapeFilter`，在签名 HMAC、AES 解密和 replay store 占用之前完成防重放协议形态粗筛。
+
+目标：收口 B7，避免明显缺少 replay 材料或 timestamp 格式错误的签名 / 加密 / 强制防重放请求先消耗验签、解密等 CPU。
+
+范围：
+
+- 新增 `CocoReplayRequestShape` 共享 helper，统一 replay 是否需要保护、必需字段和 timestamp 格式校验。
+- 新增 `CocoReplayRequestShapeFilter`，复用当前 `CocoReplayKeyResolver`，只做请求形态预检，不做 HMAC、AES、store reserve 或时间窗口判断。
+- Web filter 顺序调整为 request-body `+0`、trace `+1`、replay-shape `+2`、signature `+3`、encryption `+4`、replay `+5`。
+- 补充自动配置顺序测试，以及缺少 replay nonce 的签名请求不会进入 `CocoSignatureVerifier` 的回归测试。
 
 验收：
 

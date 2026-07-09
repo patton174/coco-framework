@@ -92,6 +92,7 @@ import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.replay.CocoReplayFilter;
 import io.github.coco.feature.web.replay.CocoReplayKey;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
+import io.github.coco.feature.web.replay.CocoReplayRequestShapeFilter;
 import io.github.coco.feature.web.replay.CocoReplayStore;
 import io.github.coco.feature.web.replay.DefaultCocoReplayKeyResolver;
 import io.github.coco.feature.web.response.CocoApiResponse;
@@ -244,15 +245,25 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoReplayKeyResolver"));
             assertTrue(context.containsBean("cocoReplayStore"));
             assertTrue(context.containsBean("cocoTraceIdValidator"));
+            assertTrue(context.containsBean("cocoReplayRequestShapeFilterRegistration"));
             assertTrue(context.containsBean("cocoReplayFilterRegistration"));
             assertTrue(context.containsBean("cocoFilterExceptionResponseWriter"));
             assertTrue(context.containsBean("cocoEncryptionFilterRegistration"));
+            FilterRegistrationBean<?> bodyRegistration = context.getBean("cocoRequestBodyCachingFilterRegistration",
+                    FilterRegistrationBean.class);
+            FilterRegistrationBean<?> traceRegistration = context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class);
+            FilterRegistrationBean<?> replayRequestShapeRegistration = context.getBean(
+                    "cocoReplayRequestShapeFilterRegistration", FilterRegistrationBean.class);
             FilterRegistrationBean<?> signatureRegistration = context.getBean("cocoSignatureFilterRegistration",
                     FilterRegistrationBean.class);
             FilterRegistrationBean<?> encryptionRegistration = context.getBean("cocoEncryptionFilterRegistration",
                     FilterRegistrationBean.class);
             FilterRegistrationBean<?> replayRegistration = context.getBean("cocoReplayFilterRegistration",
                     FilterRegistrationBean.class);
+            assertTrue(bodyRegistration.getOrder() < traceRegistration.getOrder());
+            assertTrue(traceRegistration.getOrder() < replayRequestShapeRegistration.getOrder());
+            assertTrue(replayRequestShapeRegistration.getOrder() < signatureRegistration.getOrder());
             assertTrue(signatureRegistration.getOrder() < encryptionRegistration.getOrder());
             assertTrue(encryptionRegistration.getOrder() < replayRegistration.getOrder());
         });
@@ -375,7 +386,10 @@ class CocoWebAutoConfigurationTest {
     void disablesReplayFilterRegistrationByProperty() {
         this.webContextRunner
                 .withPropertyValues("coco.web.replay.enabled=false")
-                .run(context -> assertFalse(context.containsBean("cocoReplayFilterRegistration")));
+                .run(context -> {
+                    assertFalse(context.containsBean("cocoReplayRequestShapeFilterRegistration"));
+                    assertFalse(context.containsBean("cocoReplayFilterRegistration"));
+                });
     }
 
     @Test
@@ -4041,6 +4055,42 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void preflightsReplayShapeBeforeSignatureVerification() throws Exception {
+        AtomicInteger signatureVerifierCalls = new AtomicInteger();
+        CocoSignatureVerifier verifier = context -> {
+            signatureVerifierCalls.incrementAndGet();
+            return true;
+        };
+        this.webContextRunner
+                .withBean(CocoSignatureVerifier.class, () -> verifier)
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayRequestShapeFilter replayRequestShapeFilter = replayRequestShapeFilter(context.getBean(
+                            "cocoReplayRequestShapeFilterRegistration", FilterRegistrationBean.class));
+                    CocoSignatureFilter signatureFilter = signatureFilter(context.getBean(
+                            "cocoSignatureFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+                    request.addHeader("X-Trace-Id", "preflight-missing-replay-nonce");
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "sample-app");
+                    request.addHeader("X-Coco-Timestamp", String.valueOf(System.currentTimeMillis()));
+                    request.addHeader("X-Coco-Sign-Algorithm", "HMAC-SHA256");
+                    request.addHeader("X-Coco-Sign", "dummy-signature");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayRequestShapeFilter.doFilter(traceRequest, traceResponse,
+                                    (shapeRequest, shapeResponse) ->
+                                            signatureFilter.doFilter(shapeRequest, shapeResponse,
+                                                    new MockFilterChain())));
+
+                    assertUnauthorizedResponse(response, "Request replay nonce is missing.");
+                    assertEquals(0, signatureVerifierCalls.get());
+                });
+    }
+
+    @Test
     void returnsUnifiedErrorResponseWhenReplayTimestampIsMissing() throws Exception {
         this.webContextRunner
                 .withPropertyValues("coco.web.replay.required=true")
@@ -4904,6 +4954,10 @@ class CocoWebAutoConfigurationTest {
 
     private static CocoReplayFilter replayFilter(FilterRegistrationBean<?> registrationBean) {
         return (CocoReplayFilter) registrationBean.getFilter();
+    }
+
+    private static CocoReplayRequestShapeFilter replayRequestShapeFilter(FilterRegistrationBean<?> registrationBean) {
+        return (CocoReplayRequestShapeFilter) registrationBean.getFilter();
     }
 
     private static CocoEncryptionFilter encryptionFilter(FilterRegistrationBean<?> registrationBean) {
