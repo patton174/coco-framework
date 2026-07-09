@@ -37,6 +37,7 @@ import org.apache.ibatis.mapping.SqlCommandType;
 import org.apache.ibatis.session.RowBounds;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -130,6 +131,16 @@ class CocoTenantAutoConfigurationTest {
             assertThat(interceptor.getInterceptors().get(1)).isInstanceOf(TenantLineInnerInterceptor.class);
             assertThat(interceptor.getInterceptors().get(2)).isInstanceOf(PaginationInnerInterceptor.class);
         });
+    }
+
+    @Test
+    void usesTypeSafeMybatisPlusAutoConfigurationOrdering() {
+        AutoConfiguration annotation =
+                CocoTenantMybatisPlusAutoConfiguration.class.getAnnotation(AutoConfiguration.class);
+
+        assertThat(annotation.after())
+                .containsExactly(CocoTenantAutoConfiguration.class, CocoMybatisPlusAutoConfiguration.class);
+        assertThat(annotation.afterName()).isEmpty();
     }
 
     @Test

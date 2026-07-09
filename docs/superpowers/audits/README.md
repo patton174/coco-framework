@@ -62,6 +62,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | sample secure endpoint 仅 URL 装饰 | business B7 | accepted | sample 修正批次执行，避免业务方误解端点名参与鉴权。 |
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
 | OpenAPI 元数据 provider 无消费者 | framework C3 | accepted | PR30 增加可选 SpringDoc 元数据适配器；SpringDoc 在业务项目 classpath 中存在时自动把 Coco 元数据写入 `OpenAPI.info`，框架不强依赖 SpringDoc。 |
+| MyBatis-Plus 自动配置字符串排序 | framework C4 | accepted | PR31 将 Coco MyBatis-Plus、租户和数据权限的自动配置排序改为类型安全引用，并补测试防止回退到 `afterName` / `beforeName` 字符串类名。 |
 | audit/openapi/codegen 扩展边界验证 | framework C17 | accepted | PR24 补充 audit 发布链路、OpenAPI 元数据归一化和 codegen 替换生成器的端到端行为测试。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
@@ -707,6 +708,27 @@ mvn -B -pl :coco-feature-web -am test
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-feature-openapi -am test
+```
+
+### PR 31：MyBatis-Plus 自动配置类型安全排序
+
+状态：done。Coco MyBatis-Plus 自动配置、租户 MyBatis-Plus 接入和数据权限 MyBatis-Plus 接入不再依赖字符串类名排序。
+
+目标：收口 C4，避免 MyBatis-Plus 或 Coco 自动配置类名变化后排序静默失效，导致 MP 默认拦截器 bean 抢先创建或租户 / 数据权限拦截器顺序错乱。
+
+范围：
+
+- `CocoMybatisPlusAutoConfiguration` 使用类型安全 `after = MybatisPlusAutoConfiguration.class` 和 `before = MybatisPlusInnerInterceptorAutoConfiguration.class`。
+- `CocoTenantMybatisPlusAutoConfiguration` 使用类型安全 `after = {CocoTenantAutoConfiguration.class, CocoMybatisPlusAutoConfiguration.class}`。
+- `CocoDataPermissionMybatisPlusAutoConfiguration` 使用类型安全 `after = {CocoDataPermissionAutoConfiguration.class, CocoMybatisPlusAutoConfiguration.class}`。
+- 补充自动配置注解回归测试，断言相关 `afterName` / `beforeName` 不再使用字符串类名。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-mybatis-plus,:coco-feature-tenant,:coco-feature-data-permission -am test
 ```
 
 ## 执行纪律

@@ -2,6 +2,8 @@ package io.github.coco.feature.mybatisplus;
 
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor;
+import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
+import com.baomidou.mybatisplus.autoconfigure.MybatisPlusInnerInterceptorAutoConfiguration;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptorCustomizer;
@@ -30,8 +32,8 @@ import org.springframework.context.annotation.Bean;
  * @author patton174
  * @since 1.0.0
  */
-@AutoConfiguration(afterName = "com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration",
-        beforeName = "com.baomidou.mybatisplus.autoconfigure.MybatisPlusInnerInterceptorAutoConfiguration")
+@AutoConfiguration(after = MybatisPlusAutoConfiguration.class,
+        before = MybatisPlusInnerInterceptorAutoConfiguration.class)
 @ConditionalOnCocoFeature(CocoFeature.MYBATIS_PLUS)
 @ConditionalOnClass(MybatisPlusInterceptor.class)
 @EnableConfigurationProperties(CocoMybatisPlusProperties.class)

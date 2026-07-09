@@ -268,6 +268,11 @@ SpringDoc 的 `OpenAPI.info`；框架不新增 SpringDoc 强依赖，并提供 `
 
 **建议（S）：** 改用 `DependsOnPostProcessor` 或 `BeanFactoryPostProcessor` 显式排序。
 
+**处理状态：** PR31 已处理。`CocoMybatisPlusAutoConfiguration` 不再通过 `afterName` / `beforeName`
+字符串引用 MyBatis-Plus 自动配置，改为类型安全的 `after` / `before` 排序；租户和数据权限的
+MyBatis-Plus 接入也改为类型安全依赖 Coco MyBatis-Plus 自动配置。回归测试固定这些自动配置的
+`afterName` / `beforeName` 为空，避免后续重新退回字符串类名排序。
+
 ---
 
 ### C5.【测试 / 中】`coco-feature-data-permission` 26 主类 / 2 测试；`coco-feature-web` 128 主类 / 4 测试

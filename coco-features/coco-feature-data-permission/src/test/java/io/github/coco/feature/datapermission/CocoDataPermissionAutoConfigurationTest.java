@@ -34,6 +34,7 @@ import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.schema.Table;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -131,6 +132,16 @@ class CocoDataPermissionAutoConfigurationTest {
                     assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(DataPermissionInterceptor.class);
                     assertThat(interceptor.getInterceptors().get(1)).isInstanceOf(PaginationInnerInterceptor.class);
                 });
+    }
+
+    @Test
+    void usesTypeSafeMybatisPlusAutoConfigurationOrdering() {
+        AutoConfiguration annotation =
+                CocoDataPermissionMybatisPlusAutoConfiguration.class.getAnnotation(AutoConfiguration.class);
+
+        assertThat(annotation.after())
+                .containsExactly(CocoDataPermissionAutoConfiguration.class, CocoMybatisPlusAutoConfiguration.class);
+        assertThat(annotation.afterName()).isEmpty();
     }
 
     @Test

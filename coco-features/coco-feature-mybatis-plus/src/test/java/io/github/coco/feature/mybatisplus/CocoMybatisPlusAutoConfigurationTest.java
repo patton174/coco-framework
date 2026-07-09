@@ -19,6 +19,7 @@ import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptor
 import io.github.coco.feature.runtime.autoconfigure.CocoFeatureAutoConfigurationImportFilter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -179,6 +180,18 @@ class CocoMybatisPlusAutoConfigurationTest {
                     assertThat(interceptor.getInterceptors()).hasSize(1);
                     assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(OptimisticLockerInnerInterceptor.class);
                 });
+    }
+
+    @Test
+    void usesTypeSafeMybatisPlusAutoConfigurationOrdering() {
+        AutoConfiguration annotation = CocoMybatisPlusAutoConfiguration.class.getAnnotation(AutoConfiguration.class);
+
+        assertThat(annotation.after())
+                .containsExactly(com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration.class);
+        assertThat(annotation.before())
+                .containsExactly(MybatisPlusInnerInterceptorAutoConfiguration.class);
+        assertThat(annotation.afterName()).isEmpty();
+        assertThat(annotation.beforeName()).isEmpty();
     }
 
     @Test
