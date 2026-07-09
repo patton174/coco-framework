@@ -64,6 +64,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | OpenAPI 元数据 provider 无消费者 | framework C3 | accepted | PR30 增加可选 SpringDoc 元数据适配器；SpringDoc 在业务项目 classpath 中存在时自动把 Coco 元数据写入 `OpenAPI.info`，框架不强依赖 SpringDoc。 |
 | MyBatis-Plus 自动配置字符串排序 | framework C4 | accepted | PR31 将 Coco MyBatis-Plus、租户和数据权限的自动配置排序改为类型安全引用，并补测试防止回退到 `afterName` / `beforeName` 字符串类名。 |
 | Web 安全输入解析器缺直接测试 | framework C5 | accepted | PR32 补 `DefaultCocoWebRequestSecurityInputResolver` 直接测试，固定签名 / 加密 / 防重放过滤器共享输入快照边界。 |
+| sample parent 版本写死 | framework C6 | adjusted | PR33 保留 Maven parent 必需的字面版本，但新增跨平台脚本和 CI 闸门，校验 sample parent 版本必须等于根 POM `revision`。 |
 | audit/openapi/codegen 扩展边界验证 | framework C17 | accepted | PR24 补充 audit 发布链路、OpenAPI 元数据归一化和 codegen 替换生成器的端到端行为测试。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
@@ -752,6 +753,26 @@ mvn -B -pl :coco-feature-mybatis-plus,:coco-feature-tenant,:coco-feature-data-pe
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-feature-web -am test
+```
+
+### PR 33：sample parent 版本联动
+
+状态：done。`coco-sample-basic` 的 parent 版本一致性已有自动校验。
+
+目标：收口 C6，保证框架根版本推进后，sample 会跟随当前 `revision` 验证，而不是继续绑定旧 parent 后在首次安装或 CI 中失败。
+
+范围：
+
+- 不采用 `<parent><version>${revision}</version>`：Maven 独立解析 sample parent 时不会可靠替换该表达式。
+- 新增 `verify_parent_version.py`，直接比较根 POM `revision` 和 sample 的 `coco-parent` 版本。
+- CI 在 sample `verify` 前执行版本一致性脚本，提前暴露 root 版本推进但 sample parent 未同步的问题。
+
+验收：
+
+```powershell
+python coco-samples/coco-sample-basic/scripts/verify_parent_version.py
+mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
+git diff --check
 ```
 
 ## 执行纪律

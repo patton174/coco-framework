@@ -295,6 +295,11 @@ payload 原始参数拆分、cached body 摘要，以及请求体解析器返回
 
 **建议（S）：** 改为 `${revision}` 占位 + flatten-maven-plugin；CI 里加 `mvn -N validate` 对样本做版本一致性检查。
 
+**处理状态：** PR33 已处理。Maven 在独立构建 sample 时无法可靠地在 parent 解析前替换
+`<parent><version>${revision}</version>`，因此不采用该不可验证方案；保留 Maven 要求的字面 parent
+版本，同时新增跨平台脚本校验 `coco-sample-basic` parent 版本必须等于根 POM 的 `revision`，并在 CI 的
+sample 构建前执行，避免框架版本前进后 sample 仍绑定旧 parent。
+
 ---
 
 ### C7.【构建 / 中】根 pom 没有 `maven-enforcer-plugin`，发布没有 banned-dependencies / convergence / require-release-version 闸门
