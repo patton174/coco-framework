@@ -37,6 +37,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 /**
  * Coco Web 全局异常处理器。
@@ -254,8 +255,11 @@ public class CocoWebExceptionHandler {
      * @return 统一异常响应实体
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Object> handleUnhandledException(Exception exception, WebRequest request) {
+    public ResponseEntity<Object> handleUnhandledException(Exception exception, WebRequest request) throws Exception {
         Objects.requireNonNull(exception, "exception must not be null");
+        if (DisconnectedClientHelper.isClientDisconnectedException(exception)) {
+            throw exception;
+        }
         String message = this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR);
         int code = this.codeProvider.internalError();
         logException(exception, HttpStatus.INTERNAL_SERVER_ERROR, code, request);

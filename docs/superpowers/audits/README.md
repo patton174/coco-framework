@@ -45,6 +45,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 加密异常错误码过粗 | framework B5 | deferred | 与审计事件和安全错误码整理一起做。 |
 | SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，先补生产建议、启动 INFO 和文档说明，避免误伤现有合法 SQL。 |
 | 过滤器顺序可被消耗 CPU | framework B7 | deferred | 放入 Web 安全硬化批次，先补请求形态粗筛设计。 |
+| 客户端断开误报 500 | framework B8, D31 | accepted | `CocoWebExceptionHandler` 识别 Spring 客户端断开异常并透传，避免统一响应和异常日志误报。 |
 | `CocoWebAutoConfiguration` 过大 | coupling M4 | accepted | 架构治理批次执行，按子域拆配置类。 |
 | `web.context` god package | coupling M7 | deferred | 等自动配置拆分后再拆包，降低一次性改动范围。 |
 | `web.security.metadata` 命名冲突 | coupling M9 | accepted | 重命名为请求元数据语义，例如 `web.request.metadata`。 |
@@ -393,6 +394,26 @@ codegraph sync .
 - 增加 malformed query 的保守回退，避免异常 query 直接中断过滤器判断。
 - 补充编码参数名触发缓存的 Web 模块回归测试。
 - 将 web main 下严格 UTF-8 解码失败的 Java 源文件写回为合法 UTF-8，避免本次触发重编译后暴露编码错误。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-web -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 17：客户端断开异常处理
+
+状态：done。`CocoWebExceptionHandler` 现在使用 Spring `DisconnectedClientHelper` 识别客户端断开异常，并将其原样抛回 MVC 容器，不再包装成 Coco 500 错误响应。
+
+目标：避免 `AsyncRequestNotUsableException`、容器级 client abort 等请求断开信号被兜底 `Exception.class` 误判为服务器 5xx，从而污染错误率和异常告警。
+
+范围：
+
+- 在未处理异常兜底路径中识别 client disconnect，并跳过统一错误响应生成。
+- 避免断连异常进入 Coco exception log handle。
+- 补充 `AsyncRequestNotUsableException` 回归测试。
 
 验收：
 
