@@ -164,6 +164,7 @@ import org.springframework.validation.BindException;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 /**
@@ -917,6 +918,25 @@ class CocoWebAutoConfigurationTest {
             assertEquals(500, body.code());
             assertEquals("服务器内部错误", body.message());
         });
+    }
+
+    @Test
+    void rethrowsClientDisconnectExceptionWithoutUnifiedErrorResponse() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/stream");
+                    AsyncRequestNotUsableException exception =
+                            new AsyncRequestNotUsableException("ServletOutputStream failed to write");
+
+                    AsyncRequestNotUsableException thrown = assertThrows(AsyncRequestNotUsableException.class,
+                            () -> handler.handleUnhandledException(exception, new ServletWebRequest(request)));
+
+                    assertEquals(exception, thrown);
+                    assertTrue(sink.records().isEmpty());
+                });
     }
 
     @Test
