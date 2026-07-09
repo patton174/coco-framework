@@ -20,6 +20,8 @@ public class CocoResponseWrapProperties {
 
     private static final String DEFAULT_SUCCESS_MESSAGE_CODE = "coco.web.response.success";
 
+    private static final long DEFAULT_MAX_BODY_BYTES = -1L;
+
     /**
      * 是否启用正常响应包装。
      */
@@ -29,6 +31,11 @@ public class CocoResponseWrapProperties {
      * 成功消息国际化编码。
      */
     private String successMessageCode = DEFAULT_SUCCESS_MESSAGE_CODE;
+
+    /**
+     * 正常响应包装允许的最大原始响应体字节数，负数表示不限制。
+     */
+    private long maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
 
     /**
      * <p>
@@ -68,6 +75,30 @@ public class CocoResponseWrapProperties {
      */
     public void setSuccessMessageCode(String successMessageCode) {
         this.successMessageCode = successMessageCode;
+    }
+
+    /**
+     * <p>
+     * 返回正常响应包装允许的最大原始响应体字节数。
+     * </p>
+     * <p>
+     * 负数表示不限制。该阈值只基于已知长度判断，例如 {@code Content-Length} 或字符串响应体字节数，
+     * 不会为了估算大小而提前序列化任意业务对象。
+     * </p>
+     * @return 最大原始响应体字节数
+     */
+    public long getMaxBodyBytes() {
+        return this.maxBodyBytes;
+    }
+
+    /**
+     * <p>
+     * 设置正常响应包装允许的最大原始响应体字节数。
+     * </p>
+     * @param maxBodyBytes 最大原始响应体字节数；负数表示不限制
+     */
+    public void setMaxBodyBytes(long maxBodyBytes) {
+        this.maxBodyBytes = maxBodyBytes < 0 ? DEFAULT_MAX_BODY_BYTES : maxBodyBytes;
     }
 
     private static boolean hasText(String value) {
