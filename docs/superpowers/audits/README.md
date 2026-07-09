@@ -63,6 +63,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
 | Maven Enforcer 发布闸门 | framework C7 | accepted | PR21 已在根 POM 增加 enforcer：常规构建检查依赖收敛、重复依赖声明和直接禁用依赖；release profile 拒绝 SNAPSHOT 版本。 |
+| CI 跨平台矩阵 | framework C8 | accepted | PR22 将 verify job 扩展到 Ubuntu / Windows / macOS，并显式区分 JDK 21 toolchain 与 Java 17 编译目标。 |
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 | 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
@@ -511,6 +512,28 @@ mvn -B -N -Prelease "-Drevision=1.0.0" "-Dgpg.skip=true" "-DskipTests" validate
 mvn -B -N -Prelease "-Dgpg.skip=true" "-DskipTests" validate; if ($LASTEXITCODE -eq 0) { throw "release profile unexpectedly accepted a SNAPSHOT revision" } else { Write-Output "release profile rejected SNAPSHOT revision as expected"; exit 0 }
 git diff --check
 codegraph sync .
+```
+
+### PR 22：CI 跨平台矩阵
+
+状态：done。GitHub Actions `CI / verify` job 已改为 Ubuntu、Windows、macOS 三系统矩阵；JDK toolchain 和 Maven 编译目标在 workflow 中明确区分；样例黑盒验证脚本可在 Windows runner 上稳定输出中文响应内容。
+
+目标：把 C8 收口为真实 CI 覆盖，避免框架只在 Linux 上验证，同时让“JDK 21 编译 Java 17 字节码”的约束在 CI 配置里可见。
+
+范围：
+
+- `verify` job 使用 `matrix.os` 覆盖 `ubuntu-latest`、`windows-latest`、`macos-latest`。
+- `fail-fast=false`，避免一个平台失败时隐藏其他平台结果。
+- workflow env 明确 `JAVA_TOOLCHAIN_VERSION=21` 和 `MAVEN_COMPILE_RELEASE=17`。
+- 样例黑盒验证统一通过 `actions/setup-python` 与 `python` 命令执行，并显式安装 `cryptography`。
+- workflow 设置 `PYTHONUTF8=1`，脚本启动时将 stdout/stderr 重配为 UTF-8，避免 Windows 默认代码页无法输出中文响应内容。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+gh pr checks <PR> --watch --interval 15
 ```
 
 ## 执行纪律

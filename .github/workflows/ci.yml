@@ -6,17 +6,43 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    env:
+      JAVA_TOOLCHAIN_VERSION: '21'
+      MAVEN_COMPILE_RELEASE: '17'
+      PYTHONUTF8: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up JDK
+      - name: Set up JDK 21 toolchain
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: ${{ env.JAVA_TOOLCHAIN_VERSION }}
           cache: maven
+
+      - name: Show Java toolchain and target bytecode
+        shell: bash
+        run: |
+          java -version
+          echo "Maven compiler release target: ${MAVEN_COMPILE_RELEASE}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install sample verification dependencies
+        run: python -m pip install cryptography
 
       - name: Verify framework and install artifacts
         run: mvn -B install
@@ -38,4 +64,4 @@ jobs:
           ! grep -E 'coco-feature-(mybatis-plus|tenant|data-permission)-|/(mybatis|mybatis-plus)-' BOOT-INF/classpath.idx BOOT-INF/layers.idx
 
       - name: Verify sample business flow with Python
-        run: python3 coco-samples/coco-sample-basic/scripts/verify_business_flow.py
+        run: python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
