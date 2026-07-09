@@ -27,6 +27,9 @@ public class CocoOpenApiProperties {
     @NestedConfigurationProperty
     private InfoProperties info = new InfoProperties();
 
+    @NestedConfigurationProperty
+    private SpringdocProperties springdoc = new SpringdocProperties();
+
     /**
      * <p>
      * 返回是否启用 OpenAPI 基础设施。
@@ -65,6 +68,26 @@ public class CocoOpenApiProperties {
      */
     public void setInfo(InfoProperties info) {
         this.info = info == null ? new InfoProperties() : info;
+    }
+
+    /**
+     * <p>
+     * 返回 SpringDoc 适配配置。
+     * </p>
+     * @return SpringDoc 适配配置
+     */
+    public SpringdocProperties getSpringdoc() {
+        return this.springdoc;
+    }
+
+    /**
+     * <p>
+     * 设置 SpringDoc 适配配置。
+     * </p>
+     * @param springdoc SpringDoc 适配配置
+     */
+    public void setSpringdoc(SpringdocProperties springdoc) {
+        this.springdoc = springdoc == null ? new SpringdocProperties() : springdoc;
     }
 
     /**
@@ -149,6 +172,48 @@ public class CocoOpenApiProperties {
          */
         public void setDescription(String description) {
             this.description = description;
+        }
+    }
+
+    /**
+     * Coco SpringDoc 适配配置。
+     * <p>
+     * 当业务项目自行引入 SpringDoc 时，控制是否将 Coco OpenAPI 元数据自动写入 SpringDoc 的
+     * {@code OpenAPI.info}。
+     * </p>
+     * <p>
+     * 项目信息：
+     * </p>
+     * <ul>
+     *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+     *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+     *   <li>模块：{@code coco-feature-openapi}</li>
+     * </ul>
+     * @author patton174
+     * @since 1.0.0
+     */
+    public static class SpringdocProperties {
+
+        private boolean enabled = true;
+
+        /**
+         * <p>
+         * 返回是否启用 SpringDoc 元数据适配。
+         * </p>
+         * @return 启用时返回 {@code true}
+         */
+        public boolean isEnabled() {
+            return this.enabled;
+        }
+
+        /**
+         * <p>
+         * 设置是否启用 SpringDoc 元数据适配。
+         * </p>
+         * @param enabled 是否启用
+         */
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 }

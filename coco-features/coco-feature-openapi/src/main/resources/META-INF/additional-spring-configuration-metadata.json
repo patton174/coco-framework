@@ -23,6 +23,12 @@
       "type": "java.lang.String",
       "description": "Default OpenAPI document description.",
       "defaultValue": "Coco Framework API"
+    },
+    {
+      "name": "coco.openapi.springdoc.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco should adapt OpenAPI metadata into SpringDoc when SpringDoc is on the application classpath.",
+      "defaultValue": true
     }
   ]
 }

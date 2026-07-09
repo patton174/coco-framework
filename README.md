@@ -225,7 +225,7 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
     </tr>
     <tr>
       <td>OpenAPI</td>
-      <td>Metadata provider and configuration boundary.</td>
+      <td>Metadata provider, configuration boundary, and optional SpringDoc metadata customizer when SpringDoc is already on the application classpath.</td>
       <td>Document renderer, UI integration, and endpoint-specific documentation strategy.</td>
     </tr>
     <tr>
