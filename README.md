@@ -144,7 +144,7 @@ When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, r
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
       <strong>Security Foundation</strong><br/>
-      Principal context facade, resolver SPI, authentication assertions, role assertions, permission assertions, and context propagation helpers.
+      Principal context facade, resolver SPI, Web context bridge, trusted-header adapter, assertions, and propagation helpers.
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
@@ -194,7 +194,7 @@ When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, r
       <td>Transaction boundaries and custom persistence decisions</td>
     </tr>
     <tr>
-      <td>Request signatures, encryption, replay protection, audit hooks, tenant SQL, and data-permission SQL</td>
+      <td>Request signatures, encryption, replay protection, security context lifecycle bridge, audit hooks, tenant SQL, and data-permission SQL</td>
       <td>Authentication provider, user model, organization model, role model, and generated CRUD code</td>
     </tr>
   </tbody>
@@ -215,7 +215,7 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
   <tbody>
     <tr>
       <td>Security</td>
-      <td>Context facade, resolver SPI, assertions, and propagation primitives.</td>
+      <td>Context facade, resolver SPI, Servlet context bridge, trusted-header adapter, assertions, and propagation primitives.</td>
       <td>Authentication provider, RBAC/ABAC model, sessions, tokens, and user storage.</td>
     </tr>
     <tr>

@@ -144,7 +144,7 @@ coco:
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
       <strong>安全基础</strong><br/>
-      安全上下文门面、解析 SPI、认证断言、角色断言、权限断言和上下文传播原语。
+      安全上下文门面、解析 SPI、Web 上下文桥接、可信请求头适配、断言工具和上下文传播原语。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
@@ -194,7 +194,7 @@ coco:
       <td>事务边界和自定义持久化设计</td>
     </tr>
     <tr>
-      <td>请求签名、请求加密、防重放、审计钩子、租户 SQL 和数据权限 SQL</td>
+      <td>请求签名、请求加密、防重放、安全上下文生命周期桥接、审计钩子、租户 SQL 和数据权限 SQL</td>
       <td>认证提供方、用户模型、组织模型、角色模型和生成后的 CRUD 代码</td>
     </tr>
   </tbody>
@@ -215,7 +215,7 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
   <tbody>
     <tr>
       <td>Security</td>
-      <td>上下文门面、解析 SPI、断言工具和上下文传播原语。</td>
+      <td>上下文门面、解析 SPI、Servlet 上下文桥接、可信请求头适配、断言工具和上下文传播原语。</td>
       <td>认证提供方、RBAC/ABAC 模型、会话、令牌和用户存储。</td>
     </tr>
     <tr>

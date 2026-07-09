@@ -5,9 +5,19 @@ import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.security.context.CocoSecurityContextResolver;
 import io.github.coco.feature.security.context.HolderCocoSecurityContextResolver;
+import io.github.coco.feature.security.web.CocoSecurityWebFilter;
+import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
+import io.github.coco.feature.security.web.HeaderCocoWebSecurityContextResolver;
+import jakarta.servlet.Filter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.Ordered;
 
 /**
  * Coco 安全功能自动配置。
@@ -27,6 +37,7 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @ConditionalOnCocoFeature(CocoFeature.SECURITY)
+@EnableConfigurationProperties(CocoSecurityProperties.class)
 public class CocoSecurityAutoConfiguration {
 
     /**
@@ -51,5 +62,42 @@ public class CocoSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoSecurityContextResolver cocoSecurityContextResolver() {
         return new HolderCocoSecurityContextResolver();
+    }
+
+    /**
+     * <p>
+     * 创建默认 Web 安全上下文解析器。
+     * </p>
+     * @param properties Coco 安全配置属性
+     * @return Web 安全上下文解析器
+     */
+    @Bean
+    @ConditionalOnClass(Filter.class)
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoWebSecurityContextResolver cocoWebSecurityContextResolver(CocoSecurityProperties properties) {
+        return new HeaderCocoWebSecurityContextResolver(properties.getWeb().getHeader());
+    }
+
+    /**
+     * <p>
+     * 创建 Web 安全上下文桥接过滤器注册器。
+     * </p>
+     * @param resolver Web 安全上下文解析器
+     * @return Web 安全上下文桥接过滤器注册器
+     */
+    @Bean
+    @ConditionalOnClass(Filter.class)
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnProperty(prefix = "coco.security.web", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean(name = "cocoSecurityWebFilterRegistration")
+    public FilterRegistrationBean<CocoSecurityWebFilter> cocoSecurityWebFilterRegistration(
+            CocoWebSecurityContextResolver resolver) {
+        FilterRegistrationBean<CocoSecurityWebFilter> registration = new FilterRegistrationBean<>(
+                new CocoSecurityWebFilter(resolver));
+        registration.setName("cocoSecurityWebFilter");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
+        return registration;
     }
 }

@@ -33,7 +33,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 主题 | 来源 | 状态 | 决策 |
 | --- | --- | --- | --- |
 | starter 装包过重 | framework A1, coupling M1 | adjusted | 不立即拆掉默认 Web starter。先在文档中明确 starter 是组合入口，后续可新增 `coco-core-starter` 或 `coco-web-starter`，但不破坏默认快速接入体验。 |
-| `coco-feature-security` 仅为骨架 | framework A2, coupling M3 | adjusted | 不直接补成完整 RBAC。先补 Web bridge、配置入口、上下文适配和文档边界，避免文档承诺超过实现。 |
+| `coco-feature-security` 仅为骨架 | framework A2, coupling M3 | adjusted | PR26 补 Web bridge、配置入口、可信请求头适配和文档边界；不直接补成完整 RBAC，避免文档承诺超过实现。 |
 | 数据权限 SQL 数值列 | framework A3 | accepted | v1.0.x 必修。修默认谓词生成器或显式拒绝非文本列，并补单测。 |
 | 租户旁路无审计 | framework A4 | accepted | v1.0.x 必修。增加旁路白名单、告警和审计事件边界。 |
 | ThreadLocal 上下文传播 | framework A5 | accepted | v1.0.x 必修。提供通用传播原语和 sample 适配器，不强制业务登录模型。 |
@@ -599,6 +599,28 @@ mvn -B -pl :coco-feature-audit,:coco-feature-openapi,:coco-feature-codegen -am t
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-test,:coco-feature-codegen -am test
+```
+
+### PR 26：Security Web 上下文桥接
+
+状态：done。`coco-feature-security` 补齐配置入口和 Servlet 请求生命周期桥接，但仍不绑定认证提供方、用户模型、RBAC/ABAC 或会话/token 存储。
+
+目标：收口 A2 / M3 / D27 的核心边界，让安全上下文可以由 Web 入口可靠设置、清理和恢复，同时保持业务认证模型可替换。
+
+范围：
+
+- 新增 `CocoSecurityProperties`，绑定 `coco.security.*` 配置命名空间。
+- 新增 `CocoWebSecurityContextResolver` SPI，业务可替换为 Spring Security、JWT、Session 或网关认证适配。
+- 新增 `CocoSecurityWebFilter`，在 Servlet 请求内设置安全上下文，结束后恢复线程原上下文。
+- 新增默认可信请求头适配器，默认关闭 header 读取，避免直接信任外部客户端输入。
+- README / README_CN 将 security 描述更新为上下文桥接与扩展边界，不承诺完整认证授权产品。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-security -am test
 ```
 
 ## 执行纪律

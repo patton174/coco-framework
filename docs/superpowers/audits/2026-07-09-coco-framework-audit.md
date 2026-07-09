@@ -63,6 +63,8 @@ starter 直接依赖 `coco-feature-runtime / config / web / mybatis-plus / audit
 
 **建议（M）：** 要么补完（参考 Shiro / Spring Security 子集），要么在 README 把安全功能从"标准功能列表"中移走、改为"扩展点待实现"，避免"冒烟 ok = 上线被 401"的认知落差。
 
+**处理状态：** PR26 已按 Coco 定位调整处理。`coco-feature-security` 增加 `coco.security.*` 配置入口、Servlet 安全上下文桥接过滤器、可替换 `CocoWebSecurityContextResolver` SPI 和默认可信请求头适配器；请求结束后恢复线程原上下文，避免 ThreadLocal 泄漏。README / README_CN 已明确 security 仍是上下文门面与入口适配，不提供认证提供方、RBAC/ABAC、会话、令牌或用户存储。
+
 ---
 
 ### A3. 【SQL 正确性 / 高】默认数据权限 SQL 生成器把所有值当字符串，数值列直接退化为空集
