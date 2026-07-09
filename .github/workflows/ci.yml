@@ -47,6 +47,9 @@ jobs:
       - name: Verify framework and install artifacts
         run: mvn -B install
 
+      - name: Verify sample parent version alignment
+        run: python coco-samples/coco-sample-basic/scripts/verify_parent_version.py
+
       - name: Verify sample business application
         run: mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
 
