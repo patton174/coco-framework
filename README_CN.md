@@ -3,7 +3,7 @@
 # Coco Framework
 
 <p>
-  <strong>A high-convention Spring Boot Web server framework for fast, production-ready Java services.</strong>
+  <strong>面向 Spring Boot Web 服务的高约定快速开发框架，用于构建可生产落地的 Java 服务。</strong>
 </p>
 
 <p>
@@ -20,32 +20,32 @@
 </p>
 
 <p>
-  <a href="#install">Install</a>
+  <a href="#引入方式">引入方式</a>
   ·
-  <a href="#what-coco-provides">Capabilities</a>
+  <a href="#能力范围">能力范围</a>
   ·
-  <a href="#boundary">Boundary</a>
+  <a href="#边界">边界</a>
   ·
-  <a href="#stars">Stars</a>
+  <a href="#星星趋势">星星趋势</a>
   ·
-  <a href="#contributors">Contributors</a>
+  <a href="#贡献者">贡献者</a>
 </p>
 
 </div>
 
 ---
 
-## Overview
+## 概览
 
-Coco Framework helps teams build Spring Boot Web servers with a strong black-box infrastructure foundation and a normal Java/Spring business programming model.
+Coco Framework 帮助团队快速搭建 Spring Boot Web 服务：框架提供高约定、可替换的黑盒基础设施，业务侧继续使用普通 Java/Spring 编程模型。
 
-The framework is designed for SaaS systems, internal services, admin APIs, integration servers, and general Web applications. It is not a zero-code business runtime and does not force one user, role, menu, organization, or tenant model onto every project.
+它适用于 SaaS 系统、内部服务、管理后台、集成服务和通用 Web API。它不是零代码业务运行时，也不会强制所有项目使用同一套用户、角色、菜单、组织或租户模型。
 
-> Infrastructure defaults are automatic. Business code is explicit, generated, or user-owned.
+> 基础设施默认自动化；业务代码保持显式、可生成、由用户持有。
 
-## Install
+## 引入方式
 
-Use `coco-parent` as the application parent and add the single starter dependency.
+业务应用使用 `coco-parent` 作为父 POM，并引入一个 starter。
 
 ```xml
 <parent>
@@ -63,7 +63,7 @@ Use `coco-parent` as the application parent and add the single starter dependenc
 </dependencies>
 ```
 
-Optional feature selection remains declarative:
+可选功能通过配置声明启停：
 
 ```yaml
 coco:
@@ -74,7 +74,7 @@ coco:
       - data-permission
 ```
 
-Or Java-based:
+也可以通过 Java 配置声明：
 
 ```java
 @CocoFeatures(disabled = {
@@ -86,7 +86,7 @@ class ApplicationCocoConfiguration {
 }
 ```
 
-Business controllers remain ordinary Spring code:
+业务 Controller 仍然是普通 Spring 代码：
 
 ```java
 @RestController
@@ -106,101 +106,101 @@ class OrderController {
 }
 ```
 
-## What Coco Provides
+## 能力范围
 
 <table>
   <tr>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
-      <strong>Web Runtime</strong><br/>
-      Unified responses, exception responses, trace headers, request context, access logs, request signatures, encryption, and replay protection.
+      <strong>Web 运行时</strong><br/>
+      统一响应、异常响应、链路标识、请求上下文、访问日志、请求签名、请求加密和防重放。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
-      <strong>Security Foundation</strong><br/>
-      Security principal, context holder, resolver, authentication assertions, role assertions, and permission assertions.
+      <strong>安全基础</strong><br/>
+      安全主体、安全上下文持有器、解析器、认证断言、角色断言和权限断言。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
-      <strong>Data Integration</strong><br/>
-      MyBatis-Plus interceptor assembly, pagination, SQL guard, tenant SQL isolation, and data-permission SQL predicates.
+      <strong>数据集成</strong><br/>
+      MyBatis-Plus 拦截器组装、分页、SQL 防护、租户 SQL 隔离和数据权限 SQL 条件。
     </td>
   </tr>
   <tr>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
-      <strong>Feature Control</strong><br/>
-      Parent POM, BOM, one starter, declarative feature selection, dependency-aware feature plans, and runtime feature conditions.
+      <strong>功能控制</strong><br/>
+      父 POM、BOM、单 starter、声明式功能选择、依赖感知的功能计划和运行时功能条件。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
-      <strong>Audit Pipeline</strong><br/>
-      Audit recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
+      <strong>审计流水线</strong><br/>
+      审计记录 SPI、发布器、失败策略和访问日志到审计事件的适配器。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Codegen-SPI%20Boundary-475569?style=flat-square" alt="Codegen"/></p>
-      <strong>Codegen Boundary</strong><br/>
-      Code generation extension points for explicit source-code scaffolding instead of hidden runtime CRUD.
+      <strong>代码生成边界</strong><br/>
+      为显式源码脚手架预留生成器扩展点，避免隐藏式运行时 CRUD。
     </td>
   </tr>
 </table>
 
-## Boundary
+## 边界
 
 <table>
   <thead>
     <tr>
-      <th width="50%">Coco Encapsulates</th>
-      <th width="50%">Application Owns</th>
+      <th width="50%">Coco 负责封装</th>
+      <th width="50%">业务应用负责</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td>Starter wiring and auto-configuration composition</td>
-      <td>Domain model and API semantics</td>
+      <td>starter 装配和自动配置组合</td>
+      <td>领域模型和 API 语义</td>
     </tr>
     <tr>
-      <td>Feature activation, dependency propagation, and runtime feature gating</td>
-      <td>Controller shape and service orchestration</td>
+      <td>功能启停、依赖传播和运行时功能门控</td>
+      <td>Controller 形态和服务编排</td>
     </tr>
     <tr>
-      <td>Unified response, typed exceptions, i18n, trace context, and access logs</td>
-      <td>Transaction boundaries and custom persistence decisions</td>
+      <td>统一响应、类型化异常、国际化、链路上下文和访问日志</td>
+      <td>事务边界和自定义持久化设计</td>
     </tr>
     <tr>
-      <td>Request signatures, encryption, replay protection, audit hooks, tenant SQL, and data-permission SQL</td>
-      <td>Authentication provider, user model, organization model, role model, and generated CRUD code</td>
+      <td>请求签名、请求加密、防重放、审计钩子、租户 SQL 和数据权限 SQL</td>
+      <td>认证提供方、用户模型、组织模型、角色模型和生成后的 CRUD 代码</td>
     </tr>
   </tbody>
 </table>
 
-CRUD belongs to code generation, not runtime entity exposure. Generated code should be readable Java source that the business project can keep, edit, delete, or replace.
+CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码应当是可读的 Java 源码，业务项目可以保留、修改、删除或替换。
 
-## Runtime Shape
+## 运行形态
 
 ```mermaid
 flowchart LR
-    app["Business Application"] --> parent["coco-parent"]
+    app["业务应用"] --> parent["coco-parent"]
     app --> starter["coco-spring-boot-starter"]
     starter --> config["coco-config"]
     config --> runtime["coco-feature-runtime"]
-    runtime --> web["Web Runtime"]
-    runtime --> security["Security Foundation"]
-    runtime --> data["Data Integration"]
-    web --> business["Normal Spring Business Code"]
+    runtime --> web["Web 运行时"]
+    runtime --> security["安全基础"]
+    runtime --> data["数据集成"]
+    web --> business["普通 Spring 业务代码"]
     security --> business
     data --> business
 ```
 
-## Stars
+## 星星趋势
 
 <!-- COCO_STATS_START -->
 <table>
   <tr>
-    <td align="center"><strong>1</strong><br/>Stars</td>
-    <td align="center"><strong>0</strong><br/>Forks</td>
-    <td align="center"><strong>1</strong><br/>Contributors</td>
-    <td align="center"><a href="https://github.com/patton174/coco-framework">Updated: 2026-07-09</a></td>
+    <td align="center"><strong>1</strong><br/>星标</td>
+    <td align="center"><strong>0</strong><br/>派生</td>
+    <td align="center"><strong>1</strong><br/>贡献者</td>
+    <td align="center"><a href="https://github.com/patton174/coco-framework">更新时间: 2026-07-09</a></td>
   </tr>
 </table>
 <!-- COCO_STATS_END -->
@@ -212,7 +212,7 @@ flowchart LR
   </picture>
 </a>
 
-## Contributors
+## 贡献者
 
 <!-- COCO_CONTRIBUTORS_START -->
 <table>
@@ -225,11 +225,11 @@ flowchart LR
     </td>
   </tr>
 </table>
-<p><a href="https://github.com/patton174/coco-framework/graphs/contributors">View all contributors</a></p>
+<p><a href="https://github.com/patton174/coco-framework/graphs/contributors">查看全部贡献者</a></p>
 <!-- COCO_CONTRIBUTORS_END -->
 
-<sub>The stars and contributors sections are refreshed by GitHub Actions. See `.github/workflows/update-readme-insights.yml` and `tools/docs/update-readme-insights.mjs`.</sub>
+<sub>星星和贡献者区域由 GitHub Actions 自动刷新。见 `.github/workflows/update-readme-insights.yml` 和 `tools/docs/update-readme-insights.mjs`。</sub>
 
-## License
+## 许可证
 
 Apache License 2.0.
