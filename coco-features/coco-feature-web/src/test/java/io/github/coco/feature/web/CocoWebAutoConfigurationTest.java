@@ -4466,7 +4466,7 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void returnsUnifiedErrorResponseWhenEncryptedPayloadIsInvalid() throws Exception {
+    void returnsBadRequestWhenEncryptedPayloadIsMalformed() throws Exception {
         byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
         this.webContextRunner
                 .withPropertyValues("coco.web.encryption.keys.sample-app="
@@ -4494,16 +4494,67 @@ class CocoWebAutoConfigurationTest {
                             traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
                                     encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
 
-                    assertEquals(401, response.getStatus());
-                    Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
-                    assertEquals(Boolean.FALSE, body.get("success"));
-                    assertEquals(401, body.get("code"));
-                    assertEquals("Request encryption payload is invalid.", body.get("message"));
+                    assertBadRequestResponse(response, "Request encryption data is malformed.");
                 });
     }
 
     @Test
-    void returnsUnifiedErrorResponseWhenEncryptionAlgorithmIsUnsupported() throws Exception {
+    void returnsBadRequestWhenEncryptedPayloadIsTooShortForGcmTag() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = encryptedRequest("{}".getBytes(StandardCharsets.UTF_8), key,
+                            "short-encrypted-payload");
+                    request.setContent(Base64.getEncoder().encode(new byte[] { 1, 2, 3 }));
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertBadRequestResponse(response, "Request encryption data is malformed.");
+                });
+    }
+
+    @Test
+    void returnsBadRequestWhenEncryptionIvIsMalformed() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+        this.webContextRunner
+                .withPropertyValues("coco.web.encryption.keys.sample-app="
+                        + Base64.getEncoder().encodeToString(key))
+                .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = encryptedRequest("{}".getBytes(StandardCharsets.UTF_8), key,
+                            "malformed-encryption-iv");
+                    request.removeHeader("X-Coco-IV");
+                    request.addHeader("X-Coco-IV", "not-base64%");
+                    request.addHeader("Accept-Language", "en-US");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+
+                    bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
+
+                    assertBadRequestResponse(response, "Request encryption data is malformed.");
+                });
+    }
+
+    @Test
+    void returnsBadRequestWhenEncryptionAlgorithmIsUnsupported() throws Exception {
         byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
         this.webContextRunner
                 .withPropertyValues("coco.web.encryption.keys.sample-app="
@@ -4526,7 +4577,7 @@ class CocoWebAutoConfigurationTest {
                             traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
                                     encryptionFilter.doFilter(traceRequest, traceResponse, new MockFilterChain())));
 
-                    assertUnauthorizedResponse(response, "Request encryption payload is invalid.");
+                    assertBadRequestResponse(response, "Request encryption data is malformed.");
                 });
     }
 
@@ -5190,6 +5241,14 @@ class CocoWebAutoConfigurationTest {
         Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
         assertEquals(Boolean.FALSE, body.get("success"));
         assertEquals(401, body.get("code"));
+        assertEquals(message, body.get("message"));
+    }
+
+    private static void assertBadRequestResponse(MockHttpServletResponse response, String message) throws Exception {
+        assertEquals(400, response.getStatus());
+        Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+        assertEquals(Boolean.FALSE, body.get("success"));
+        assertEquals(400, body.get("code"));
         assertEquals(message, body.get("message"));
     }
 

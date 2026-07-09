@@ -59,6 +59,7 @@ class CocoWebMessageResourceStructureTest {
             "coco.web.encryption.missing-algorithm",
             "coco.web.encryption.missing-payload",
             "coco.web.encryption.key-not-found",
+            "coco.web.encryption.malformed-request",
             "coco.web.encryption.decrypt-failed",
             "coco.web.encryption.body-read-failed",
             "coco.web.replay.missing-app-id",

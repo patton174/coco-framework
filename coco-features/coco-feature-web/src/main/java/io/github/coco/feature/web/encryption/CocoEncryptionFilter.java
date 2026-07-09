@@ -220,6 +220,12 @@ public final class CocoEncryptionFilter extends OncePerRequestFilter {
                     effectiveResolvedRequest.metadata(),
                     effectiveResolvedRequest.snapshot().contextAttributes());
         }
+        catch (CocoRequestDecryptException ex) {
+            if (ex.failureKind() == CocoRequestDecryptException.FailureKind.MALFORMED_REQUEST) {
+                throw CocoBusinessExceptions.request(ex.messageCode());
+            }
+            throw CocoBusinessExceptions.unauthorized(ex.messageCode());
+        }
         catch (RuntimeException ex) {
             throw CocoBusinessExceptions.unauthorized("coco.web.encryption.decrypt-failed");
         }

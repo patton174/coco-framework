@@ -42,7 +42,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | TraceId 无校验 | framework B2 | accepted | 增加 validator，默认限制字符集和长度。 |
 | Replay 使用客户端时间计算过期 | framework B3 | accepted | 改为服务端入站时间加 TTL，并增加时钟偏差配置。 |
 | Replay 清理在写路径 | framework B4, B13 | accepted | PR27 将默认内存 replay store 的过期键清理移出请求写路径，改为懒启动后台守护线程清理。 |
-| 加密异常错误码过粗 | framework B5 | deferred | 与审计事件和安全错误码整理一起做。 |
+| 加密异常错误码过粗 | framework B5 | accepted | PR28 将加密请求格式错误映射为 400，将密文认证/完整性失败保留为 401，并补回归测试。 |
 | SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，PR18 已补生产建议、启动 INFO 和中英文 README 说明，避免误伤现有合法 SQL。 |
 | 过滤器顺序可被消耗 CPU | framework B7 | deferred | 放入 Web 安全硬化批次，先补请求形态粗筛设计。 |
 | 客户端断开误报 500 | framework B8, D31 | accepted | `CocoWebExceptionHandler` 识别 Spring 客户端断开异常并透传，避免统一响应和异常日志误报。 |
@@ -635,6 +635,27 @@ mvn -B -pl :coco-feature-security -am test
 - 默认内存 store 在首次 `reserve()` 时懒启动 `coco-replay-cleanup` 守护线程，按 `coco.web.replay.cleanup-interval-seconds` 清理过期 key。
 - 默认 store 实现 `AutoCloseable`，Spring Bean 销毁时关闭后台清理线程。
 - 补充 `InMemoryCocoReplayStoreTest`，固定写路径不清理、过期同 key 可复用和未过期同 key 拒绝行为。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-web -am test
+```
+
+### PR 28：加密异常分类
+
+状态：done。加密过滤器不再把所有解密失败都映射成同一个 401 错误码，格式错误与认证失败分开处理。
+
+目标：收口 B5，让坏格式请求返回 400，密文认证或完整性失败返回 401，减少错误语义混淆并为后续审计事件接入保留清晰边界。
+
+范围：
+
+- `CocoRequestDecryptException` 增加失败分类：`MALFORMED_REQUEST` 与 `AUTHENTICATION_FAILED`。
+- `AesGcmCocoRequestDecryptor` 将算法不支持、IV / payload 编码错误、空 IV、payload 短于 GCM tag 长度标记为格式错误。
+- `CocoEncryptionFilter` 将格式错误映射为 `coco.web.encryption.malformed-request` 请求异常，将 GCM tag、密钥不匹配等认证失败保留为 `coco.web.encryption.decrypt-failed` 未认证异常。
+- 补充中英文消息资源和 Web 加密过滤器回归测试。
 
 验收：
 
