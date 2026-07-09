@@ -1,6 +1,7 @@
 package io.github.coco.feature.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.common.CocoCommonProperties;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.logging.core.CocoLogManager;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -53,6 +54,7 @@ public class CocoWebExceptionAutoConfiguration {
      * @param messageService Coco 消息服务
      * @param httpStatusResolver 异常 HTTP 状态解析器
      * @param codeProvider 系统响应码提供器
+     * @param commonProperties Coco 通用配置属性
      * @param properties Coco Web 配置属性
      * @param responseBodyFactory 响应体工厂
      * @param logManager 日志管理器提供器
@@ -63,10 +65,12 @@ public class CocoWebExceptionAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoWebExceptionHandler cocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
-            CocoWebProperties properties, CocoResponseBodyFactory responseBodyFactory,
+            CocoCommonProperties commonProperties, CocoWebProperties properties,
+            CocoResponseBodyFactory responseBodyFactory,
             ObjectProvider<CocoLogManager> logManager) {
         return new CocoWebExceptionHandler(messageService, httpStatusResolver, codeProvider,
-                properties.getResponse(), properties.getTrace(), responseBodyFactory, logManager.getIfAvailable());
+                properties.getResponse(), properties.getTrace(), responseBodyFactory, logManager.getIfAvailable(),
+                commonProperties.getI18n().getDefaultLocale());
     }
 
     /**

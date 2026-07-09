@@ -46,6 +46,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，PR18 已补生产建议、启动 INFO 和中英文 README 说明，避免误伤现有合法 SQL。 |
 | 过滤器顺序可被消耗 CPU | framework B7 | deferred | 放入 Web 安全硬化批次，先补请求形态粗筛设计。 |
 | 客户端断开误报 500 | framework B8, D31 | accepted | `CocoWebExceptionHandler` 识别 Spring 客户端断开异常并透传，避免统一响应和异常日志误报。 |
+| 过滤器异常响应请求上下文 | framework B9, quality D35 | accepted | PR20 改为显式传递请求语言，不再临时替换 `RequestContextHolder`；回归测试覆盖旧上下文保留和 `Accept-Language` 本地化。 |
 | Trace MDC 恢复语义 | framework B11, quality D37 | accepted | PR19 已确认显式 null 恢复逻辑，并补默认和自定义 MDC key 的请求内覆盖、请求后恢复回归测试。 |
 | `CocoWebAutoConfiguration` 过大 | coupling M4 | accepted | 架构治理批次执行，按子域拆配置类。 |
 | `web.context` god package | coupling M7 | deferred | 等自动配置拆分后再拆包，降低一次性改动范围。 |
@@ -460,6 +461,28 @@ codegraph sync .
 验收：
 
 ```powershell
+mvn -B -pl :coco-feature-web -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 20：过滤器异常响应请求上下文显式化
+
+状态：done。`CocoFilterExceptionResponseWriter` 已停止通过 `RequestContextHolder` 临时绑定请求来驱动异常响应本地化，改为把当前请求语言显式传给 `CocoWebExceptionHandler`。
+
+目标：把 B9 / D35 收口为可验证行为，避免过滤器异常写出阶段污染或误用线程上的旧请求上下文，同时保留过滤器错误响应的 i18n 能力。
+
+范围：
+
+- 为 `CocoWebExceptionHandler` 增加显式 `Locale` 的 Coco 异常处理入口，普通 Controller 异常处理继续使用原有语言解析路径。
+- 自动配置传入 `coco.common.i18n.default-locale`，供显式语言为空的过滤器链路兜底。
+- `CocoFilterExceptionResponseWriter` 从 `HttpServletRequest` 解析请求语言，不再设置、恢复或清理 `RequestContextHolder`。
+- 补充回归测试，覆盖过滤器异常响应的英文 `Accept-Language` 本地化和旧请求上下文保留。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-web -Dtest=CocoWebAutoConfigurationTest#filterExceptionWriterUsesExplicitRequestLocaleWithoutReplacingRequestAttributes test
 mvn -B -pl :coco-feature-web -am test
 git diff --check
 codegraph sync .

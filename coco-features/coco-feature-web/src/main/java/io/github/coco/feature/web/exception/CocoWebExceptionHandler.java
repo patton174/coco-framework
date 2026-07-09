@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.exception;
 
+import java.util.Locale;
 import java.util.Objects;
 
 import io.github.coco.common.exception.CocoCommonErrorCode;
@@ -22,9 +23,9 @@ import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.DefaultCocoResponseBodyFactory;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -75,6 +76,8 @@ public class CocoWebExceptionHandler {
     private final CocoResponseBodyFactory responseBodyFactory;
 
     private final CocoLogManager logManager;
+
+    private final Locale defaultLocale;
 
     /**
      * <p>
@@ -157,6 +160,27 @@ public class CocoWebExceptionHandler {
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
             CocoResponseBodyFactory responseBodyFactory, CocoLogManager logManager) {
+        this(messageService, httpStatusResolver, codeProvider, responseProperties, traceProperties,
+                responseBodyFactory, logManager, Locale.SIMPLIFIED_CHINESE);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 全局异常处理器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
+     * @param responseProperties 统一响应配置
+     * @param traceProperties Trace 配置
+     * @param responseBodyFactory 响应体工厂
+     * @param logManager Coco 日志管理器；为空时不输出异常日志
+     * @param defaultLocale 显式语言为空时使用的 Coco 默认语言
+     */
+    public CocoWebExceptionHandler(CocoMessageService messageService,
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
+            CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
+            CocoResponseBodyFactory responseBodyFactory, CocoLogManager logManager, Locale defaultLocale) {
         this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
         this.httpStatusResolver = Objects.requireNonNull(httpStatusResolver,
                 "httpStatusResolver must not be null");
@@ -166,6 +190,7 @@ public class CocoWebExceptionHandler {
         this.responseBodyFactory = Objects.requireNonNull(responseBodyFactory,
                 "responseBodyFactory must not be null");
         this.logManager = logManager;
+        this.defaultLocale = defaultLocale == null ? Locale.SIMPLIFIED_CHINESE : defaultLocale;
     }
 
     /**
@@ -178,13 +203,36 @@ public class CocoWebExceptionHandler {
      */
     @ExceptionHandler(CocoException.class)
     public ResponseEntity<Object> handleCocoException(CocoException exception, WebRequest request) {
+        return handleCocoException(exception, request, null, false);
+    }
+
+    /**
+     * <p>
+     * 使用显式请求语言处理 Coco 框架异常，并返回统一异常响应。
+     * </p>
+     * <p>
+     * 该入口用于 Servlet 过滤器等不应临时改写 {@code RequestContextHolder} 的链路；当
+     * {@code locale} 为空时使用 Coco 默认语言。
+     * </p>
+     * @param exception Coco 异常
+     * @param request 当前 Web 请求
+     * @param locale 当前请求语言；为空时使用 Coco 默认语言
+     * @return 统一异常响应实体
+     */
+    public ResponseEntity<Object> handleCocoException(CocoException exception, WebRequest request, Locale locale) {
+        return handleCocoException(exception, request, locale, true);
+    }
+
+    private ResponseEntity<Object> handleCocoException(CocoException exception, WebRequest request, Locale locale,
+            boolean explicitLocale) {
         CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");
         HttpStatusCode statusCode = Objects.requireNonNull(this.httpStatusResolver.resolve(checkedException),
                 "resolved http status must not be null");
-        String message = this.messageService.resolve(checkedException.message());
+        Locale resolvedLocale = explicitLocale ? effectiveLocale(locale) : null;
+        String message = resolveMessage(checkedException, resolvedLocale);
         int code = checkedException.businessCode()
                 .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
-        logException(checkedException, statusCode, code, request, message);
+        logException(checkedException, statusCode, code, request, message, resolvedLocale);
         return error(statusCode, code, message, request);
     }
 
@@ -272,6 +320,11 @@ public class CocoWebExceptionHandler {
 
     private void logException(Throwable exception, HttpStatusCode statusCode, int code, WebRequest request,
             String resolvedMessage) {
+        logException(exception, statusCode, code, request, resolvedMessage, null);
+    }
+
+    private void logException(Throwable exception, HttpStatusCode statusCode, int code, WebRequest request,
+            String resolvedMessage, Locale locale) {
         if (this.logManager == null || exception == null) {
             return;
         }
@@ -280,7 +333,7 @@ public class CocoWebExceptionHandler {
                 : CocoLogLevel.WARN;
         this.logManager.log(CocoLogHandles.EXCEPTION, level,
                 formatExceptionLogMessage(exception, statusCode, code, request),
-                localizedFailure(exception, resolvedMessage));
+                localizedFailure(exception, resolvedMessage, locale));
     }
 
     private static String formatExceptionLogMessage(Throwable exception, HttpStatusCode statusCode, int code,
@@ -303,23 +356,37 @@ public class CocoWebExceptionHandler {
     }
 
     private Throwable localizedFailure(Throwable exception, String resolvedMessage) {
+        return localizedFailure(exception, resolvedMessage, null);
+    }
+
+    private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale) {
         if (!(exception instanceof CocoException cocoException)) {
             return exception;
         }
         String message = resolvedMessage == null || resolvedMessage.isBlank()
-                ? this.messageService.resolve(cocoException.message())
+                ? resolveMessage(cocoException, locale)
                 : resolvedMessage;
-        Throwable localizedCause = localizedFailure(cocoException.getCause(), null);
+        Throwable localizedCause = localizedFailure(cocoException.getCause(), null, locale);
         CocoException localizedException = copyCocoException(cocoException, message, localizedCause);
         localizedException.setStackTrace(cocoException.getStackTrace());
         for (Throwable suppressed : cocoException.getSuppressed()) {
-            localizedException.addSuppressed(localizedFailure(suppressed, null));
+            localizedException.addSuppressed(localizedFailure(suppressed, null, locale));
         }
         return localizedException;
     }
 
     private Throwable localizedFailure(Throwable exception) {
         return localizedFailure(exception, null);
+    }
+
+    private String resolveMessage(CocoException exception, Locale locale) {
+        return locale == null
+                ? this.messageService.resolve(exception.message())
+                : this.messageService.resolve(exception.message(), locale);
+    }
+
+    private Locale effectiveLocale(Locale locale) {
+        return locale == null ? this.defaultLocale : locale;
     }
 
     private static CocoException copyCocoException(CocoException exception, String message, Throwable cause) {

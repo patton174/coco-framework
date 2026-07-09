@@ -147,6 +147,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.MethodParameter;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpOutputMessage;
 import org.springframework.http.HttpStatus;
@@ -395,6 +396,29 @@ class CocoWebAutoConfigurationTest {
             assertEquals("参数不合法：name", body.message());
             assertNull(body.traceId());
             assertNull(body.path());
+        });
+    }
+
+    @Test
+    void filterExceptionWriterUsesExplicitRequestLocaleWithoutReplacingRequestAttributes() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoFilterExceptionResponseWriter writer = context.getBean(CocoFilterExceptionResponseWriter.class);
+            MockHttpServletRequest staleRequest = new MockHttpServletRequest("GET", "/stale");
+            ServletRequestAttributes staleAttributes = new ServletRequestAttributes(staleRequest);
+            RequestContextHolder.setRequestAttributes(staleAttributes);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/filter-error");
+            request.addHeader(HttpHeaders.ACCEPT_LANGUAGE, "en-US");
+            request.addPreferredLocale(Locale.US);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            writer.write(CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"), request, response);
+
+            Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+            assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatus());
+            assertEquals(Boolean.FALSE, body.get("success"));
+            assertEquals(400, body.get("code"));
+            assertEquals("Invalid argument: name", body.get("message"));
+            assertEquals(staleAttributes, RequestContextHolder.getRequestAttributes());
         });
     }
 
