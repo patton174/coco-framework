@@ -62,6 +62,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
+| Maven Enforcer 发布闸门 | framework C7 | accepted | PR21 已在根 POM 增加 enforcer：常规构建检查依赖收敛、重复依赖声明和直接禁用依赖；release profile 拒绝 SNAPSHOT 版本。 |
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 | 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
@@ -484,6 +485,30 @@ codegraph sync .
 ```powershell
 mvn -B -pl :coco-feature-web -Dtest=CocoWebAutoConfigurationTest#filterExceptionWriterUsesExplicitRequestLocaleWithoutReplacingRequestAttributes test
 mvn -B -pl :coco-feature-web -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 21：Maven Enforcer 发布闸门
+
+状态：done。根 POM 已接入 Maven Enforcer，仓库构建在 `validate` 阶段检查重复依赖声明、compile/runtime 依赖收敛和直接引入的禁用依赖；release profile 额外要求非 SNAPSHOT 版本。
+
+目标：把 C7 收口为可执行构建闸门，避免发布前仍允许依赖冲突、直接引入 legacy logging bridge / 非默认 servlet starter，或使用 SNAPSHOT revision 触发 release 构建。
+
+范围：
+
+- 根 POM 增加 `maven-enforcer-plugin` 版本和 `enforce-build-gates` 执行。
+- `dependencyConvergence` 排除 `provided` / `test` scope，只约束可交付依赖图。
+- `bannedDependencies` 禁止直接引入 `commons-logging`、`log4j`、`log4j-over-slf4j`、Jetty / Undertow starter。
+- release profile 增加 `requireReleaseVersion`，默认 SNAPSHOT 会失败，显式正式 `revision` 可通过。
+- `coco-parent` 默认跳过仓库内部 enforcer，避免业务项目继承 parent 后被框架仓库发布闸门误伤。
+
+验收：
+
+```powershell
+mvn -B validate -DskipTests
+mvn -B -N -Prelease "-Drevision=1.0.0" "-Dgpg.skip=true" "-DskipTests" validate
+mvn -B -N -Prelease "-Dgpg.skip=true" "-DskipTests" validate; if ($LASTEXITCODE -eq 0) { throw "release profile unexpectedly accepted a SNAPSHOT revision" } else { Write-Output "release profile rejected SNAPSHOT revision as expected"; exit 0 }
 git diff --check
 codegraph sync .
 ```
