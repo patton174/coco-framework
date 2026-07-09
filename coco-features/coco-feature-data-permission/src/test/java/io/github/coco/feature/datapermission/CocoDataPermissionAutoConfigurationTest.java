@@ -228,6 +228,34 @@ class CocoDataPermissionAutoConfigurationTest {
     }
 
     @Test
+    void handlerIgnoresWhenResourceRuleIsMissingByPolicy() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        properties.setMissingRulePolicy(CocoDataPermissionMissingRulePolicy.IGNORE);
+        CocoMybatisPlusDataPermissionHandler handler = handler(properties,
+                () -> Optional.of(CocoDataPermissionContext.empty()));
+
+        Expression expression = handler.getSqlSegment(new Table("sample_order"), null,
+                "SampleMapper.selectOrders");
+
+        assertThat(expression).isNull();
+    }
+
+    @Test
+    void handlerMatchesSchemaQualifiedResourceTable() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        properties.resource("sample-order").setTables(java.util.List.of("tenant_a.sample_order"));
+        CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
+                new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, Set.of("D1"))));
+        CocoMybatisPlusDataPermissionHandler handler = handler(properties, () -> Optional.of(context));
+        Table table = new Table("tenant_a", "sample_order");
+        table.setAlias(new Alias("o"));
+
+        Expression expression = handler.getSqlSegment(table, null, "SampleMapper.selectOrders");
+
+        assertThat(expression.toString()).isEqualTo("o.dept_id IN ('D1')");
+    }
+
+    @Test
     void handlerThrowsWhenContextIsMissingByDefault() {
         CocoMybatisPlusDataPermissionHandler handler = handler(sqlProperties(), Optional::empty);
 

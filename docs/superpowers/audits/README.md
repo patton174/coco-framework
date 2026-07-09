@@ -59,6 +59,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
+| 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 
 ## PR 队列
 
@@ -312,6 +313,26 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-maven-plugin -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 13：数据权限 SQL 关键路径测试
+
+状态：done。数据权限 SQL 资源解析器现在有直接单测，handler 也覆盖了缺少资源规则时的 `IGNORE` 策略和 schema-qualified table 资源匹配。
+
+目标：补齐数据权限 SQL 关键路径测试，避免资源映射、缺规则策略或 schema-qualified 表名行为在后续重构中回退。
+
+范围：
+
+- 为 `PropertyCocoDataPermissionSqlResourceResolver` 增加直接单测。
+- 覆盖普通表名规范化、schema-qualified 表名解析、空资源键忽略和未知表不匹配。
+- 为 `CocoMybatisPlusDataPermissionHandler` 增加 missing-rule `IGNORE` 和 schema-qualified table 谓词生成测试。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-data-permission -am test
 git diff --check
 codegraph sync .
 ```
