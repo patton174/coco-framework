@@ -358,9 +358,9 @@ def run_encryption_flow(base_url: str) -> None:
     log_response("ENCRYPTION_INVALID", "POST", ENCRYPTION_ORDER_PATH, invalid)
     assert_error(
         invalid,
-        401,
-        401,
-        "Request encryption payload is invalid.",
+        400,
+        400,
+        "Request encryption data is malformed.",
         "python-encryption-invalid",
         "invalid encryption payload",
     )

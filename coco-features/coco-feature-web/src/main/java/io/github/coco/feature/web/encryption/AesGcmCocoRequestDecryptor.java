@@ -32,6 +32,10 @@ public final class AesGcmCocoRequestDecryptor implements CocoRequestDecryptor {
 
     private static final String DECRYPT_FAILED_CODE = "coco.web.encryption.decrypt-failed";
 
+    private static final String MALFORMED_REQUEST_CODE = "coco.web.encryption.malformed-request";
+
+    private static final int BITS_PER_BYTE = Byte.SIZE;
+
     private final CocoEncryptionProperties properties;
 
     /**
@@ -52,10 +56,10 @@ public final class AesGcmCocoRequestDecryptor implements CocoRequestDecryptor {
         CocoRequestDecryptionContext checkedContext = Objects.requireNonNull(context, "context must not be null");
         CocoEncryptedRequest request = checkedContext.request();
         if (!supports(request.algorithm())) {
-            throw new CocoRequestDecryptException(DECRYPT_FAILED_CODE, null);
+            throw CocoRequestDecryptException.malformed(MALFORMED_REQUEST_CODE, null);
         }
-        byte[] iv = CocoEncryptionCodecs.decode(request.iv(), this.properties.getIvEncoding());
-        byte[] payload = CocoEncryptionCodecs.decode(request.payload(), this.properties.getPayloadEncoding());
+        byte[] iv = decodeIv(request);
+        byte[] payload = decodePayload(request);
         try {
             Cipher cipher = Cipher.getInstance(JCA_TRANSFORMATION);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(checkedContext.key().value(), "AES"),
@@ -64,8 +68,38 @@ public final class AesGcmCocoRequestDecryptor implements CocoRequestDecryptor {
             return cipher.doFinal(payload);
         }
         catch (GeneralSecurityException | IllegalArgumentException ex) {
-            throw new CocoRequestDecryptException(DECRYPT_FAILED_CODE, ex);
+            throw CocoRequestDecryptException.authenticationFailed(DECRYPT_FAILED_CODE, ex);
         }
+    }
+
+    private byte[] decodeIv(CocoEncryptedRequest request) {
+        try {
+            byte[] iv = CocoEncryptionCodecs.decode(request.iv(), this.properties.getIvEncoding());
+            if (iv.length == 0) {
+                throw CocoRequestDecryptException.malformed(MALFORMED_REQUEST_CODE, null);
+            }
+            return iv;
+        }
+        catch (IllegalArgumentException ex) {
+            throw CocoRequestDecryptException.malformed(MALFORMED_REQUEST_CODE, ex);
+        }
+    }
+
+    private byte[] decodePayload(CocoEncryptedRequest request) {
+        try {
+            byte[] payload = CocoEncryptionCodecs.decode(request.payload(), this.properties.getPayloadEncoding());
+            if (payload.length < minimumGcmPayloadLengthBytes()) {
+                throw CocoRequestDecryptException.malformed(MALFORMED_REQUEST_CODE, null);
+            }
+            return payload;
+        }
+        catch (IllegalArgumentException ex) {
+            throw CocoRequestDecryptException.malformed(MALFORMED_REQUEST_CODE, ex);
+        }
+    }
+
+    private int minimumGcmPayloadLengthBytes() {
+        return Math.max(1, (this.properties.getGcmTagLengthBits() + BITS_PER_BYTE - 1) / BITS_PER_BYTE);
     }
 
     private static boolean supports(String algorithm) {
