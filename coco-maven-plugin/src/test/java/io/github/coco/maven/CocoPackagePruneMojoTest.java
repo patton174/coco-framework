@@ -7,12 +7,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
-import java.util.zip.CRC32;
-import java.util.zip.ZipEntry;
+import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.stream.Collectors;
+import java.util.zip.CRC32;
+import java.util.zip.ZipEntry;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.feature.registry.CocoFeatureManifestLoader;
@@ -78,6 +80,15 @@ class CocoPackagePruneMojoTest {
         assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
                 .contains("coco-feature-web")
                 .doesNotContain("coco-feature-tenant", "coco-feature-data-permission");
+        assertRunnableSpringBootArchive(archivePath);
+        Path originalArchivePath = buildDirectory.resolve("coco-prune.original.jar");
+        assertThat(originalArchivePath).isRegularFile();
+        assertThat(entries(originalArchivePath))
+                .contains(
+                        "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar");
+        assertThat(readEntry(originalArchivePath, "BOOT-INF/classpath.idx"))
+                .contains("coco-feature-tenant", "coco-feature-data-permission");
     }
 
     @Test
@@ -128,6 +139,7 @@ class CocoPackagePruneMojoTest {
                         "mybatis-plus-jsqlparser-common",
                         "mybatis-plus-spring-boot4-starter",
                         "mybatis-spring");
+        assertRunnableSpringBootArchive(archivePath);
     }
 
     @Test
@@ -167,6 +179,7 @@ class CocoPackagePruneMojoTest {
                         "BOOT-INF/lib/mybatis-extra-1.0.0.jar");
         assertThat(entryMethod(archivePath, "BOOT-INF/lib/spring-boot-4.1.0.jar"))
                 .isEqualTo(ZipEntry.STORED);
+        assertRunnableSpringBootArchive(archivePath);
     }
 
     private void writeManifest(Path classesDirectory, Set<CocoFeature> disabledFeatures) throws Exception {
@@ -179,7 +192,8 @@ class CocoPackagePruneMojoTest {
     }
 
     private void writeArchive(Path archivePath) throws Exception {
-        try (JarOutputStream outputStream = new JarOutputStream(Files.newOutputStream(archivePath))) {
+        try (JarOutputStream outputStream = newBootArchive(archivePath)) {
+            addBootRuntimeEntries(outputStream);
             add(outputStream, "BOOT-INF/classpath.idx", """
                     - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar"
@@ -200,7 +214,8 @@ class CocoPackagePruneMojoTest {
     }
 
     private void writeMybatisArchive(Path archivePath) throws Exception {
-        try (JarOutputStream outputStream = new JarOutputStream(Files.newOutputStream(archivePath))) {
+        try (JarOutputStream outputStream = newBootArchive(archivePath)) {
+            addBootRuntimeEntries(outputStream);
             add(outputStream, "BOOT-INF/classpath.idx", """
                     - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar"
@@ -240,7 +255,8 @@ class CocoPackagePruneMojoTest {
     }
 
     private void writeArchiveWithStoredIndexes(Path archivePath) throws Exception {
-        try (JarOutputStream outputStream = new JarOutputStream(Files.newOutputStream(archivePath))) {
+        try (JarOutputStream outputStream = newBootArchive(archivePath)) {
+            addBootRuntimeEntries(outputStream);
             addStored(outputStream, "BOOT-INF/classpath.idx", """
                     - "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/mybatis-plus-core-RELEASE.jar"
@@ -265,6 +281,36 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/lib/mybatis-v1.jar", "mybatis-v1");
             add(outputStream, "BOOT-INF/lib/mybatis-extra-1.0.0.jar", "mybatis-extra");
             addStored(outputStream, "BOOT-INF/lib/spring-boot-4.1.0.jar", "spring-boot");
+        }
+    }
+
+    private JarOutputStream newBootArchive(Path archivePath) throws Exception {
+        Manifest manifest = new Manifest();
+        Attributes attributes = manifest.getMainAttributes();
+        attributes.put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        attributes.putValue("Main-Class", "org.springframework.boot.loader.launch.JarLauncher");
+        attributes.putValue("Start-Class", "com.example.DemoApplication");
+        return new JarOutputStream(Files.newOutputStream(archivePath), manifest);
+    }
+
+    private void addBootRuntimeEntries(JarOutputStream outputStream) throws Exception {
+        add(outputStream, "org/springframework/boot/loader/launch/JarLauncher.class", "launcher");
+        add(outputStream, "BOOT-INF/classes/com/example/DemoApplication.class", "demo");
+    }
+
+    private void assertRunnableSpringBootArchive(Path archivePath) throws Exception {
+        try (JarFile jarFile = new JarFile(archivePath.toFile())) {
+            Manifest manifest = jarFile.getManifest();
+            assertThat(manifest).isNotNull();
+            Attributes attributes = manifest.getMainAttributes();
+            assertThat(attributes.getValue("Main-Class"))
+                    .isEqualTo("org.springframework.boot.loader.launch.JarLauncher");
+            assertThat(attributes.getValue("Start-Class"))
+                    .isEqualTo("com.example.DemoApplication");
+            assertThat(jarFile.getEntry("org/springframework/boot/loader/launch/JarLauncher.class")).isNotNull();
+            assertThat(jarFile.getEntry("BOOT-INF/classes/com/example/DemoApplication.class")).isNotNull();
+            assertThat(jarFile.stream().map(JarEntry::getName)
+                    .anyMatch(name -> name.startsWith("BOOT-INF/lib/") && name.endsWith(".jar"))).isTrue();
         }
     }
 
