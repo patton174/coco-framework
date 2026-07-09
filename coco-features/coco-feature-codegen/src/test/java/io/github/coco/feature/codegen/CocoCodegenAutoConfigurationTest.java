@@ -2,7 +2,11 @@ package io.github.coco.feature.codegen;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.Arrays;
+import java.util.List;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoMessageService;
@@ -95,6 +99,56 @@ class CocoCodegenAutoConfigurationTest {
     }
 
     @Test
+    void customCodeGeneratorUsesBoundTemplatePropertiesAndNormalizedRequest() {
+        this.contextRunner
+                .withUserConfiguration(TemplateAwareCodegenConfiguration.class)
+                .withPropertyValues(
+                        "coco.codegen.templates.location=file:/workspace/templates",
+                        "coco.codegen.templates.encoding=UTF-16")
+                .run(context -> {
+                    CocoCodeGenerator generator = context.getBean(CocoCodeGenerator.class);
+                    CocoCodegenResult result = generator.generate(CocoCodegenRequest.builder(" crud ")
+                            .targetPackage(" io.github.sample ")
+                            .attribute(" entity ", "Order")
+                            .attribute(" ", "ignored")
+                            .attribute("ignored", null)
+                            .build());
+
+                    assertThat(generator).isNotInstanceOf(NoOpCocoCodeGenerator.class);
+                    assertThat(result.hasFiles()).isTrue();
+                    assertThat(result.files()).containsExactly(new CocoGeneratedFile("generated/Order.java",
+                            "group=crud;package=io.github.sample;templates=file:/workspace/templates;encoding=UTF-16"));
+                });
+    }
+
+    @Test
+    void codegenRequestAndResultModelsNormalizeAndValidateInput() {
+        CocoCodegenRequest request = CocoCodegenRequest.builder(" crud ")
+                .targetPackage(" io.github.sample ")
+                .attribute(" entity ", "Order")
+                .attribute(" ", "ignored")
+                .attribute("ignored", null)
+                .build();
+        CocoGeneratedFile generatedFile = new CocoGeneratedFile(" generated/Order.java ", null);
+        CocoCodegenResult result = CocoCodegenResult.of(Arrays.asList(null, generatedFile));
+
+        assertThat(request.templateGroup()).isEqualTo("crud");
+        assertThat(request.targetPackage()).isEqualTo("io.github.sample");
+        assertThat(request.attributes()).containsOnlyKeys("entity");
+        assertThat(request.attributes()).containsEntry("entity", "Order");
+        assertThat(generatedFile.path()).isEqualTo("generated/Order.java");
+        assertThat(generatedFile.content()).isEmpty();
+        assertThat(result.hasFiles()).isTrue();
+        assertThat(result.files()).containsExactly(generatedFile);
+        assertThrows(UnsupportedOperationException.class,
+                () -> request.attributes().put("another", "value"));
+        assertThrows(UnsupportedOperationException.class,
+                () -> result.files().add(new CocoGeneratedFile("generated/Another.java", "")));
+        assertThrows(IllegalArgumentException.class, () -> CocoCodegenRequest.builder(" ").build());
+        assertThrows(IllegalArgumentException.class, () -> new CocoGeneratedFile(" ", ""));
+    }
+
+    @Test
     void disablesCodeGenerator() {
         this.contextRunner
                 .withPropertyValues("coco.codegen.enabled=false")
@@ -121,6 +175,20 @@ class CocoCodegenAutoConfigurationTest {
         CocoCodeGenerator customCocoCodeGenerator() {
             return request -> CocoCodegenResult.of(
                     java.util.List.of(new CocoGeneratedFile("src/main/java/Sample.java", "class Sample {}")));
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class TemplateAwareCodegenConfiguration {
+
+        @Bean
+        CocoCodeGenerator templateAwareCocoCodeGenerator(CocoCodegenProperties properties) {
+            return request -> CocoCodegenResult.of(List.of(new CocoGeneratedFile(
+                    "generated/" + request.attributes().get("entity") + ".java",
+                    "group=" + request.templateGroup()
+                            + ";package=" + request.targetPackage()
+                            + ";templates=" + properties.getTemplates().getLocation()
+                            + ";encoding=" + properties.getTemplates().getEncoding())));
         }
     }
 }
