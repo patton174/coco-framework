@@ -5,13 +5,13 @@ import io.github.coco.feature.web.request.metadata.CocoWebSecurityMetadataSource
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
- * Coco Web 防重放配置属性�? * <p>
- * 控制防重放过滤器启用策略、保护范围、重放窗口和内存存储清理节奏�? * </p>
+ * Coco Web 防重放配置属性�? * <p>
+ * 控制防重放过滤器启用策略、保护范围、重放窗口和内存存储清理节奏�? * </p>
  * <p>
- * 项目信息�? * </p>
+ * 项目信息�? * </p>
  * <ul>
  *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
- *   <li>仓库�?a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+ *   <li>仓库�?a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-feature-web}</li>
  * </ul>
  * @author patton174
@@ -74,8 +74,8 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回是否启用防重放设施�?     * </p>
-     * @return 启用时返�?{@code true}
+     * 返回是否启用防重放设施�?     * </p>
+     * @return 启用时返�?{@code true}
      */
     public boolean isEnabled() {
         return this.enabled;
@@ -83,15 +83,15 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置是否启用防重放设施�?     * </p>
-     * @param enabled 是否启用防重放设�?     */
+     * 设置是否启用防重放设施�?     * </p>
+     * @param enabled 是否启用防重放设�?     */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
 
     /**
      * <p>
-     * 返回是否要求所有请求都通过防重放校验�?     * </p>
+     * 返回是否要求所有请求都通过防重放校验�?     * </p>
      * @return 要求所有请求校验时返回 {@code true}
      */
     public boolean isRequired() {
@@ -100,15 +100,15 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置是否要求所有请求都通过防重放校验�?     * </p>
-     * @param required 是否要求所有请求校�?     */
+     * 设置是否要求所有请求都通过防重放校验�?     * </p>
+     * @param required 是否要求所有请求校�?     */
     public void setRequired(boolean required) {
         this.required = required;
     }
 
     /**
      * <p>
-     * 返回是否保护已签名请求�?     * </p>
+     * 返回是否保护已签名请求�?     * </p>
      * @return 保护已签名请求时返回 {@code true}
      */
     public boolean isProtectSignedRequests() {
@@ -117,15 +117,15 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置是否保护已签名请求�?     * </p>
-     * @param protectSignedRequests 是否保护已签名请�?     */
+     * 设置是否保护已签名请求�?     * </p>
+     * @param protectSignedRequests 是否保护已签名请�?     */
     public void setProtectSignedRequests(boolean protectSignedRequests) {
         this.protectSignedRequests = protectSignedRequests;
     }
 
     /**
      * <p>
-     * 返回是否保护已加密请求�?     * </p>
+     * 返回是否保护已加密请求�?     * </p>
      * @return 保护已加密请求时返回 {@code true}
      */
     public boolean isProtectEncryptedRequests() {
@@ -134,16 +134,16 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置是否保护已加密请求�?     * </p>
-     * @param protectEncryptedRequests 是否保护已加密请�?     */
+     * 设置是否保护已加密请求�?     * </p>
+     * @param protectEncryptedRequests 是否保护已加密请�?     */
     public void setProtectEncryptedRequests(boolean protectEncryptedRequests) {
         this.protectEncryptedRequests = protectEncryptedRequests;
     }
 
     /**
      * <p>
-     * 返回防重放键是否包含 HTTP 方法�?     * </p>
-     * @return 包含 HTTP 方法时返�?{@code true}
+     * 返回防重放键是否包含 HTTP 方法�?     * </p>
+     * @return 包含 HTTP 方法时返�?{@code true}
      */
     public boolean isIncludeMethod() {
         return this.includeMethod;
@@ -151,7 +151,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置防重放键是否包含 HTTP 方法�?     * </p>
+     * 设置防重放键是否包含 HTTP 方法�?     * </p>
      * @param includeMethod 是否包含 HTTP 方法
      */
     public void setIncludeMethod(boolean includeMethod) {
@@ -160,8 +160,8 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回防重放键是否包含请求路径�?     * </p>
-     * @return 包含请求路径时返�?{@code true}
+     * 返回防重放键是否包含请求路径�?     * </p>
+     * @return 包含请求路径时返�?{@code true}
      */
     public boolean isIncludePath() {
         return this.includePath;
@@ -169,7 +169,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置防重放键是否包含请求路径�?     * </p>
+     * 设置防重放键是否包含请求路径�?     * </p>
      * @param includePath 是否包含请求路径
      */
     public void setIncludePath(boolean includePath) {
@@ -178,23 +178,23 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回防重放协议材料解析来源�?     * </p>
-     * @return 防重放协议材料解析来�?     */
+     * 返回防重放协议材料解析来源�?     * </p>
+     * @return 防重放协议材料解析来�?     */
     public CocoWebSecurityMetadataSource getMetadataSource() {
         return this.metadataSource;
     }
 
     /**
      * <p>
-     * 设置防重放协议材料解析来源�?     * </p>
-     * @param metadataSource 防重放协议材料解析来�?     */
+     * 设置防重放协议材料解析来源�?     * </p>
+     * @param metadataSource 防重放协议材料解析来�?     */
     public void setMetadataSource(CocoWebSecurityMetadataSource metadataSource) {
         this.metadataSource = metadataSource == null ? CocoWebSecurityMetadataSource.HEADER : metadataSource;
     }
 
     /**
      * <p>
-     * 返回防重放路径和方法匹配配置�?     * </p>
+     * 返回防重放路径和方法匹配配置�?     * </p>
      * @return 请求匹配配置
      */
     public CocoWebRequestMatcherProperties getMatcher() {
@@ -203,7 +203,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置防重放路径和方法匹配配置�?     * </p>
+     * 设置防重放路径和方法匹配配置�?     * </p>
      * @param matcher 请求匹配配置
      */
     public void setMatcher(CocoWebRequestMatcherProperties matcher) {
@@ -212,7 +212,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回防重放应用标识请求头名称�?     * </p>
+     * 返回防重放应用标识请求头名称�?     * </p>
      * @return 防重放应用标识请求头名称
      */
     public String getAppIdHeaderName() {
@@ -221,7 +221,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置防重放应用标识请求头名称�?     * </p>
+     * 设置防重放应用标识请求头名称�?     * </p>
      * @param appIdHeaderName 防重放应用标识请求头名称
      */
     public void setAppIdHeaderName(String appIdHeaderName) {
@@ -230,23 +230,23 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回防重放应用标识请求参数名称�?     * </p>
-     * @return 防重放应用标识请求参数名�?     */
+     * 返回防重放应用标识请求参数名称�?     * </p>
+     * @return 防重放应用标识请求参数名�?     */
     public String getAppIdParameterName() {
         return this.appIdParameterName;
     }
 
     /**
      * <p>
-     * 设置防重放应用标识请求参数名称�?     * </p>
-     * @param appIdParameterName 防重放应用标识请求参数名�?     */
+     * 设置防重放应用标识请求参数名称�?     * </p>
+     * @param appIdParameterName 防重放应用标识请求参数名�?     */
     public void setAppIdParameterName(String appIdParameterName) {
         this.appIdParameterName = normalizeParameterName(appIdParameterName, "appId");
     }
 
     /**
      * <p>
-     * 返回防重放密钥标识请求头名称�?     * </p>
+     * 返回防重放密钥标识请求头名称�?     * </p>
      * @return 防重放密钥标识请求头名称
      */
     public String getKeyIdHeaderName() {
@@ -255,7 +255,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置防重放密钥标识请求头名称�?     * </p>
+     * 设置防重放密钥标识请求头名称�?     * </p>
      * @param keyIdHeaderName 防重放密钥标识请求头名称
      */
     public void setKeyIdHeaderName(String keyIdHeaderName) {
@@ -264,39 +264,39 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回防重放密钥标识请求参数名称�?     * </p>
-     * @return 防重放密钥标识请求参数名�?     */
+     * 返回防重放密钥标识请求参数名称�?     * </p>
+     * @return 防重放密钥标识请求参数名�?     */
     public String getKeyIdParameterName() {
         return this.keyIdParameterName;
     }
 
     /**
      * <p>
-     * 设置防重放密钥标识请求参数名称�?     * </p>
-     * @param keyIdParameterName 防重放密钥标识请求参数名�?     */
+     * 设置防重放密钥标识请求参数名称�?     * </p>
+     * @param keyIdParameterName 防重放密钥标识请求参数名�?     */
     public void setKeyIdParameterName(String keyIdParameterName) {
         this.keyIdParameterName = normalizeParameterName(keyIdParameterName, "keyId");
     }
 
     /**
      * <p>
-     * 返回防重放时间戳请求头名称�?     * </p>
-     * @return 防重放时间戳请求头名�?     */
+     * 返回防重放时间戳请求头名称�?     * </p>
+     * @return 防重放时间戳请求头名�?     */
     public String getTimestampHeaderName() {
         return this.timestampHeaderName;
     }
 
     /**
      * <p>
-     * 设置防重放时间戳请求头名称�?     * </p>
-     * @param timestampHeaderName 防重放时间戳请求头名�?     */
+     * 设置防重放时间戳请求头名称�?     * </p>
+     * @param timestampHeaderName 防重放时间戳请求头名�?     */
     public void setTimestampHeaderName(String timestampHeaderName) {
         this.timestampHeaderName = normalizeHeaderName(timestampHeaderName, DEFAULT_TIMESTAMP_HEADER_NAME);
     }
 
     /**
      * <p>
-     * 返回防重放时间戳请求参数名称�?     * </p>
+     * 返回防重放时间戳请求参数名称�?     * </p>
      * @return 防重放时间戳请求参数名称
      */
     public String getTimestampParameterName() {
@@ -305,7 +305,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置防重放时间戳请求参数名称�?     * </p>
+     * 设置防重放时间戳请求参数名称�?     * </p>
      * @param timestampParameterName 防重放时间戳请求参数名称
      */
     public void setTimestampParameterName(String timestampParameterName) {
@@ -314,23 +314,23 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回防重放随机串请求头名称�?     * </p>
-     * @return 防重放随机串请求头名�?     */
+     * 返回防重放随机串请求头名称�?     * </p>
+     * @return 防重放随机串请求头名�?     */
     public String getNonceHeaderName() {
         return this.nonceHeaderName;
     }
 
     /**
      * <p>
-     * 设置防重放随机串请求头名称�?     * </p>
-     * @param nonceHeaderName 防重放随机串请求头名�?     */
+     * 设置防重放随机串请求头名称�?     * </p>
+     * @param nonceHeaderName 防重放随机串请求头名�?     */
     public void setNonceHeaderName(String nonceHeaderName) {
         this.nonceHeaderName = normalizeHeaderName(nonceHeaderName, DEFAULT_NONCE_HEADER_NAME);
     }
 
     /**
      * <p>
-     * 返回防重放随机串请求参数名称�?     * </p>
+     * 返回防重放随机串请求参数名称�?     * </p>
      * @return 防重放随机串请求参数名称
      */
     public String getNonceParameterName() {
@@ -339,7 +339,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置防重放随机串请求参数名称�?     * </p>
+     * 设置防重放随机串请求参数名称�?     * </p>
      * @param nonceParameterName 防重放随机串请求参数名称
      */
     public void setNonceParameterName(String nonceParameterName) {
@@ -348,7 +348,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回重放窗口秒数�?     * </p>
+     * 返回重放窗口秒数�?     * </p>
      * @return 重放窗口秒数
      */
     public long getTtlSeconds() {
@@ -357,7 +357,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置重放窗口秒数�?     * </p>
+     * 设置重放窗口秒数�?     * </p>
      * @param ttlSeconds 重放窗口秒数
      */
     public void setTtlSeconds(long ttlSeconds) {
@@ -366,7 +366,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回内存存储过期键清理间隔秒数�?     * </p>
+     * 返回内存存储过期键清理间隔秒数�?     * </p>
      * @return 清理间隔秒数
      */
     public long getCleanupIntervalSeconds() {
@@ -375,7 +375,7 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 设置内存存储过期键清理间隔秒数�?     * </p>
+     * 设置内存存储过期键清理间隔秒数�?     * </p>
      * @param cleanupIntervalSeconds 清理间隔秒数
      */
     public void setCleanupIntervalSeconds(long cleanupIntervalSeconds) {
@@ -386,16 +386,16 @@ public class CocoReplayProperties {
 
     /**
      * <p>
-     * 返回允许的客户端时间戳最大时钟偏差秒数�?     * </p>
-     * @return 最大时钟偏差秒�?     */
+     * 返回允许的客户端时间戳最大时钟偏差秒数�?     * </p>
+     * @return 最大时钟偏差秒�?     */
     public long getMaxClockSkewSeconds() {
         return this.maxClockSkewSeconds;
     }
 
     /**
      * <p>
-     * 设置允许的客户端时间戳最大时钟偏差秒数；小于零时恢复默认值�?     * </p>
-     * @param maxClockSkewSeconds 最大时钟偏差秒�?     */
+     * 设置允许的客户端时间戳最大时钟偏差秒数；小于零时恢复默认值�?     * </p>
+     * @param maxClockSkewSeconds 最大时钟偏差秒�?     */
     public void setMaxClockSkewSeconds(long maxClockSkewSeconds) {
         this.maxClockSkewSeconds = maxClockSkewSeconds < 0
                 ? DEFAULT_MAX_CLOCK_SKEW_SECONDS
