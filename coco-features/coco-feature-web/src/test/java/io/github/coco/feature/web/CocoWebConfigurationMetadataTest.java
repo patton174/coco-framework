@@ -188,6 +188,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.response.metadata-mode\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.response-wrap.success-message-code\""));
+        assertTrue(content.contains("\"name\": \"coco.web.response-wrap.max-body-bytes\""));
         assertFalse(content.contains("\"name\": \"coco.web.response-wrap.success-code\""));
     }
 

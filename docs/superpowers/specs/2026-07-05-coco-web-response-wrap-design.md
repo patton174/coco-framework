@@ -84,6 +84,7 @@ coco:
     response-wrap:
       enabled: true
       success-message-code: coco.web.response.success
+      max-body-bytes: -1
 ```
 
 默认启用，符合框架“引入即可用”的定位。业务项目只在不需要该能力时显式关闭：
@@ -99,6 +100,7 @@ coco:
 
 - `enabled`：是否注册正常响应包装。
 - `success-message-code`：成功消息的国际化编码，默认 `coco.web.response.success`。
+- `max-body-bytes`：正常响应包装允许的最大原始响应体字节数，默认 `-1` 表示不限制。该阈值只基于已知长度判断，例如响应 `Content-Length` 或字符串响应体字节数，不会为了估算大小提前序列化任意业务对象。
 
 成功消息文本放在 `coco-feature-web-messages*.properties`，由 `CocoMessageService` 解析。
 
@@ -131,6 +133,7 @@ CocoSystemCodeProvider cocoSystemCodeProvider() {
 - 方法或类上标注 `@CocoIgnoreResponseWrap` 的返回值。
 - `ResponseEntity<?>`，因为它通常表达调用方自定义状态码、header 或 body。
 - `Resource`、`byte[]`、流式响应、下载响应。
+- 已知响应体长度超过 `coco.web.response-wrap.max-body-bytes` 的正常响应。
 - Spring 内部错误响应或已经由异常处理器生成的异常响应。
 
 `String` 返回值需要单独处理。由于 Spring MVC 对 String 使用字符串消息转换器，直接返回对象会导致类型不匹配。设计上应该支持字符串返回值：将包装后的 `CocoApiResponse` 序列化为 JSON 字符串再返回。
@@ -143,6 +146,7 @@ CocoSystemCodeProvider cocoSystemCodeProvider() {
 Controller 返回值
 -> CocoResponseWrapAdvice
 -> 判断是否应该跳过
+-> 判断已知响应体长度是否超过包装阈值
 -> CocoMessageService 解析成功消息
 -> CocoSystemCodeProvider 解析成功响应码
 -> CocoTraceContext 读取或创建 traceId
@@ -180,6 +184,7 @@ CocoException
 - `coco.web.response-wrap.enabled=false` 时不注册 advice。
 - 普通对象返回值会包装为成功 `CocoApiResponse`。
 - `String` 返回值会被包装成 JSON 字符串。
+- 已知长度超过 `max-body-bytes` 的响应会跳过包装并保留原始 body。
 - `CocoApiResponse` 返回值不会二次包装。
 - 方法级 `@CocoIgnoreResponseWrap` 会跳过包装。
 - 类级 `@CocoIgnoreResponseWrap` 会跳过包装。
@@ -187,7 +192,7 @@ CocoException
 - 成功消息通过 `CocoMessageService` 从 Web 模块消息资源解析。
 - 自定义 `CocoSystemCodeProvider` 可以覆盖默认成功码和默认异常码。
 - 业务自定义 `CocoBusinessCode` 优先于系统默认码。
-- 配置元数据包含 `coco.web.response-wrap.enabled` 和 `coco.web.response-wrap.success-message-code`。
+- 配置元数据包含 `coco.web.response-wrap.enabled`、`coco.web.response-wrap.success-message-code` 和 `coco.web.response-wrap.max-body-bytes`。
 
 ## 本阶段不做
 

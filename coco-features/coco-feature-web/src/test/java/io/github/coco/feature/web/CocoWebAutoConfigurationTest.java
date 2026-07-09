@@ -588,12 +588,18 @@ class CocoWebAutoConfigurationTest {
         assertEquals(CocoResponseMetadataMode.NONE, properties.getResponse().getMetadataMode());
         assertTrue(properties.getResponseWrap().isEnabled());
         assertEquals("coco.web.response.success", properties.getResponseWrap().getSuccessMessageCode());
+        assertEquals(-1L, properties.getResponseWrap().getMaxBodyBytes());
+        properties.getResponseWrap().setMaxBodyBytes(4096);
+        assertEquals(4096L, properties.getResponseWrap().getMaxBodyBytes());
+        properties.getResponseWrap().setMaxBodyBytes(-10);
+        assertEquals(-1L, properties.getResponseWrap().getMaxBodyBytes());
 
         properties.setResponse(null);
         properties.setResponseWrap(null);
 
         assertEquals(CocoResponseMetadataMode.NONE, properties.getResponse().getMetadataMode());
         assertTrue(properties.getResponseWrap().isEnabled());
+        assertEquals(-1L, properties.getResponseWrap().getMaxBodyBytes());
     }
 
     @Test
@@ -853,6 +859,48 @@ class CocoWebAutoConfigurationTest {
             assertFalse(((String) body).contains("\"traceId\""));
             assertFalse(((String) body).contains("\"path\""));
             assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
+        });
+    }
+
+    @Test
+    void skipsStringResponseWrapWhenKnownBodyBytesExceedConfiguredLimit() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoResponseWrapProperties properties = new CocoResponseWrapProperties();
+            properties.setMaxBodyBytes(4);
+            CocoResponseWrapAdvice advice = new CocoResponseWrapAdvice(context.getBean(CocoMessageService.class),
+                    properties, CocoSystemCodes.defaults(), new ObjectMapper());
+            MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/text");
+            ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+            ServletServerHttpResponse response = new ServletServerHttpResponse(new MockHttpServletResponse());
+
+            Object body = advice.beforeBodyWrite("hello", methodParameter("stringBody"),
+                    MediaType.TEXT_PLAIN, StringHttpMessageConverter.class, request,
+                    response);
+
+            assertEquals("hello", body);
+            assertNull(response.getHeaders().getContentType());
+        });
+    }
+
+    @Test
+    void skipsObjectResponseWrapWhenContentLengthExceedsConfiguredLimit() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoResponseWrapProperties properties = new CocoResponseWrapProperties();
+            properties.setMaxBodyBytes(8);
+            CocoResponseWrapAdvice advice = new CocoResponseWrapAdvice(context.getBean(CocoMessageService.class),
+                    properties, CocoSystemCodes.defaults(), new ObjectMapper());
+            MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/users");
+            ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+            ServletServerHttpResponse response = new ServletServerHttpResponse(new MockHttpServletResponse());
+            response.getHeaders().setContentLength(128);
+            Map<String, String> rawBody = Map.of("name", "Coco");
+
+            Object body = advice.beforeBodyWrite(rawBody, methodParameter("objectBody"),
+                    MediaType.APPLICATION_JSON, TestHttpMessageConverter.class, request,
+                    response);
+
+            assertEquals(rawBody, body);
+            assertFalse(body instanceof CocoApiResponse<?>);
         });
     }
 

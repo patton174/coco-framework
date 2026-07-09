@@ -48,6 +48,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 客户端断开误报 500 | framework B8, D31 | accepted | `CocoWebExceptionHandler` 识别 Spring 客户端断开异常并透传，避免统一响应和异常日志误报。 |
 | 过滤器异常响应请求上下文 | framework B9, quality D35 | accepted | PR20 改为显式传递请求语言，不再临时替换 `RequestContextHolder`；回归测试覆盖旧上下文保留和 `Accept-Language` 本地化。 |
 | Trace MDC 恢复语义 | framework B11, quality D37 | accepted | PR19 已确认显式 null 恢复逻辑，并补默认和自定义 MDC key 的请求内覆盖、请求后恢复回归测试。 |
+| 正常响应包装大响应阈值 | framework B12 | accepted | PR23 增加 `coco.web.response-wrap.max-body-bytes`，对已知长度超过阈值的正常响应跳过统一包装并输出 WARN。 |
 | `CocoWebAutoConfiguration` 过大 | coupling M4 | accepted | 架构治理批次执行，按子域拆配置类。 |
 | `web.context` god package | coupling M7 | deferred | 等自动配置拆分后再拆包，降低一次性改动范围。 |
 | `web.security.metadata` 命名冲突 | coupling M9 | accepted | 重命名为请求元数据语义，例如 `web.request.metadata`。 |
@@ -534,6 +535,27 @@ codegraph sync .
 git diff --check
 codegraph sync .
 gh pr checks <PR> --watch --interval 15
+```
+
+### PR 23：正常响应包装大响应阈值
+
+状态：done。正常响应包装增加可配置阈值，默认关闭限制；对已知长度超过阈值的响应跳过统一包装，避免大响应在包装层继续膨胀。
+
+目标：收口 B12，给业务项目一个轻量、可解释的保护开关，同时不为估算大小提前序列化任意业务对象。
+
+范围：
+
+- `coco.web.response-wrap.max-body-bytes` 默认 `-1`，表示不限制。
+- 阈值只基于已知长度判断：响应 `Content-Length` 或字符串响应体字节数。
+- 超过阈值时返回原始 body 并输出 WARN。
+- 配置属性、configuration metadata 测试和 response wrapping 单测同步覆盖。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-web -am test
 ```
 
 ## 执行纪律

@@ -6,7 +6,11 @@ import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.common.trace.CocoTraceContext;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import java.lang.reflect.Method;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.io.Resource;
@@ -38,6 +42,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
  */
 @RestControllerAdvice
 public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CocoResponseWrapAdvice.class);
 
     private final CocoMessageService messageService;
 
@@ -159,7 +165,7 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
     public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
             Class<? extends HttpMessageConverter<?>> selectedConverterType, ServerHttpRequest request,
             ServerHttpResponse response) {
-        if (isSkippedBody(body)) {
+        if (isSkippedBody(body) || exceedsMaxBodyBytes(body, selectedContentType, request, response)) {
             return body;
         }
         CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
@@ -193,6 +199,39 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
                 || body instanceof ResponseEntity<?>
                 || body instanceof Resource
                 || body instanceof byte[];
+    }
+
+    private boolean exceedsMaxBodyBytes(Object body, MediaType selectedContentType, ServerHttpRequest request,
+            ServerHttpResponse response) {
+        long maxBodyBytes = this.properties.getMaxBodyBytes();
+        if (maxBodyBytes < 0) {
+            return false;
+        }
+        long bodyBytes = knownBodyBytes(body, selectedContentType, response);
+        if (bodyBytes <= maxBodyBytes) {
+            return false;
+        }
+        LOGGER.warn("Coco response wrap skipped because bodyBytes={} exceeds maxBodyBytes={} for path={}",
+                bodyBytes, maxBodyBytes, resolvePath(request));
+        return true;
+    }
+
+    private static long knownBodyBytes(Object body, MediaType selectedContentType, ServerHttpResponse response) {
+        if (response != null) {
+            long contentLength = response.getHeaders().getContentLength();
+            if (contentLength >= 0) {
+                return contentLength;
+            }
+        }
+        if (body instanceof CharSequence text) {
+            return text.toString().getBytes(resolveCharset(selectedContentType)).length;
+        }
+        return -1L;
+    }
+
+    private static Charset resolveCharset(MediaType selectedContentType) {
+        Charset charset = selectedContentType == null ? null : selectedContentType.getCharset();
+        return charset == null ? StandardCharsets.UTF_8 : charset;
     }
 
     private String writeJson(Object response) {
