@@ -134,7 +134,7 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        boolean replayRequired = replayRequired(request);
+        boolean replayRequired = CocoReplayRequestShape.replayRequired(this.properties, this.requestMatcher, request);
         try {
             verifyReplay(request, replayRequired);
         }
@@ -149,21 +149,16 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         return this.requestMatcher.matches(request, this.properties.getMatcher().getIgnored());
     }
 
-    private boolean replayRequired(HttpServletRequest request) {
-        return this.properties.isRequired()
-                || this.requestMatcher.matches(request, this.properties.getMatcher().getRequired());
-    }
-
     private void verifyReplay(HttpServletRequest request, boolean replayRequired) {
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
         CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(snapshot.securityInput());
-        if (!shouldProtect(metadata, replayRequired)) {
+        if (!CocoReplayRequestShape.shouldProtect(this.properties, metadata, replayRequired)) {
             return;
         }
         CocoReplayKey replayKey = this.replayKeyResolver.resolve(snapshot, metadata);
-        validateRequiredFields(replayKey);
-        Instant requestTime = parseTimestamp(replayKey.timestamp());
+        CocoReplayRequestShape.validateRequiredFields(replayKey);
+        Instant requestTime = CocoReplayRequestShape.parseTimestamp(replayKey.timestamp());
         Instant now = this.clock.instant();
         Duration ttl = Duration.ofSeconds(this.properties.getTtlSeconds());
         Duration maxClockSkew = Duration.ofSeconds(this.properties.getMaxClockSkewSeconds());
@@ -178,47 +173,6 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.detected");
         }
         publishVerifiedSnapshot(request, snapshot, metadata, replayKey, expiresAt);
-    }
-
-    /**
-     * <p>
-     * 判断当前请求是否需要执行防重放校验�?     * </p>
-     * <p>
-     * 当请求已经携带防重放协议字段时，即使未显式配置强制防重放，也应进入校验，避免业务误以为协议字段已经生效�?     * </p>
-     * @param metadata 请求安全元数�?     * @param replayRequired 当前请求是否强制防重�?     * @return 需要执行防重放校验时返�?{@code true}
-     */
-    private boolean shouldProtect(CocoWebRequestSecurityMetadata metadata, boolean replayRequired) {
-        return replayRequired
-                || metadata.replayProtected()
-                || (this.properties.isProtectSignedRequests() && metadata.signed())
-                || (this.properties.isProtectEncryptedRequests() && metadata.encrypted());
-    }
-
-    private static void validateRequiredFields(CocoReplayKey replayKey) {
-        if (replayKey.appId() == null) {
-            throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-app-id");
-        }
-        if (replayKey.timestamp() == null) {
-            throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-timestamp");
-        }
-        if (replayKey.nonce() == null) {
-            throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-nonce");
-        }
-    }
-
-    private static Instant parseTimestamp(String timestamp) {
-        try {
-            long value = Long.parseLong(timestamp);
-            return value < 10_000_000_000L ? Instant.ofEpochSecond(value) : Instant.ofEpochMilli(value);
-        }
-        catch (NumberFormatException ex) {
-            try {
-                return Instant.parse(timestamp);
-            }
-            catch (RuntimeException ignored) {
-                throw CocoBusinessExceptions.unauthorized("coco.web.replay.invalid-timestamp");
-            }
-        }
     }
 
     private void publishVerifiedSnapshot(HttpServletRequest request, CocoWebRequestSnapshot snapshot,
