@@ -9,6 +9,8 @@ import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadata;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.core.DefaultCocoOpenApiMetadataProvider;
+import io.swagger.v3.oas.models.OpenAPI;
+import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -82,6 +84,35 @@ class CocoOpenApiAutoConfigurationTest {
     }
 
     @Test
+    void adaptsMetadataToSpringDocWhenSpringDocIsPresent() {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.openapi.info.title=SpringDoc API",
+                        "coco.openapi.info.version=3.0.0",
+                        "coco.openapi.info.description=SpringDoc description")
+                .run(context -> {
+                    assertThat(context).hasBean("cocoSpringDocOpenApiCustomizer");
+                    OpenApiCustomizer customizer =
+                            context.getBean("cocoSpringDocOpenApiCustomizer", OpenApiCustomizer.class);
+                    OpenAPI openApi = new OpenAPI();
+
+                    customizer.customise(openApi);
+
+                    assertThat(openApi.getInfo()).isNotNull();
+                    assertThat(openApi.getInfo().getTitle()).isEqualTo("SpringDoc API");
+                    assertThat(openApi.getInfo().getVersion()).isEqualTo("3.0.0");
+                    assertThat(openApi.getInfo().getDescription()).isEqualTo("SpringDoc description");
+                });
+    }
+
+    @Test
+    void disablesSpringDocMetadataAdapter() {
+        this.contextRunner
+                .withPropertyValues("coco.openapi.springdoc.enabled=false")
+                .run(context -> assertThat(context).doesNotHaveBean("cocoSpringDocOpenApiCustomizer"));
+    }
+
+    @Test
     void normalizesBlankOpenApiMetadataProperties() {
         this.contextRunner
                 .withPropertyValues(
@@ -126,6 +157,7 @@ class CocoOpenApiAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean("cocoOpenApiMessageBundleRegistrar");
                     assertThat(context).doesNotHaveBean(CocoOpenApiMetadataProvider.class);
+                    assertThat(context).doesNotHaveBean("cocoSpringDocOpenApiCustomizer");
                 });
     }
 

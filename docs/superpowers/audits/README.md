@@ -61,6 +61,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | sample i18n bundle 错位 | business B6 | accepted | sample 修正批次执行，并同步检查 security messages。 |
 | sample secure endpoint 仅 URL 装饰 | business B7 | accepted | sample 修正批次执行，避免业务方误解端点名参与鉴权。 |
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
+| OpenAPI 元数据 provider 无消费者 | framework C3 | accepted | PR30 增加可选 SpringDoc 元数据适配器；SpringDoc 在业务项目 classpath 中存在时自动把 Coco 元数据写入 `OpenAPI.info`，框架不强依赖 SpringDoc。 |
 | audit/openapi/codegen 扩展边界验证 | framework C17 | accepted | PR24 补充 audit 发布链路、OpenAPI 元数据归一化和 codegen 替换生成器的端到端行为测试。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
@@ -684,6 +685,28 @@ mvn -B -pl :coco-feature-web -am test
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-feature-web -am test
+```
+
+### PR 30：OpenAPI SpringDoc 元数据适配
+
+状态：done。`CocoOpenApiMetadataProvider` 现在有生产消费者：业务项目 classpath 中存在 SpringDoc / Swagger OpenAPI 类型时，Coco 会自动注册 SpringDoc `OpenApiCustomizer`，把 Coco 元数据写入 `OpenAPI.info`。
+
+目标：收口 C3，避免 OpenAPI 元数据 SPI 只注册 bean 而没有任何文档渲染链路消费，同时保持 Coco 不强依赖 SpringDoc。
+
+范围：
+
+- 新增无硬依赖的 SpringDoc 元数据适配器，通过 FactoryBean 和运行期代理暴露 `OpenApiCustomizer`。
+- 新增 `coco.openapi.springdoc.enabled`，允许业务项目关闭自动适配。
+- SpringDoc 类型不存在时不注册适配器，不改变仅使用 Coco OpenAPI 元数据 SPI 的项目。
+- 补充自动配置、元数据适配和配置 metadata 测试。
+- README / README_CN 更新 OpenAPI 已交付边界。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-openapi -am test
 ```
 
 ## 执行纪律

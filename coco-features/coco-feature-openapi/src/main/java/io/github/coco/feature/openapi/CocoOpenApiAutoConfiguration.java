@@ -4,8 +4,11 @@ import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.core.DefaultCocoOpenApiMetadataProvider;
+import io.github.coco.feature.openapi.springdoc.CocoSpringDocOpenApiCustomizerFactoryBean;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -59,5 +62,27 @@ public class CocoOpenApiAutoConfiguration {
     @ConditionalOnProperty(prefix = "coco.openapi", name = "enabled", havingValue = "true", matchIfMissing = true)
     public CocoOpenApiMetadataProvider cocoOpenApiMetadataProvider(CocoOpenApiProperties properties) {
         return new DefaultCocoOpenApiMetadataProvider(properties);
+    }
+
+    /**
+     * <p>
+     * 当业务项目引入 SpringDoc 时，注册 OpenAPI 元数据适配器。
+     * </p>
+     * @param metadataProvider Coco OpenAPI 元数据提供器
+     * @return SpringDoc OpenAPI 定制器工厂
+     */
+    @Bean(name = "cocoSpringDocOpenApiCustomizer")
+    @ConditionalOnBean(CocoOpenApiMetadataProvider.class)
+    @ConditionalOnMissingBean(name = "cocoSpringDocOpenApiCustomizer")
+    @ConditionalOnClass(name = {
+            CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CUSTOMIZER_CLASS,
+            CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CLASS,
+            CocoSpringDocOpenApiCustomizerFactoryBean.INFO_CLASS
+    })
+    @ConditionalOnProperty(prefix = "coco.openapi.springdoc", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    public CocoSpringDocOpenApiCustomizerFactoryBean cocoSpringDocOpenApiCustomizer(
+            CocoOpenApiMetadataProvider metadataProvider) {
+        return new CocoSpringDocOpenApiCustomizerFactoryBean(metadataProvider);
     }
 }
