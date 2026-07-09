@@ -6,8 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoMessageService;
@@ -138,6 +139,32 @@ class CocoAuditAutoConfigurationTest {
     }
 
     @Test
+    void autoConfiguredPublisherPublishesToAllCustomRecorders() {
+        this.contextRunner
+                .withUserConfiguration(MultipleAuditRecorderConfiguration.class)
+                .run(context -> {
+                    CocoAuditPublisher auditPublisher = context.getBean(CocoAuditPublisher.class);
+                    CapturingCocoAuditRecorder firstRecorder = context.getBean("firstAuditRecorder",
+                            CapturingCocoAuditRecorder.class);
+                    CapturingCocoAuditRecorder secondRecorder = context.getBean("secondAuditRecorder",
+                            CapturingCocoAuditRecorder.class);
+
+                    auditPublisher.publish(CocoAuditEvent.builder("business-operation")
+                            .traceId("trace-e2e")
+                            .resourceType("order")
+                            .resourceId("1001")
+                            .build());
+
+                    assertThat(firstRecorder.events).hasSize(1);
+                    assertThat(secondRecorder.events).hasSize(1);
+                    assertThat(firstRecorder.latest.get().traceId()).contains("trace-e2e");
+                    assertThat(secondRecorder.latest.get().resourceId()).contains("1001");
+                    assertThat(context.getBeansOfType(CocoAuditRecorder.class))
+                            .containsOnlyKeys("firstAuditRecorder", "secondAuditRecorder");
+                });
+    }
+
+    @Test
     void accessLogAuditAdapterCoexistsWithCommonLoggingAccessLogRecorder() {
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(
@@ -197,12 +224,29 @@ class CocoAuditAutoConfigurationTest {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    static class MultipleAuditRecorderConfiguration {
+
+        @Bean
+        CapturingCocoAuditRecorder firstAuditRecorder() {
+            return new CapturingCocoAuditRecorder();
+        }
+
+        @Bean
+        CapturingCocoAuditRecorder secondAuditRecorder() {
+            return new CapturingCocoAuditRecorder();
+        }
+    }
+
     static class CapturingCocoAuditRecorder implements CocoAuditRecorder {
 
         private final AtomicReference<CocoAuditEvent> latest = new AtomicReference<>();
 
+        private final List<CocoAuditEvent> events = new CopyOnWriteArrayList<>();
+
         @Override
         public void record(CocoAuditEvent event) {
+            this.events.add(event);
             this.latest.set(event);
         }
     }

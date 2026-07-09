@@ -82,6 +82,22 @@ class CocoOpenApiAutoConfigurationTest {
     }
 
     @Test
+    void normalizesBlankOpenApiMetadataProperties() {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.openapi.info.title=   ",
+                        "coco.openapi.info.version=   ",
+                        "coco.openapi.info.description=   ")
+                .run(context -> {
+                    CocoOpenApiMetadata metadata = context.getBean(CocoOpenApiMetadataProvider.class).metadata();
+
+                    assertThat(metadata.title()).isEqualTo("Coco API");
+                    assertThat(metadata.version()).isEqualTo("1.0.0");
+                    assertThat(metadata.descriptionOptional()).isEmpty();
+                });
+    }
+
+    @Test
     void backsOffWhenCustomOpenApiMetadataProviderExists() {
         this.contextRunner
                 .withUserConfiguration(CustomOpenApiConfiguration.class)

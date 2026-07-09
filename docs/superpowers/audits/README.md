@@ -61,6 +61,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | sample i18n bundle 错位 | business B6 | accepted | sample 修正批次执行，并同步检查 security messages。 |
 | sample secure endpoint 仅 URL 装饰 | business B7 | accepted | sample 修正批次执行，避免业务方误解端点名参与鉴权。 |
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
+| audit/openapi/codegen 扩展边界验证 | framework C17 | accepted | PR24 补充 audit 发布链路、OpenAPI 元数据归一化和 codegen 替换生成器的端到端行为测试。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
 | Maven Enforcer 发布闸门 | framework C7 | accepted | PR21 已在根 POM 增加 enforcer：常规构建检查依赖收敛、重复依赖声明和直接禁用依赖；release profile 拒绝 SNAPSHOT 版本。 |
@@ -556,6 +557,26 @@ gh pr checks <PR> --watch --interval 15
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-feature-web -am test
+```
+
+### PR 24：扩展边界端到端验证
+
+状态：done。audit、openapi、codegen 三个轻量扩展模块补充当前承诺范围内的行为验证，避免只停留在自动配置 bean 是否存在。
+
+目标：收口 C17，在不夸大模块能力的前提下，把扩展边界的真实使用路径固定为测试。
+
+范围：
+
+- audit：自动配置的 `CocoAuditPublisher` 会把事件分发到所有业务自定义 `CocoAuditRecorder`。
+- openapi：配置绑定后的元数据会经过 `CocoOpenApiMetadata` 归一化，空白标题、版本和描述不会泄漏到 SPI 输出。
+- codegen：业务替换 `CocoCodeGenerator` 时可以读取绑定后的模板配置，并接收归一化后的 `CocoCodegenRequest`；请求、文件和结果模型补充输入校验与不可变性断言。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-audit,:coco-feature-openapi,:coco-feature-codegen -am test
 ```
 
 ## 执行纪律
