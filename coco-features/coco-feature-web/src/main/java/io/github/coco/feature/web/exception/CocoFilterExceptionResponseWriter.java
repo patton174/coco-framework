@@ -2,17 +2,16 @@ package io.github.coco.feature.web.exception;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Objects;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.exception.CocoException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.context.request.RequestAttributes;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.context.request.ServletWebRequest;
 
 /**
@@ -66,23 +65,16 @@ public final class CocoFilterExceptionResponseWriter {
         if (response.isCommitted()) {
             throw exception;
         }
-        RequestAttributes previousAttributes = RequestContextHolder.getRequestAttributes();
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request, response));
-        try {
-            ResponseEntity<Object> entity = this.exceptionHandler.handleCocoException(exception,
-                    new ServletWebRequest(request, response));
-            response.setStatus(entity.getStatusCode().value());
-            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            this.objectMapper.writeValue(response.getOutputStream(), entity.getBody());
-        }
-        finally {
-            if (previousAttributes == null) {
-                RequestContextHolder.resetRequestAttributes();
-            }
-            else {
-                RequestContextHolder.setRequestAttributes(previousAttributes);
-            }
-        }
+        ResponseEntity<Object> entity = this.exceptionHandler.handleCocoException(exception,
+                new ServletWebRequest(request, response), resolveRequestLocale(request));
+        response.setStatus(entity.getStatusCode().value());
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        this.objectMapper.writeValue(response.getOutputStream(), entity.getBody());
+    }
+
+    private static Locale resolveRequestLocale(HttpServletRequest request) {
+        String acceptLanguage = request.getHeader(HttpHeaders.ACCEPT_LANGUAGE);
+        return acceptLanguage == null || acceptLanguage.isBlank() ? null : request.getLocale();
     }
 }
