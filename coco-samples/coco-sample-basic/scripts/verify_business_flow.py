@@ -43,6 +43,7 @@ class HttpResult:
 
 
 def main() -> int:
+    configure_output_encoding()
     args = parse_args()
     base_url = args.base_url
     process: subprocess.Popen[str] | None = None
@@ -89,6 +90,13 @@ def parse_args() -> argparse.Namespace:
         help="Skip Coco signature, replay, and encryption black-box checks.",
     )
     return parser.parse_args()
+
+
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
 
 
 def free_port() -> int:
