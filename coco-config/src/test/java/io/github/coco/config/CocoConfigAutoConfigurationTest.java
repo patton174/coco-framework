@@ -11,6 +11,7 @@ import io.github.coco.api.feature.CocoFeatures;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.feature.registry.CocoFeaturePlan;
+import io.github.coco.feature.registry.CocoFeatureSelection;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -33,6 +34,7 @@ import org.springframework.context.annotation.Configuration;
  * @author patton174
  * @since 1.0.0
  */
+@SuppressWarnings("deprecation")
 class CocoConfigAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -117,6 +119,18 @@ class CocoConfigAutoConfigurationTest {
                     assertEquals("无效的 Coco 功能禁用配置。",
                             messageService.getMessage("coco.config.features.disabled.invalid"));
                 });
+    }
+
+    @Test
+    void featurePropertiesAdaptToSelectionModel() {
+        CocoFeatureProperties properties = new CocoFeatureProperties();
+        properties.setEnabled(java.util.Set.of(CocoFeature.WEB));
+        properties.setDisabled(java.util.Set.of(CocoFeature.TENANT));
+
+        CocoFeatureSelection selection = properties.toSelection();
+
+        assertEquals(java.util.Set.of(CocoFeature.WEB), selection.enabled());
+        assertEquals(java.util.Set.of(CocoFeature.TENANT), selection.disabled());
     }
 
     @Configuration(proxyBeanMethods = false)

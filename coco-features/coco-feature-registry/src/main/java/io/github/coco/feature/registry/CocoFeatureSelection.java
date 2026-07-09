@@ -48,6 +48,33 @@ public record CocoFeatureSelection(Set<CocoFeature> enabled, Set<CocoFeature> di
 
     /**
      * <p>
+     * 从显式启用和禁用集合创建功能选择声明。
+     * </p>
+     * <p>
+     * 配置文件、注解扫描、Maven 参数等输入源应先转换为该核心模型，再交给功能解析器处理。
+     * </p>
+     * @param enabled 显式启用的功能集合
+     * @param disabled 显式禁用的功能集合
+     * @return 功能选择
+     */
+    public static CocoFeatureSelection of(Set<CocoFeature> enabled, Set<CocoFeature> disabled) {
+        return new CocoFeatureSelection(enabled, disabled);
+    }
+
+    /**
+     * <p>
+     * 从注解数组创建功能选择声明。
+     * </p>
+     * @param enabled 显式启用的功能数组
+     * @param disabled 显式禁用的功能数组
+     * @return 功能选择
+     */
+    public static CocoFeatureSelection of(CocoFeature[] enabled, CocoFeature[] disabled) {
+        return of(copy(enabled), copy(disabled));
+    }
+
+    /**
+     * <p>
      * 创建只包含启用声明的功能选择。
      * </p>
      * @param enabled 显式启用的功能集合
@@ -122,5 +149,18 @@ public record CocoFeatureSelection(Set<CocoFeature> enabled, Set<CocoFeature> di
             return Set.of();
         }
         return Set.copyOf(EnumSet.copyOf(source));
+    }
+
+    private static Set<CocoFeature> copy(CocoFeature[] source) {
+        if (source == null || source.length == 0) {
+            return Set.of();
+        }
+        EnumSet<CocoFeature> copied = EnumSet.noneOf(CocoFeature.class);
+        for (CocoFeature feature : source) {
+            if (feature != null) {
+                copied.add(feature);
+            }
+        }
+        return copied.isEmpty() ? Set.of() : Set.copyOf(copied);
     }
 }

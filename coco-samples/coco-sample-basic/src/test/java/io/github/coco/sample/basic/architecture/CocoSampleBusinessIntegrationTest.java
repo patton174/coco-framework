@@ -179,6 +179,61 @@ class CocoSampleBusinessIntegrationTest {
                 "io.github.coco.sample.basic.interfaces.rest"), mainPackages());
     }
 
+    /**
+     * <p>
+     * 示例应用服务应该显式声明事务边界，真实数据库实现可以在同一个用例中完成库存扣减和订单创建。
+     * </p>
+     * @throws Exception 源码读取失败时抛出
+     */
+    @Test
+    void applicationServiceDeclaresTransactionBoundary() throws Exception {
+        String content = Files.readString(sampleDirectory()
+                .resolve("src/main/java/io/github/coco/sample/basic/application/order/SampleOrderApplicationService.java"));
+
+        assertTrue(content.contains("import org.springframework.transaction.annotation.Transactional;"));
+        assertTrue(content.contains("@Transactional"));
+    }
+
+    /**
+     * <p>
+     * 示例仓储契约应该区分订单和商品职责，避免业务方照搬一个粗粒度仓储接口。
+     * </p>
+     * @throws Exception 源码读取失败时抛出
+     */
+    @Test
+    void separatesOrderAndProductRepositoryContracts() throws Exception {
+        Path domainDirectory = sampleDirectory()
+                .resolve("src/main/java/io/github/coco/sample/basic/domain/order");
+        String orderRepository = Files.readString(domainDirectory.resolve("SampleOrderRepository.java"));
+        String productRepository = Files.readString(domainDirectory.resolve("SampleProductRepository.java"));
+
+        assertTrue(orderRepository.contains("interface SampleOrderRepository"));
+        assertTrue(orderRepository.contains("createOrder("));
+        assertTrue(orderRepository.contains("findOrder("));
+        assertTrue(!orderRepository.contains("findProducts("));
+        assertTrue(!orderRepository.contains("decreaseStock("));
+        assertTrue(productRepository.contains("interface SampleProductRepository"));
+        assertTrue(productRepository.contains("findProducts("));
+        assertTrue(productRepository.contains("decreaseStock("));
+    }
+
+    /**
+     * <p>
+     * 示例默认消息包应该与默认语言配置保持一致，避免默认包和实际默认语言错位。
+     * </p>
+     * @throws Exception 消息文件读取失败时抛出
+     */
+    @Test
+    void alignsDefaultMessageBundleWithDefaultLocale() throws Exception {
+        Path resourceDirectory = sampleDirectory().resolve("src/main/resources");
+        String defaultMessages = Files.readString(resourceDirectory.resolve("messages.properties"));
+        String chineseMessages = Files.readString(resourceDirectory.resolve("messages_zh_CN.properties"));
+        String englishMessages = Files.readString(resourceDirectory.resolve("messages_en_US.properties"));
+
+        assertEquals(chineseMessages, defaultMessages);
+        assertTrue(!defaultMessages.equals(englishMessages));
+    }
+
     private static Document readPom() throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);

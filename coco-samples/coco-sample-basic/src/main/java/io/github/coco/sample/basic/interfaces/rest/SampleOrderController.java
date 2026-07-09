@@ -73,6 +73,9 @@ public class SampleOrderController {
      * <p>
      * 创建签名保护订单。
      * </p>
+     * <p>
+     * 该端点与普通下单共享业务处理；签名要求由 {@code application.yml} 中的路径匹配配置触发。
+     * </p>
      * @param request 创建订单请求
      * @return 已创建订单响应
      */
@@ -85,6 +88,9 @@ public class SampleOrderController {
      * <p>
      * 创建防重放保护订单。
      * </p>
+     * <p>
+     * 该端点与普通下单共享业务处理；防重放要求由 {@code application.yml} 中的路径匹配配置触发。
+     * </p>
      * @param request 创建订单请求
      * @return 已创建订单响应
      */
@@ -96,6 +102,9 @@ public class SampleOrderController {
     /**
      * <p>
      * 创建加密保护订单。
+     * </p>
+     * <p>
+     * 该端点与普通下单共享业务处理；加密要求由 {@code application.yml} 中的路径匹配配置触发。
      * </p>
      * @param request 创建订单请求
      * @return 已创建订单响应

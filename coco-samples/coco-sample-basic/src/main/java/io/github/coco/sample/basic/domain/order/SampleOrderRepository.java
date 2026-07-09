@@ -1,12 +1,11 @@
 package io.github.coco.sample.basic.domain.order;
 
-import java.util.List;
 import java.util.Optional;
 
 /**
  * Coco 示例订单仓储契约。
  * <p>
- * 领域层只声明订单与商品库存需要的持久化能力，具体存储实现由 infrastructure 层提供。
+ * 领域层只声明订单持久化能力，商品库存由 {@link SampleProductRepository} 单独建模。
  * </p>
  * <p>
  * 项目信息：
@@ -23,22 +22,14 @@ public interface SampleOrderRepository {
 
     /**
      * <p>
-     * 查询全部商品库存快照。
-     * </p>
-     * @return 商品库存快照列表
-     */
-    List<SampleProduct> findProducts();
-
-    /**
-     * <p>
-     * 创建订单并扣减库存。
+     * 创建订单。
      * </p>
      * @param buyerName 买家名称
-     * @param sku 商品编码
+     * @param product 已完成库存扣减后的商品快照
      * @param quantity 下单数量
      * @return 已创建订单
      */
-    SampleOrder createOrder(String buyerName, String sku, int quantity);
+    SampleOrder createOrder(String buyerName, SampleProduct product, int quantity);
 
     /**
      * <p>

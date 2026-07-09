@@ -15,9 +15,12 @@ import io.github.coco.api.feature.CocoFeatureRegistry;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-api-core}</li>
  * </ul>
+ * @deprecated 功能选择建议优先使用 {@code coco.features.*} 配置项或 {@link io.github.coco.api.feature.CocoFeatures}
+ * 注解声明。该接口仅作为早期 Java 配置入口保留兼容。
  * @author patton174
  * @since 1.0.0
  */
+@Deprecated(since = "1.0.0")
 public interface CocoConfigurer {
 
     /**

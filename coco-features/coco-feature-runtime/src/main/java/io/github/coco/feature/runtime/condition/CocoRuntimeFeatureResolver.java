@@ -52,7 +52,7 @@ public final class CocoRuntimeFeatureResolver {
         if (environment == null) {
             return StandardCocoFeatures.resolve(CocoFeatureSelection.empty());
         }
-        return StandardCocoFeatures.resolve(new CocoFeatureSelection(
+        return StandardCocoFeatures.resolve(CocoFeatureSelection.of(
                 bind(environment, "coco.features.enabled"),
                 new LinkedHashSet<>(bind(environment, "coco.features.disabled"))));
     }

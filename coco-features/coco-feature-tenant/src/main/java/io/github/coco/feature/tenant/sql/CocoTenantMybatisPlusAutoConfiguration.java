@@ -7,6 +7,7 @@ import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.tenant.CocoTenantAutoConfiguration;
 import io.github.coco.feature.tenant.CocoTenantProperties;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -57,6 +58,7 @@ public class CocoTenantMybatisPlusAutoConfiguration {
      * @param properties 租户功能配置
      * @param contextResolver 租户上下文解析器
      * @param expressionResolver 租户 ID SQL 表达式解析器
+     * @param eventPublisherProvider 拦截器忽略治理事件发布器提供器
      * @return MyBatis-Plus 拦截器定制器
      */
     @Bean
@@ -64,9 +66,16 @@ public class CocoTenantMybatisPlusAutoConfiguration {
     public CocoMybatisPlusInterceptorCustomizer cocoTenantMybatisPlusInterceptorCustomizer(
             CocoTenantProperties properties,
             CocoTenantContextResolver contextResolver,
-            CocoTenantIdExpressionResolver expressionResolver) {
+            CocoTenantIdExpressionResolver expressionResolver,
+            ObjectProvider<CocoTenantInterceptorIgnoreEventPublisher> eventPublisherProvider) {
+        CocoTenantInterceptorIgnoreGuard interceptorIgnoreGuard = new CocoTenantInterceptorIgnoreGuard(
+                properties.getSql(),
+                eventPublisherProvider.getIfAvailable(NoOpCocoTenantInterceptorIgnoreEventPublisher::new));
         CocoTenantLineHandler tenantLineHandler = new CocoTenantLineHandler(properties.getSql(),
                 contextResolver, expressionResolver);
-        return interceptor -> interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler));
+        return interceptor -> {
+            interceptor.addInnerInterceptor(interceptorIgnoreGuard);
+            interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler));
+        };
     }
 }

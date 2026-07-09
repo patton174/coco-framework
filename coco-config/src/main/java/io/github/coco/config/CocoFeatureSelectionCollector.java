@@ -5,7 +5,6 @@ import java.util.EnumSet;
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatures;
-import io.github.coco.api.feature.DefaultCocoFeatureRegistry;
 import io.github.coco.feature.registry.CocoFeatureSelection;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -26,6 +25,7 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
  * @author patton174
  * @since 1.0.0
  */
+@SuppressWarnings("deprecation")
 final class CocoFeatureSelectionCollector {
 
     private CocoFeatureSelectionCollector() {
@@ -47,7 +47,7 @@ final class CocoFeatureSelectionCollector {
         EnumSet<CocoFeature> enabled = EnumSet.noneOf(CocoFeature.class);
         EnumSet<CocoFeature> disabled = EnumSet.noneOf(CocoFeature.class);
 
-        DefaultCocoFeatureRegistry registry = new DefaultCocoFeatureRegistry();
+        MutableCocoFeatureRegistry registry = new MutableCocoFeatureRegistry();
         configurers.orderedStream().forEach(configurer -> configurer.configureFeatures(registry));
         enabled.addAll(registry.enabledFeatures());
         disabled.addAll(registry.disabledFeatures());
@@ -62,7 +62,7 @@ final class CocoFeatureSelectionCollector {
             }
         }
 
-        return new CocoFeatureSelection(enabled, disabled);
+        return CocoFeatureSelection.of(enabled, disabled);
     }
 
     private static void addAll(EnumSet<CocoFeature> target, CocoFeature[] features) {

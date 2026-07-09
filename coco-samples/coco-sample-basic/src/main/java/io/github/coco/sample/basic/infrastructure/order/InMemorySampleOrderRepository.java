@@ -3,16 +3,17 @@ package io.github.coco.sample.basic.infrastructure.order;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
-import io.github.coco.sample.basic.domain.order.SampleBusinessErrorCode;
 import io.github.coco.sample.basic.domain.order.SampleOrder;
 import io.github.coco.sample.basic.domain.order.SampleOrderRepository;
 import io.github.coco.sample.basic.domain.order.SampleProduct;
+import io.github.coco.sample.basic.domain.order.SampleProductRepository;
 import org.springframework.stereotype.Repository;
 
 /**
- * Coco 示例内存订单仓储实现。
+ * Coco 示例内存仓储实现。
  * <p>
  * 使用内存数据模拟商品库存和订单状态，保持示例可直接运行；真实业务项目可以在 infrastructure 层替换为数据库 Mapper 或 Repository。
  * </p>
@@ -28,7 +29,7 @@ import org.springframework.stereotype.Repository;
  * @since 1.0.0
  */
 @Repository
-public class InMemorySampleOrderRepository implements SampleOrderRepository {
+public class InMemorySampleOrderRepository implements SampleOrderRepository, SampleProductRepository {
 
     private final Map<String, ProductState> products = new LinkedHashMap<>();
 
@@ -64,26 +65,50 @@ public class InMemorySampleOrderRepository implements SampleOrderRepository {
 
     /**
      * <p>
-     * 创建订单并扣减库存。
+     * 根据商品编码查询商品库存快照。
+     * </p>
+     * @param sku 商品编码
+     * @return 商品库存快照；不存在时为空
+     */
+    @Override
+    public synchronized Optional<SampleProduct> findProduct(String sku) {
+        ProductState product = this.products.get(sku);
+        return product == null ? Optional.empty() : Optional.of(product.snapshot());
+    }
+
+    /**
+     * <p>
+     * 扣减商品库存。
+     * </p>
+     * @param sku 商品编码
+     * @param quantity 扣减数量
+     * @return 扣减后的商品库存快照；商品不存在或库存不足时为空
+     */
+    @Override
+    public synchronized Optional<SampleProduct> decreaseStock(String sku, int quantity) {
+        ProductState product = this.products.get(sku);
+        if (product == null || quantity <= 0 || product.availableStock < quantity) {
+            return Optional.empty();
+        }
+        product.availableStock = product.availableStock - quantity;
+        return Optional.of(product.snapshot());
+    }
+
+    /**
+     * <p>
+     * 创建订单。
      * </p>
      * @param buyerName 买家名称
-     * @param sku 商品编码
+     * @param product 已完成库存扣减后的商品快照
      * @param quantity 下单数量
      * @return 已创建订单
      */
     @Override
-    public synchronized SampleOrder createOrder(String buyerName, String sku, int quantity) {
-        ProductState product = this.products.get(sku);
-        if (product == null) {
-            throw SampleBusinessErrorCode.PRODUCT_NOT_FOUND.notFound(sku);
-        }
-        if (product.availableStock < quantity) {
-            throw SampleBusinessErrorCode.INSUFFICIENT_STOCK.conflict(sku, product.availableStock, quantity);
-        }
-        product.availableStock = product.availableStock - quantity;
+    public synchronized SampleOrder createOrder(String buyerName, SampleProduct product, int quantity) {
+        SampleProduct checkedProduct = Objects.requireNonNull(product, "product must not be null");
         String orderId = "ORD-" + ++this.orderSequence;
-        SampleOrder order = new SampleOrder(orderId, buyerName, product.sku, product.name, quantity,
-                product.unitPrice * quantity, "CREATED", product.availableStock);
+        SampleOrder order = new SampleOrder(orderId, buyerName, checkedProduct.sku(), checkedProduct.name(), quantity,
+                checkedProduct.unitPrice() * quantity, "CREATED", checkedProduct.availableStock());
         this.orders.put(orderId, order);
         return order;
     }

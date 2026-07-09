@@ -9,6 +9,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * 进程内 Coco Web 防重放存储。
  * <p>
@@ -26,6 +29,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 1.0.0
  */
 public final class InMemoryCocoReplayStore implements CocoReplayStore {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(InMemoryCocoReplayStore.class);
+
+    private static final AtomicBoolean WARNING_LOGGED = new AtomicBoolean();
 
     private final ConcurrentMap<String, Instant> reservedKeys = new ConcurrentHashMap<>();
 
@@ -57,6 +64,7 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore {
         this.cleanupInterval = Duration.ofSeconds(replayProperties.getCleanupIntervalSeconds());
         this.clock = clock == null ? Clock.systemUTC() : clock;
         this.nextCleanupAt = new AtomicReference<>(this.clock.instant().plus(this.cleanupInterval));
+        warnClusterDeploymentRisk();
     }
 
     /**
@@ -87,6 +95,13 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore {
         Instant nextCleanup = now.plus(this.cleanupInterval);
         if (this.nextCleanupAt.compareAndSet(currentNextCleanupAt, nextCleanup)) {
             this.reservedKeys.entrySet().removeIf(entry -> !entry.getValue().isAfter(now));
+        }
+    }
+
+    private static void warnClusterDeploymentRisk() {
+        if (WARNING_LOGGED.compareAndSet(false, true)) {
+            LOGGER.warn("Coco replay uses process-local InMemoryCocoReplayStore; replace CocoReplayStore "
+                    + "with a shared implementation for clustered deployments.");
         }
     }
 }

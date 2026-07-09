@@ -44,8 +44,11 @@ class CocoDataPermissionConfigurationMetadataTest {
                 "io.github.coco.feature.datapermission.sql.CocoDataPermissionMissingRulePolicy");
         assertProperty(metadata, "coco.data-permission.sql.resources",
                 "java.util.Map<java.lang.String,io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlResourceProperties>");
+        assertProperty(metadata, "coco.data-permission.sql.resources.*.column-type",
+                "io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlColumnType");
         assertHintValues(metadata, "coco.data-permission.sql.missing-context-policy", "throw", "deny", "ignore");
         assertHintValues(metadata, "coco.data-permission.sql.missing-rule-policy", "deny", "ignore");
+        assertHintValues(metadata, "coco.data-permission.sql.resources.*.column-type", "string", "long");
     }
 
     private JsonNode configurationMetadata() throws IOException {

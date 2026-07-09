@@ -31,6 +31,7 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @EnableConfigurationProperties(CocoProperties.class)
+@SuppressWarnings("deprecation")
 public class CocoConfigAutoConfiguration {
 
     /**
@@ -53,9 +54,7 @@ public class CocoConfigAutoConfiguration {
         return CocoFeatureManifestLoader.load(Thread.currentThread().getContextClassLoader())
                 .map(StandardCocoFeatures::fromManifest)
                 .orElseGet(() -> {
-                    CocoFeatureSelection propertySelection = new CocoFeatureSelection(
-                            properties.getFeatures().getEnabled(),
-                            properties.getFeatures().disabledFeatures());
+                    CocoFeatureSelection propertySelection = properties.getFeatures().toSelection();
                     CocoFeatureSelection codeSelection = CocoFeatureSelectionCollector.collect(beanFactory, configurers);
                     return StandardCocoFeatures.resolve(propertySelection.merge(codeSelection));
                 });

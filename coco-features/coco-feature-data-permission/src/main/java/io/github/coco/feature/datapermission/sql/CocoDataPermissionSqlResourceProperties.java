@@ -25,6 +25,8 @@ public class CocoDataPermissionSqlResourceProperties {
 
     private String column;
 
+    private CocoDataPermissionSqlColumnType columnType = CocoDataPermissionSqlColumnType.STRING;
+
     /**
      * <p>
      * 返回资源关联的数据表名称。
@@ -63,5 +65,25 @@ public class CocoDataPermissionSqlResourceProperties {
      */
     public void setColumn(String column) {
         this.column = column == null || column.isBlank() ? null : column.trim();
+    }
+
+    /**
+     * <p>
+     * 返回默认谓词生成器使用的数据范围列值类型。
+     * </p>
+     * @return 数据范围列值类型
+     */
+    public CocoDataPermissionSqlColumnType getColumnType() {
+        return this.columnType;
+    }
+
+    /**
+     * <p>
+     * 设置默认谓词生成器使用的数据范围列值类型。
+     * </p>
+     * @param columnType 数据范围列值类型
+     */
+    public void setColumnType(CocoDataPermissionSqlColumnType columnType) {
+        this.columnType = columnType == null ? CocoDataPermissionSqlColumnType.STRING : columnType;
     }
 }

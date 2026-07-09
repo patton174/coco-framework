@@ -31,6 +31,8 @@ public class CocoTenantSqlProperties {
 
     private boolean failOnMissingContext = true;
 
+    private CocoTenantInterceptorIgnoreProperties interceptorIgnore = new CocoTenantInterceptorIgnoreProperties();
+
     /**
      * <p>
      * 返回是否启用租户 SQL 隔离。
@@ -111,5 +113,27 @@ public class CocoTenantSqlProperties {
      */
     public void setFailOnMissingContext(boolean failOnMissingContext) {
         this.failOnMissingContext = failOnMissingContext;
+    }
+
+    /**
+     * <p>
+     * 返回 MyBatis-Plus 拦截器忽略治理配置。
+     * </p>
+     * @return 拦截器忽略治理配置
+     */
+    public CocoTenantInterceptorIgnoreProperties getInterceptorIgnore() {
+        return this.interceptorIgnore;
+    }
+
+    /**
+     * <p>
+     * 设置 MyBatis-Plus 拦截器忽略治理配置。
+     * </p>
+     * @param interceptorIgnore 拦截器忽略治理配置
+     */
+    public void setInterceptorIgnore(CocoTenantInterceptorIgnoreProperties interceptorIgnore) {
+        this.interceptorIgnore = interceptorIgnore == null
+                ? new CocoTenantInterceptorIgnoreProperties()
+                : interceptorIgnore;
     }
 }

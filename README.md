@@ -26,6 +26,8 @@
   ·
   <a href="#boundary">Boundary</a>
   ·
+  <a href="#extension-boundaries">Extension Boundaries</a>
+  ·
   <a href="#stars">Stars</a>
   ·
   <a href="#contributors">Contributors</a>
@@ -86,6 +88,8 @@ class ApplicationCocoConfiguration {
 }
 ```
 
+Prefer YAML or `@CocoFeatures` for feature selection. The older `CocoConfigurer` Java hook is kept for compatibility but is deprecated.
+
 Business controllers remain ordinary Spring code:
 
 ```java
@@ -118,7 +122,7 @@ class OrderController {
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
       <strong>Security Foundation</strong><br/>
-      Security principal, context holder, resolver, authentication assertions, role assertions, and permission assertions.
+      Principal context facade, resolver SPI, authentication assertions, role assertions, permission assertions, and context propagation helpers.
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
@@ -135,12 +139,12 @@ class OrderController {
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
       <strong>Audit Pipeline</strong><br/>
-      Audit recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
+      Audit event model, recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Codegen-SPI%20Boundary-475569?style=flat-square" alt="Codegen"/></p>
       <strong>Codegen Boundary</strong><br/>
-      Code generation extension points for explicit source-code scaffolding instead of hidden runtime CRUD.
+      Generator SPI for explicit source-code scaffolding. Hidden runtime CRUD controllers are intentionally out of scope.
     </td>
   </tr>
 </table>
@@ -176,6 +180,40 @@ class OrderController {
 
 CRUD belongs to code generation, not runtime entity exposure. Generated code should be readable Java source that the business project can keep, edit, delete, or replace.
 
+## Extension Boundaries
+
+<table>
+  <thead>
+    <tr>
+      <th width="25%">Area</th>
+      <th width="38%">Delivered Boundary</th>
+      <th width="37%">Application or Roadmap</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Security</td>
+      <td>Context facade, resolver SPI, assertions, and propagation primitives.</td>
+      <td>Authentication provider, RBAC/ABAC model, sessions, tokens, and user storage.</td>
+    </tr>
+    <tr>
+      <td>Audit</td>
+      <td>Event contract, publisher, recorder SPI, failure policy, and access-log adapter.</td>
+      <td>Database persistence, MQ delivery, compliance reports, and retention policy.</td>
+    </tr>
+    <tr>
+      <td>OpenAPI</td>
+      <td>Metadata provider and configuration boundary.</td>
+      <td>Document renderer, UI integration, and endpoint-specific documentation strategy.</td>
+    </tr>
+    <tr>
+      <td>Codegen</td>
+      <td>Generator SPI and configuration boundary.</td>
+      <td>Templates, project-specific scaffolding rules, and generated CRUD source ownership.</td>
+    </tr>
+  </tbody>
+</table>
+
 ## Runtime Shape
 
 ```mermaid
@@ -192,7 +230,7 @@ flowchart LR
     data --> business
 ```
 
-## Stars
+## Star History
 
 <!-- COCO_STATS_START -->
 <table>
@@ -205,10 +243,11 @@ flowchart LR
 </table>
 <!-- COCO_STATS_END -->
 
-<a href="https://star-history.com/#patton174/coco-framework&Date">
+<a href="https://www.star-history.com/?repos=patton174%2Fcoco-framework&type=date&legend=bottom-right">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=patton174/coco-framework&type=Date&theme=dark"/>
-    <img alt="Coco Framework star history" src="https://api.star-history.com/svg?repos=patton174/coco-framework&type=Date"/>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=patton174/coco-framework&type=date&theme=dark&legend=bottom-right&sealed_token=WZtqAVEpmYHgLl3AUpfxFV4e_emJFt7fNK_ep9JrVVZ-tZvSoWbTwOEfvg8WIg0WEiosjWjZYSnF9DgC86cCiKp4iJ1uqirVm49z4-xECDHKRBogVqDokZF1cp6b00IInXU9FOcrhqR1nhcwP0t2KQhtRQAFe07t-K4PpUO7ERUjlhS6iRI1085j31pQ"/>
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=patton174/coco-framework&type=date&legend=bottom-right&sealed_token=WZtqAVEpmYHgLl3AUpfxFV4e_emJFt7fNK_ep9JrVVZ-tZvSoWbTwOEfvg8WIg0WEiosjWjZYSnF9DgC86cCiKp4iJ1uqirVm49z4-xECDHKRBogVqDokZF1cp6b00IInXU9FOcrhqR1nhcwP0t2KQhtRQAFe07t-K4PpUO7ERUjlhS6iRI1085j31pQ"/>
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=patton174/coco-framework&type=date&legend=bottom-right&sealed_token=WZtqAVEpmYHgLl3AUpfxFV4e_emJFt7fNK_ep9JrVVZ-tZvSoWbTwOEfvg8WIg0WEiosjWjZYSnF9DgC86cCiKp4iJ1uqirVm49z4-xECDHKRBogVqDokZF1cp6b00IInXU9FOcrhqR1nhcwP0t2KQhtRQAFe07t-K4PpUO7ERUjlhS6iRI1085j31pQ"/>
   </picture>
 </a>
 

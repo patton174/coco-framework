@@ -3,25 +3,36 @@
     {
       "name": "coco.tenant.sql.enabled",
       "type": "java.lang.Boolean",
-      "description": "Whether Coco registers the MyBatis-Plus tenant line inner interceptor when tenant and MyBatis-Plus are available.",
+      "description": "当租户功能和 MyBatis-Plus 可用时，是否注册 Coco 租户 SQL 隔离拦截器。",
       "defaultValue": true
     },
     {
       "name": "coco.tenant.sql.tenant-id-column",
       "type": "java.lang.String",
-      "description": "Database column used by the tenant line interceptor.",
+      "description": "租户 SQL 隔离使用的数据库列名。",
       "defaultValue": "tenant_id"
     },
     {
       "name": "coco.tenant.sql.ignore-tables",
       "type": "java.util.Set<java.lang.String>",
-      "description": "Table names that should not receive tenant SQL conditions."
+      "description": "不追加租户 SQL 条件的表名集合，仅用于明确的共享表或租户字典表。"
     },
     {
       "name": "coco.tenant.sql.fail-on-missing-context",
       "type": "java.lang.Boolean",
-      "description": "Whether Coco throws a tenant context exception when SQL isolation needs a tenant but no tenant context exists.",
+      "description": "当 SQL 隔离需要租户上下文但当前请求不存在租户上下文时，是否抛出异常。",
       "defaultValue": true
+    },
+    {
+      "name": "coco.tenant.sql.interceptor-ignore.block-unlisted",
+      "type": "java.lang.Boolean",
+      "description": "当 MyBatis-Plus @InterceptorIgnore(tenantLine = true) 或线程级忽略策略命中租户隔离时，是否阻断未进入白名单的 Mapper 语句。",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "允许跳过租户 SQL 隔离的 MyBatis MappedStatement ID 模式集合，支持 Spring 简单通配符，例如 com.example.AdminMapper.*。"
     }
   ]
 }

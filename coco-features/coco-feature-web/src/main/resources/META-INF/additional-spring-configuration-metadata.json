@@ -1,6 +1,24 @@
 {
   "properties": [
     {
+      "name": "coco.web.trace.max-length",
+      "type": "java.lang.Integer",
+      "description": "允许从请求头接收的 TraceId 最大长度；超过该长度时 Coco 会丢弃外部 TraceId 并生成新的 TraceId。",
+      "defaultValue": 128
+    },
+    {
+      "name": "coco.web.trace.allowed-pattern",
+      "type": "java.lang.String",
+      "description": "允许从请求头接收的 TraceId 正则表达式；不匹配时 Coco 会丢弃外部 TraceId 并生成新的 TraceId。",
+      "defaultValue": "[A-Za-z0-9._:-]+"
+    },
+    {
+      "name": "coco.web.replay.max-clock-skew-seconds",
+      "type": "java.lang.Long",
+      "description": "防重放客户端时间戳相对服务端入站时间允许的最大时钟偏差秒数；超过该范围会被拒绝。",
+      "defaultValue": 300
+    },
+    {
       "name": "coco.web.signature.matcher.required[].methods",
       "type": "java.util.Set<java.lang.String>",
       "description": "需要强制验签的 HTTP 方法集合。"
