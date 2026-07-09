@@ -12,6 +12,8 @@ import io.github.coco.feature.mybatisplus.CocoMybatisPlusProperties;
 import io.github.coco.feature.mybatisplus.pagination.CocoMybatisPlusDbTypeResolver;
 import io.github.coco.feature.mybatisplus.pagination.CocoMybatisPlusPaginationProperties;
 import io.github.coco.feature.mybatisplus.sqlguard.CocoMybatisPlusSqlGuardProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
@@ -32,6 +34,8 @@ import org.springframework.beans.factory.ObjectProvider;
  * @since 1.0.0
  */
 public final class CocoMybatisPlusInterceptorFactory {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CocoMybatisPlusInterceptorFactory.class);
 
     private final CocoMybatisPlusProperties properties;
 
@@ -65,7 +69,9 @@ public final class CocoMybatisPlusInterceptorFactory {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
         this.innerInterceptors.orderedStream().forEach(interceptor::addInnerInterceptor);
         this.customizers.orderedStream().forEach(customizer -> customizer.customize(interceptor));
-        addSqlGuardInnerInterceptors(interceptor, this.properties.getSqlGuard());
+        CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.getSqlGuard();
+        logSqlGuardProductionRecommendation(sqlGuard);
+        addSqlGuardInnerInterceptors(interceptor, sqlGuard);
         CocoMybatisPlusPaginationProperties pagination = this.properties.getPagination();
         if (pagination.isEnabled()) {
             interceptor.addInnerInterceptor(createPaginationInnerInterceptor(pagination));
@@ -80,6 +86,14 @@ public final class CocoMybatisPlusInterceptorFactory {
         }
         if (properties.isIllegalSqlEnabled()) {
             interceptor.addInnerInterceptor(new IllegalSQLInnerInterceptor());
+        }
+    }
+
+    private static void logSqlGuardProductionRecommendation(CocoMybatisPlusSqlGuardProperties properties) {
+        if (!properties.isBlockAttackEnabled() && !properties.isIllegalSqlEnabled()) {
+            LOGGER.info("Coco MyBatis-Plus SQL guard is disabled. For production, evaluate enabling "
+                    + "coco.mybatis-plus.sql-guard.block-attack-enabled and "
+                    + "coco.mybatis-plus.sql-guard.illegal-sql-enabled after validating application SQL.");
         }
     }
 

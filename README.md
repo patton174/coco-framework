@@ -24,6 +24,8 @@
   ·
   <a href="#what-coco-provides">Capabilities</a>
   ·
+  <a href="#production-sql-guard">SQL Guard</a>
+  ·
   <a href="#boundary">Boundary</a>
   ·
   <a href="#extension-boundaries">Extension Boundaries</a>
@@ -109,6 +111,26 @@ class OrderController {
     }
 }
 ```
+
+## Production SQL Guard
+
+Coco keeps MyBatis-Plus SQL guard disabled by default so first adoption does not break existing maintenance SQL. For production services, replay or review application SQL first, then enable the guard explicitly:
+
+```yaml
+coco:
+  mybatis-plus:
+    sql-guard:
+      block-attack-enabled: true
+      illegal-sql-enabled: true
+```
+
+When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, reviewed, or explicitly ignored only for controlled maintenance statements:
+
+- `UPDATE` or `DELETE` without a selective `WHERE`, or with tautological conditions such as `1 = 1`.
+- `SELECT`, `UPDATE`, or `DELETE` without `WHERE` when `IllegalSQLInnerInterceptor` is enabled.
+- predicates using `OR`, `!=`, functions on the checked column side, or parser-detected subquery patterns.
+- predicates or join conditions whose first checked column is not covered by index metadata.
+- complex join, schema-qualified, vendor-specific, or dynamically generated SQL that the JSQLParser-based guard cannot validate reliably.
 
 ## What Coco Provides
 

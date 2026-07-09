@@ -43,7 +43,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | Replay 使用客户端时间计算过期 | framework B3 | accepted | 改为服务端入站时间加 TTL，并增加时钟偏差配置。 |
 | Replay 清理在写路径 | framework B4, B13 | deferred | 先修安全语义和告警，清理线程优化放到 Web 性能治理批次。 |
 | 加密异常错误码过粗 | framework B5 | deferred | 与审计事件和安全错误码整理一起做。 |
-| SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，先补生产建议、启动 INFO 和文档说明，避免误伤现有合法 SQL。 |
+| SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，PR18 已补生产建议、启动 INFO 和中英文 README 说明，避免误伤现有合法 SQL。 |
 | 过滤器顺序可被消耗 CPU | framework B7 | deferred | 放入 Web 安全硬化批次，先补请求形态粗筛设计。 |
 | 客户端断开误报 500 | framework B8, D31 | accepted | `CocoWebExceptionHandler` 识别 Spring 客户端断开异常并透传，避免统一响应和异常日志误报。 |
 | `CocoWebAutoConfiguration` 过大 | coupling M4 | accepted | 架构治理批次执行，按子域拆配置类。 |
@@ -419,6 +419,27 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-feature-web -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 18：MyBatis-Plus SQL 防护生产提示
+
+状态：done。SQL 防护默认值保持关闭，避免破坏既有 SQL；框架在默认关闭时输出生产启用建议 INFO，配置 JavaDoc 和中英文 README 已补启用方式与可能被拦截的正常 SQL 形态。
+
+目标：不强行改变业务 SQL 行为，同时让生产项目清楚知道 SQL guard 默认关闭的风险和启用前需要验证的 SQL 类型。
+
+范围：
+
+- `CocoMybatisPlusInterceptorFactory` 在两项 SQL guard 都关闭时输出生产建议日志。
+- `CocoMybatisPlusSqlGuardProperties` JavaDoc 明确生产启用建议和兼容性验证要求。
+- README / README_CN 增加 SQL guard 启用配置和可能被拦截的 SQL 清单。
+- 补充默认关闭提示日志的 MyBatis-Plus 模块回归测试。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-mybatis-plus -am test
 git diff --check
 codegraph sync .
 ```
