@@ -70,6 +70,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 | 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
 | BodyCache query 触发参数解析误判 | framework B10, quality D36 | accepted | 改用 Spring URI query 解析读取触发参数名，保留 malformed query 回退，并补充编码参数名回归测试。 |
+| `coco-test` 未被使用 | framework C22, quality D22 | accepted | PR25 将 `CocoTestSupport` 落成共享配置元数据测试工具，并让 `coco-feature-codegen` 测试以 test-scope 方式实际引入。 |
 
 ## PR 队列
 
@@ -577,6 +578,27 @@ mvn -B -pl :coco-feature-web -am test
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-feature-audit,:coco-feature-openapi,:coco-feature-codegen -am test
+```
+
+### PR 25：`coco-test` 共享测试工具落地
+
+状态：done。`coco-test` 不再只是空标记模块，开始承载仓库内部共享测试工具，并被真实 feature 模块测试使用。
+
+目标：收口 C22 / D22，避免测试支持模块长期没有使用方，也避免各模块重复实现配置元数据资源读取和命名节点查找逻辑。
+
+范围：
+
+- `CocoTestSupport` 增加配置元数据 JSON 读取、通用 JSON 资源读取、命名节点查找和必需节点查找工具。
+- `coco-test` 增加自身单测，固定资源缺失、空资源路径和命名节点缺失行为。
+- 根 POM 纳入 `coco-test` dependency management。
+- `coco-feature-codegen` 以 test scope 引入 `coco-test`，并改用 `CocoTestSupport` 读取配置元数据。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-test,:coco-feature-codegen -am test
 ```
 
 ## 执行纪律

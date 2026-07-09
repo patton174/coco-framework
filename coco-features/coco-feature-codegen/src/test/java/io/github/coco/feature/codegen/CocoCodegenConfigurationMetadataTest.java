@@ -1,14 +1,12 @@
 package io.github.coco.feature.codegen;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.io.InputStream;
 
+import io.github.coco.test.CocoTestSupport;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -29,11 +27,9 @@ import org.junit.jupiter.api.Test;
  */
 class CocoCodegenConfigurationMetadataTest {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
     @Test
     void exposesCodegenPropertyMetadata() throws IOException {
-        JsonNode metadata = configurationMetadata();
+        JsonNode metadata = CocoTestSupport.configurationMetadata(getClass());
 
         assertProperty(metadata, "coco.codegen.enabled", "java.lang.Boolean", "true");
         assertProperty(metadata, "coco.codegen.templates.location", "java.lang.String",
@@ -41,26 +37,10 @@ class CocoCodegenConfigurationMetadataTest {
         assertProperty(metadata, "coco.codegen.templates.encoding", "java.lang.String", "UTF-8");
     }
 
-    private JsonNode configurationMetadata() throws IOException {
-        InputStream metadata = getClass().getResourceAsStream("/META-INF/spring-configuration-metadata.json");
-        assertNotNull(metadata);
-        return OBJECT_MAPPER.readTree(metadata);
-    }
-
     private static void assertProperty(JsonNode metadata, String name, String type, String defaultValue) {
-        JsonNode property = findNamedNode(metadata.path("properties"), name);
-        assertNotNull(property, "missing property: " + name);
+        JsonNode property = CocoTestSupport.requiredNamedNode(metadata.path("properties"), name);
         assertEquals(type, property.path("type").asText());
         assertEquals(defaultValue, property.path("defaultValue").asText());
         assertTrue(property.path("description").asText().contains("Coco"));
-    }
-
-    private static JsonNode findNamedNode(JsonNode nodes, String name) {
-        for (JsonNode node : nodes) {
-            if (name.equals(node.path("name").asText())) {
-                return node;
-            }
-        }
-        return null;
     }
 }
