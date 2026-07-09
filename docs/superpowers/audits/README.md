@@ -58,6 +58,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | sample secure endpoint 仅 URL 装饰 | business B7 | accepted | sample 修正批次执行，避免业务方误解端点名参与鉴权。 |
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
+| 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
 
 ## PR 队列
 
@@ -291,6 +292,26 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-feature-registry,:coco-config,:coco-maven-plugin -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 12：包裁剪原始备份与可执行结构断言
+
+状态：done。`coco:prune-package` 在实际裁剪 Spring Boot jar 前会保存原始包到 `target/coco-prune.original.jar`；测试 fixture 也补齐了 Boot launcher、manifest 和 `BOOT-INF` 结构断言。
+
+目标：让包裁剪过程可追溯，并防止索引重写或嵌套依赖裁剪破坏 Spring Boot 可执行 jar 的基本结构。
+
+范围：
+
+- `CocoPackagePruneMojo` 在裁剪发生时保存原始 jar 备份。
+- 包裁剪单测断言备份包仍包含被裁剪依赖和原始索引。
+- 包裁剪单测断言裁剪后 jar 保留 Boot launcher、`Main-Class`、`Start-Class`、应用 class 和嵌套 lib。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-maven-plugin -am test
 git diff --check
 codegraph sync .
 ```

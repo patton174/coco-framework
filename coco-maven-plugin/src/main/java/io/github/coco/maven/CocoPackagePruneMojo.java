@@ -174,8 +174,40 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             Files.deleteIfExists(temporaryPath);
             return 0;
         }
-        Files.move(temporaryPath, archivePath, StandardCopyOption.REPLACE_EXISTING);
-        return removed;
+        try {
+            backupOriginalArchive(archivePath);
+            Files.move(temporaryPath, archivePath, StandardCopyOption.REPLACE_EXISTING);
+            return removed;
+        }
+        finally {
+            Files.deleteIfExists(temporaryPath);
+        }
+    }
+
+    /**
+     * <p>
+     * 在覆盖主产物前保存原始 Spring Boot jar，便于排查裁剪结果或后续签名流程显式选择产物。
+     * </p>
+     * @param archivePath Spring Boot 可执行 jar 路径
+     * @throws IOException 备份失败时抛出
+     */
+    private void backupOriginalArchive(Path archivePath) throws IOException {
+        Files.copy(archivePath, originalArchivePath(archivePath), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /**
+     * <p>
+     * 返回原始 jar 备份路径。
+     * </p>
+     * @param archivePath Spring Boot 可执行 jar 路径
+     * @return 原始 jar 备份路径
+     */
+    private Path originalArchivePath(Path archivePath) {
+        if (this.buildDirectory != null) {
+            return this.buildDirectory.toPath().resolve("coco-prune.original.jar");
+        }
+        Path parent = archivePath.getParent();
+        return parent == null ? Path.of("coco-prune.original.jar") : parent.resolve("coco-prune.original.jar");
     }
 
     /**
