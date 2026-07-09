@@ -1,11 +1,18 @@
 package io.github.coco.config;
 
+import java.util.Comparator;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import io.github.coco.api.CocoConfigurer;
+import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.registry.CocoFeatureManifestLoader;
 import io.github.coco.feature.registry.CocoFeaturePlan;
 import io.github.coco.feature.registry.CocoFeatureSelection;
 import io.github.coco.feature.registry.StandardCocoFeatures;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -34,6 +41,8 @@ import org.springframework.context.annotation.Bean;
 @SuppressWarnings("deprecation")
 public class CocoConfigAutoConfiguration {
 
+    private static final Log LOGGER = LogFactory.getLog(CocoConfigAutoConfiguration.class);
+
     /**
      * <p>
      * 创建 Coco 功能启用计划。
@@ -52,11 +61,18 @@ public class CocoConfigAutoConfiguration {
     public CocoFeaturePlan cocoFeaturePlan(CocoProperties properties, ObjectProvider<CocoConfigurer> configurers,
             ConfigurableListableBeanFactory beanFactory) {
         return CocoFeatureManifestLoader.load(Thread.currentThread().getContextClassLoader())
-                .map(StandardCocoFeatures::fromManifest)
+                .map(manifest -> {
+                    CocoFeaturePlan plan = StandardCocoFeatures.fromManifest(manifest);
+                    logFeaturePlan("manifest:" + manifest.generatedBy(), plan,
+                            CocoFeatureSelection.empty(), CocoFeatureSelection.empty());
+                    return plan;
+                })
                 .orElseGet(() -> {
                     CocoFeatureSelection propertySelection = properties.getFeatures().toSelection();
                     CocoFeatureSelection codeSelection = CocoFeatureSelectionCollector.collect(beanFactory, configurers);
-                    return StandardCocoFeatures.resolve(propertySelection.merge(codeSelection));
+                    CocoFeaturePlan plan = StandardCocoFeatures.resolve(propertySelection.merge(codeSelection));
+                    logFeaturePlan("runtime-configuration", plan, propertySelection, codeSelection);
+                    return plan;
                 });
     }
 
@@ -83,5 +99,33 @@ public class CocoConfigAutoConfiguration {
     @ConditionalOnMissingBean(name = "cocoConfigMessageBundleRegistrar")
     public CocoMessageBundleRegistrar cocoConfigMessageBundleRegistrar() {
         return registry -> registry.add("coco-config-messages");
+    }
+
+    private static void logFeaturePlan(String source, CocoFeaturePlan plan, CocoFeatureSelection propertySelection,
+            CocoFeatureSelection codeSelection) {
+        if (!LOGGER.isInfoEnabled()) {
+            return;
+        }
+        LOGGER.info("Coco features resolved from " + source
+                + ": enabled=" + featureIds(plan.enabledFeatures())
+                + ", disabled=" + featureIds(plan.disabledFeatures())
+                + ", disabledByDependency=" + featureIds(plan.disabledByDependencyFeatures())
+                + ", propertySelection=" + describeSelection(propertySelection)
+                + ", codeSelection=" + describeSelection(codeSelection) + ".");
+    }
+
+    private static String describeSelection(CocoFeatureSelection selection) {
+        CocoFeatureSelection target = selection == null ? CocoFeatureSelection.empty() : selection;
+        return "{enabled=" + featureIds(target.enabled()) + ", disabled=" + featureIds(target.disabled()) + "}";
+    }
+
+    private static String featureIds(Set<CocoFeature> features) {
+        if (features == null || features.isEmpty()) {
+            return "[]";
+        }
+        return features.stream()
+                .map(CocoFeature::id)
+                .sorted(Comparator.naturalOrder())
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 }

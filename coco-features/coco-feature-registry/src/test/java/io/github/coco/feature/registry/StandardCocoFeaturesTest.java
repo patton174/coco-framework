@@ -74,6 +74,26 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
+    void exposesFeaturesDisabledByMissingDependencies() {
+        CocoFeaturePlan plan = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.MYBATIS_PLUS)));
+
+        assertEquals(Set.of(
+                CocoFeature.AUDIT,
+                CocoFeature.TENANT,
+                CocoFeature.DATA_PERMISSION,
+                CocoFeature.CODEGEN), plan.disabledByDependencyFeatures());
+    }
+
+    @Test
+    void explicitDisableWithSatisfiedDependenciesIsNotDependencyDisabled() {
+        CocoFeaturePlan plan = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.OPENAPI)));
+
+        assertEquals(Set.of(), plan.disabledByDependencyFeatures());
+    }
+
+    @Test
     void resolvesSelectionWithHigherPriorityOverrides() {
         CocoFeatureSelection applicationSelection = CocoFeatureSelection.of(
                 Set.of(),
