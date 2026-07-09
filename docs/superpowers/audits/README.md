@@ -61,6 +61,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
+| 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
 
 ## PR 队列
 
@@ -354,6 +355,27 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-maven-plugin -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 15：安全上下文持有器边界测试
+
+状态：done。`CocoSecurityContextHolderTest` 现在覆盖线程隔离、异常恢复和负向入参路径。
+
+目标：钉住 security 上下文的 ThreadLocal 语义和跨线程传播包装行为，避免后续重构让安全上下文泄漏、丢失或异常后无法恢复。
+
+范围：
+
+- 覆盖当前线程上下文不会被工作线程继承，工作线程设置上下文也不会污染调用线程。
+- 覆盖包装任务抛异常后恢复工作线程原上下文。
+- 覆盖 `runWithContext` 抛异常后恢复调用线程原上下文。
+- 覆盖缺失上下文、null 上下文、null 快照和 null 回调的负向行为。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-security -am test
 git diff --check
 codegraph sync .
 ```
