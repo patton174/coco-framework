@@ -63,6 +63,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
 | OpenAPI 元数据 provider 无消费者 | framework C3 | accepted | PR30 增加可选 SpringDoc 元数据适配器；SpringDoc 在业务项目 classpath 中存在时自动把 Coco 元数据写入 `OpenAPI.info`，框架不强依赖 SpringDoc。 |
 | MyBatis-Plus 自动配置字符串排序 | framework C4 | accepted | PR31 将 Coco MyBatis-Plus、租户和数据权限的自动配置排序改为类型安全引用，并补测试防止回退到 `afterName` / `beforeName` 字符串类名。 |
+| Web 安全输入解析器缺直接测试 | framework C5 | accepted | PR32 补 `DefaultCocoWebRequestSecurityInputResolver` 直接测试，固定签名 / 加密 / 防重放过滤器共享输入快照边界。 |
 | audit/openapi/codegen 扩展边界验证 | framework C17 | accepted | PR24 补充 audit 发布链路、OpenAPI 元数据归一化和 codegen 替换生成器的端到端行为测试。 |
 | 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
@@ -729,6 +730,28 @@ mvn -B -pl :coco-feature-openapi -am test
 git diff --check
 codegraph sync .
 mvn -B -pl :coco-feature-mybatis-plus,:coco-feature-tenant,:coco-feature-data-permission -am test
+```
+
+### PR 32：Web 安全输入解析器测试补强
+
+状态：done。签名、加密和防重放过滤器共享的安全输入快照解析器已有直接单测。
+
+目标：收口 C5 的 Web 测试缺口，避免安全过滤器依赖的请求头、Cookie、query、payload 和 cached body 元数据解析行为只被大型自动配置测试间接覆盖。
+
+范围：
+
+- `DefaultCocoWebRequestSecurityInputResolver` 直接测试自动纳入签名 / 加密 / 防重放配置中的安全请求头。
+- 覆盖规范化请求头多值快照、合并值和签名值不参与 canonical header 的边界。
+- 覆盖规范化 Cookie 原始值保留，不受普通上下文裁剪阈值影响。
+- 覆盖 query 与 cached form payload 原始参数拆分、合并参数和 `FORM` payload source。
+- 覆盖 `CocoRequestBodyResolver` 返回 `null` 时回退为未缓存请求体输入。
+
+验收：
+
+```powershell
+git diff --check
+codegraph sync .
+mvn -B -pl :coco-feature-web -am test
 ```
 
 ## 执行纪律

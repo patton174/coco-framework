@@ -282,6 +282,11 @@ MyBatis-Plus 接入也改为类型安全依赖 Coco MyBatis-Plus 自动配置。
 - `DefaultCocoDataPermissionSqlPredicateProvider`（A3 数值列 bug 必测）；
 - 三个安全过滤器（签名 / 加密 / 重放）。
 
+**处理状态：** 数据权限两条关键路径已在前序数据权限批次覆盖。PR32 补充
+`DefaultCocoWebRequestSecurityInputResolver` 直接单测，固定签名 / 加密 / 防重放过滤器共享的
+安全输入快照边界，包括安全请求头自动纳入、规范化请求头多值保留、规范化 Cookie、query 与
+payload 原始参数拆分、cached body 摘要，以及请求体解析器返回空结果时的未缓存回退。
+
 ---
 
 ### C6.【构建 / 中】`coco-samples/coco-sample-basic/pom.xml:10` 把 parent 版本硬编码为 `1.0.2`，但根 pom 的 `${revision}=1.0.0-SNAPSHOT`，`.flattened-pom.xml` 也是 SNAPSHOT
