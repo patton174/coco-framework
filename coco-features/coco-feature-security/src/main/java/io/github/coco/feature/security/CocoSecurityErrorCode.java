@@ -23,7 +23,17 @@ public enum CocoSecurityErrorCode implements CocoErrorCode {
     /**
      * 当前线程不存在安全上下文。
      */
-    CONTEXT_MISSING("coco.feature.security.error.context-missing");
+    CONTEXT_MISSING("coco.feature.security.error.context-missing"),
+
+    /**
+     * 当前安全上下文尚未完成认证。
+     */
+    UNAUTHENTICATED("coco.feature.security.error.unauthenticated"),
+
+    /**
+     * 当前安全主体无权访问目标资源。
+     */
+    ACCESS_DENIED("coco.feature.security.error.access-denied");
 
     private final String code;
 
