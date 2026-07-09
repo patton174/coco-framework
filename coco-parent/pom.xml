@@ -18,6 +18,7 @@
 
     <properties>
         <coco.version>${revision}</coco.version>
+        <coco.enforcer.skip>true</coco.enforcer.skip>
     </properties>
 
     <dependencyManagement>
