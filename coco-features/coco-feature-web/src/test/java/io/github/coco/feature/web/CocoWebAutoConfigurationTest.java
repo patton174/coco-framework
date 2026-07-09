@@ -1347,6 +1347,7 @@ class CocoWebAutoConfigurationTest {
 
     @Test
     void usesConfiguredMdcKey() throws Exception {
+        MDC.put("cocoTraceId", "outer-configured-trace");
         this.webContextRunner
                 .withPropertyValues("coco.web.trace.mdc-key=cocoTraceId")
                 .run(context -> {
@@ -1361,7 +1362,8 @@ class CocoWebAutoConfigurationTest {
                         assertNull(MDC.get("traceId"));
                     })));
 
-                    assertNull(MDC.get("cocoTraceId"));
+                    assertEquals("outer-configured-trace", MDC.get("cocoTraceId"));
+                    assertNull(MDC.get("traceId"));
                 });
     }
 

@@ -46,6 +46,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | SQL 防护默认关闭 | framework B6 | adjusted | 不直接改默认值，PR18 已补生产建议、启动 INFO 和中英文 README 说明，避免误伤现有合法 SQL。 |
 | 过滤器顺序可被消耗 CPU | framework B7 | deferred | 放入 Web 安全硬化批次，先补请求形态粗筛设计。 |
 | 客户端断开误报 500 | framework B8, D31 | accepted | `CocoWebExceptionHandler` 识别 Spring 客户端断开异常并透传，避免统一响应和异常日志误报。 |
+| Trace MDC 恢复语义 | framework B11, quality D37 | accepted | PR19 已确认显式 null 恢复逻辑，并补默认和自定义 MDC key 的请求内覆盖、请求后恢复回归测试。 |
 | `CocoWebAutoConfiguration` 过大 | coupling M4 | accepted | 架构治理批次执行，按子域拆配置类。 |
 | `web.context` god package | coupling M7 | deferred | 等自动配置拆分后再拆包，降低一次性改动范围。 |
 | `web.security.metadata` 命名冲突 | coupling M9 | accepted | 重命名为请求元数据语义，例如 `web.request.metadata`。 |
@@ -440,6 +441,26 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-feature-mybatis-plus -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 19：Trace MDC 恢复回归测试
+
+状态：done。`CocoTraceFilter.restoreMdcValue` 当前实现已使用显式 `previousMdcValue == null` 分支；本批次补充回归测试，固定默认和自定义 MDC key 的请求内临时覆盖、请求结束后恢复原值和无原值时清理的语义。
+
+目标：把 B11 / D37 收口为可验证行为，防止后续 trace filter 重构重新引入 MDC 泄漏或错误清理。
+
+范围：
+
+- 补充 trace filter 默认和自定义 MDC key 请求内覆盖和请求后恢复原值的测试。
+- 保留已有无原 MDC 值时请求后清理的断言。
+- 更新框架审计文档和总控路线图状态。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-web -am test
 git diff --check
 codegraph sync .
 ```
