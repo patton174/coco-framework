@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -132,8 +133,10 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             CocoFeatureSelection annotationSelection = new CocoAnnotatedFeatureScanner()
                     .scan(this.classesDirectory.toPath(), classpathUrls());
 
-            return StandardCocoFeatures.resolve(
+            CocoFeaturePlan plan = StandardCocoFeatures.resolve(
                     applicationSelection.merge(parameterSelection).merge(annotationSelection));
+            logResolvedFeaturePlan(plan, applicationSelection, parameterSelection, annotationSelection);
+            return plan;
         }
         catch (IllegalArgumentException | UncheckedIOException ex) {
             throw new MojoExecutionException("Failed to resolve Coco feature selection.", ex);
@@ -337,6 +340,34 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             return Set.of();
         }
         return CocoFeatureIdParser.parse(value, source);
+    }
+
+    private void logResolvedFeaturePlan(CocoFeaturePlan plan, CocoFeatureSelection applicationSelection,
+            CocoFeatureSelection parameterSelection, CocoFeatureSelection annotationSelection) {
+        if (!getLog().isInfoEnabled()) {
+            return;
+        }
+        getLog().info("Coco features resolved from sources {application=" + describeSelection(applicationSelection)
+                + ", parameters=" + describeSelection(parameterSelection)
+                + ", annotations=" + describeSelection(annotationSelection)
+                + "}: enabled=" + featureIds(plan.enabledFeatures())
+                + ", disabled=" + featureIds(plan.disabledFeatures())
+                + ", disabledByDependency=" + featureIds(plan.disabledByDependencyFeatures()) + ".");
+    }
+
+    private static String describeSelection(CocoFeatureSelection selection) {
+        CocoFeatureSelection target = selection == null ? CocoFeatureSelection.empty() : selection;
+        return "{enabled=" + featureIds(target.enabled()) + ", disabled=" + featureIds(target.disabled()) + "}";
+    }
+
+    private static String featureIds(Set<CocoFeature> features) {
+        if (features == null || features.isEmpty()) {
+            return "[]";
+        }
+        return features.stream()
+                .map(CocoFeature::id)
+                .sorted(Comparator.naturalOrder())
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 
 }

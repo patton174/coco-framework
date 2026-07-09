@@ -1,5 +1,6 @@
 package io.github.coco.feature.registry;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -50,5 +51,25 @@ public record CocoFeaturePlan(
      */
     public boolean isEnabled(CocoFeature feature) {
         return this.enabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
+    }
+
+    /**
+     * <p>
+     * 返回因依赖功能未启用而无法启用的功能集合。
+     * </p>
+     * <p>
+     * 该结果从最终计划和标准功能依赖表派生，用于启动日志、构建日志和诊断输出，帮助定位功能被依赖传播禁用的原因。
+     * </p>
+     * @return 因依赖不完整而禁用的功能集合
+     */
+    public Set<CocoFeature> disabledByDependencyFeatures() {
+        EnumSet<CocoFeature> disabledByDependency = EnumSet.noneOf(CocoFeature.class);
+        for (CocoFeatureDefinition definition : this.definitions) {
+            if (this.disabledFeatures.contains(definition.feature())
+                    && !this.enabledFeatures.containsAll(definition.dependencies())) {
+                disabledByDependency.add(definition.feature());
+            }
+        }
+        return disabledByDependency.isEmpty() ? Set.of() : Set.copyOf(disabledByDependency);
     }
 }

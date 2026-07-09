@@ -57,6 +57,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | sample i18n bundle 错位 | business B6 | accepted | sample 修正批次执行，并同步检查 security messages。 |
 | sample secure endpoint 仅 URL 装饰 | business B7 | accepted | sample 修正批次执行，避免业务方误解端点名参与鉴权。 |
 | audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
+| 功能解析缺少可观测性 | framework C13, C14 | accepted | 补充最终功能计划日志、配置源摘要和依赖传播禁用诊断，避免 feature 被静默禁用后难以排查。 |
 
 ## PR 队列
 
@@ -269,6 +270,27 @@ codegraph sync .
 mvn -pl :coco-api-core -am test
 mvn -pl :coco-config -am test
 mvn -pl :coco-feature-runtime -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 11：功能解析可观测性
+
+状态：done。最终功能计划现在能暴露依赖传播禁用集合；运行期自动配置和 Maven 构建期插件都会输出配置源摘要、启用/禁用结果和依赖传播禁用结果。
+
+目标：让默认功能、配置文件、插件参数和注解声明合并后的结果可追踪，避免依赖传播禁用时没有诊断线索。
+
+范围：
+
+- `CocoFeaturePlan` 增加 `disabledByDependencyFeatures()` 诊断方法。
+- `coco-config` 在生成 `CocoFeaturePlan` 时输出运行期解析来源和最终功能计划。
+- `coco-maven-plugin` 在 `coco:features` 阶段输出 application.yml、插件参数、注解扫描和最终功能计划。
+- 为依赖传播禁用结果增加单元测试。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-registry,:coco-config,:coco-maven-plugin -am test
 git diff --check
 codegraph sync .
 ```
