@@ -2,6 +2,7 @@ package io.github.coco.common.context;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 
 import io.github.coco.common.trace.CocoTraceContext;
@@ -75,6 +76,69 @@ public final class CocoRequestContextHolder {
     public static void clear() {
         REQUEST_CONTEXT.remove();
         CocoTraceContext.clear();
+    }
+
+    /**
+     * <p>
+     * 捕获当前线程请求上下文和 Trace 上下文。
+     * </p>
+     * @return 请求上下文快照
+     */
+    public static CocoContextSnapshot capture() {
+        Optional<CocoRequestContext> capturedContext = current();
+        Optional<String> capturedTraceId = CocoTraceContext.currentTraceId();
+        return () -> {
+            Optional<CocoRequestContext> previousContext = current();
+            Optional<String> previousTraceId = CocoTraceContext.currentTraceId();
+            restore(capturedContext, capturedTraceId);
+            return () -> restore(previousContext, previousTraceId);
+        };
+    }
+
+    /**
+     * <p>
+     * 恢复指定上下文快照。
+     * </p>
+     * @param snapshot 上下文快照
+     * @return 上下文作用域
+     */
+    public static CocoContextScope restore(CocoContextSnapshot snapshot) {
+        return Objects.requireNonNull(snapshot, "snapshot must not be null").restore();
+    }
+
+    /**
+     * <p>
+     * 捕获当前请求上下文并包装 {@link Runnable}。
+     * </p>
+     * @param runnable 待执行逻辑
+     * @return 包装后的逻辑
+     */
+    public static Runnable wrap(Runnable runnable) {
+        return capture().wrap(runnable);
+    }
+
+    /**
+     * <p>
+     * 捕获当前请求上下文并包装 {@link Callable}。
+     * </p>
+     * @param callable 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 包装后的逻辑
+     */
+    public static <T> Callable<T> wrap(Callable<T> callable) {
+        return capture().wrap(callable);
+    }
+
+    /**
+     * <p>
+     * 捕获当前请求上下文并包装 {@link Supplier}。
+     * </p>
+     * @param supplier 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 包装后的逻辑
+     */
+    public static <T> Supplier<T> wrapSupplier(Supplier<T> supplier) {
+        return capture().wrapSupplier(supplier);
     }
 
     /**

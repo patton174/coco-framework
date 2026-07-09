@@ -75,10 +75,10 @@ class StandardCocoFeaturesTest {
 
     @Test
     void resolvesSelectionWithHigherPriorityOverrides() {
-        CocoFeatureSelection applicationSelection = new CocoFeatureSelection(
+        CocoFeatureSelection applicationSelection = CocoFeatureSelection.of(
                 Set.of(),
                 Set.of(CocoFeature.TENANT));
-        CocoFeatureSelection codeSelection = new CocoFeatureSelection(
+        CocoFeatureSelection codeSelection = CocoFeatureSelection.of(
                 Set.of(CocoFeature.TENANT),
                 Set.of());
 
@@ -89,7 +89,7 @@ class StandardCocoFeaturesTest {
 
     @Test
     void disabledFeatureWinsWithinSameSelection() {
-        CocoFeatureSelection selection = new CocoFeatureSelection(
+        CocoFeatureSelection selection = CocoFeatureSelection.of(
                 Set.of(CocoFeature.OPENAPI),
                 Set.of(CocoFeature.OPENAPI));
 
@@ -97,6 +97,16 @@ class StandardCocoFeaturesTest {
 
         assertFalse(plan.enabledFeatures().contains(CocoFeature.OPENAPI));
         assertTrue(plan.disabledFeatures().contains(CocoFeature.OPENAPI));
+    }
+
+    @Test
+    void selectionFactoryIgnoresNullAnnotationEntries() {
+        CocoFeatureSelection selection = CocoFeatureSelection.of(
+                new CocoFeature[] {CocoFeature.WEB, null},
+                new CocoFeature[] {CocoFeature.TENANT, null});
+
+        assertEquals(Set.of(CocoFeature.WEB), selection.enabled());
+        assertEquals(Set.of(CocoFeature.TENANT), selection.disabled());
     }
 
     @Test

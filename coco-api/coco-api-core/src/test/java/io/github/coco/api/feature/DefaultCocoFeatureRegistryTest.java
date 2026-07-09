@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
  * @author patton174
  * @since 1.0.0
  */
+@SuppressWarnings("deprecation")
 class DefaultCocoFeatureRegistryTest {
 
     @Test

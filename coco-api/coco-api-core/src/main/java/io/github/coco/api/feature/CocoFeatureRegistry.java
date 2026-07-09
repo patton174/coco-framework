@@ -15,9 +15,12 @@ import java.util.Set;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-api-core}</li>
  * </ul>
+ * @deprecated 该契约仅服务于已废弃的 {@code CocoConfigurer} Java 配置入口。业务项目应优先使用
+ * {@code coco.features.*} 配置项或 {@link CocoFeatures} 注解。
  * @author patton174
  * @since 1.0.0
  */
+@Deprecated(since = "1.0.0")
 public interface CocoFeatureRegistry {
 
     /**

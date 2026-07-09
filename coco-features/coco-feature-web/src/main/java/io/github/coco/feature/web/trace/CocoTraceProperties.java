@@ -43,6 +43,16 @@ public class CocoTraceProperties {
      */
     public static final String DEFAULT_COOKIE_SAME_SITE = "Lax";
 
+    /**
+     * 默认 TraceId 最大长度。
+     */
+    public static final int DEFAULT_MAX_LENGTH = 128;
+
+    /**
+     * 默认 TraceId 允许字符模式。
+     */
+    public static final String DEFAULT_ALLOWED_PATTERN = "[A-Za-z0-9._:-]+";
+
     private boolean enabled = true;
 
     private String headerName = DEFAULT_HEADER_NAME;
@@ -64,6 +74,10 @@ public class CocoTraceProperties {
     private boolean cookieSecure;
 
     private String cookieSameSite = DEFAULT_COOKIE_SAME_SITE;
+
+    private int maxLength = DEFAULT_MAX_LENGTH;
+
+    private String allowedPattern = DEFAULT_ALLOWED_PATTERN;
 
     /**
      * <p>
@@ -293,5 +307,47 @@ public class CocoTraceProperties {
         this.cookieSameSite = cookieSameSite == null || cookieSameSite.isBlank()
                 ? null
                 : cookieSameSite.trim();
+    }
+
+    /**
+     * <p>
+     * 返回允许接收的 TraceId 最大长度。
+     * </p>
+     * @return TraceId 最大长度
+     */
+    public int getMaxLength() {
+        return this.maxLength;
+    }
+
+    /**
+     * <p>
+     * 设置允许接收的 TraceId 最大长度；小于等于零时恢复默认值。
+     * </p>
+     * @param maxLength TraceId 最大长度
+     */
+    public void setMaxLength(int maxLength) {
+        this.maxLength = maxLength <= 0 ? DEFAULT_MAX_LENGTH : maxLength;
+    }
+
+    /**
+     * <p>
+     * 返回允许接收的 TraceId 正则表达式。
+     * </p>
+     * @return TraceId 正则表达式
+     */
+    public String getAllowedPattern() {
+        return this.allowedPattern;
+    }
+
+    /**
+     * <p>
+     * 设置允许接收的 TraceId 正则表达式；为空时恢复默认值。
+     * </p>
+     * @param allowedPattern TraceId 正则表达式
+     */
+    public void setAllowedPattern(String allowedPattern) {
+        this.allowedPattern = allowedPattern == null || allowedPattern.isBlank()
+                ? DEFAULT_ALLOWED_PATTERN
+                : allowedPattern.trim();
     }
 }

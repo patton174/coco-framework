@@ -73,7 +73,7 @@ public final class CocoBuildFeatureConfigurationLoader {
             if (!(features instanceof Map<?, ?> featureMap)) {
                 return CocoFeatureSelection.empty();
             }
-            return new CocoFeatureSelection(
+            return CocoFeatureSelection.of(
                     parseFeatureValue(featureMap.get("enabled"), path + " coco.features.enabled"),
                     parseFeatureValue(featureMap.get("disabled"), path + " coco.features.disabled"));
         }
@@ -100,7 +100,7 @@ public final class CocoBuildFeatureConfigurationLoader {
         catch (IOException ex) {
             throw new UncheckedIOException("Failed to read Coco feature properties: " + path, ex);
         }
-        return new CocoFeatureSelection(
+        return CocoFeatureSelection.of(
                 parseProperties(properties, "coco.features.enabled"),
                 parseProperties(properties, "coco.features.disabled"));
     }

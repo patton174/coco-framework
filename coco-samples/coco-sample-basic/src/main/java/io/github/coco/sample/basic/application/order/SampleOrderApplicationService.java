@@ -8,7 +8,9 @@ import io.github.coco.sample.basic.domain.order.SampleBusinessErrorCode;
 import io.github.coco.sample.basic.domain.order.SampleOrder;
 import io.github.coco.sample.basic.domain.order.SampleOrderRepository;
 import io.github.coco.sample.basic.domain.order.SampleProduct;
+import io.github.coco.sample.basic.domain.order.SampleProductRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Coco 示例订单应用服务。
@@ -31,14 +33,19 @@ public class SampleOrderApplicationService {
 
     private final SampleOrderRepository orderRepository;
 
+    private final SampleProductRepository productRepository;
+
     /**
      * <p>
      * 创建示例订单服务。
      * </p>
      * @param orderRepository 示例订单仓储
+     * @param productRepository 示例商品仓储
      */
-    public SampleOrderApplicationService(SampleOrderRepository orderRepository) {
+    public SampleOrderApplicationService(SampleOrderRepository orderRepository,
+            SampleProductRepository productRepository) {
         this.orderRepository = Objects.requireNonNull(orderRepository, "orderRepository must not be null");
+        this.productRepository = Objects.requireNonNull(productRepository, "productRepository must not be null");
     }
 
     /**
@@ -47,26 +54,39 @@ public class SampleOrderApplicationService {
      * </p>
      * @return 商品库存列表
      */
+    @Transactional(readOnly = true)
     public List<SampleProduct> listProducts() {
-        return this.orderRepository.findProducts();
+        return this.productRepository.findProducts();
     }
 
     /**
      * <p>
      * 创建订单。
      * </p>
+     * <p>
+     * 示例通过应用服务声明事务边界。内存实现仅用于演示，真实数据库实现应依赖数据库事务保证库存扣减与订单创建一致。
+     * </p>
      * @param buyerName 买家名称
      * @param sku 商品编码
      * @param quantity 下单数量
      * @return 已创建订单
      */
+    @Transactional
     public SampleOrder createOrder(String buyerName, String sku, int quantity) {
         String checkedBuyerName = requireText(buyerName, "buyerName");
         String checkedSku = requireText(sku, "sku");
         if (quantity <= 0) {
             throw SampleBusinessErrorCode.INVALID_ORDER_QUANTITY.request("quantity");
         }
-        return this.orderRepository.createOrder(checkedBuyerName, checkedSku, quantity);
+        SampleProduct product = this.productRepository.findProduct(checkedSku)
+                .orElseThrow(() -> SampleBusinessErrorCode.PRODUCT_NOT_FOUND.notFound(checkedSku));
+        if (product.availableStock() < quantity) {
+            throw SampleBusinessErrorCode.INSUFFICIENT_STOCK.conflict(checkedSku, product.availableStock(), quantity);
+        }
+        SampleProduct reservedProduct = this.productRepository.decreaseStock(checkedSku, quantity)
+                .orElseThrow(() -> SampleBusinessErrorCode.INSUFFICIENT_STOCK.conflict(checkedSku,
+                        product.availableStock(), quantity));
+        return this.orderRepository.createOrder(checkedBuyerName, reservedProduct, quantity);
     }
 
     /**
@@ -76,6 +96,7 @@ public class SampleOrderApplicationService {
      * @param orderId 订单编号
      * @return 订单详情
      */
+    @Transactional(readOnly = true)
     public SampleOrder getOrder(String orderId) {
         String checkedOrderId = requireText(orderId, "orderId");
         return this.orderRepository.findOrder(checkedOrderId)

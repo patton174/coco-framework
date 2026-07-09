@@ -58,13 +58,13 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatchRule;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
-import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInput;
-import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityInputResolver;
-import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadata;
-import io.github.coco.feature.web.security.metadata.CocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityInput;
+import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityInputResolver;
+import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
-import io.github.coco.feature.web.security.metadata.CocoWebSecurityMetadataSource;
+import io.github.coco.feature.web.request.metadata.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.CocoWebParameterProperties;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
@@ -78,7 +78,7 @@ import io.github.coco.feature.web.context.target.CocoWebRequestTargetResolution;
 import io.github.coco.feature.web.context.target.CocoWebRequestTargetResolver;
 import io.github.coco.feature.web.context.target.CocoWebRequestTargetSource;
 import io.github.coco.feature.web.context.target.DefaultCocoWebRequestTargetResolver;
-import io.github.coco.feature.web.security.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.request.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.context.payload.CocoPayloadParameterResolver;
 import io.github.coco.feature.web.encryption.CocoCryptoTextEncoding;
 import io.github.coco.feature.web.encryption.CocoEncryptedRequest;
@@ -86,11 +86,13 @@ import io.github.coco.feature.web.encryption.CocoEncryptionAssociatedData;
 import io.github.coco.feature.web.encryption.CocoEncryptionFilter;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
+import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoPayloadTooLargeException;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.replay.CocoReplayFilter;
 import io.github.coco.feature.web.replay.CocoReplayKey;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
+import io.github.coco.feature.web.replay.CocoReplayStore;
 import io.github.coco.feature.web.replay.DefaultCocoReplayKeyResolver;
 import io.github.coco.feature.web.response.CocoApiResponse;
 import io.github.coco.feature.web.response.CocoIgnoreResponseWrap;
@@ -106,6 +108,7 @@ import io.github.coco.feature.web.signature.CocoSignatureFilter;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import io.github.coco.feature.web.signature.CocoSignatureVerifier;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
+import io.github.coco.feature.web.trace.CocoTraceIdValidator;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
@@ -119,6 +122,9 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -235,6 +241,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(context.containsBean("cocoRequestDecryptor"));
             assertTrue(context.containsBean("cocoReplayKeyResolver"));
             assertTrue(context.containsBean("cocoReplayStore"));
+            assertTrue(context.containsBean("cocoTraceIdValidator"));
             assertTrue(context.containsBean("cocoReplayFilterRegistration"));
             assertTrue(context.containsBean("cocoFilterExceptionResponseWriter"));
             assertTrue(context.containsBean("cocoEncryptionFilterRegistration"));
@@ -613,7 +620,10 @@ class CocoWebAutoConfigurationTest {
         assertEquals("X-Coco-Timestamp", properties.getReplay().getTimestampHeaderName());
         assertEquals("X-Coco-Nonce", properties.getReplay().getNonceHeaderName());
         assertEquals(300L, properties.getReplay().getTtlSeconds());
+        assertEquals(300L, properties.getReplay().getMaxClockSkewSeconds());
         assertEquals(60L, properties.getReplay().getCleanupIntervalSeconds());
+        assertEquals(128, properties.getTrace().getMaxLength());
+        assertEquals(CocoTraceProperties.DEFAULT_ALLOWED_PATTERN, properties.getTrace().getAllowedPattern());
         assertTrue(properties.getContext().isIncludeHeaders());
         assertTrue(properties.getContext().getClientIpHeaderNames().contains("X-Forwarded-For"));
         assertTrue(properties.getContext().getTrustedProxyCidrs().isEmpty());
@@ -1040,6 +1050,44 @@ class CocoWebAutoConfigurationTest {
             assertTrue(CocoRequestContextHolder.current().isEmpty());
             assertTrue(CocoTraceContext.currentTraceId().isEmpty());
         });
+    }
+
+    @Test
+    void replacesInvalidIncomingTraceId() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            String[] traceId = new String[1];
+            request.addHeader("X-Trace-Id", "invalid trace id");
+
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                    traceId[0] = CocoTraceContext.currentTraceId().orElseThrow())));
+
+            assertNotNull(traceId[0]);
+            assertNotEquals("invalid trace id", traceId[0]);
+            assertTrue(traceId[0].matches(CocoTraceProperties.DEFAULT_ALLOWED_PATTERN));
+            assertEquals(traceId[0], response.getHeader("X-Trace-Id"));
+        });
+    }
+
+    @Test
+    void customTraceIdValidatorCanAcceptApplicationTraceFormat() throws Exception {
+        this.webContextRunner
+                .withBean(CocoTraceIdValidator.class, () -> traceId -> traceId != null && traceId.startsWith("biz "))
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "biz trace");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                            assertEquals("biz trace", CocoTraceContext.currentTraceId().orElseThrow()))));
+
+                    assertEquals("biz trace", response.getHeader("X-Trace-Id"));
+                });
     }
 
     @Test
@@ -3977,6 +4025,36 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void replayReservationExpiresFromServerReceiveTime() throws Exception {
+        this.webContextRunner.run(context -> {
+            Instant now = Instant.parse("2026-07-09T12:00:00Z");
+            CocoReplayProperties properties = new CocoReplayProperties();
+            properties.setRequired(true);
+            properties.setTtlSeconds(120);
+            properties.setMaxClockSkewSeconds(300);
+            RecordingReplayStore replayStore = new RecordingReplayStore();
+            CocoReplayFilter replayFilter = new CocoReplayFilter(properties, replayStore,
+                    new DefaultCocoReplayKeyResolver(properties),
+                    context.getBean(CocoWebRequestContextResolver.class),
+                    context.getBean(CocoWebRequestSecurityMetadataResolver.class),
+                    context.getBean(CocoFilterExceptionResponseWriter.class),
+                    context.getBean(CocoWebRequestMatcher.class),
+                    Clock.fixed(now, ZoneOffset.UTC));
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+            request.addHeader("X-Coco-App-Id", "sample-app");
+            request.addHeader("X-Coco-Key-Id", "key-1001");
+            request.addHeader("X-Coco-Timestamp", Long.toString(now.minusSeconds(60).toEpochMilli()));
+            request.addHeader("X-Coco-Nonce", "nonce-server-expiry");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            replayFilter.doFilter(request, response, new MockFilterChain());
+
+            assertEquals(200, response.getStatus());
+            assertEquals(now.plusSeconds(120), replayStore.expiresAt.get());
+        });
+    }
+
+    @Test
     void decryptsEncryptedJsonRequestBeforeBusinessServlet() throws Exception {
         byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
         CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
@@ -4998,6 +5076,17 @@ class CocoWebAutoConfigurationTest {
         assertEquals(Boolean.FALSE, body.get("success"));
         assertEquals(401, body.get("code"));
         assertEquals(message, body.get("message"));
+    }
+
+    private static final class RecordingReplayStore implements CocoReplayStore {
+
+        private final AtomicReference<Instant> expiresAt = new AtomicReference<>();
+
+        @Override
+        public boolean reserve(CocoReplayKey key, Instant expiresAt) {
+            this.expiresAt.set(expiresAt);
+            return true;
+        }
     }
 
     private static CocoResponseWrapAdvice responseWrapAdvice(CocoMessageService messageService) {

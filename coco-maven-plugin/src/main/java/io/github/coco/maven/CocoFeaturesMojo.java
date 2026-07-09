@@ -126,7 +126,7 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         try {
             CocoFeatureSelection applicationSelection = new CocoBuildFeatureConfigurationLoader()
                     .load(this.project.getBasedir().toPath().resolve("src/main/resources"));
-            CocoFeatureSelection parameterSelection = new CocoFeatureSelection(
+            CocoFeatureSelection parameterSelection = CocoFeatureSelection.of(
                     parseFeatures(this.enabled, "Maven parameter coco.features.enabled"),
                     parseFeatures(this.disabled, "Maven parameter coco.features.disabled"));
             CocoFeatureSelection annotationSelection = new CocoAnnotatedFeatureScanner()

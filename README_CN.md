@@ -26,6 +26,8 @@
   ·
   <a href="#边界">边界</a>
   ·
+  <a href="#扩展边界">扩展边界</a>
+  ·
   <a href="#星星趋势">星星趋势</a>
   ·
   <a href="#贡献者">贡献者</a>
@@ -86,6 +88,8 @@ class ApplicationCocoConfiguration {
 }
 ```
 
+功能选择优先使用 YAML 或 `@CocoFeatures`。旧的 `CocoConfigurer` Java 钩子仅保留兼容，已不再推荐。
+
 业务 Controller 仍然是普通 Spring 代码：
 
 ```java
@@ -118,7 +122,7 @@ class OrderController {
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
       <strong>安全基础</strong><br/>
-      安全主体、安全上下文持有器、解析器、认证断言、角色断言和权限断言。
+      安全上下文门面、解析 SPI、认证断言、角色断言、权限断言和上下文传播原语。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
@@ -135,12 +139,12 @@ class OrderController {
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
       <strong>审计流水线</strong><br/>
-      审计记录 SPI、发布器、失败策略和访问日志到审计事件的适配器。
+      审计事件模型、记录器 SPI、发布器、失败策略和访问日志到审计事件的适配器。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Codegen-SPI%20Boundary-475569?style=flat-square" alt="Codegen"/></p>
       <strong>代码生成边界</strong><br/>
-      为显式源码脚手架预留生成器扩展点，避免隐藏式运行时 CRUD。
+      面向显式源码脚手架的生成器 SPI；隐藏式运行时 CRUD Controller 明确不在范围内。
     </td>
   </tr>
 </table>
@@ -175,6 +179,40 @@ class OrderController {
 </table>
 
 CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码应当是可读的 Java 源码，业务项目可以保留、修改、删除或替换。
+
+## 扩展边界
+
+<table>
+  <thead>
+    <tr>
+      <th width="25%">领域</th>
+      <th width="38%">已交付边界</th>
+      <th width="37%">业务应用或路线图负责</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Security</td>
+      <td>上下文门面、解析 SPI、断言工具和上下文传播原语。</td>
+      <td>认证提供方、RBAC/ABAC 模型、会话、令牌和用户存储。</td>
+    </tr>
+    <tr>
+      <td>Audit</td>
+      <td>事件契约、发布器、记录器 SPI、失败策略和访问日志适配器。</td>
+      <td>数据库落库、MQ 投递、合规报表和保留策略。</td>
+    </tr>
+    <tr>
+      <td>OpenAPI</td>
+      <td>元数据提供器和配置边界。</td>
+      <td>文档渲染、UI 集成和接口级文档策略。</td>
+    </tr>
+    <tr>
+      <td>Codegen</td>
+      <td>生成器 SPI 和配置边界。</td>
+      <td>模板、项目脚手架规则和生成后的 CRUD 源码归属。</td>
+    </tr>
+  </tbody>
+</table>
 
 ## 运行形态
 

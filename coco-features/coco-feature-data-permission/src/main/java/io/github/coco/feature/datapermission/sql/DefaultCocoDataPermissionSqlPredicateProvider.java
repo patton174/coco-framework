@@ -2,6 +2,7 @@ package io.github.coco.feature.datapermission.sql;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import io.github.coco.feature.datapermission.context.CocoDataPermissionRule;
 import net.sf.jsqlparser.expression.Expression;
@@ -36,22 +37,25 @@ public final class DefaultCocoDataPermissionSqlPredicateProvider implements Coco
      * {@inheritDoc}
      */
     @Override
-    public java.util.Optional<Expression> predicate(CocoDataPermissionSqlPredicateContext context) {
+    public Optional<Expression> predicate(CocoDataPermissionSqlPredicateContext context) {
         Objects.requireNonNull(context, "context must not be null");
         CocoDataPermissionRule rule = context.rule();
         if (rule.allData()) {
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
         if (rule.denied() || rule.values().isEmpty() || !hasText(context.resourceProperties().getColumn())) {
-            return java.util.Optional.of(denyExpression());
+            return Optional.of(denyExpression());
         }
         Column column = new Column(qualifier(context.table()), context.resourceProperties().getColumn());
         List<Expression> values = rule.values().stream()
                 .sorted()
-                .map(StringValue::new)
-                .map(Expression.class::cast)
+                .map(value -> valueExpression(value, context.resourceProperties().getColumnType()))
+                .flatMap(Optional::stream)
                 .toList();
-        return java.util.Optional.of(new InExpression(column, new ParenthesedExpressionList<>(values)));
+        if (values.size() != rule.values().size()) {
+            return Optional.of(denyExpression());
+        }
+        return Optional.of(new InExpression(column, new ParenthesedExpressionList<>(values)));
     }
 
     /**
@@ -69,6 +73,25 @@ public final class DefaultCocoDataPermissionSqlPredicateProvider implements Coco
             return new Table(table.getAlias().getName());
         }
         return new Table(table.getName());
+    }
+
+    private static Optional<Expression> valueExpression(String value, CocoDataPermissionSqlColumnType columnType) {
+        if (columnType == CocoDataPermissionSqlColumnType.LONG) {
+            return longValueExpression(value).map(Expression.class::cast);
+        }
+        return Optional.of(new StringValue(value));
+    }
+
+    private static Optional<LongValue> longValueExpression(String value) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new LongValue(Long.parseLong(value.trim())));
+        }
+        catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
     }
 
     private static boolean hasText(String value) {

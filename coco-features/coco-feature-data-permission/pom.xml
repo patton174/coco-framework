@@ -24,6 +24,10 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>coco-common-context</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>coco-feature-runtime</artifactId>
         </dependency>
         <dependency>

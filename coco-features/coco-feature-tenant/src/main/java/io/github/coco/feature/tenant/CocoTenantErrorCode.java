@@ -23,7 +23,12 @@ public enum CocoTenantErrorCode implements CocoErrorCode {
     /**
      * 当前线程不存在租户上下文。
      */
-    CONTEXT_MISSING("coco.feature.tenant.error.context-missing");
+    CONTEXT_MISSING("coco.feature.tenant.error.context-missing"),
+
+    /**
+     * MyBatis-Plus 租户隔离忽略未进入白名单。
+     */
+    INTERCEPTOR_IGNORE_BLOCKED("coco.feature.tenant.error.interceptor-ignore-blocked");
 
     private final String code;
 

@@ -5,11 +5,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import com.baomidou.mybatisplus.core.plugins.IgnoreStrategy;
+import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
+import io.github.coco.common.exception.type.CocoForbiddenException;
 import io.github.coco.common.exception.type.CocoRequestException;
 import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration;
@@ -17,10 +23,19 @@ import io.github.coco.feature.tenant.context.CocoTenantContext;
 import io.github.coco.feature.tenant.context.CocoTenantContextHolder;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
 import io.github.coco.feature.tenant.sql.CocoTenantIdExpressionResolver;
+import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreDecision;
+import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreEvent;
+import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreGuard;
 import io.github.coco.feature.tenant.sql.CocoTenantMybatisPlusAutoConfiguration;
+import io.github.coco.feature.tenant.sql.CocoTenantSqlProperties;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.NullValue;
 import net.sf.jsqlparser.expression.StringValue;
+import org.apache.ibatis.builder.StaticSqlSource;
+import org.apache.ibatis.mapping.MappedStatement;
+import org.apache.ibatis.mapping.SqlCommandType;
+import org.apache.ibatis.session.RowBounds;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -58,6 +73,12 @@ class CocoTenantAutoConfigurationTest {
                     CocoTenantMybatisPlusAutoConfiguration.class,
                     CocoMybatisPlusAutoConfiguration.class))
             .withPropertyValues("coco.common.i18n.basename=coco-messages");
+
+    @AfterEach
+    void clearTenantState() {
+        CocoTenantContextHolder.clear();
+        InterceptorIgnoreHelper.clearIgnoreStrategy();
+    }
 
     @Test
     void registersTenantMessageBundle() {
@@ -104,9 +125,10 @@ class CocoTenantAutoConfigurationTest {
 
             assertThat(context).hasSingleBean(CocoTenantIdExpressionResolver.class);
             assertThat(context).hasBean("cocoTenantMybatisPlusInterceptorCustomizer");
-            assertThat(interceptor.getInterceptors()).hasSize(2);
-            assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(TenantLineInnerInterceptor.class);
-            assertThat(interceptor.getInterceptors().get(1)).isInstanceOf(PaginationInnerInterceptor.class);
+            assertThat(interceptor.getInterceptors()).hasSize(3);
+            assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(CocoTenantInterceptorIgnoreGuard.class);
+            assertThat(interceptor.getInterceptors().get(1)).isInstanceOf(TenantLineInnerInterceptor.class);
+            assertThat(interceptor.getInterceptors().get(2)).isInstanceOf(PaginationInnerInterceptor.class);
         });
     }
 
@@ -117,7 +139,9 @@ class CocoTenantAutoConfigurationTest {
                         "coco.tenant.sql.tenant-id-column=org_id",
                         "coco.tenant.sql.ignore-tables[0]=sys_tenant",
                         "coco.tenant.sql.ignore-tables[1]=coco_dictionary",
-                        "coco.tenant.sql.fail-on-missing-context=false")
+                        "coco.tenant.sql.fail-on-missing-context=false",
+                        "coco.tenant.sql.interceptor-ignore.block-unlisted=false",
+                        "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements[0]=com.example.AdminMapper.*")
                 .run(context -> {
                     CocoTenantProperties properties = context.getBean(CocoTenantProperties.class);
                     TenantLineHandler handler = tenantLineHandler(context);
@@ -126,6 +150,9 @@ class CocoTenantAutoConfigurationTest {
                     assertThat(properties.getSql().getIgnoreTables()).containsExactly("sys_tenant",
                             "coco_dictionary");
                     assertThat(properties.getSql().isFailOnMissingContext()).isFalse();
+                    assertThat(properties.getSql().getInterceptorIgnore().isBlockUnlisted()).isFalse();
+                    assertThat(properties.getSql().getInterceptorIgnore().getAllowedMappedStatements())
+                            .containsExactly("com.example.AdminMapper.*");
                     assertThat(handler.getTenantIdColumn()).isEqualTo("org_id");
                     assertThat(handler.ignoreTable("SYS_TENANT")).isTrue();
                     assertThat(handler.ignoreTable("business_order")).isFalse();
@@ -145,6 +172,57 @@ class CocoTenantAutoConfigurationTest {
                     assertThat(interceptor.getInterceptors()).hasSize(1);
                     assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(PaginationInnerInterceptor.class);
                 });
+    }
+
+    @Test
+    void blocksUnlistedTenantInterceptorIgnore() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
+        MappedStatement mappedStatement = mappedStatement("com.example.OrderMapper.selectAll", SqlCommandType.SELECT);
+
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThatThrownBy(() -> guard.willDoQuery(null, mappedStatement, null, RowBounds.DEFAULT, null, null))
+                .isInstanceOf(CocoForbiddenException.class)
+                .hasMessage("coco.feature.tenant.error.interceptor-ignore-blocked");
+        assertThat(events).singleElement()
+                .extracting(CocoTenantInterceptorIgnoreEvent::decision)
+                .isEqualTo(CocoTenantInterceptorIgnoreDecision.BLOCKED);
+    }
+
+    @Test
+    void allowsAllowlistedTenantInterceptorIgnore() throws Exception {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().getAllowedMappedStatements().add("com.example.AdminMapper.*");
+        List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
+        MappedStatement mappedStatement = mappedStatement("com.example.AdminMapper.selectShared",
+                SqlCommandType.SELECT);
+
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThat(guard.willDoQuery(null, mappedStatement, null, RowBounds.DEFAULT, null, null)).isTrue();
+        assertThat(events).singleElement()
+                .extracting(CocoTenantInterceptorIgnoreEvent::decision)
+                .isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
+    }
+
+    @Test
+    void allowsUnlistedTenantInterceptorIgnoreWhenBlockingIsDisabled() throws Exception {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().setBlockUnlisted(false);
+        List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
+        MappedStatement mappedStatement = mappedStatement("com.example.ReportMapper.selectAll",
+                SqlCommandType.SELECT);
+
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThat(guard.willDoQuery(null, mappedStatement, null, RowBounds.DEFAULT, null, null)).isTrue();
+        assertThat(events).singleElement()
+                .extracting(CocoTenantInterceptorIgnoreEvent::decision)
+                .isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
     }
 
     @Test
@@ -198,6 +276,12 @@ class CocoTenantAutoConfigurationTest {
                 .findFirst()
                 .map(TenantLineInnerInterceptor::getTenantLineHandler)
                 .orElseThrow();
+    }
+
+    private static MappedStatement mappedStatement(String id, SqlCommandType commandType) {
+        org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
+        return new MappedStatement.Builder(configuration, id,
+                new StaticSqlSource(configuration, "select 1"), commandType).build();
     }
 
     @Configuration(proxyBeanMethods = false)

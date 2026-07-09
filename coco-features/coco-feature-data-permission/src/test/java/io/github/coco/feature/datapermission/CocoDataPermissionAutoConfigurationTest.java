@@ -23,6 +23,7 @@ import io.github.coco.feature.datapermission.mybatisplus.CocoDataPermissionMybat
 import io.github.coco.feature.datapermission.mybatisplus.CocoMybatisPlusDataPermissionHandler;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionMissingContextPolicy;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionMissingRulePolicy;
+import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlColumnType;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlProperties;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlResourceProperties;
 import io.github.coco.feature.datapermission.sql.DefaultCocoDataPermissionSqlPredicateProvider;
@@ -140,7 +141,8 @@ class CocoDataPermissionAutoConfigurationTest {
                         "coco.data-permission.sql.missing-context-policy=deny",
                         "coco.data-permission.sql.missing-rule-policy=ignore",
                         "coco.data-permission.sql.resources.sample-order.tables[0]=sample_order",
-                        "coco.data-permission.sql.resources.sample-order.column=dept_id")
+                        "coco.data-permission.sql.resources.sample-order.column=dept_id",
+                        "coco.data-permission.sql.resources.sample-order.column-type=long")
                 .run(context -> {
                     CocoDataPermissionProperties properties = context.getBean(CocoDataPermissionProperties.class);
 
@@ -152,6 +154,8 @@ class CocoDataPermissionAutoConfigurationTest {
                     assertThat(properties.getSql().getResources()).containsKey("sample-order");
                     assertThat(properties.getSql().resource("sample-order").getTables()).containsExactly("sample_order");
                     assertThat(properties.getSql().resource("sample-order").getColumn()).isEqualTo("dept_id");
+                    assertThat(properties.getSql().resource("sample-order").getColumnType())
+                            .isEqualTo(CocoDataPermissionSqlColumnType.LONG);
                 });
     }
 
@@ -167,6 +171,35 @@ class CocoDataPermissionAutoConfigurationTest {
         Expression expression = handler.getSqlSegment(table, null, "SampleMapper.selectOrders");
 
         assertThat(expression.toString()).isEqualTo("o.dept_id IN ('D1')");
+    }
+
+    @Test
+    void handlerCreatesNumericPredicateForLongColumn() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.LONG);
+        CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
+                new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, Set.of("10", "20"))));
+        CocoMybatisPlusDataPermissionHandler handler = handler(properties, () -> Optional.of(context));
+        Table table = new Table("sample_order");
+        table.setAlias(new Alias("o"));
+
+        Expression expression = handler.getSqlSegment(table, null, "SampleMapper.selectOrders");
+
+        assertThat(expression.toString()).isEqualTo("o.dept_id IN (10, 20)");
+    }
+
+    @Test
+    void handlerDeniesWhenLongColumnValueIsInvalid() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.LONG);
+        CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
+                new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, Set.of("D1"))));
+        CocoMybatisPlusDataPermissionHandler handler = handler(properties, () -> Optional.of(context));
+
+        Expression expression = handler.getSqlSegment(new Table("sample_order"), null,
+                "SampleMapper.selectOrders");
+
+        assertThat(expression.toString()).isEqualTo("1 = 0");
     }
 
     @Test

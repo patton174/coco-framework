@@ -2,8 +2,11 @@ package io.github.coco.feature.datapermission.context;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 
+import io.github.coco.common.context.CocoContextScope;
+import io.github.coco.common.context.CocoContextSnapshot;
 import io.github.coco.feature.datapermission.CocoDataPermissionErrorCode;
 
 /**
@@ -70,6 +73,67 @@ public final class CocoDataPermissionContextHolder {
      */
     public static void clear() {
         DATA_PERMISSION_CONTEXT.remove();
+    }
+
+    /**
+     * <p>
+     * 捕获当前线程数据权限上下文。
+     * </p>
+     * @return 数据权限上下文快照
+     */
+    public static CocoContextSnapshot capture() {
+        Optional<CocoDataPermissionContext> captured = current();
+        return () -> {
+            Optional<CocoDataPermissionContext> previous = current();
+            restore(captured);
+            return () -> restore(previous);
+        };
+    }
+
+    /**
+     * <p>
+     * 恢复指定上下文快照。
+     * </p>
+     * @param snapshot 上下文快照
+     * @return 上下文作用域
+     */
+    public static CocoContextScope restore(CocoContextSnapshot snapshot) {
+        return Objects.requireNonNull(snapshot, "snapshot must not be null").restore();
+    }
+
+    /**
+     * <p>
+     * 捕获当前数据权限上下文并包装 {@link Runnable}。
+     * </p>
+     * @param runnable 待执行逻辑
+     * @return 包装后的逻辑
+     */
+    public static Runnable wrap(Runnable runnable) {
+        return capture().wrap(runnable);
+    }
+
+    /**
+     * <p>
+     * 捕获当前数据权限上下文并包装 {@link Callable}。
+     * </p>
+     * @param callable 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 包装后的逻辑
+     */
+    public static <T> Callable<T> wrap(Callable<T> callable) {
+        return capture().wrap(callable);
+    }
+
+    /**
+     * <p>
+     * 捕获当前数据权限上下文并包装 {@link Supplier}。
+     * </p>
+     * @param supplier 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 包装后的逻辑
+     */
+    public static <T> Supplier<T> wrapSupplier(Supplier<T> supplier) {
+        return capture().wrapSupplier(supplier);
     }
 
     /**

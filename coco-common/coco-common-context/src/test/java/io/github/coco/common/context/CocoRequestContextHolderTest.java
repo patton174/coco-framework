@@ -7,8 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import static java.util.Map.entry;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import io.github.coco.common.trace.CocoTraceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -155,6 +159,47 @@ class CocoRequestContextHolderTest {
         assertEquals("boom", exception.getMessage());
         assertEquals("outer", CocoRequestContextHolder.current().orElseThrow().traceId());
         assertEquals("outer", CocoTraceContext.currentTraceId().orElseThrow());
+    }
+
+    @Test
+    void capturedRequestContextWrapsCallableAcrossThreads() throws Exception {
+        CocoRequestContextHolder.set(CocoRequestContext.of("captured", "GET", "/captured"));
+        Callable<String> callable = CocoRequestContextHolder.wrap(() -> {
+            CocoRequestContext current = CocoRequestContextHolder.current().orElseThrow();
+            assertEquals("captured", CocoTraceContext.currentTraceId().orElseThrow());
+            return current.traceId() + ":" + current.path().orElseThrow();
+        });
+        CocoRequestContextHolder.set(CocoRequestContext.of("main", "GET", "/main"));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            assertEquals("captured:/captured", executor.submit(callable).get());
+            assertTrue(executor.submit(() -> CocoRequestContextHolder.current().isEmpty()
+                    && CocoTraceContext.currentTraceId().isEmpty()).get());
+        }
+        finally {
+            executor.shutdownNow();
+        }
+        assertEquals("main", CocoRequestContextHolder.current().orElseThrow().traceId());
+        assertEquals("main", CocoTraceContext.currentTraceId().orElseThrow());
+    }
+
+    @Test
+    void composedSnapshotsCloseInReverseOrder() {
+        List<String> events = new ArrayList<>();
+        CocoContextSnapshot first = () -> {
+            events.add("first-open");
+            return () -> events.add("first-close");
+        };
+        CocoContextSnapshot second = () -> {
+            events.add("second-open");
+            return () -> events.add("second-close");
+        };
+
+        try (CocoContextScope ignored = CocoContextSnapshot.compose(first, second).restore()) {
+            events.add("body");
+        }
+
+        assertEquals(List.of("first-open", "second-open", "body", "second-close", "first-close"), events);
     }
 
     @Test

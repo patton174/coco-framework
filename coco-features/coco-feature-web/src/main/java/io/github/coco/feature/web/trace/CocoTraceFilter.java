@@ -69,6 +69,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
     private final CocoWebRequestContextResolver requestContextResolver;
 
+    private final CocoTraceIdValidator traceIdValidator;
+
     /**
      * <p>
      * 创建 Coco Web Trace 过滤器。
@@ -119,6 +121,24 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             Collection<CocoAccessLogRecorder> accessLogRecorders,
             CocoAccessLogCaptureProperties accessLogProperties,
             CocoWebRequestContextResolver requestContextResolver) {
+        this(properties, accessLogRecorders, accessLogProperties, requestContextResolver, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web Trace 过滤器。
+     * </p>
+     * @param properties Trace 配置属性
+     * @param accessLogRecorders 接口访问日志记录器集合
+     * @param accessLogProperties 接口访问日志配置属性
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param traceIdValidator TraceId 校验器
+     */
+    public CocoTraceFilter(CocoTraceProperties properties,
+            Collection<CocoAccessLogRecorder> accessLogRecorders,
+            CocoAccessLogCaptureProperties accessLogProperties,
+            CocoWebRequestContextResolver requestContextResolver,
+            CocoTraceIdValidator traceIdValidator) {
         CocoTraceProperties checkedProperties = Objects.requireNonNull(properties, "properties must not be null");
         this.headerName = checkedProperties.getHeaderName();
         this.mdcKey = checkedProperties.getMdcKey();
@@ -136,6 +156,9 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
                 : accessLogProperties;
         this.requestContextResolver = Objects.requireNonNull(requestContextResolver,
                 "requestContextResolver must not be null");
+        this.traceIdValidator = traceIdValidator == null
+                ? new DefaultCocoTraceIdValidator(checkedProperties)
+                : traceIdValidator;
     }
 
     /**
@@ -183,7 +206,11 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         if (requestTraceId == null || requestTraceId.isBlank()) {
             return CocoTraceContext.getOrCreateTraceId();
         }
-        return requestTraceId.trim();
+        String candidateTraceId = requestTraceId.trim();
+        if (this.traceIdValidator.isValid(candidateTraceId)) {
+            return candidateTraceId;
+        }
+        return CocoTraceContext.getOrCreateTraceId();
     }
 
     /**

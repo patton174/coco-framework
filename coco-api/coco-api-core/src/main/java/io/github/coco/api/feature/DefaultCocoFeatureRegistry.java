@@ -18,9 +18,12 @@ import java.util.Set;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-api-core}</li>
  * </ul>
+ * @deprecated 该公开实现仅为早期 {@code CocoConfigurer} 用法保留兼容。框架内部已改用模块内实现，
+ * 业务项目应优先使用 {@code coco.features.*} 配置项或 {@link CocoFeatures} 注解声明功能开关。
  * @author patton174
  * @since 1.0.0
  */
+@Deprecated(since = "1.0.0")
 public final class DefaultCocoFeatureRegistry implements CocoFeatureRegistry {
 
     private final EnumSet<CocoFeature> enabledFeatures = EnumSet.noneOf(CocoFeature.class);

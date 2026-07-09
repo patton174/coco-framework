@@ -4,6 +4,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.registry.CocoFeatureSelection;
 
 /**
  * Coco 功能配置属性。
@@ -69,10 +70,22 @@ public class CocoFeatureProperties {
 
     /**
      * <p>
+     * 将配置属性适配为核心功能选择模型。
+     * </p>
+     * @return 功能选择声明
+     */
+    public CocoFeatureSelection toSelection() {
+        return CocoFeatureSelection.of(this.enabled, this.disabled);
+    }
+
+    /**
+     * <p>
      * 返回最终禁用声明集合。
      * </p>
+     * @deprecated 请使用 {@link #toSelection()}，由核心功能选择模型统一承载启用和禁用声明。
      * @return 最终禁用声明集合
      */
+    @Deprecated(since = "1.0.0")
     public Set<CocoFeature> disabledFeatures() {
         return Set.copyOf(this.disabled);
     }

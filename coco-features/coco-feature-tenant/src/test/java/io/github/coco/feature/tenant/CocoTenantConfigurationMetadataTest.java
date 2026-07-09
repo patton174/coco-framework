@@ -39,6 +39,10 @@ class CocoTenantConfigurationMetadataTest {
         assertProperty(metadata, "coco.tenant.sql.tenant-id-column", "java.lang.String", "tenant_id");
         assertProperty(metadata, "coco.tenant.sql.ignore-tables", "java.util.Set<java.lang.String>", null);
         assertProperty(metadata, "coco.tenant.sql.fail-on-missing-context", "java.lang.Boolean", "true");
+        assertProperty(metadata, "coco.tenant.sql.interceptor-ignore.block-unlisted",
+                "java.lang.Boolean", "true");
+        assertProperty(metadata, "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements",
+                "java.util.Set<java.lang.String>", null);
     }
 
     private JsonNode configurationMetadata() throws IOException {

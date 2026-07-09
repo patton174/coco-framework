@@ -57,7 +57,7 @@ public final class CocoAnnotatedFeatureScanner {
                         .filter(className -> !className.contains("$"))
                         .forEach(className -> collect(classLoader, className, enabled, disabled));
             }
-            return new CocoFeatureSelection(enabled, disabled);
+            return CocoFeatureSelection.of(enabled, disabled);
         }
         catch (IOException ex) {
             throw new IllegalStateException("Failed to scan Coco feature annotations.", ex);

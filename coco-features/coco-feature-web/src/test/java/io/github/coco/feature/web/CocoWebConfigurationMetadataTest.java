@@ -70,6 +70,8 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-http-only\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-secure\""));
         assertTrue(content.contains("\"name\": \"coco.web.trace.cookie-same-site\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.max-length\""));
+        assertTrue(content.contains("\"name\": \"coco.web.trace.allowed-pattern\""));
         assertTrue(content.contains("\"name\": \"coco.web.access-log.enabled\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.level\""));
         assertFalse(content.contains("\"name\": \"coco.web.access-log.style\""));
@@ -139,6 +141,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.replay.nonce-header-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.nonce-parameter-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.ttl-seconds\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.max-clock-skew-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.cleanup-interval-seconds\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.client-ip-header-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.trusted-proxy-cidrs\""));
