@@ -24,6 +24,8 @@
   ·
   <a href="#能力范围">能力范围</a>
   ·
+  <a href="#生产-sql-防护">SQL 防护</a>
+  ·
   <a href="#边界">边界</a>
   ·
   <a href="#扩展边界">扩展边界</a>
@@ -109,6 +111,26 @@ class OrderController {
     }
 }
 ```
+
+## 生产 SQL 防护
+
+Coco 默认不启用 MyBatis-Plus SQL 防护，避免首次接入时破坏已有维护 SQL。生产服务建议先回放或审查业务 SQL，再显式启用：
+
+```yaml
+coco:
+  mybatis-plus:
+    sql-guard:
+      block-attack-enabled: true
+      illegal-sql-enabled: true
+```
+
+启用后，MyBatis-Plus 可能拦截一些业务上合法但需要改写、复核或仅对受控维护语句显式忽略的 SQL：
+
+- 没有有效 `WHERE` 的 `UPDATE` / `DELETE`，或包含 `1 = 1` 等恒真条件的批量写语句。
+- 启用 `IllegalSQLInnerInterceptor` 后，没有 `WHERE` 的 `SELECT` / `UPDATE` / `DELETE`。
+- `WHERE` 中使用 `OR`、`!=`、被检查列一侧使用函数，或被解析器识别为子查询形态。
+- 谓词或 JOIN 条件中首个被检查字段没有命中索引元数据。
+- JSQLParser 防护器无法稳定验证的复杂 JOIN、带 schema 的表名、数据库方言 SQL 或动态生成 SQL。
 
 ## 能力范围
 

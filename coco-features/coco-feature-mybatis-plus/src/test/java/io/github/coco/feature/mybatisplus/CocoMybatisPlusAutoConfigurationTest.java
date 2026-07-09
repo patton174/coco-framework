@@ -18,8 +18,11 @@ import io.github.coco.common.i18n.api.CocoMessageService;
 import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptorCustomizer;
 import io.github.coco.feature.runtime.autoconfigure.CocoFeatureAutoConfigurationImportFilter;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.env.MockEnvironment;
@@ -40,6 +43,7 @@ import org.springframework.mock.env.MockEnvironment;
  * @author patton174
  * @since 1.0.0
  */
+@ExtendWith(OutputCaptureExtension.class)
 class CocoMybatisPlusAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -117,6 +121,18 @@ class CocoMybatisPlusAutoConfigurationTest {
 
             assertThat(interceptor.getInterceptors()).noneMatch(BlockAttackInnerInterceptor.class::isInstance);
             assertThat(interceptor.getInterceptors()).noneMatch(IllegalSQLInnerInterceptor.class::isInstance);
+        });
+    }
+
+    @Test
+    void logsProductionRecommendationWhenSqlGuardIsDisabled(CapturedOutput output) {
+        this.contextRunner.run(context -> {
+            assertThat(context).hasSingleBean(MybatisPlusInterceptor.class);
+
+            assertThat(output)
+                    .contains("Coco MyBatis-Plus SQL guard is disabled")
+                    .contains("coco.mybatis-plus.sql-guard.block-attack-enabled")
+                    .contains("coco.mybatis-plus.sql-guard.illegal-sql-enabled");
         });
     }
 
