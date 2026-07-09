@@ -2,6 +2,7 @@ package io.github.coco.feature.tenant.sql;
 
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration;
 import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptorCustomizer;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.tenant.CocoTenantAutoConfiguration;
@@ -31,8 +32,7 @@ import org.springframework.context.annotation.Bean;
  * @author patton174
  * @since 1.0.0
  */
-@AutoConfiguration(after = CocoTenantAutoConfiguration.class,
-        afterName = "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration")
+@AutoConfiguration(after = {CocoTenantAutoConfiguration.class, CocoMybatisPlusAutoConfiguration.class})
 @ConditionalOnCocoFeature(CocoFeature.TENANT)
 @ConditionalOnClass({TenantLineInnerInterceptor.class, CocoMybatisPlusInterceptorCustomizer.class})
 @ConditionalOnProperty(prefix = "coco.tenant.sql", name = "enabled", havingValue = "true", matchIfMissing = true)

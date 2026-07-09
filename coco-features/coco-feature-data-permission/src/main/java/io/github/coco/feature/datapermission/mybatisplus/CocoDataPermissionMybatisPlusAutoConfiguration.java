@@ -10,6 +10,7 @@ import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlProperties
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlResourceResolver;
 import io.github.coco.feature.datapermission.sql.DefaultCocoDataPermissionSqlPredicateProvider;
 import io.github.coco.feature.datapermission.sql.PropertyCocoDataPermissionSqlResourceResolver;
+import io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration;
 import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptorCustomizer;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -35,8 +36,7 @@ import org.springframework.context.annotation.Bean;
  * @author patton174
  * @since 1.0.0
  */
-@AutoConfiguration(after = CocoDataPermissionAutoConfiguration.class,
-        afterName = "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration")
+@AutoConfiguration(after = {CocoDataPermissionAutoConfiguration.class, CocoMybatisPlusAutoConfiguration.class})
 @ConditionalOnCocoFeature(CocoFeature.DATA_PERMISSION)
 @ConditionalOnClass(name = {
         "com.baomidou.mybatisplus.extension.plugins.inner.DataPermissionInterceptor",
