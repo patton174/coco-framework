@@ -3332,6 +3332,27 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void cachesRequestBodyWhenEncodedQueryParameterNameMatchesSecurityTrigger() throws Exception {
+        CocoSignatureProperties signatureProperties = new CocoSignatureProperties();
+        signatureProperties.setMetadataSource(CocoWebSecurityMetadataSource.PARAMETER);
+        signatureProperties.setSignatureParameterName("sig.value");
+        CocoRequestBodyCachingFilter bodyFilter = new CocoRequestBodyCachingFilter(
+                new CocoRequestBodyProperties(), signatureProperties, null);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<Boolean> cached = new AtomicReference<>(false);
+        request.setContentType("application/x-coco-binary");
+        request.setContent("{\"sku\":\"COCO-STARTER\"}".getBytes(StandardCharsets.UTF_8));
+        request.setQueryString("sig%2Evalue=signature");
+
+        bodyFilter.doFilter(request, response, (bodyRequest, bodyResponse) ->
+                cached.set(CocoCachedBodyHttpServletRequest.cachedBody((HttpServletRequest) bodyRequest)
+                        .isPresent()));
+
+        assertEquals(Boolean.TRUE, cached.get());
+    }
+
+    @Test
     void verifiesSignedJsonPayloadWithParameterMetadataSourceWhenSignatureIsOptional() throws Exception {
         this.webContextRunner
                 .withPropertyValues(

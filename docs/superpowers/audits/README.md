@@ -62,6 +62,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 | 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
+| BodyCache query 触发参数解析误判 | framework B10, quality D36 | accepted | 改用 Spring URI query 解析读取触发参数名，保留 malformed query 回退，并补充编码参数名回归测试。 |
 
 ## PR 队列
 
@@ -376,6 +377,27 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-feature-security -am test
+git diff --check
+codegraph sync .
+```
+
+### PR 16：BodyCache query 触发参数解析
+
+状态：done。`CocoRequestBodyCachingFilter` 现在使用 Spring `UriComponentsBuilder` 解析 query 参数名，并保留 malformed query 的原始回退；同时规范化 web main 中已有的非法 UTF-8 Java 注释字节，保证该模块在 UTF-8 编译配置下可干净重编译。
+
+目标：避免签名 / 加密 / 重放参数名包含 URL 转义字符时，BodyCache 误判为未携带安全触发参数，导致后续过滤器读不到可复读请求体。
+
+范围：
+
+- 替换 `isTriggerParameterPresent` 中手写 `split("&")` / `indexOf('=')` 的主路径。
+- 增加 malformed query 的保守回退，避免异常 query 直接中断过滤器判断。
+- 补充编码参数名触发缓存的 Web 模块回归测试。
+- 将 web main 下严格 UTF-8 解码失败的 Java 源文件写回为合法 UTF-8，避免本次触发重编译后暴露编码错误。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-web -am test
 git diff --check
 codegraph sync .
 ```
