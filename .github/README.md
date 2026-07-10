@@ -18,7 +18,8 @@ merges. Head branches are deleted automatically after merge.
 joins three reusable jobs:
 
 - cross-platform framework and sample verification;
-- actionlint, ShellCheck, SpotBugs, and Checkstyle;
+- blocking actionlint, ShellCheck, jury protocol tests, and Checkstyle, plus a
+  report-only SpotBugs baseline;
 - CodeQL Java analysis.
 
 Do not add matrix-generated names such as `Test / verify (ubuntu-latest)` to
@@ -28,7 +29,9 @@ publishes the separate stable `Agent jury gate` status.
 
 CI runs once for pull requests targeting `main`, once after a merge to `main`,
 and on explicit dispatch. Feature-branch pushes do not start a duplicate full
-pipeline.
+pipeline. SpotBugs reports remain visible as artifacts but do not block until
+the pre-existing `EI_EXPOSE_REP` baseline is cleared; this exception must not be
+described as a clean or blocking baseline.
 
 ## Agent Review Jury
 
