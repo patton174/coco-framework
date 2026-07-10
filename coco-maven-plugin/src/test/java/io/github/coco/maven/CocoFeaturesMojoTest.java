@@ -90,6 +90,41 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
+    void keepsAuditEnabledAndAddsDependencyWhenWebIsDisabled() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("without-web"));
+        Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        Files.writeString(resources.resolve("application.yml"), """
+                coco:
+                  features:
+                    disabled:
+                      - web
+                """, StandardCharsets.UTF_8);
+
+        MavenProject project = project(baseDir, output);
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "outputDirectory", output.toFile());
+        set(mojo, "classesDirectory", output.toFile());
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+
+        mojo.execute();
+
+        CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(
+                Files.newInputStream(output.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION)));
+        assertThat(manifest.enabledFeatureIds()).contains("audit").doesNotContain("web", "openapi");
+        assertThat(manifest.features())
+                .filteredOn(entry -> "audit".equals(entry.id()))
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.dependencies()).isEmpty());
+        assertThat(project.getModel().getDependencies())
+                .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
+                .contains("io.github.patton174:coco-feature-audit")
+                .doesNotContain("io.github.patton174:coco-feature-web");
+    }
+
+    @Test
     void skipsPomPackagingProjects() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("parent"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
@@ -107,7 +142,7 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
-    void prunesDisabledFeatureArtifactsFromResolvedClasspath() throws Exception {
+    void prunesDisabledMybatisArtifactsAndKeepsAudit() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("classpath"));
         Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
@@ -124,6 +159,7 @@ class CocoFeaturesMojoTest {
                 artifact("com.baomidou", "mybatis-plus-jsqlparser-common"),
                 artifact("com.baomidou", "mybatis-plus-spring-boot4-starter"),
                 artifact("com.example", "mybatis"),
+                artifact("coco-feature-audit"),
                 artifact("coco-feature-web"),
                 artifact("coco-feature-mybatis-plus"),
                 artifact("org.mybatis", "mybatis"),
@@ -141,9 +177,17 @@ class CocoFeaturesMojoTest {
 
         mojo.execute();
 
+        CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(
+                Files.newInputStream(output.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION)));
+        assertThat(manifest.enabledFeatureIds()).contains("audit").doesNotContain("mybatis-plus");
+        assertThat(project.getModel().getDependencies())
+                .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
+                .contains("io.github.patton174:coco-feature-audit")
+                .doesNotContain("io.github.patton174:coco-feature-mybatis-plus");
         assertThat(project.getArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
                 .contains(
+                        "io.github.patton174:coco-feature-audit",
                         "io.github.patton174:coco-feature-web",
                         "com.example:mybatis",
                         "org.mybatis:mybatis-extra",
@@ -158,6 +202,7 @@ class CocoFeaturesMojoTest {
         assertThat(project.getDependencyArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
                 .contains(
+                        "io.github.patton174:coco-feature-audit",
                         "io.github.patton174:coco-feature-web",
                         "com.example:mybatis",
                         "org.mybatis:mybatis-extra",

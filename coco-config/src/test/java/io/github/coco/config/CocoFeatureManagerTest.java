@@ -39,11 +39,11 @@ class CocoFeatureManagerTest {
     }
 
     @Test
-    void disablesDependentFeaturesWhenBaseFeatureIsDisabled() {
+    void disablesOnlyFeaturesThatDependOnDisabledMybatisPlus() {
         CocoFeatureManager manager = new DefaultCocoFeatureManager(Set.of(CocoFeature.MYBATIS_PLUS));
 
         assertFalse(manager.isEnabled(CocoFeature.MYBATIS_PLUS));
-        assertFalse(manager.isEnabled(CocoFeature.AUDIT));
+        assertTrue(manager.isEnabled(CocoFeature.AUDIT));
         assertFalse(manager.isEnabled(CocoFeature.TENANT));
         assertFalse(manager.isEnabled(CocoFeature.DATA_PERMISSION));
         assertFalse(manager.isEnabled(CocoFeature.CODEGEN));

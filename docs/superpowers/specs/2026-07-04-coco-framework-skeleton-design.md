@@ -191,7 +191,7 @@ All standard features are enabled by default unless disabled.
 
 Planned dependencies:
 
-- `audit` depends on `web` and `mybatis-plus`
+- `audit` is independent; its access-log adapter composes with Web when present, and future database audit adapters must not make MyBatis-Plus a core dependency
 - `tenant` depends on `mybatis-plus` and `security`
 - `data-permission` depends on `mybatis-plus` and `security`
 - `openapi` depends on `web` and `security`
