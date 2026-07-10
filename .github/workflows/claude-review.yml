@@ -69,11 +69,13 @@ jobs:
           # in log output regardless.
           echo "::group::Relay configuration"
           for var in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
-            if [[ -z "${!var}" ]]; then
+            val="${!var:-}"
+            if [[ -z "${val}" ]]; then
               echo "  ${var}: UNSET or EMPTY"
             else
-              echo "  ${var}: set (length=${#${var}})"
+              echo "  ${var}: set (length=${#val})"
             fi
+            unset val
           done
           echo "::endgroup::"
           if [[ -f /tmp/skip_marker ]]; then
