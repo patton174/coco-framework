@@ -100,6 +100,14 @@ block_response="${TEST_ROOT}/block.json"
 write_response "${block_response}" 'end_turn' $'VERDICT: BLOCK\n\n## Blockers\n- Fix the issue.'
 run_case 'block-verdict-is-valid-output' 'success' "${block_response}" "${diff_file}" 'VERDICT: BLOCK'
 
+contradictory_response="${TEST_ROOT}/contradictory.json"
+write_response "${contradictory_response}" 'end_turn' $'VERDICT: PASS\n\n## Blockers\n- Hidden blocker.'
+run_case 'pass-with-blockers' 'failure' "${contradictory_response}" "${diff_file}"
+
+empty_block_response="${TEST_ROOT}/empty-block.json"
+write_response "${empty_block_response}" 'end_turn' $'VERDICT: BLOCK\n\n## Warnings\n- No blocker supplied.'
+run_case 'block-without-blockers' 'failure' "${empty_block_response}" "${diff_file}"
+
 invalid_response="${TEST_ROOT}/invalid.json"
 write_response "${invalid_response}" 'end_turn' 'No findings.'
 run_case 'missing-verdict' 'failure' "${invalid_response}" "${diff_file}"
