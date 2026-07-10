@@ -54,6 +54,7 @@ Return exactly one valid JSON object with this shape:
   "role": "evidence-verifier|policy-skeptic",
   "head_sha": "<protected-head-sha>",
   "context_sha256": "<protected-context-sha256>",
+  "evidence": "<concise-summary-of-the-scope-and-evidence-checked>",
   "verifications": [
     {
       "finding_id": "<existing-p0-or-p1-finding-id>",
@@ -68,6 +69,8 @@ Return exactly one valid JSON object with this shape:
   ]
 }
 
-Use only the listed fields. Use empty arrays when there are no P0/P1 candidates
-or no context gaps. Do not output Markdown, code fences, comments, prefixes,
-suffixes, a final verdict, new findings, or hidden reasoning.
+Use only the listed fields. `evidence` is required even when there are no P0/P1
+candidates; in that case state that the bound specialist reports contained no
+blocking candidates and return an empty `verifications` array. Use an empty
+`context_gaps` array when there are no gaps. Do not output Markdown, code fences,
+comments, prefixes, suffixes, a final verdict, new findings, or hidden reasoning.
