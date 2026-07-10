@@ -6,6 +6,8 @@ target/
 .vscode/
 *.iml
 *.log
+__pycache__/
+*.py[cod]
 .flattened-pom.xml
 .DS_Store
 .worktrees/

@@ -1,0 +1,5 @@
+# Governance-sensitive automation remains visible to the repository owner.
+/.github/workflows/ @patton174
+/.github/scripts/ @patton174
+/.github/dependabot.yml @patton174
+/AGENTS.md @patton174

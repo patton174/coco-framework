@@ -1,13 +1,15 @@
 name: CI
 
-# Main pipeline. Fans out into reusable sub-workflows (test + static analysis)
-# and joins them at a single `gate` job that branch protection can require.
-# The AI review agent (claude-review.yml) and CodeQL (codeql.yml) run as their
-# own PR-triggered workflows and appear as independent required checks.
+# Main deterministic pipeline. Tests, static analysis, and CodeQL join one
+# stable gate. Secret-backed Agent review runs separately from the protected
+# base branch and publishes its own stable status context.
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,22 +26,31 @@ jobs:
   static-analysis:
     name: Static analysis
     uses: ./.github/workflows/_static-analysis.yml
-    with:
-      # Phase 1: report findings without blocking. Flip to true after baseline cleanup.
-      fail-on-error: false
+
+  codeql:
+    name: CodeQL
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
 
   gate:
     name: CI gate
-    needs: [test, static-analysis]
+    needs: [test, static-analysis, codeql]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require all pipeline jobs to succeed
         shell: bash
         run: |
           echo "test            = ${{ needs.test.result }}"
           echo "static-analysis = ${{ needs.static-analysis.result }}"
-          if [[ "${{ needs.test.result }}" != "success" || "${{ needs.static-analysis.result }}" != "success" ]]; then
+          echo "codeql          = ${{ needs.codeql.result }}"
+          if [[ "${{ needs.test.result }}" != "success" \
+             || "${{ needs.static-analysis.result }}" != "success" \
+             || "${{ needs.codeql.result }}" != "success" ]]; then
             echo "::error::CI pipeline failed."
             exit 1
           fi

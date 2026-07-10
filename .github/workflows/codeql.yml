@@ -1,14 +1,11 @@
 name: CodeQL
 
-# Static security analysis (GitHub CodeQL) for Java. Results appear in the
-# Security tab and as PR annotations. Part of the review stage alongside
-# _static-analysis.yml and claude-review.yml.
+# Reusable Java security analysis. CI calls it for pushes, PRs, and manual
+# verification; the schedule keeps the default branch scanned independently.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_call:
+  workflow_dispatch:
   schedule:
     - cron: '37 5 * * 1'  # weekly, Monday 05:37 UTC
 
@@ -25,32 +22,34 @@ jobs:
   analyze:
     name: Analyze (java)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         # CodeQL autobuild uses the working tree, but incremental analysis
         # benefits from full git history. fetch-depth: 0 also enables the
         # GitHub UI's blame/annotation features for findings.
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # setup-java must precede CodeQL init so autobuild uses the right JDK.
       - name: Set up JDK 21 toolchain
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@641a925cfafe92d0fdf8b239ba4053e3f8d99d6d # v3
         with:
           languages: java-kotlin
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@641a925cfafe92d0fdf8b239ba4053e3f8d99d6d # v3
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@641a925cfafe92d0fdf8b239ba4053e3f8d99d6d # v3
         with:
           category: "/language:java-kotlin"
