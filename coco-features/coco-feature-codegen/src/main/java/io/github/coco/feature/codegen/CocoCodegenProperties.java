@@ -70,7 +70,7 @@ public class CocoCodegenProperties {
     /**
      * Coco 代码生成模板配置。
      * <p>
-     * 定义模板位置和模板文件编码，具体模板引擎由后续实现适配。
+     * 定义 FreeMarker 模板根位置和模板文件编码，业务项目可通过属性替换内置模板。
      * </p>
      * <p>
      * 项目信息：

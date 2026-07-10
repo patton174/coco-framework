@@ -338,6 +338,8 @@ JUnit 集成测试与 Python 黑盒脚本共同覆盖上下文清理、角色拒
 
 README 描述的"audit pipeline / openapi / generated CRUD"在 starter 里**完全没有**，是文档与实现的明显 gap。
 
+**处理状态：** PR9 先把三个模块的 README 承诺收敛到真实边界；Audit 随后补齐事件发布链路并在 full sample 中验证，OpenAPI 在 PR30 增加 SpringDoc 元数据消费者。PR37 将最后仍为 No-Op 的 Codegen 改为真实模板生成器，提供内置显式 CRUD 源码模板、安全文件写入和不绑定默认生命周期的 `coco:generate` goal。生成结果是业务项目拥有的普通 Java 源码，不引入运行时 auto-CRUD。
+
 **建议（M）：** 把 README 里这三项移到 "Roadmap" 或 "Extension points" 小节，避免开发者按字面理解后找不到东西。
 
 ---

@@ -60,7 +60,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | sample repository 职责混杂 | business B5 | accepted | sample 修正批次执行。 |
 | sample i18n bundle 错位 | business B6 | accepted | sample 修正批次执行，并同步检查 security messages。 |
 | sample secure endpoint 仅 URL 装饰 | business B7 | accepted | sample 修正批次执行，避免业务方误解端点名参与鉴权。 |
-| audit/openapi/codegen 是占位 SPI | framework C10 | adjusted | 文档改成扩展边界或 Roadmap，除非补齐端到端交付。 |
+| audit/openapi/codegen 是占位 SPI | framework C10 | accepted | PR9 先收敛文档；Audit 与 OpenAPI 已有真实消费者，PR37 补齐默认 CRUD 模板生成器和显式 `coco:generate` 交付。 |
 | OpenAPI 元数据 provider 无消费者 | framework C3 | accepted | PR30 增加可选 SpringDoc 元数据适配器；SpringDoc 在业务项目 classpath 中存在时自动把 Coco 元数据写入 `OpenAPI.info`，框架不强依赖 SpringDoc。 |
 | MyBatis-Plus 自动配置字符串排序 | framework C4 | accepted | PR31 将 Coco MyBatis-Plus、租户和数据权限的自动配置排序改为类型安全引用，并补测试防止回退到 `afterName` / `beforeName` 字符串类名。 |
 | Web 安全输入解析器缺直接测试 | framework C5 | accepted | PR32 补 `DefaultCocoWebRequestSecurityInputResolver` 直接测试，固定签名 / 加密 / 防重放过滤器共享输入快照边界。 |
@@ -847,6 +847,28 @@ codegraph sync .
 mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
 python coco-samples/coco-sample-basic/scripts/generate_postman_import.py
 python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
+git diff --check
+codegraph sync .
+```
+
+### PR 37：默认 CRUD 源码生成
+
+状态：done。Codegen 不再注册 No-Op 默认实现，业务项目可以显式生成并接管普通 Java CRUD 源码。
+
+目标：收口 C10 中最后一个真实空壳，同时坚持“生成源码，不做运行时 auto-CRUD”的框架边界。
+
+范围：
+
+- 默认 `CocoCodeGenerator` 使用可替换模板位置和编码的真实模板生成器。
+- 内置 `crud` 模板生成 Controller、DTO、应用服务、领域模型、仓储契约和 MyBatis-Plus 基础设施源码。
+- `coco-maven-plugin` 提供不绑定默认生命周期的 `coco:generate` goal，从严格 YAML 规格显式生成。
+- `CocoGeneratedFileWriter` 预检全部路径和碰撞，默认拒绝覆盖并支持 dry-run。
+- 测试覆盖模板渲染、非法路径、重复输出、覆盖策略、YAML 校验、Mojo 行为和生成源码编译。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-codegen,:coco-maven-plugin -am verify
 git diff --check
 codegraph sync .
 ```

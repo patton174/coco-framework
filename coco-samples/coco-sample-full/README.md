@@ -26,6 +26,19 @@ python coco-samples/coco-sample-full/scripts/verify_business_flow.py
 
 The black-box flow proves that one request sees only the row matching both its tenant and principal, verifies role denial and missing tenant handling, and reads the resulting audit events.
 
+## CRUD Source Generation
+
+The sample includes `coco-codegen.example.yml` as an opt-in generator specification. Generate the editable source set under the ignored build directory:
+
+```powershell
+cd coco-samples/coco-sample-full
+mvn coco:generate `
+    "-Dcoco.codegen.spec=coco-codegen.example.yml" `
+    "-Dcoco.codegen.outputDirectory=target/generated-codegen"
+```
+
+The goal is not bound to the build lifecycle and does not modify `src/main/java` in this example.
+
 ## Request Headers
 
 | Header | Purpose |

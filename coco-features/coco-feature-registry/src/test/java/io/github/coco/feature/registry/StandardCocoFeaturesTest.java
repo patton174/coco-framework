@@ -57,6 +57,8 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.OPENAPI).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
+        assertEquals(Set.of("coco-feature-codegen", "freemarker"),
+                definitions.get(CocoFeature.CODEGEN).pruneArtifactIds());
     }
 
     @Test

@@ -63,6 +63,7 @@ public final class StandardCocoFeatures {
                     CocoFeature.WEB, CocoFeature.SECURITY),
             feature(CocoFeature.CODEGEN, "coco-feature-codegen",
                     "io.github.coco.feature.codegen.CocoCodegenAutoConfiguration",
+                    Set.of("coco-feature-codegen", "freemarker"),
                     CocoFeature.MYBATIS_PLUS)
     );
 

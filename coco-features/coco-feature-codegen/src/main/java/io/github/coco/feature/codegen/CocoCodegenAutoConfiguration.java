@@ -3,8 +3,9 @@ package io.github.coco.feature.codegen;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.feature.codegen.core.CocoCodeGenerator;
-import io.github.coco.feature.codegen.core.NoOpCocoCodeGenerator;
+import io.github.coco.feature.codegen.core.CocoGeneratedFileWriter;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import io.github.coco.feature.codegen.template.FreeMarkerCocoCodeGenerator;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -48,12 +49,28 @@ public class CocoCodegenAutoConfiguration {
      * <p>
      * 创建默认代码生成器。
      * </p>
-     * @return 代码生成器
+     * @param properties 代码生成配置属性
+     * @return FreeMarker 代码生成器
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "coco.codegen", name = "enabled", havingValue = "true", matchIfMissing = true)
-    public CocoCodeGenerator cocoCodeGenerator() {
-        return new NoOpCocoCodeGenerator();
+    public CocoCodeGenerator cocoCodeGenerator(CocoCodegenProperties properties) {
+        CocoCodegenProperties.TemplateProperties templates = properties.getTemplates();
+        return new FreeMarkerCocoCodeGenerator(templates.getLocation(), templates.getEncoding());
+    }
+
+    /**
+     * <p>
+     * 创建显式生成文件写入器。
+     * </p>
+     * @param properties 代码生成配置属性
+     * @return 生成文件写入器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.codegen", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public CocoGeneratedFileWriter cocoGeneratedFileWriter(CocoCodegenProperties properties) {
+        return new CocoGeneratedFileWriter(properties.getTemplates().getEncoding());
     }
 }

@@ -150,13 +150,12 @@ Implemented or partially implemented foundations:
 - `coco-feature-data-permission` provides data permission context, resource mapping, and SQL predicate generation through MyBatis-Plus.
 - `coco-feature-audit` provides audit recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
 - `coco-feature-openapi` provides OpenAPI metadata provider boundaries.
-- `coco-feature-codegen` provides a code generation SPI and configuration boundary.
+- `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe file writing; `coco-maven-plugin` exposes the opt-in `coco:generate` goal.
 
 Not implemented as core behavior:
 
 - full user, role, organization, menu, or RBAC product model
 - complete authentication provider
-- generated CRUD templates
 - runtime auto-CRUD
 - complete admin console
 - database-backed audit persistence
@@ -224,4 +223,3 @@ Short-term priority should be to harden the Web server foundation:
 - make codegen produce explicit source templates before considering higher-level business modules
 
 Medium-term work can add optional business accelerators, but those should remain separate from the generic Web server core.
-

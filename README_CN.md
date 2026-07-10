@@ -114,6 +114,30 @@ class OrderController {
 }
 ```
 
+## 显式 CRUD 源码生成
+
+需要标准 CRUD 脚手架时，在业务项目根目录创建 `coco-codegen.yml`：
+
+```yaml
+base-package: com.example.catalog
+resources:
+  - name: Product
+    table: catalog_product
+    api-path: /products
+    id: { name: id, column: id, type: Long, strategy: AUTO }
+    fields:
+      - { name: sku, column: sku, type: String, required: true }
+      - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
+```
+
+然后显式运行：
+
+```powershell
+mvn coco:generate
+```
+
+生成器默认写入 `src/main/java`，并拒绝覆盖已有文件。它会生成普通的 Controller、DTO、应用服务、领域仓储契约和 MyBatis-Plus 基础设施源码；生成后由业务项目继续维护。该 goal 不绑定构建生命周期，也不会在运行时自动暴露实体。
+
 ## 生产 SQL 防护
 
 Coco 默认不启用 MyBatis-Plus SQL 防护，避免首次接入时破坏已有维护 SQL。生产服务建议先回放或审查业务 SQL，再显式启用：
@@ -166,9 +190,9 @@ coco:
       审计事件模型、记录器 SPI、发布器、失败策略和访问日志到审计事件的适配器。
     </td>
     <td width="33%">
-      <p><img src="https://img.shields.io/badge/Codegen-SPI%20Boundary-475569?style=flat-square" alt="Codegen"/></p>
-      <strong>代码生成边界</strong><br/>
-      面向显式源码脚手架的生成器 SPI；隐藏式运行时 CRUD Controller 明确不在范围内。
+      <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
+      <strong>显式源码生成</strong><br/>
+      可替换模板生成器、内置 CRUD 源码模板和安全写入；隐藏式运行时 CRUD Controller 明确不在范围内。
     </td>
   </tr>
 </table>
@@ -232,8 +256,8 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
     </tr>
     <tr>
       <td>Codegen</td>
-      <td>生成器 SPI 和配置边界。</td>
-      <td>模板、项目脚手架规则和生成后的 CRUD 源码归属。</td>
+      <td>生成器 SPI、内置 CRUD 模板、显式 Maven goal、覆盖保护和自定义模板位置。</td>
+      <td>项目专属模板、业务规则，以及生成后的 CRUD 源码维护。</td>
     </tr>
   </tbody>
 </table>

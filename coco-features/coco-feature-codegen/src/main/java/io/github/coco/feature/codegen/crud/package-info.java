@@ -1,9 +1,7 @@
-package io.github.coco.feature.codegen;
-
 /**
- * 代码生成功能模块标记。
+ * Coco 默认 CRUD 源码规格。
  * <p>
- * 标识 Coco 代码生成能力。该模块提供可替换生成器 SPI、FreeMarker 默认实现、CRUD 源码模板和安全写入边界。
+ * 提供小型、类型安全且可由 YAML 编排层直接构建的 CRUD 规格 API。
  * </p>
  * <p>
  * 项目信息：
@@ -16,8 +14,4 @@ package io.github.coco.feature.codegen;
  * @author patton174
  * @since 1.0.0
  */
-public final class CocoCodegenFeature {
-
-    private CocoCodegenFeature() {
-    }
-}
+package io.github.coco.feature.codegen.crud;
