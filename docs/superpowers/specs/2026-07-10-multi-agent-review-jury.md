@@ -224,7 +224,12 @@ P0/P1 候选，也要明确记录已检查的绑定报告集合，并返回空 `
 
 模型不能直接决定最终 status。确定性验证器按以下规则计算：
 
-- 任一必要 Agent 超时、拒答、API 错误、schema 错误或 hash 不匹配：基础设施 BLOCK。
+- 任一必要 Agent 超时、拒答、API 错误、无法纠正的 schema 错误或 hash 不匹配：基础设施
+  BLOCK。
+- 对可解析 JSON 的字段集合不匹配，允许在同一受保护 prompt、角色和 binding 下进行一次
+  协议纠错。纠错输入包含原 canonical task、上次输出和确定性校验错误，并全部按不可信数据
+  处理；第二次仍不符合 schema 时基础设施 BLOCK。非法 JSON、API/鉴权错误、角色或 hash
+  不匹配不进入纠错，立即失败关闭。
 - P0/P1 只有同时得到 `evidence-verifier=AGREE` 和 `policy-skeptic=AGREE`，才能成为
   confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不阻断。

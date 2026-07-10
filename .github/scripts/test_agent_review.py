@@ -692,6 +692,118 @@ class AgentReviewTests(unittest.TestCase):
             with self.assertRaises(review.ReviewError):
                 review.AnthropicClient(config())
 
+    def test_shape_repair_retries_once_with_bound_original_task(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [{"wrong": True}, {"required": True}]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+
+        def validate(value: dict) -> None:
+            review.require_exact_fields(value, {"required"}, "Test report")
+
+        with patch("builtins.print") as warning:
+            result = review.complete_with_shape_repair(
+                client, "protected system", '{"task":"review"}', 100, validate
+            )
+
+        self.assertEqual({"required": True}, result)
+        warning.assert_called_once()
+        self.assertEqual(2, len(client.calls))
+        self.assertIn("Protected protocol correction", client.calls[1][0])
+        repair_payload = json.loads(client.calls[1][1])
+        self.assertEqual({"task": "review"}, repair_payload["original_task"])
+        self.assertEqual({"wrong": True}, repair_payload["previous_response"])
+        self.assertIn("missing=['required']", repair_payload["validator_message"])
+
+    def test_shape_repair_fails_closed_after_second_shape_error(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, user, max_tokens
+                self.calls += 1
+                return {"wrong": self.calls}
+
+        client = FakeClient()
+
+        def validate(value: dict) -> None:
+            review.require_exact_fields(value, {"required"}, "Test report")
+
+        with patch("builtins.print"):
+            with self.assertRaises(review.ReportShapeError):
+                review.complete_with_shape_repair(
+                    client, "protected system", '{"task":"review"}', 100, validate
+                )
+        self.assertEqual(2, client.calls)
+
+    def test_shape_repair_does_not_retry_mixed_shape_and_binding_errors(self) -> None:
+        class FakeClient:
+            def __init__(self, response: dict) -> None:
+                self.response = response
+                self.calls = 0
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, user, max_tokens
+                self.calls += 1
+                return self.response
+
+        context = bound_context()
+        specialist = specialist_report("correctness", context)
+        finding_id = specialist["findings"][0]["id"]
+        verifier = verifier_report("evidence-verifier", context, finding_id)
+        chair = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "PASS",
+            "summary": "No independently confirmed blockers.",
+            "confirmed_blocker_ids": [],
+            "follow_up_finding_ids": [],
+            "questions": [],
+        }
+        consensus = {"confirmed": [], "challenged": [], "unverified": []}
+        cases = [
+            (
+                specialist,
+                lambda value: review.validate_specialist_report(
+                    value, "correctness", context, 8
+                ),
+            ),
+            (
+                verifier,
+                lambda value: review.validate_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+            ),
+            (
+                chair,
+                lambda value: review.validate_chair(value, consensus, context),
+            ),
+        ]
+
+        for response, validate in cases:
+            with self.subTest(role=response["role"]):
+                response["head_sha"] = "c" * 40
+                response["unexpected"] = True
+                client = FakeClient(response)
+                with self.assertRaisesRegex(review.ReviewError, "binding mismatch"):
+                    review.complete_with_shape_repair(
+                        client,
+                        "protected system",
+                        '{"task":"review"}',
+                        100,
+                        validate,
+                    )
+                self.assertEqual(1, client.calls)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
