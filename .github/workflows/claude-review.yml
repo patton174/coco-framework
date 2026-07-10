@@ -64,6 +64,18 @@ jobs:
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
         run: |
           set -euo pipefail
+          # Diagnostic: confirm which of the expected env vars are non-empty.
+          # We print lengths, never values. Secrets are auto-masked by GitHub
+          # in log output regardless.
+          echo "::group::Relay configuration"
+          for var in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+            if [[ -z "${!var}" ]]; then
+              echo "  ${var}: UNSET or EMPTY"
+            else
+              echo "  ${var}: set (length=${#${var}})"
+            fi
+          done
+          echo "::endgroup::"
           if [[ -f /tmp/skip_marker ]]; then
             echo "Skipping review (empty diff)."
             exit 0
