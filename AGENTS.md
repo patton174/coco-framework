@@ -82,7 +82,12 @@ mvn -B -Prelease -Drevision=1.0.0 -Dgpg.skip=true -DskipTests verify
 ## Git Workflow
 
 - Work on `codex-dev-*` or focused feature branches, then merge through PR into `main`.
-- Keep `main` release-ready.
+- `main` is protected. Direct pushes, force pushes, and branch deletion are not part of the development flow.
+- Keep `main` release-ready and require the stable `CI gate` and `Agent jury gate` contexts before merging. `CI gate` aggregates the cross-platform test matrix, static analysis, and CodeQL; do not protect matrix-generated check names individually.
+- Agent review uses five independent specialists, two independent verifiers, and one chair. P0/P1 findings block only when both verifiers agree; the chair cannot change the deterministic result.
+- Agent review may use repository secrets only for same-repository, non-bot pull requests. It runs trusted tooling from the protected base branch, reads PR content as untrusted text through GitHub APIs, and never checks out or executes PR code. Fork and bot PRs take a no-secret path and require explicit maintainer approval for the current head SHA.
+- The Agent workflow publishes a commit status and one managed jury comment; it does not submit GitHub approvals. Require one current human approval and resolve review conversations before merging. Use merge commits so roadmap PR boundaries remain visible; squash and rebase merging are disabled at repository level.
+- Repository automations that update tracked files must use a PR and the protected CI workflow rather than pushing directly to `main`.
 - Use SemVer release tags such as `v1.0.2`.
-- Fetch uses HTTPS remote; push is configured to SSH.
+- Fetch and push use the HTTPS remote through the GitHub CLI credential helper so proxy-enabled environments do not depend on SSH transport.
 - Before reporting completion, check `git status -sb` and mention any untracked or ignored output only if it matters.

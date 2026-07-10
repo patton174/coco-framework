@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "gate_name": "Agent jury gate",
+  "managed_comment_marker": "<!-- agent-jury:v1 -->",
+  "protected_policy_paths": [
+    "AGENTS.md",
+    ".github/agent-review/policy.md"
+  ],
+  "roles": {
+    "specialists": [
+      {
+        "id": "architecture-api",
+        "prompt_path": ".github/agent-review/prompts/specialist.md",
+        "lens": "Framework positioning, module dependency direction, starter and auto-configuration boundaries, public API and SPI stability, compatibility, and build-time versus runtime composition.",
+        "include_pr_intent": true,
+        "intent_isolation": {
+          "enabled": false,
+          "excluded_context_sections": [],
+          "retain_protected_policy": true
+        }
+      },
+      {
+        "id": "correctness",
+        "prompt_path": ".github/agent-review/prompts/specialist.md",
+        "lens": "Logic, concurrency, lifecycle and resource handling, exception propagation, feature planning, and consistency between build-time and runtime behavior.",
+        "include_pr_intent": true,
+        "intent_isolation": {
+          "enabled": false,
+          "excluded_context_sections": [],
+          "retain_protected_policy": true
+        }
+      },
+      {
+        "id": "security-isolation",
+        "prompt_path": ".github/agent-review/prompts/specialist.md",
+        "lens": "Workflow and secret boundaries, request security, tenant and data-permission isolation, SQL safety, encryption, signatures, and replay protection.",
+        "include_pr_intent": true,
+        "intent_isolation": {
+          "enabled": false,
+          "excluded_context_sections": [],
+          "retain_protected_policy": true
+        }
+      },
+      {
+        "id": "tests-release",
+        "prompt_path": ".github/agent-review/prompts/specialist.md",
+        "lens": "Test adequacy, negative and regression coverage, cross-platform behavior, Maven plugin behavior, package pruning, release safety, and operational regressions.",
+        "include_pr_intent": true,
+        "intent_isolation": {
+          "enabled": false,
+          "excluded_context_sections": [],
+          "retain_protected_policy": true
+        }
+      },
+      {
+        "id": "robustness-blind",
+        "prompt_path": ".github/agent-review/prompts/specialist.md",
+        "lens": "Input drift, silent loss, scale assumptions, observability gaps, partial failure, and unconstrained invariants without relying on the author's stated intent.",
+        "include_pr_intent": false,
+        "intent_isolation": {
+          "enabled": true,
+          "excluded_context_sections": [
+            "pr_intent"
+          ],
+          "excluded_context_fields": [
+            "pull_request.title",
+            "pull_request.body",
+            "commit_messages",
+            "by_design_explanations"
+          ],
+          "retain_protected_policy": true
+        }
+      }
+    ],
+    "verifiers": [
+      {
+        "id": "evidence-verifier",
+        "prompt_path": ".github/agent-review/prompts/cross-review.md",
+        "lens": "Verify each P0 or P1 finding against concrete code, line anchors, execution paths, triggers, and observable behavior. Distinguish false claims from missing context."
+      },
+      {
+        "id": "policy-skeptic",
+        "prompt_path": ".github/agent-review/prompts/cross-review.md",
+        "lens": "Verify each P0 or P1 finding against protected project policy, explicit non-goals, accepted governance choices, public contracts, and severity criteria."
+      }
+    ],
+    "chair": {
+      "id": "chair",
+      "prompt_path": ".github/agent-review/prompts/chair.md",
+      "lens": "Deduplicate and attribute findings, preserve verifier disagreement, and organize the deterministic result without creating or reclassifying blockers."
+    }
+  },
+  "context_budget": {
+    "unit": "unicode_characters",
+    "pr_diff_hard_limit": 60000,
+    "specialist_total_limit": 96000,
+    "protected_policy_and_specs_limit": 20000,
+    "pr_intent_limit": 8000,
+    "patch_limit": 48000,
+    "remainder_sources": [
+      "full_changed_files",
+      "base_comparisons",
+      "related_tests",
+      "module_poms",
+      "auto_configuration_imports",
+      "configuration_metadata"
+    ],
+    "always_include": [
+      "output_schema",
+      "current_task",
+      "base_sha",
+      "head_sha",
+      "context_sha256",
+      "context_omissions"
+    ],
+    "overflow_behavior": {
+      "pr_diff_hard_limit": "fail",
+      "section_limit": "prioritize_then_record_omission",
+      "specialist_total_limit": "fail_if_required_context_cannot_fit"
+    }
+  },
+  "output_limits": {
+    "specialist_findings": 10,
+    "specialist_questions": 5,
+    "specialist_context_gaps": 10
+  },
+  "spec_resolution": {
+    "revision": "base_sha",
+    "matching": "all_matching_entries",
+    "deduplicate": true
+  },
+  "spec_path_mappings": [
+    {
+      "path_globs": [
+        ".github/agent-review/**",
+        ".github/workflows/*agent-review*.yml",
+        ".github/workflows/claude-review.yml",
+        ".github/scripts/agent_review.py",
+        ".github/scripts/test_agent_review.py"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "pom.xml",
+        "coco-parent/**",
+        "coco-bom/**",
+        "coco-api/**",
+        "coco-config/**",
+        "coco-spring-boot-autoconfigure/**",
+        "coco-spring-boot-starter/**",
+        "coco-features/coco-feature-registry/**",
+        "coco-features/coco-feature-runtime/**",
+        "coco-maven-plugin/**"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-04-coco-framework-skeleton-design.md",
+        "docs/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "coco-api/**",
+        "coco-common/coco-common-i18n/**",
+        "coco-config/**",
+        "coco-features/coco-feature-registry/**"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-04-coco-api-core-i18n-design.md",
+        "docs/superpowers/specs/2026-07-04-coco-common-i18n-design.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "coco-features/coco-feature-web/**"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-05-coco-web-response-wrap-design.md",
+        "docs/superpowers/specs/2026-07-10-coco-jdbc-replay-store.md",
+        "docs/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "coco-features/coco-feature-audit/**"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-10-coco-default-audit-logging.md",
+        "docs/superpowers/specs/2026-07-10-coco-audit-feature-independence.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "coco-common/coco-common-logging/**"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-10-coco-async-log-overflow-observability.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "coco-features/coco-feature-codegen/**",
+        "coco-maven-plugin/**"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
+      ]
+    }
+  ]
+}

@@ -6,7 +6,9 @@ on:
     - cron: '24 2 * * *'
 
 permissions:
+  actions: write
   contents: write
+  pull-requests: write
 
 concurrency:
   group: update-readme-insights
@@ -15,12 +17,15 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '20'
 
@@ -29,17 +34,58 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tools/docs/update-readme-insights.mjs
 
-      - name: Commit README updates
+      - name: Commit README updates to automation branch
+        id: changes
         shell: bash
         run: |
           set -euo pipefail
           if git diff --quiet -- README.md README_CN.md; then
             echo "README insights are already up to date."
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
+          branch="automation/readme-insights"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "${branch}:refs/remotes/origin/${branch}" || true
+          git switch -C "${branch}"
           git add README.md README_CN.md
           git commit -m "docs: update README insights"
-          git push
+          git push --force-with-lease origin "HEAD:refs/heads/${branch}"
+
+          {
+            echo "changed=true"
+            echo "branch=${branch}"
+            echo "head-sha=$(git rev-parse HEAD)"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Open protected PR and request CI
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.changes.outputs.branch }}
+          HEAD_SHA: ${{ steps.changes.outputs.head-sha }}
+        run: |
+          set -euo pipefail
+          pr_number="$(
+            gh pr list --repo "${GITHUB_REPOSITORY}" --base main --head "${BRANCH}" \
+              --state open --json number --jq '.[0].number // empty'
+          )"
+          if [[ -z "${pr_number}" ]]; then
+            pr_url="$(
+              gh pr create --repo "${GITHUB_REPOSITORY}" --base main --head "${BRANCH}" \
+                --title "docs: update README insights" \
+                --body "Automated README statistics refresh. The protected CI workflow is dispatched explicitly because GITHUB_TOKEN-created PR events do not start other workflows."
+            )"
+            pr_number="${pr_url##*/}"
+          fi
+
+          gh workflow run ci.yml --repo "${GITHUB_REPOSITORY}" --ref "${BRANCH}"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
+            --field event_type=agent-review \
+            --field "client_payload[pr_number]=${pr_number}" \
+            --field "client_payload[head_sha]=${HEAD_SHA}" > /dev/null
+          gh pr merge "${pr_number}" --repo "${GITHUB_REPOSITORY}" \
+            --auto --merge --delete-branch
