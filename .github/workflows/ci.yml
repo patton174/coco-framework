@@ -68,3 +68,19 @@ jobs:
 
       - name: Verify sample business flow with Python
         run: python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
+
+      - name: Verify full sample business application
+        run: mvn -B -f coco-samples/coco-sample-full/pom.xml verify
+
+      - name: Verify full sample feature composition
+        shell: bash
+        run: |
+          for feature in web mybatis-plus audit security tenant data-permission openapi codegen; do
+            jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
+              | grep "BOOT-INF/lib/coco-feature-${feature}-"
+          done
+          jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
+            | grep 'BOOT-INF/lib/h2-'
+
+      - name: Verify full sample business flow with Python
+        run: python coco-samples/coco-sample-full/scripts/verify_business_flow.py

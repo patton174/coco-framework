@@ -30,6 +30,8 @@
   ·
   <a href="#extension-boundaries">Extension Boundaries</a>
   ·
+  <a href="#samples">Samples</a>
+  ·
   <a href="#stars">Stars</a>
   ·
   <a href="#contributors">Contributors</a>
@@ -232,6 +234,30 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
       <td>Codegen</td>
       <td>Generator SPI and configuration boundary.</td>
       <td>Templates, project-specific scaffolding rules, and generated CRUD source ownership.</td>
+    </tr>
+  </tbody>
+</table>
+
+## Samples
+
+<table>
+  <thead>
+    <tr>
+      <th width="24%">Sample</th>
+      <th width="46%">What It Proves</th>
+      <th width="30%">Entry</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Basic</strong></td>
+      <td>Web responses, exceptions, i18n, trace, signatures, encryption, and replay protection without a database.</td>
+      <td><a href="./coco-samples/coco-sample-basic/README.md">Open sample</a></td>
+    </tr>
+    <tr>
+      <td><strong>Full</strong></td>
+      <td>H2 + MyBatis-Plus with security assertions, tenant SQL isolation, data-permission SQL filtering, and audit publication.</td>
+      <td><a href="./coco-samples/coco-sample-full/README.md">Open sample</a></td>
     </tr>
   </tbody>
 </table>
