@@ -3,9 +3,9 @@ package io.github.coco.feature.codegen.core;
 import java.util.Objects;
 
 /**
- * 空操作 Coco 代码生成器。
+ * 显式空操作 Coco 代码生成器。
  * <p>
- * 作为默认实现仅校验请求对象并返回空结果，业务侧或后续框架模块可替换为真实模板生成器。
+ * 仅校验请求对象并返回空结果，可供测试或显式占位使用；框架默认 bean 使用真实 FreeMarker 模板生成器。
  * </p>
  * <p>
  * 项目信息：

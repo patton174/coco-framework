@@ -1,9 +1,7 @@
-package io.github.coco.feature.codegen;
-
 /**
- * 代码生成功能模块标记。
+ * Coco 模板代码生成实现。
  * <p>
- * 标识 Coco 代码生成能力。该模块提供可替换生成器 SPI、FreeMarker 默认实现、CRUD 源码模板和安全写入边界。
+ * 提供 manifest 驱动的 FreeMarker 生成器，并保持生成与文件落盘相互独立。
  * </p>
  * <p>
  * 项目信息：
@@ -16,8 +14,4 @@ package io.github.coco.feature.codegen;
  * @author patton174
  * @since 1.0.0
  */
-public final class CocoCodegenFeature {
-
-    private CocoCodegenFeature() {
-    }
-}
+package io.github.coco.feature.codegen.template;

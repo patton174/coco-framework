@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
@@ -14,8 +17,12 @@ import io.github.coco.feature.codegen.core.CocoCodeGenerator;
 import io.github.coco.feature.codegen.core.CocoCodegenRequest;
 import io.github.coco.feature.codegen.core.CocoCodegenResult;
 import io.github.coco.feature.codegen.core.CocoGeneratedFile;
-import io.github.coco.feature.codegen.core.NoOpCocoCodeGenerator;
+import io.github.coco.feature.codegen.core.CocoGeneratedFileWriter;
+import io.github.coco.feature.codegen.crud.CocoCrudIdStrategy;
+import io.github.coco.feature.codegen.crud.CocoCrudSpec;
+import io.github.coco.feature.codegen.template.FreeMarkerCocoCodeGenerator;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -24,7 +31,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Coco 代码生成功能自动配置测试。
  * <p>
- * 验证代码生成功能模块可以注册消息资源、绑定配置属性，并提供可替换的生成器 SPI。
+ * 验证代码生成功能模块可以注册消息资源、绑定配置属性，并提供可替换的真实模板生成器。
  * </p>
  * <p>
  * 项目信息：
@@ -57,16 +64,20 @@ class CocoCodegenAutoConfigurationTest {
     }
 
     @Test
-    void createsDefaultCodeGenerator() {
+    void createsDefaultTemplateGeneratorAndWriter() {
         this.contextRunner.run(context -> {
             assertThat(context).hasSingleBean(CocoCodegenProperties.class);
             assertThat(context).hasSingleBean(CocoCodeGenerator.class);
-            assertThat(context.getBean(CocoCodeGenerator.class)).isInstanceOf(NoOpCocoCodeGenerator.class);
+            assertThat(context).hasSingleBean(CocoGeneratedFileWriter.class);
+            assertThat(context.getBean(CocoCodeGenerator.class)).isInstanceOf(FreeMarkerCocoCodeGenerator.class);
 
-            CocoCodegenResult result = context.getBean(CocoCodeGenerator.class)
-                    .generate(CocoCodegenRequest.builder("crud").targetPackage("io.github.sample").build());
-            assertThat(result.hasFiles()).isFalse();
-            assertThat(result.files()).isEmpty();
+            CocoCodegenResult result = context.getBean(CocoCodeGenerator.class).generate(
+                    CocoCrudSpec.builder("io.github.sample", "Order", "sample_order")
+                            .id("id", "id", "Long", CocoCrudIdStrategy.AUTO)
+                            .field("name", "name", "String", true)
+                            .build()
+                            .toRequest());
+            assertThat(result.files()).hasSize(10);
         });
     }
 
@@ -85,6 +96,31 @@ class CocoCodegenAutoConfigurationTest {
     }
 
     @Test
+    void configuredTemplateLocationReplacesBuiltInTemplates(@TempDir Path templates) throws IOException {
+        Path group = templates.resolve("custom");
+        Files.createDirectories(group);
+        Files.writeString(group.resolve("manifest.properties"), """
+                group=custom
+                template.count=1
+                template.0.source=sample.ftl
+                template.0.output=generated/${name}.java
+                """);
+        Files.writeString(group.resolve("sample.ftl"), "class ${name} {}");
+
+        this.contextRunner
+                .withPropertyValues("coco.codegen.templates.location=" + templates.toUri())
+                .run(context -> {
+                    CocoCodegenResult result = context.getBean(CocoCodeGenerator.class)
+                            .generate(CocoCodegenRequest.builder("custom")
+                                    .attribute("name", "Sample")
+                                    .build());
+
+                    assertThat(result.files()).containsExactly(
+                            new CocoGeneratedFile("generated/Sample.java", "class Sample {}"));
+                });
+    }
+
+    @Test
     void backsOffWhenCustomCodeGeneratorExists() {
         this.contextRunner
                 .withUserConfiguration(CustomCodegenConfiguration.class)
@@ -92,7 +128,7 @@ class CocoCodegenAutoConfigurationTest {
                     CocoCodeGenerator generator = context.getBean(CocoCodeGenerator.class);
                     CocoCodegenResult result = generator.generate(CocoCodegenRequest.builder("crud").build());
 
-                    assertThat(generator).isNotInstanceOf(NoOpCocoCodeGenerator.class);
+                    assertThat(generator).isNotInstanceOf(FreeMarkerCocoCodeGenerator.class);
                     assertThat(result.files())
                             .containsExactly(new CocoGeneratedFile("src/main/java/Sample.java", "class Sample {}"));
                 });
@@ -114,8 +150,7 @@ class CocoCodegenAutoConfigurationTest {
                             .attribute("ignored", null)
                             .build());
 
-                    assertThat(generator).isNotInstanceOf(NoOpCocoCodeGenerator.class);
-                    assertThat(result.hasFiles()).isTrue();
+                    assertThat(generator).isNotInstanceOf(FreeMarkerCocoCodeGenerator.class);
                     assertThat(result.files()).containsExactly(new CocoGeneratedFile("generated/Order.java",
                             "group=crud;package=io.github.sample;templates=file:/workspace/templates;encoding=UTF-16"));
                 });
@@ -138,7 +173,6 @@ class CocoCodegenAutoConfigurationTest {
         assertThat(request.attributes()).containsEntry("entity", "Order");
         assertThat(generatedFile.path()).isEqualTo("generated/Order.java");
         assertThat(generatedFile.content()).isEmpty();
-        assertThat(result.hasFiles()).isTrue();
         assertThat(result.files()).containsExactly(generatedFile);
         assertThrows(UnsupportedOperationException.class,
                 () -> request.attributes().put("another", "value"));
@@ -149,12 +183,13 @@ class CocoCodegenAutoConfigurationTest {
     }
 
     @Test
-    void disablesCodeGenerator() {
+    void disablesCodegenInfrastructure() {
         this.contextRunner
                 .withPropertyValues("coco.codegen.enabled=false")
                 .run(context -> {
                     assertTrue(context.containsBean("cocoCodegenMessageBundleRegistrar"));
                     assertThat(context).doesNotHaveBean(CocoCodeGenerator.class);
+                    assertThat(context).doesNotHaveBean(CocoGeneratedFileWriter.class);
                 });
     }
 
@@ -165,6 +200,7 @@ class CocoCodegenAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean("cocoCodegenMessageBundleRegistrar");
                     assertThat(context).doesNotHaveBean(CocoCodeGenerator.class);
+                    assertThat(context).doesNotHaveBean(CocoGeneratedFileWriter.class);
                 });
     }
 
@@ -174,7 +210,7 @@ class CocoCodegenAutoConfigurationTest {
         @Bean
         CocoCodeGenerator customCocoCodeGenerator() {
             return request -> CocoCodegenResult.of(
-                    java.util.List.of(new CocoGeneratedFile("src/main/java/Sample.java", "class Sample {}")));
+                    List.of(new CocoGeneratedFile("src/main/java/Sample.java", "class Sample {}")));
         }
     }
 

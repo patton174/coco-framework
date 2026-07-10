@@ -114,6 +114,30 @@ class OrderController {
 }
 ```
 
+## Explicit CRUD Source Generation
+
+When a project needs standard CRUD scaffolding, add `coco-codegen.yml` at its root:
+
+```yaml
+base-package: com.example.catalog
+resources:
+  - name: Product
+    table: catalog_product
+    api-path: /products
+    id: { name: id, column: id, type: Long, strategy: AUTO }
+    fields:
+      - { name: sku, column: sku, type: String, required: true }
+      - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
+```
+
+Run the opt-in goal:
+
+```powershell
+mvn coco:generate
+```
+
+The generator writes to `src/main/java` by default and refuses to overwrite existing files. It produces ordinary Controller, DTO, application-service, domain-repository, and MyBatis-Plus infrastructure source owned by the business project. The goal is not bound to the build lifecycle and never exposes entities automatically at runtime.
+
 ## Production SQL Guard
 
 Coco keeps MyBatis-Plus SQL guard disabled by default so first adoption does not break existing maintenance SQL. For production services, replay or review application SQL first, then enable the guard explicitly:
@@ -166,9 +190,9 @@ When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, r
       Audit event model, recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
     </td>
     <td width="33%">
-      <p><img src="https://img.shields.io/badge/Codegen-SPI%20Boundary-475569?style=flat-square" alt="Codegen"/></p>
-      <strong>Codegen Boundary</strong><br/>
-      Generator SPI for explicit source-code scaffolding. Hidden runtime CRUD controllers are intentionally out of scope.
+      <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
+      <strong>Explicit Source Generation</strong><br/>
+      Replaceable templates, built-in CRUD source scaffolding, and safe writes. Hidden runtime CRUD controllers remain out of scope.
     </td>
   </tr>
 </table>
@@ -232,8 +256,8 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
     </tr>
     <tr>
       <td>Codegen</td>
-      <td>Generator SPI and configuration boundary.</td>
-      <td>Templates, project-specific scaffolding rules, and generated CRUD source ownership.</td>
+      <td>Generator SPI, built-in CRUD templates, an explicit Maven goal, overwrite protection, and custom template locations.</td>
+      <td>Project-specific templates, business rules, and ongoing ownership of generated CRUD source.</td>
     </tr>
   </tbody>
 </table>

@@ -28,7 +28,8 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-feature-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
 - `coco-feature-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
 - `coco-feature-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
-- `coco-feature-audit`, `coco-feature-openapi`, and `coco-feature-codegen` currently provide extension boundaries and initial SPI/metadata capabilities.
+- `coco-feature-audit` provides the audit event pipeline and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
+- `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe generated-file writing; `coco-maven-plugin` exposes this through the opt-in `coco:generate` goal.
 - `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
 
 ## Development Rules
