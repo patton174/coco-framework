@@ -71,6 +71,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | Maven Enforcer 发布闸门 | framework C7 | accepted | PR21 已在根 POM 增加 enforcer：常规构建检查依赖收敛、重复依赖声明和直接禁用依赖；release profile 拒绝 SNAPSHOT 版本。 |
 | CI 跨平台矩阵 | framework C8 | accepted | PR22 将 verify job 扩展到 Ubuntu / Windows / macOS，并显式区分 JDK 21 toolchain 与 Java 17 编译目标。 |
 | 完整数据库业务示例缺失 | framework C9 | accepted | PR35 新增 H2 + MyBatis-Plus full sample，跑通安全、租户、数据权限和审计链路。 |
+| sample 安全材料硬编码 | framework C11 | accepted | PR36 将签名密钥和 AES key 改为环境变量或黑盒运行时临时生成，提交的 Postman 资产不再保存固定材料。 |
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 | 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
@@ -820,6 +821,32 @@ codegraph sync .
 mvn -B install
 mvn -B -f coco-samples/coco-sample-full/pom.xml verify
 python coco-samples/coco-sample-full/scripts/verify_business_flow.py
+git diff --check
+codegraph sync .
+```
+
+### PR 36：样例安全材料外置
+
+状态：done。basic sample、Python 黑盒脚本和 Postman 资产不再保存固定签名密钥或 AES key。
+
+目标：收口 C11，防止示例中的固定安全材料被业务项目照搬，并保持一条命令可执行的 CI 黑盒流。
+
+范围：
+
+- `application.yml` 通过 `SAMPLE_SIGNING_KEY` 和 `SAMPLE_ENCRYPTION_KEY` 读取安全材料。
+- 黑盒脚本在环境变量缺失时生成临时签名密钥、AES key 和 IV，只传入子 Java 进程环境。
+- Postman 生成器从环境读取材料，不再包含固定 secret、key 或 IV。
+- 仓库提交的 Postman collection / environment 保持安全材料槽位为空。
+- 本地 Postman 资产默认输出到 Git 忽略的 `target/postman`，签名密钥不进入 collection variable。
+- 架构测试断言配置使用环境占位符，并阻止历史固定材料重新进入生成器和 Postman 资产。
+- 重新生成资产时同步校正非法加密载荷场景，使其断言当前框架返回的 400 错误。
+
+验收：
+
+```powershell
+mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
+python coco-samples/coco-sample-basic/scripts/generate_postman_import.py
+python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
 git diff --check
 codegraph sync .
 ```

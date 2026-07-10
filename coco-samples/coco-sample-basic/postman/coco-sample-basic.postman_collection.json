@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "85d26342-5969-5f6e-8c43-4bddac9f10c2",
     "name": "Coco Sample Basic",
-    "description": "Coco 示例基础业务接口测试集。导入后选择 Coco Sample Basic Local 环境，或修改 collection variable 中的 baseUrl。默认启动示例应用即可执行全部业务与安全接口。",
+    "description": "Coco 示例基础业务接口测试集。导入后选择 Coco Sample Basic Local 环境，或修改 collection variable 中的 baseUrl。安全接口需要先配置示例进程和 Postman 环境密钥。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -17,7 +17,7 @@
           "if (!pm.collectionVariables.get(\"baseUrl\")) {",
           "    pm.collectionVariables.set(\"baseUrl\", \"http://localhost:8080\");",
           "}",
-          "[\"secureAppId\", \"signatureSecret\", \"aesIvBase64\", \"encryptedOrderBody\"].forEach(function (key) {",
+          "[\"secureAppId\", \"aesIvBase64\", \"encryptedOrderBody\"].forEach(function (key) {",
           "    const envValue = pm.environment.get(key);",
           "    if (envValue && !pm.collectionVariables.get(key)) {",
           "        pm.collectionVariables.set(key, envValue);",
@@ -44,11 +44,6 @@
       "type": "string"
     },
     {
-      "key": "signatureSecret",
-      "value": "sample-secret",
-      "type": "string"
-    },
-    {
       "key": "replayTimestamp",
       "value": "",
       "type": "string"
@@ -60,12 +55,12 @@
     },
     {
       "key": "aesIvBase64",
-      "value": "MTIzNDU2Nzg5MDEy",
+      "value": "",
       "type": "string"
     },
     {
       "key": "encryptedOrderBody",
-      "value": "vXMggJIL9eVQ/P5eNQc6JQW+p7X7uS4RVvtpHqa7IG9qYlO5VtdEAXM8auW3SGwLeTp5f1Hygb7j6Uoe3Ft34frexO41wg4EH7ofwf0m5Vo=",
+      "value": "",
       "type": "string"
     }
   ],
@@ -576,7 +571,7 @@
     },
     {
       "name": "签名模式",
-      "description": "同一个示例应用默认启动后，对签名保护订单接口执行验签场景。",
+      "description": "配置 SAMPLE_SIGNING_KEY 后，对签名保护订单接口执行验签场景。",
       "item": [
         {
           "name": "签名订单成功",
@@ -616,7 +611,8 @@
                 "exec": [
                   "const crypto = typeof CryptoJS !== \"undefined\" ? CryptoJS : require(\"crypto-js\");",
                   "const appId = pm.collectionVariables.get(\"secureAppId\") || pm.environment.get(\"secureAppId\") || \"sample-app\";",
-                  "const secret = pm.collectionVariables.get(\"signatureSecret\") || pm.environment.get(\"signatureSecret\") || \"sample-secret\";",
+                  "const secret = pm.environment.get(\"signatureSecret\");",
+                  "pm.expect(secret, \"请在 Postman 环境中配置 signatureSecret\").to.not.be.empty;",
                   "const timestamp = Date.now().toString();",
                   "const nonce = \"postman-signature-\" + timestamp;",
                   "pm.request.headers.upsert({ key: \"X-Coco-App-Id\", value: appId });",
@@ -839,7 +835,8 @@
                 "exec": [
                   "const crypto = typeof CryptoJS !== \"undefined\" ? CryptoJS : require(\"crypto-js\");",
                   "const appId = pm.collectionVariables.get(\"secureAppId\") || pm.environment.get(\"secureAppId\") || \"sample-app\";",
-                  "const secret = pm.collectionVariables.get(\"signatureSecret\") || pm.environment.get(\"signatureSecret\") || \"sample-secret\";",
+                  "const secret = pm.environment.get(\"signatureSecret\");",
+                  "pm.expect(secret, \"请在 Postman 环境中配置 signatureSecret\").to.not.be.empty;",
                   "const timestamp = Date.now().toString();",
                   "const nonce = \"postman-signature-\" + timestamp;",
                   "pm.request.headers.upsert({ key: \"X-Coco-App-Id\", value: appId });",
@@ -1122,7 +1119,7 @@
     },
     {
       "name": "加密模式",
-      "description": "同一个示例应用默认启动后，对加密保护订单接口执行解密和异常场景。",
+      "description": "配置 SAMPLE_ENCRYPTION_KEY 并重新生成 Postman 资产后，对加密保护订单接口执行解密和异常场景。",
       "item": [
         {
           "name": "加密订单成功",
@@ -1147,7 +1144,7 @@
               },
               {
                 "key": "X-Coco-App-Id",
-                "value": "sample-app"
+                "value": "{{secureAppId}}"
               },
               {
                 "key": "X-Coco-IV",
@@ -1288,7 +1285,7 @@
               },
               {
                 "key": "X-Coco-App-Id",
-                "value": "sample-app"
+                "value": "{{secureAppId}}"
               },
               {
                 "key": "X-Coco-IV",
@@ -1319,20 +1316,20 @@
                 "exec": [
                   "const body = pm.response.json();",
                   "",
-                  "pm.test(\"HTTP 401\", function () {",
-                  "    pm.response.to.have.status(401);",
+                  "pm.test(\"HTTP 400\", function () {",
+                  "    pm.response.to.have.status(400);",
                   "});",
                   "",
                   "pm.test(\"返回 Coco 统一错误响应\", function () {",
                   "    pm.expect(body.success).to.eql(false);",
-                  "    pm.expect(body.code).to.eql(401);",
+                  "    pm.expect(body.code).to.eql(400);",
                   "    pm.expect(pm.response.headers.get(\"X-Trace-Id\")).to.eql(\"postman-encryption-invalid\");",
                   "    pm.expect(body).to.not.have.property(\"traceId\");",
                   "    pm.expect(body).to.not.have.property(\"path\");",
                   "});",
                   "",
-                  "pm.test(\"消息包含 Request encryption payload is invalid.\", function () {",
-                  "    pm.expect(body.message).to.include(\"Request encryption payload is invalid.\");",
+                  "pm.test(\"消息包含 Request encryption data is malformed.\", function () {",
+                  "    pm.expect(body.message).to.include(\"Request encryption data is malformed.\");",
                   "});"
                 ]
               }

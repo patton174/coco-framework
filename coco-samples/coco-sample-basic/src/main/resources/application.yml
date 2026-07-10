@@ -15,7 +15,7 @@ coco:
   web:
     signature:
       secrets:
-        sample-app: sample-secret
+        sample-app: ${SAMPLE_SIGNING_KEY:}
       matcher:
         required:
           - methods:
@@ -33,7 +33,7 @@ coco:
               - /sample/secure/replay/orders
     encryption:
       keys:
-        sample-app: MDEyMzQ1Njc4OWFiY2RlZg==
+        sample-app: ${SAMPLE_ENCRYPTION_KEY:}
       matcher:
         required:
           - methods:

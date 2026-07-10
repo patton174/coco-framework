@@ -1,6 +1,7 @@
 package io.github.coco.sample.basic.architecture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -101,12 +102,12 @@ class CocoSampleBusinessIntegrationTest {
      */
     @Test
     void declaresSecurityConfigurationInApplicationConfiguration() throws Exception {
-        assertApplicationYamlProperty("coco.web.signature.secrets.sample-app", "sample-secret");
+        assertApplicationYamlProperty("coco.web.signature.secrets.sample-app", "${SAMPLE_SIGNING_KEY:}");
         assertApplicationYamlProperty("coco.web.signature.matcher.required[0].path-patterns[0]",
                 "/sample/secure/signature/orders");
         assertApplicationYamlProperty("coco.web.replay.matcher.required[0].path-patterns[0]",
                 "/sample/secure/replay/orders");
-        assertApplicationYamlProperty("coco.web.encryption.keys.sample-app", "MDEyMzQ1Njc4OWFiY2RlZg==");
+        assertApplicationYamlProperty("coco.web.encryption.keys.sample-app", "${SAMPLE_ENCRYPTION_KEY:}");
         assertApplicationYamlProperty("coco.web.encryption.matcher.required[0].path-patterns[0]",
                 "/sample/secure/encryption/orders");
     }
@@ -134,6 +135,7 @@ class CocoSampleBusinessIntegrationTest {
         assertEquals(5, collectionRoot.path("item").size());
         assertEquals("业务主流程", collectionRoot.path("item").get(0).path("name").asText());
         assertEquals(16, countPostmanRequests(collectionRoot.path("item")));
+        assertFalse(hasPostmanCollectionValue(collectionRoot, "signatureSecret"));
 
         JsonNode environmentRoot = objectMapper.readTree(environment.toFile());
         assertEquals("Coco Sample Basic Local", environmentRoot.path("name").asText());
@@ -141,6 +143,14 @@ class CocoSampleBusinessIntegrationTest {
         assertTrue(hasPostmanEnvironmentValue(environmentRoot, "secureAppId"));
         assertTrue(hasPostmanEnvironmentValue(environmentRoot, "signatureSecret"));
         assertTrue(hasPostmanEnvironmentValue(environmentRoot, "encryptedOrderBody"));
+        assertEquals("", postmanEnvironmentValue(environmentRoot, "signatureSecret"));
+        assertEquals("", postmanEnvironmentValue(environmentRoot, "aesIvBase64"));
+        assertEquals("", postmanEnvironmentValue(environmentRoot, "encryptedOrderBody"));
+
+        String generatorSource = Files.readString(generator);
+        assertFalse(generatorSource.contains("SAMPLE_SIGNATURE_SECRET"));
+        assertFalse(generatorSource.contains("SAMPLE_AES_KEY"));
+        assertFalse(generatorSource.contains("SAMPLE_AES_IV"));
     }
 
     /**
@@ -315,6 +325,24 @@ class CocoSampleBusinessIntegrationTest {
             }
         }
         return false;
+    }
+
+    private static boolean hasPostmanCollectionValue(JsonNode collection, String key) {
+        for (JsonNode value : collection.path("variable")) {
+            if (key.equals(value.path("key").asText())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String postmanEnvironmentValue(JsonNode environment, String key) {
+        for (JsonNode value : environment.path("values")) {
+            if (key.equals(value.path("key").asText())) {
+                return value.path("value").asText();
+            }
+        }
+        throw new IllegalStateException("Missing Postman environment value: " + key);
     }
 
     private static boolean containsAccessLogProbe(Path path) {
