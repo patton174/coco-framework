@@ -314,12 +314,23 @@ class GitHubClient:
                 }
                 return body, headers
         except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                error_body = exc.read(4097)
+                if len(error_body) <= 4096:
+                    error_payload = json.loads(error_body)
+                    if isinstance(error_payload, dict) and isinstance(
+                        error_payload.get("message"), str
+                    ):
+                        detail = " " + error_payload["message"].replace("\n", " ")[:300]
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                pass
             if exc.code == 404:
                 raise GitHubNotFoundError(
-                    f"GitHub API returned HTTP 404 for {method} {path}."
+                    f"GitHub API returned HTTP 404 for {method} {path}.{detail}"
                 ) from exc
             raise ReviewError(
-                f"GitHub API returned HTTP {exc.code} for {method} {path}."
+                f"GitHub API returned HTTP {exc.code} for {method} {path}.{detail}"
             ) from exc
         except urllib.error.URLError as exc:
             raise ReviewError(
@@ -1252,6 +1263,7 @@ def validate_cross_report(
                 "role",
                 "head_sha",
                 "context_sha256",
+                "evidence",
                 "verifications",
                 "context_gaps",
             },
@@ -1266,6 +1278,7 @@ def validate_cross_report(
                 "head_sha",
                 "context_sha256",
                 "status",
+                "evidence",
                 "reviews",
                 "context_gaps",
             },
@@ -1279,6 +1292,7 @@ def validate_cross_report(
         or report.get("context_sha256") != binding["context_sha256"]
     ):
         raise ReviewError(f"Cross-review report binding mismatch for {role}.")
+    report_evidence = require_string(report.get("evidence"), "evidence", 8)
     reviews = report.get("verifications") if raw_schema else report.get("reviews")
     if not isinstance(reviews, list):
         raise ReviewError(f"Cross-review {role} verifications must be an array.")
@@ -1343,6 +1357,7 @@ def validate_cross_report(
                 "head_sha": binding["head_sha"],
                 "context_sha256": binding["context_sha256"],
                 "status": status,
+                "evidence": report_evidence,
                 "reviews": normalized,
                 "context_gaps": context_gaps,
             }
@@ -2080,7 +2095,19 @@ def command_publish(args: argparse.Namespace) -> int:
         + f"\n\n<sub>Updated {timestamp} - [workflow run]({args.run_url})</sub>\n"
     )
     require_current_pr()
-    upsert_comment(client, repository, pr_number, body, run_order)
+    try:
+        upsert_comment(client, repository, pr_number, body, run_order)
+    except ReviewError:
+        require_current_pr()
+        publish_status(
+            client,
+            repository,
+            head_sha,
+            "failure",
+            "Agent jury comment publication failed",
+            args.run_url,
+        )
+        raise
     require_current_pr()
     publish_status(client, repository, head_sha, state, description, args.run_url)
     print(canonical_json({"state": state, "description": description}))

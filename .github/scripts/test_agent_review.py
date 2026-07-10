@@ -125,6 +125,7 @@ def verifier_report(
         "head_sha": context["binding"]["head_sha"],
         "context_sha256": context["binding"]["context_sha256"],
         "status": "COMPLETE",
+        "evidence": "The verifier checked the bound candidate and supplied context.",
         "reviews": [
             {
                 "finding_id": finding_id,
@@ -383,6 +384,7 @@ class AgentReviewTests(unittest.TestCase):
             "role": "evidence-verifier",
             "head_sha": HEAD_SHA,
             "context_sha256": context["binding"]["context_sha256"],
+            "evidence": "The verifier checked the cited branch and trigger.",
             "verifications": [
                 {
                     "finding_id": finding_id,
@@ -424,6 +426,7 @@ class AgentReviewTests(unittest.TestCase):
                 "role": "evidence-verifier",
                 "head_sha": HEAD_SHA,
                 "context_sha256": context["binding"]["context_sha256"],
+                "evidence": "No P0/P1 candidates were present in the bound reports.",
                 "verifications": [],
                 "context_gaps": [],
             }
@@ -524,6 +527,7 @@ class AgentReviewTests(unittest.TestCase):
                 "head_sha": HEAD_SHA,
                 "context_sha256": context["binding"]["context_sha256"],
                 "status": "NOT_NEEDED",
+                "evidence": "No P0/P1 candidates were present in the bound reports.",
                 "reviews": [],
                 "context_gaps": [],
             }
