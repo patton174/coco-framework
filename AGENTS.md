@@ -24,7 +24,7 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-config` binds `coco.*` configuration and computes the final runtime feature plan.
 - `coco-feature-registry` owns standard feature metadata, dependencies, manifest model, and feature resolution.
 - `coco-feature-runtime` filters auto-configuration by feature state.
-- `coco-feature-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, and replay protection.
+- `coco-feature-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
 - `coco-feature-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
 - `coco-feature-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
 - `coco-feature-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.

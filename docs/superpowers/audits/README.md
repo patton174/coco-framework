@@ -28,6 +28,8 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | deferred | 问题成立，但依赖前置工作或不属于 v1.0.x 闸门。 |
 | refuted | 与项目定位冲突，或证据不足，不执行。 |
 
+上表用于审计结论决策；下方 PR 队列中的 `done` 是实施状态，两者不是同一状态机。
+
 ## 归并决策
 
 | 主题 | 来源 | 状态 | 决策 |
@@ -38,7 +40,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 租户旁路无审计 | framework A4 | accepted | v1.0.x 必修。增加旁路白名单、告警和审计事件边界。 |
 | ThreadLocal 上下文传播 | framework A5 | accepted | v1.0.x 必修。提供通用传播原语和 sample 适配器，不强制业务登录模型。 |
 | Maven 注解扫描器缺测试 | framework A6 | accepted | 第一批代码 PR。风险小、收益高。 |
-| Replay 默认 store 单进程 | framework B1 | accepted | 启动 WARN，文档标明集群必须替换 `CocoReplayStore`，后续提供 JDBC 参考实现。 |
+| Replay 默认 store 单进程 | framework B1 | accepted | PR6 增加启动 WARN；PR40 补集群接入文档和显式 JDBC 共享参考实现，同时保留 `CocoReplayStore` 替换边界。 |
 | TraceId 无校验 | framework B2 | accepted | 增加 validator，默认限制字符集和长度。 |
 | Replay 使用客户端时间计算过期 | framework B3 | accepted | 改为服务端入站时间加 TTL，并增加时钟偏差配置。 |
 | Replay 清理在写路径 | framework B4, B13 | accepted | PR27 将默认内存 replay store 的过期键清理移出请求写路径，改为懒启动后台守护线程清理。 |
@@ -913,6 +915,30 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-feature-registry,:coco-maven-plugin -am verify
+mvn -B verify
+git diff --check
+codegraph sync .
+```
+
+### PR 40：JDBC 共享防重放存储
+
+状态：done。默认内存 Store 保持单实例定位；集群业务可以显式选择 JDBC 参考实现，并继续掌握表结构、迁移和事务边界。
+
+目标：完成 B1 中尚未落地的 JDBC 参考实现，让使用现有关系型数据库的多实例服务不必从零实现 `CocoReplayStore`，同时不把数据库生命周期和 exactly-once 业务语义封装进 Web 框架。
+
+范围：
+
+- 增加 `coco.web.replay.store-type=jdbc` 和严格校验的 `coco.web.replay.jdbc.table-name` 配置；默认仍为 `in-memory`。
+- `JdbcCocoReplayStore` 使用 SHA-256 摘要、过期条件更新、插入和数据库唯一键完成跨实例原子占用，避免 check-then-insert。
+- JDBC Store 首次使用后懒启动过期记录清理任务；占用路径数据库异常向上抛出，使受保护请求失败关闭，异步清理失败记录 WARN 后重试。
+- JDBC 自动配置只在业务已有唯一 `JdbcOperations` 候选时生效，不创建 DataSource、不执行 DDL、不猜测多数据源；自定义 `CocoReplayStore` 继续优先。
+- 中英文 README 提供最小配置和表契约，并明确数据库迁移、可用性、集群时钟、业务事务和 exactly-once 语义由业务负责。
+- H2 与自动配置测试覆盖首次占用、有效重复、过期重占用、并发竞争、清理、摘要存储、非法表名、默认内存和自定义 Bean 回退。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-web -am verify
 mvn -B verify
 git diff --check
 codegraph sync .

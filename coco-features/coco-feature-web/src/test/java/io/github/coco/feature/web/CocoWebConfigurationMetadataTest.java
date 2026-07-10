@@ -50,7 +50,9 @@ class CocoWebConfigurationMetadataTest {
                 .filter(line -> !line.isBlank())
                 .filter(line -> !line.startsWith("#"))
                 .toList();
-        assertEquals(List.of(CocoWebAutoConfiguration.class.getName()), autoConfigurations);
+        assertEquals(List.of(
+                CocoWebJdbcReplayAutoConfiguration.class.getName(),
+                CocoWebAutoConfiguration.class.getName()), autoConfigurations);
     }
 
     @Test
@@ -126,6 +128,8 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.encryption.gcm-tag-length-bits\""));
         assertTrue(content.contains("\"name\": \"coco.web.encryption.keys\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.enabled\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.store-type\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.jdbc.table-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.required\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-signed-requests\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-encrypted-requests\""));
@@ -209,6 +213,9 @@ class CocoWebConfigurationMetadataTest {
                 "header-then-parameter", "parameter-then-header");
         assertHintValues(metadata, "coco.web.replay.metadata-source", "header", "parameter",
                 "header-then-parameter", "parameter-then-header");
+        assertHintValues(metadata, "coco.web.replay.store-type", "in-memory", "jdbc");
+        assertAdditionalProperty(metadata, "coco.web.replay.store-type");
+        assertAdditionalProperty(metadata, "coco.web.replay.jdbc.table-name");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.payload-encoding", "base64", "hex", "utf8", "raw");

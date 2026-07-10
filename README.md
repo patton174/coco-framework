@@ -158,6 +158,33 @@ When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, r
 - predicates or join conditions whose first checked column is not covered by index metadata.
 - complex join, schema-qualified, vendor-specific, or dynamically generated SQL that the JSQLParser-based guard cannot validate reliably.
 
+## Cluster Replay Protection
+
+The default `InMemoryCocoReplayStore` is intentionally process-local. It is suitable for one application instance and local development, but clustered services must use a shared store. When the application already provides Spring `JdbcOperations`, select the built-in JDBC reference implementation explicitly:
+
+```yaml
+coco:
+  web:
+    replay:
+      store-type: jdbc
+      jdbc:
+        table-name: coco_replay_key
+```
+
+Coco does not execute database migrations. Create the equivalent structure through the application's existing migration process, adapting this baseline DDL to the selected database:
+
+```sql
+CREATE TABLE coco_replay_key (
+    replay_key_hash VARCHAR(64) NOT NULL,
+    expires_at_epoch_millis BIGINT NOT NULL,
+    PRIMARY KEY (replay_key_hash)
+);
+CREATE INDEX idx_coco_replay_key_expires_at
+    ON coco_replay_key (expires_at_epoch_millis);
+```
+
+The unique key provides cross-instance atomic reservation, while Coco stores only a SHA-256 digest and cleans expired rows in the background. Reservation-path database failures fail protected requests closed; asynchronous cleanup failures are logged and retried. The Servlet filter reserves before normal Controller transaction boundaries. Schema lifecycle, database availability, clock synchronization, direct-call transaction use, and exactly-once side effects remain application responsibilities. With multiple `JdbcOperations` Beans, mark the intended candidate `@Primary` or provide a custom `CocoReplayStore`, which still replaces both built-in stores.
+
 ## What Coco Provides
 
 <table>
@@ -165,7 +192,7 @@ When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, r
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
       <strong>Web Runtime</strong><br/>
-      Unified responses, exception responses, trace headers, request context, access logs, request signatures, encryption, and replay protection.
+      Unified responses, exception responses, trace headers, request context, access logs, request signatures, encryption, and process-local or shared JDBC replay protection.
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
@@ -239,6 +266,11 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td>Replay</td>
+      <td>Process-local default, explicit shared JDBC reference store, atomic key reservation, expiry cleanup, and replaceable store SPI.</td>
+      <td>Database migration and availability, cluster clock synchronization, business transactions, and exactly-once semantics.</td>
+    </tr>
     <tr>
       <td>Security</td>
       <td>Context facade, resolver SPI, Servlet context bridge, trusted-header adapter, assertions, and propagation primitives.</td>
