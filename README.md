@@ -185,6 +185,22 @@ CREATE INDEX idx_coco_replay_key_expires_at
 
 The unique key provides cross-instance atomic reservation, while Coco stores only a SHA-256 digest and cleans expired rows in the background. Reservation-path database failures fail protected requests closed; asynchronous cleanup failures are logged and retried. The Servlet filter reserves before normal Controller transaction boundaries. Schema lifecycle, database availability, clock synchronization, direct-call transaction use, and exactly-once side effects remain application responsibilities. With multiple `JdbcOperations` Beans, mark the intended candidate `@Primary` or provide a custom `CocoReplayStore`, which still replaces both built-in stores.
 
+## Async Logging Backpressure
+
+Coco logging uses a bounded asynchronous queue by default. `ERROR` records and records carrying an exception are always written synchronously; when the queue is full, `WARN` also falls back to synchronous output. Rejected `TRACE`, `DEBUG`, and `INFO` records remain intentionally droppable so request threads do not block indefinitely.
+
+Every actual drop increments an in-process counter and notifies `CocoAsyncLogDropListener`. The default listener writes a direct SLF4J warning for the first drop and then at power-of-two totals, providing a low-noise overload signal without feeding diagnostics back into the full Coco queue. Applications can replace it with one Bean:
+
+```java
+@Bean
+CocoAsyncLogDropListener cocoAsyncLogDropListener(MeterRegistry registry) {
+    Counter counter = registry.counter("coco.logging.async.dropped");
+    return (level, handleName, totalDropped) -> counter.increment();
+}
+```
+
+The callback receives only the level, log handle name, and cumulative count; message text and exceptions are not exposed. It must remain fast and non-blocking. This mechanism is overload observability, not durable log delivery; applications requiring delivery guarantees should provide their own `CocoLogSink` or audit recorder.
+
 ## What Coco Provides
 
 <table>
