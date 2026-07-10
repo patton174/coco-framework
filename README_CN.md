@@ -30,6 +30,8 @@
   ·
   <a href="#扩展边界">扩展边界</a>
   ·
+  <a href="#示例">示例</a>
+  ·
   <a href="#星星趋势">星星趋势</a>
   ·
   <a href="#贡献者">贡献者</a>
@@ -232,6 +234,30 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
       <td>Codegen</td>
       <td>生成器 SPI 和配置边界。</td>
       <td>模板、项目脚手架规则和生成后的 CRUD 源码归属。</td>
+    </tr>
+  </tbody>
+</table>
+
+## 示例
+
+<table>
+  <thead>
+    <tr>
+      <th width="24%">示例</th>
+      <th width="46%">验证范围</th>
+      <th width="30%">入口</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Basic</strong></td>
+      <td>无数据库场景下的统一响应、异常、i18n、Trace、签名、加密和防重放。</td>
+      <td><a href="./coco-samples/coco-sample-basic/README.md">查看示例</a></td>
+    </tr>
+    <tr>
+      <td><strong>Full</strong></td>
+      <td>H2 + MyBatis-Plus，以及安全断言、租户 SQL 隔离、数据权限 SQL 过滤和审计发布。</td>
+      <td><a href="./coco-samples/coco-sample-full/README.md">查看示例</a></td>
     </tr>
   </tbody>
 </table>

@@ -16,15 +16,20 @@ def element_text(root: ET.Element, path: str) -> str:
 
 def main() -> int:
     root_pom = ET.parse(ROOT / "pom.xml").getroot()
-    sample_pom = ET.parse(ROOT / "coco-samples" / "coco-sample-basic" / "pom.xml").getroot()
     root_revision = element_text(root_pom, "m:properties/m:revision")
-    sample_parent_version = element_text(sample_pom, "m:parent/m:version")
-    if sample_parent_version != root_revision:
-        raise SystemExit(
-            "coco-sample-basic parent version must match root revision: "
-            f"expected {root_revision}, actual {sample_parent_version}"
-        )
-    print(f"sample parent version matches root revision: {root_revision}")
+    sample_poms = sorted((ROOT / "coco-samples").glob("*/pom.xml"))
+    if not sample_poms:
+        raise SystemExit("No standalone Coco sample POMs were found")
+    for sample_pom_path in sample_poms:
+        sample_pom = ET.parse(sample_pom_path).getroot()
+        artifact_id = element_text(sample_pom, "m:artifactId")
+        sample_parent_version = element_text(sample_pom, "m:parent/m:version")
+        if sample_parent_version != root_revision:
+            raise SystemExit(
+                f"{artifact_id} parent version must match root revision: "
+                f"expected {root_revision}, actual {sample_parent_version}"
+            )
+        print(f"{artifact_id} parent version matches root revision: {root_revision}")
     return 0
 
 

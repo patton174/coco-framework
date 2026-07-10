@@ -70,6 +70,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 包裁剪缺少原始备份和运行形态断言 | framework C12, C18 | accepted | 裁剪前保留 `target/coco-prune.original.jar`，并在测试中断言裁剪后仍保留 Spring Boot 可执行 jar 关键结构。 |
 | Maven Enforcer 发布闸门 | framework C7 | accepted | PR21 已在根 POM 增加 enforcer：常规构建检查依赖收敛、重复依赖声明和直接禁用依赖；release profile 拒绝 SNAPSHOT 版本。 |
 | CI 跨平台矩阵 | framework C8 | accepted | PR22 将 verify job 扩展到 Ubuntu / Windows / macOS，并显式区分 JDK 21 toolchain 与 Java 17 编译目标。 |
+| 完整数据库业务示例缺失 | framework C9 | accepted | PR35 新增 H2 + MyBatis-Plus full sample，跑通安全、租户、数据权限和审计链路。 |
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 | 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
@@ -793,6 +794,32 @@ git diff --check
 
 ```powershell
 mvn -B -pl :coco-spring-boot-starter -am verify
+git diff --check
+codegraph sync .
+```
+
+### PR 35：完整数据库业务示例
+
+状态：done。仓库已有独立 full sample，通过一个 starter 跑通安全、租户、数据权限、审计和 MyBatis-Plus。
+
+目标：收口 C9，并用业务黑盒流证明 README 中的数据与上下文能力可以协同工作，而不只是在各 feature
+模块的自动配置测试中分别存在。
+
+范围：
+
+- 新增 `coco-sample-full`，只额外引入 H2，保留单 starter 接入方式。
+- trusted-header bridge 建立安全主体；样例入口适配器把租户和主体映射为 tenant / data-permission 上下文。
+- MyBatis-Plus 查询同时受 `tenant_id` 和 `owner_id` 条件约束。
+- 业务服务显式调用 `CocoSecurity.requireRole`，并通过 `CocoAuditPublisher` 发布查询审计事件。
+- JUnit 和 Python 黑盒流验证角色拒绝、缺少租户、跨租户隔离、数据范围和审计结果。
+- CI 在 Ubuntu、Windows、macOS 构建并运行 full sample，同时断言完整 feature artifact 未被裁剪。
+
+验收：
+
+```powershell
+mvn -B install
+mvn -B -f coco-samples/coco-sample-full/pom.xml verify
+python coco-samples/coco-sample-full/scripts/verify_business_flow.py
 git diff --check
 codegraph sync .
 ```
