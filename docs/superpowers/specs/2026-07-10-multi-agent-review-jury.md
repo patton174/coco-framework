@@ -216,6 +216,10 @@ Specialist finding 至少包含：
 `context_gaps`。字段不一致、未知 finding ID、非法严重度、越界数量或 hash 不匹配都使
 该 Agent 失败。
 
+Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `verifications`。即使没有
+P0/P1 候选，也要明确记录已检查的绑定报告集合，并返回空 `verifications`，不能省略该
+席位的模型调用。
+
 ## 确定性门禁
 
 模型不能直接决定最终 status。确定性验证器按以下规则计算：
