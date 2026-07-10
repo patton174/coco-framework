@@ -45,10 +45,15 @@ public class CocoReplayProperties {
 
     private boolean includePath = true;
 
+    private CocoReplayStoreType storeType = CocoReplayStoreType.IN_MEMORY;
+
     private CocoWebSecurityMetadataSource metadataSource = CocoWebSecurityMetadataSource.HEADER;
 
     @NestedConfigurationProperty
     private CocoWebRequestMatcherProperties matcher = new CocoWebRequestMatcherProperties();
+
+    @NestedConfigurationProperty
+    private JdbcProperties jdbc = new JdbcProperties();
 
     private String appIdHeaderName = DEFAULT_APP_ID_HEADER_NAME;
 
@@ -178,6 +183,26 @@ public class CocoReplayProperties {
 
     /**
      * <p>
+     * 返回防重放存储类型。
+     * </p>
+     * @return 防重放存储类型
+     */
+    public CocoReplayStoreType getStoreType() {
+        return this.storeType;
+    }
+
+    /**
+     * <p>
+     * 设置防重放存储类型。
+     * </p>
+     * @param storeType 防重放存储类型
+     */
+    public void setStoreType(CocoReplayStoreType storeType) {
+        this.storeType = storeType == null ? CocoReplayStoreType.IN_MEMORY : storeType;
+    }
+
+    /**
+     * <p>
      * 返回防重放协议材料解析来源�?     * </p>
      * @return 防重放协议材料解析来�?     */
     public CocoWebSecurityMetadataSource getMetadataSource() {
@@ -208,6 +233,26 @@ public class CocoReplayProperties {
      */
     public void setMatcher(CocoWebRequestMatcherProperties matcher) {
         this.matcher = matcher == null ? new CocoWebRequestMatcherProperties() : matcher;
+    }
+
+    /**
+     * <p>
+     * 返回 JDBC 防重放存储配置。
+     * </p>
+     * @return JDBC 防重放存储配置
+     */
+    public JdbcProperties getJdbc() {
+        return this.jdbc;
+    }
+
+    /**
+     * <p>
+     * 设置 JDBC 防重放存储配置。
+     * </p>
+     * @param jdbc JDBC 防重放存储配置
+     */
+    public void setJdbc(JdbcProperties jdbc) {
+        this.jdbc = jdbc == null ? new JdbcProperties() : jdbc;
     }
 
     /**
@@ -400,6 +445,47 @@ public class CocoReplayProperties {
         this.maxClockSkewSeconds = maxClockSkewSeconds < 0
                 ? DEFAULT_MAX_CLOCK_SKEW_SECONDS
                 : maxClockSkewSeconds;
+    }
+
+    /**
+     * Coco JDBC 防重放存储配置。
+     * <p>
+     * 只声明业务预建表名称；框架不会创建表、迁移结构或管理数据源。
+     * </p>
+     * <p>
+     * 项目信息：
+     * </p>
+     * <ul>
+     *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+     *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+     *   <li>模块：{@code coco-feature-web}</li>
+     * </ul>
+     * @author patton174
+     * @since 1.0.0
+     */
+    public static class JdbcProperties {
+
+        private String tableName = "coco_replay_key";
+
+        /**
+         * <p>
+         * 返回业务预建的防重放键表名。
+         * </p>
+         * @return 防重放键表名
+         */
+        public String getTableName() {
+            return this.tableName;
+        }
+
+        /**
+         * <p>
+         * 设置业务预建的防重放键表名。
+         * </p>
+         * @param tableName 防重放键表名
+         */
+        public void setTableName(String tableName) {
+            this.tableName = tableName;
+        }
     }
 
     private static String normalizeHeaderName(String headerName, String defaultHeaderName) {

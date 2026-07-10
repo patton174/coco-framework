@@ -50,6 +50,8 @@ public class CocoWebReplayAutoConfiguration {
      * @param properties Coco Web 配置属�?     * @return 防重放存�?     */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.web.replay", name = "store-type", havingValue = "in-memory",
+            matchIfMissing = true)
     public CocoReplayStore cocoReplayStore(CocoWebProperties properties) {
         return new InMemoryCocoReplayStore(properties.getReplay());
     }

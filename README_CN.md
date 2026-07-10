@@ -158,6 +158,33 @@ coco:
 - 谓词或 JOIN 条件中首个被检查字段没有命中索引元数据。
 - JSQLParser 防护器无法稳定验证的复杂 JOIN、带 schema 的表名、数据库方言 SQL 或动态生成 SQL。
 
+## 集群防重放
+
+默认 `InMemoryCocoReplayStore` 明确是进程内实现，适合单实例和本地开发；集群服务必须使用共享存储。业务应用已经提供 Spring `JdbcOperations` 时，可以显式启用内置 JDBC 参考实现：
+
+```yaml
+coco:
+  web:
+    replay:
+      store-type: jdbc
+      jdbc:
+        table-name: coco_replay_key
+```
+
+Coco 不自动执行数据库迁移。请通过业务项目已有的迁移流程创建等价结构，并按目标数据库方言调整以下基准 DDL：
+
+```sql
+CREATE TABLE coco_replay_key (
+    replay_key_hash VARCHAR(64) NOT NULL,
+    expires_at_epoch_millis BIGINT NOT NULL,
+    PRIMARY KEY (replay_key_hash)
+);
+CREATE INDEX idx_coco_replay_key_expires_at
+    ON coco_replay_key (expires_at_epoch_millis);
+```
+
+唯一键负责跨实例原子占用，Coco 只保存 SHA-256 摘要，并在后台清理过期记录。占用路径的数据库异常会让受保护请求失败关闭；异步清理失败只记录并重试。Servlet Filter 会在通常的 Controller 事务边界之前占用 key。表结构迁移、数据库可用性、集群时钟同步、直接调用时的事务使用和 exactly-once 副作用仍由业务应用负责。存在多个 `JdbcOperations` Bean 时，应给目标候选标记 `@Primary`，或提供自定义 `CocoReplayStore` 替换两种内置实现。
+
 ## 能力范围
 
 <table>
@@ -165,7 +192,7 @@ coco:
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
       <strong>Web 运行时</strong><br/>
-      统一响应、异常响应、链路标识、请求上下文、访问日志、请求签名、请求加密和防重放。
+      统一响应、异常响应、链路标识、请求上下文、访问日志、请求签名、请求加密，以及进程内或共享 JDBC 防重放。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
@@ -239,6 +266,11 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td>Replay</td>
+      <td>进程内默认实现、显式共享 JDBC 参考实现、原子键占用、过期清理和可替换 Store SPI。</td>
+      <td>数据库迁移与可用性、集群时钟同步、业务事务和 exactly-once 语义。</td>
+    </tr>
     <tr>
       <td>Security</td>
       <td>上下文门面、解析 SPI、Servlet 上下文桥接、可信请求头适配、断言工具和上下文传播原语。</td>

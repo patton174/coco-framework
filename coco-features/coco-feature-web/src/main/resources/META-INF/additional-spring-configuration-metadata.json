@@ -19,6 +19,18 @@
       "defaultValue": 300
     },
     {
+      "name": "coco.web.replay.store-type",
+      "type": "io.github.coco.feature.web.replay.CocoReplayStoreType",
+      "description": "防重放存储类型；默认使用进程内存储，只有显式选择 JDBC 时才使用业务现有的 JdbcOperations。",
+      "defaultValue": "in-memory"
+    },
+    {
+      "name": "coco.web.replay.jdbc.table-name",
+      "type": "java.lang.String",
+      "description": "业务预建的 JDBC 防重放键表名；支持普通表名或单层 schema-qualified 表名，框架不会执行 DDL。",
+      "defaultValue": "coco_replay_key"
+    },
+    {
       "name": "coco.web.signature.matcher.required[].methods",
       "type": "java.util.Set<java.lang.String>",
       "description": "需要强制验签的 HTTP 方法集合。"
@@ -80,6 +92,19 @@
     }
   ],
   "hints": [
+    {
+      "name": "coco.web.replay.store-type",
+      "values": [
+        {
+          "value": "in-memory",
+          "description": "使用当前应用进程内的默认防重放存储。"
+        },
+        {
+          "value": "jdbc",
+          "description": "使用业务项目提供的单候选 JdbcOperations 和预建表共享防重放键。"
+        }
+      ]
+    },
     {
       "name": "coco.web.request-body.mode",
       "values": [

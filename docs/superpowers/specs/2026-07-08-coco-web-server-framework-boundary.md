@@ -144,7 +144,7 @@ Implemented or partially implemented foundations:
 - `coco-common-exception` provides business codes, error codes, and typed exceptions.
 - `coco-common-i18n` provides message bundle registration and message resolution.
 - `coco-common-logging` provides log handles, log manager, lifecycle logs, and access log recording.
-- `coco-feature-web` provides response wrapping, exception handling, trace filter, request context, access log capture, HMAC signature, AES-GCM request encryption, and replay protection.
+- `coco-feature-web` provides response wrapping, exception handling, trace filter, request context, access log capture, HMAC signature, AES-GCM request encryption, process-local replay protection, and an explicitly selected JDBC shared-store reference implementation.
 - `coco-feature-mybatis-plus` provides MyBatis-Plus interceptor assembly, pagination, and SQL guard configuration.
 - `coco-feature-tenant` provides tenant context and tenant SQL isolation through MyBatis-Plus.
 - `coco-feature-data-permission` provides data permission context, resource mapping, and SQL predicate generation through MyBatis-Plus.
@@ -160,7 +160,7 @@ Not implemented as core behavior:
 - complete admin console
 - database-backed audit persistence
 - full OpenAPI document generation integration
-- production distributed replay store
+- a fully managed or universally validated production distributed replay storage service
 
 ## Boundary Decisions
 
