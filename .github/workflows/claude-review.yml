@@ -1,78 +1,95 @@
 name: Claude Review
 
 # AI review agent. Runs Claude automatically on every pull request to review the
-# diff and leave inline comments, and on demand when someone writes "@claude" in
-# a PR/issue comment. Requires the ANTHROPIC_API_KEY repository secret (or swap
-# to claude_code_oauth_token). The deterministic review half lives in
-# _static-analysis.yml and codeql.yml.
+# diff and post a single PR-level comment with the findings. Implementation
+# note: this workflow does NOT use anthropics/claude-code-action because that
+# action performs an OIDC -> GitHub App token exchange and requires the
+# official Claude Code GitHub App to be installed on the repository. With a
+# third-party relay (the configuration here) that App is not installable, so
+# the action would fail with 401 before any model call is made. Instead, we
+# call the /v1/messages endpoint directly and post the result with the standard
+# workflow GITHUB_TOKEN via gh.
+#
+# Required secrets: ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL
+# Optional variable: CLAUDE_MODEL (default: claude-sonnet-4-6)
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write
 
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  group: claude-review-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   review:
-    name: Claude review
+    name: Claude review (via relay)
     runs-on: ubuntu-latest
-    # Skip bots; on comment events only run when "@claude" is mentioned.
+    # Skip bots so we don't review dependabot/automated PRs.
     if: >
       github.actor != 'dependabot[bot]' &&
       github.actor != 'github-actions[bot]' &&
-      (
-        github.event_name == 'pull_request' ||
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude'))
-      )
+      github.event_name == 'pull_request'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Claude Code Review
-        uses: anthropics/claude-code-action@v1
+      - name: Fetch PR diff
         env:
-          # 中转站(relay)配置:指向兼容 Anthropic /v1/messages 协议的端点。
-          # 在仓库 Secrets 里配 ANTHROPIC_BASE_URL(如 https://your-relay.example/v1)。
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr diff "${{ github.event.pull_request.number }}" > /tmp/pr.diff
+          diff_size=$(wc -c < /tmp/pr.diff)
+          echo "Diff size: ${diff_size} bytes"
+          # Avoid calling the model on a no-op diff.
+          if [[ "${diff_size}" -lt 10 ]]; then
+            echo "Diff is effectively empty; skipping review."
+            echo "SKIP" > /tmp/skip_marker
+          fi
+
+      - name: Run Claude review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          # 若中转站用 x-api-key(默认),下面 anthropic_api_key 输入即可;
-          # 若用 Authorization: Bearer,改为在此设 ANTHROPIC_AUTH_TOKEN,并删掉 anthropic_api_key 输入。
-          # ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # For automatic PR runs, review the diff; for @claude comments, the
-          # action uses the comment as the prompt automatically.
-          prompt: |
-            Review this pull request for the Coco Framework (a convention-driven
-            Spring Boot server framework published to Maven Central). Focus on:
-            - Correctness bugs, concurrency/thread-safety, and resource leaks.
-            - Public API and SPI stability — flag breaking changes to
-              coco-api-core contracts and starter/autoconfigure wiring.
-            - Adherence to project rules in AGENTS.md (module boundaries, no
-              common->feature dependencies, messages in bundles not hard-coded,
-              generated source over runtime magic).
-            - Security of request handling (signatures, encryption, replay,
-              tenant/data-permission SQL isolation).
-            - Test coverage for the change.
-            Leave concise, actionable inline comments. Do not restate the diff.
-          # Read-only tools: review, don't modify. Keep turns/cost bounded.
-          # 模型名走仓库变量 vars.CLAUDE_MODEL(Settings → Variables 里设),
-          # 未设置时回退到默认值。改成中转站实际提供的模型名即可,无需动 YAML。
-          claude_args: |
-            --model ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
-            --max-turns 12
-            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/skip_marker ]]; then
+            echo "Skipping review (empty diff)."
+            exit 0
+          fi
+          bash .github/scripts/claude-review.sh /tmp/pr.diff > /tmp/review.md
+          review_size=$(wc -c < /tmp/review.md)
+          echo "Review size: ${review_size} bytes"
+          if [[ "${review_size}" -lt 1 ]]; then
+            echo "Review script produced no output."
+            echo "NO_REVIEW" > /tmp/review.md
+          fi
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/skip_marker ]]; then
+            echo "Skipped: no diff to review."
+            exit 0
+          fi
+          review_body="$(cat /tmp/review.md)"
+          if [[ "${review_body}" == "NO_REVIEW" || -z "${review_body}" ]]; then
+            echo "No review body to post."
+            exit 0
+          fi
+          # Wrap the model output with a stable header so future runs can be
+          # recognized and collapsed by reviewers. The model already follows
+          # the structured format from the prompt.
+          {
+            printf '### Claude review (%s)\n\n' "${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}"
+            printf '%s\n' "${review_body}"
+            printf '\n<sub>Posted by .github/workflows/claude-review.yml.</sub>\n'
+          } > /tmp/comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md
