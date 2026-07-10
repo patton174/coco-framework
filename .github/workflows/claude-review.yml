@@ -1,0 +1,136 @@
+name: Claude Review
+
+# AI review agent. Runs Claude automatically on every pull request to review the
+# diff and post a single PR-level comment with the findings. Implementation
+# note: this workflow does NOT use anthropics/claude-code-action because that
+# action performs an OIDC -> GitHub App token exchange and requires the
+# official Claude Code GitHub App to be installed on the repository. With a
+# third-party relay (the configuration here) that App is not installable, so
+# the action would fail with 401 before any model call is made. Instead, we
+# call the /v1/messages endpoint directly and post the result with the standard
+# workflow GITHUB_TOKEN via gh.
+#
+# Required secrets: ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL
+# Optional variable: CLAUDE_MODEL (default: claude-sonnet-4-6)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Claude review (via relay)
+    runs-on: ubuntu-latest
+    # Skip bots so we don't review dependabot/automated PRs.
+    if: >
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'github-actions[bot]' &&
+      github.event_name == 'pull_request'
+    steps:
+      # gh pr diff needs a git repository to resolve base/head refs.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch PR diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr diff "${{ github.event.pull_request.number }}" > /tmp/pr.diff
+          diff_size=$(wc -c < /tmp/pr.diff)
+          echo "Diff size: ${diff_size} bytes"
+          # Avoid calling the model on a no-op diff.
+          if [[ "${diff_size}" -lt 10 ]]; then
+            echo "Diff is effectively empty; skipping review."
+            echo "SKIP" > /tmp/skip_marker
+          fi
+
+      - name: Run Claude review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+        run: |
+          set -euo pipefail
+          # Diagnostic: confirm which of the expected env vars are non-empty.
+          # We print lengths, never values. Secrets are auto-masked by GitHub
+          # in log output regardless.
+          echo "::group::Relay configuration"
+          for var in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+            val="${!var:-}"
+            if [[ -z "${val}" ]]; then
+              echo "  ${var}: UNSET or EMPTY"
+            else
+              echo "  ${var}: set (length=${#val})"
+            fi
+            unset val
+          done
+          echo "::endgroup::"
+          if [[ -f /tmp/skip_marker ]]; then
+            echo "Skipping review (empty diff)."
+            exit 0
+          fi
+          bash .github/scripts/claude-review.sh /tmp/pr.diff > /tmp/review.md
+          review_size=$(wc -c < /tmp/review.md)
+          echo "Review size: ${review_size} bytes"
+          if [[ "${review_size}" -lt 1 ]]; then
+            echo "Review script produced no output."
+            echo "NO_REVIEW" > /tmp/review.md
+          fi
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/skip_marker ]]; then
+            echo "Skipped: no diff to review."
+            exit 0
+          fi
+          review_body="$(cat /tmp/review.md)"
+          if [[ "${review_body}" == "NO_REVIEW" || -z "${review_body}" ]]; then
+            echo "No review body to post."
+            exit 0
+          fi
+          # Wrap the model output with a stable header so future runs can be
+          # recognized. The marker comment is used to locate and PATCH the
+          # previous bot comment instead of posting a new one — without this,
+          # every 'synchronize' event adds another copy of the review.
+          pr_number="${{ github.event.pull_request.number }}"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            printf '<!-- claude-review-marker: do not edit below this line -->\n'
+            printf '### Claude review\n'
+            printf '<sub><i>Updated %s — <a href="%s">workflow run</a></i></sub>\n\n' \
+              "${timestamp}" "${run_url}"
+            printf '%s\n' "${review_body}"
+            printf '\n<sub>Posted by .github/workflows/claude-review.yml.</sub>\n'
+          } > /tmp/comment.md
+          # Find the previous bot comment (if any) by searching for our marker
+          # in the issue comments. PATCH it in place; otherwise post a new one.
+          prev_id="$(
+            gh api "repos/${{ github.repository }}/issues/${pr_number}/comments?per_page=100" \
+              --jq '.[] | select(.body | startswith("<!-- claude-review-marker:")) | .id' \
+              2>/dev/null | head -n1 || true
+          )"
+          if [[ -n "${prev_id:-}" ]]; then
+            echo "Updating previous review comment (id=${prev_id})."
+            gh api "repos/${{ github.repository }}/issues/comments/${prev_id}" \
+              -X PATCH -f body="$(cat /tmp/comment.md)" > /dev/null
+          else
+            echo "Posting new review comment."
+            gh pr comment "${pr_number}" --body-file /tmp/comment.md
+          fi

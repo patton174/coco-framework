@@ -1,0 +1,56 @@
+name: CodeQL
+
+# Static security analysis (GitHub CodeQL) for Java. Results appear in the
+# Security tab and as PR annotations. Part of the review stage alongside
+# _static-analysis.yml and claude-review.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '37 5 * * 1'  # weekly, Monday 05:37 UTC
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (java)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        # CodeQL autobuild uses the working tree, but incremental analysis
+        # benefits from full git history. fetch-depth: 0 also enables the
+        # GitHub UI's blame/annotation features for findings.
+        with:
+          fetch-depth: 0
+
+      # setup-java must precede CodeQL init so autobuild uses the right JDK.
+      - name: Set up JDK 21 toolchain
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:java-kotlin"

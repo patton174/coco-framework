@@ -1,86 +1,46 @@
 name: CI
 
+# Main pipeline. Fans out into reusable sub-workflows (test + static analysis)
+# and joins them at a single `gate` job that branch protection can require.
+# The AI review agent (claude-review.yml) and CodeQL (codeql.yml) run as their
+# own PR-triggered workflows and appear as independent required checks.
+
 on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
-    name: verify (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
-    env:
-      JAVA_TOOLCHAIN_VERSION: '21'
-      MAVEN_COMPILE_RELEASE: '17'
-      PYTHONUTF8: '1'
+  test:
+    name: Test
+    uses: ./.github/workflows/_test.yml
+
+  static-analysis:
+    name: Static analysis
+    uses: ./.github/workflows/_static-analysis.yml
+    with:
+      # Phase 1: report findings without blocking. Flip to true after baseline cleanup.
+      fail-on-error: false
+
+  gate:
+    name: CI gate
+    needs: [test, static-analysis]
+    if: always()
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up JDK 21 toolchain
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_TOOLCHAIN_VERSION }}
-          cache: maven
-
-      - name: Show Java toolchain and target bytecode
+      - name: Require all pipeline jobs to succeed
         shell: bash
         run: |
-          java -version
-          echo "Maven compiler release target: ${MAVEN_COMPILE_RELEASE}"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install sample verification dependencies
-        run: python -m pip install cryptography
-
-      - name: Verify framework and install artifacts
-        run: mvn -B install
-
-      - name: Verify sample parent version alignment
-        run: python coco-samples/coco-sample-basic/scripts/verify_parent_version.py
-
-      - name: Verify sample business application
-        run: mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
-
-      - name: Verify sample feature pruning
-        shell: bash
-        run: |
-          jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
-            | grep 'BOOT-INF/lib/coco-feature'
-          ! jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
-            | grep -E 'coco-feature-(mybatis-plus|tenant|data-permission)-'
-          ! jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
-            | grep -E 'BOOT-INF/lib/(mybatis|mybatis-plus)-'
-          jar xf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
-            BOOT-INF/classpath.idx BOOT-INF/layers.idx
-          ! grep -E 'coco-feature-(mybatis-plus|tenant|data-permission)-|/(mybatis|mybatis-plus)-' BOOT-INF/classpath.idx BOOT-INF/layers.idx
-
-      - name: Verify sample business flow with Python
-        run: python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
-
-      - name: Verify full sample business application
-        run: mvn -B -f coco-samples/coco-sample-full/pom.xml verify
-
-      - name: Verify full sample feature composition
-        shell: bash
-        run: |
-          for feature in web mybatis-plus audit security tenant data-permission openapi codegen; do
-            jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
-              | grep "BOOT-INF/lib/coco-feature-${feature}-"
-          done
-          jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
-            | grep 'BOOT-INF/lib/h2-'
-
-      - name: Verify full sample business flow with Python
-        run: python coco-samples/coco-sample-full/scripts/verify_business_flow.py
+          echo "test            = ${{ needs.test.result }}"
+          echo "static-analysis = ${{ needs.static-analysis.result }}"
+          if [[ "${{ needs.test.result }}" != "success" || "${{ needs.static-analysis.result }}" != "success" ]]; then
+            echo "::error::CI pipeline failed."
+            exit 1
+          fi
+          echo "CI pipeline passed."
