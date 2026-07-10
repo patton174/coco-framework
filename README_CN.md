@@ -187,7 +187,7 @@ coco:
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
       <strong>审计流水线</strong><br/>
-      审计事件模型、记录器 SPI、发布器、失败策略和访问日志到审计事件的适配器。
+      默认结构化审计日志，以及格式化器和记录器 SPI、发布器、失败策略和访问日志适配器。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
@@ -246,7 +246,7 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
     </tr>
     <tr>
       <td>Audit</td>
-      <td>事件契约、发布器、记录器 SPI、失败策略和访问日志适配器。</td>
+      <td>事件契约、发布器、默认尽力而为的结构化日志、格式化器和记录器 SPI、失败策略和访问日志适配器。</td>
       <td>数据库落库、MQ 投递、合规报表和保留策略。</td>
     </tr>
     <tr>

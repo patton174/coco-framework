@@ -148,7 +148,7 @@ Implemented or partially implemented foundations:
 - `coco-feature-mybatis-plus` provides MyBatis-Plus interceptor assembly, pagination, and SQL guard configuration.
 - `coco-feature-tenant` provides tenant context and tenant SQL isolation through MyBatis-Plus.
 - `coco-feature-data-permission` provides data permission context, resource mapping, and SQL predicate generation through MyBatis-Plus.
-- `coco-feature-audit` provides audit recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
+- `coco-feature-audit` provides default structured audit logging, formatter and recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
 - `coco-feature-openapi` provides OpenAPI metadata provider boundaries.
 - `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe file writing; `coco-maven-plugin` exposes the opt-in `coco:generate` goal.
 

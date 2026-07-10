@@ -187,7 +187,7 @@ When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, r
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
       <strong>Audit Pipeline</strong><br/>
-      Audit event model, recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
+      Structured audit logging by default, plus formatter and recorder SPI, publisher, failure policy, and access-log adaptation.
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
@@ -246,7 +246,7 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
     </tr>
     <tr>
       <td>Audit</td>
-      <td>Event contract, publisher, recorder SPI, failure policy, and access-log adapter.</td>
+      <td>Event contract, publisher, default best-effort structured logging, formatter and recorder SPI, failure policy, and access-log adapter.</td>
       <td>Database persistence, MQ delivery, compliance reports, and retention policy.</td>
     </tr>
     <tr>
