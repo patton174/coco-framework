@@ -73,6 +73,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | 数据权限 SQL 关键路径缺测试 | framework C16, C20 | accepted | 补充资源解析器直接单测，并覆盖 missing-rule IGNORE 与 schema-qualified table 的 handler 行为。 |
 | Maven 运行期 artifact 解析回退缺测试 | framework C19, quality D25 | accepted | 补充 `CocoFeaturesMojo` 单测，覆盖 Resolver 不可用和 artifact 解析失败时只保留 model dependency、不污染已解析 classpath。 |
 | 安全上下文持有器边界测试缺口 | framework C15 | accepted | 补充 `CocoSecurityContextHolder` 线程隔离、异常恢复、缺上下文和 null 入参负向测试。 |
+| Failsafe 声明但未绑定 | framework C21, quality D23 | accepted | PR34 将 failsafe 绑定到 `integration-test` / `verify`，并补 starter servlet 应用上下文烟测 IT。 |
 | BodyCache query 触发参数解析误判 | framework B10, quality D36 | accepted | 改用 Spring URI query 解析读取触发参数名，保留 malformed query 回退，并补充编码参数名回归测试。 |
 | `coco-test` 未被使用 | framework C22, quality D22 | accepted | PR25 将 `CocoTestSupport` 落成共享配置元数据测试工具，并让 `coco-feature-codegen` 测试以 test-scope 方式实际引入。 |
 
@@ -773,6 +774,27 @@ mvn -B -pl :coco-feature-web -am test
 python coco-samples/coco-sample-basic/scripts/verify_parent_version.py
 mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
 git diff --check
+```
+
+### PR 34：Failsafe 集成测试闸门
+
+状态：done。仓库已有真实 `*IT`，并且 Maven verify/install 生命周期会执行 failsafe。
+
+目标：收口 C21 / D23，避免 `maven-failsafe-plugin` 只停留在版本声明，导致集成测试文件即使新增也不会进入默认验证路径。
+
+范围：
+
+- 根 POM 在 build plugins 中绑定 `maven-failsafe-plugin` 的 `integration-test` 和 `verify` goals。
+- failsafe 配置 `failIfNoTests=false`，让暂时没有 IT 的模块不失败。
+- `coco-spring-boot-starter` 增加 `CocoStarterSmokeIT`，真实启动 servlet Spring Boot 应用上下文。
+- IT 禁用需要业务数据源的 MyBatis-Plus / tenant / data-permission 功能，聚焦 starter 默认 Web / Common 基础设施。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-spring-boot-starter -am verify
+git diff --check
+codegraph sync .
 ```
 
 ## 执行纪律
