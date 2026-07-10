@@ -46,7 +46,7 @@ class OnCocoFeatureConditionTest {
         new ApplicationContextRunner()
                 .withUserConfiguration(DependentFeatureConfiguration.class)
                 .withPropertyValues("coco.features.disabled[0]=mybatis-plus")
-                .run(context -> assertThat(context).doesNotHaveBean("auditFeatureBean"));
+                .run(context -> assertThat(context).doesNotHaveBean("tenantFeatureBean"));
     }
 
     @Configuration(proxyBeanMethods = false)
@@ -63,9 +63,9 @@ class OnCocoFeatureConditionTest {
     static class DependentFeatureConfiguration {
 
         @Bean
-        @ConditionalOnCocoFeature(CocoFeature.AUDIT)
-        String auditFeatureBean() {
-            return "audit";
+        @ConditionalOnCocoFeature(CocoFeature.TENANT)
+        String tenantFeatureBean() {
+            return "tenant";
         }
     }
 }

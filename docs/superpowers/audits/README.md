@@ -896,6 +896,28 @@ git diff --check
 codegraph sync .
 ```
 
+### PR 39：Audit 功能依赖解耦
+
+状态：done。移除标准功能图中 Audit 对 Web 和 MyBatis-Plus 的伪依赖。
+
+目标：让无数据库 Web 服务、批处理和其他 Spring Boot 服务可以独立启用审计事件与默认结构化日志，不因关闭 MyBatis-Plus 或 Web 被构建期和运行期功能解析器连带裁掉。
+
+范围：
+
+- `CocoFeature.AUDIT` 不再声明 `WEB` 或 `MYBATIS_PLUS` 依赖。
+- 访问日志审计适配器继续通过现有 Bean 条件自然组合，不把可选事件来源升级为功能依赖。
+- 未来表变更审计应作为可选适配器接入 `CocoAuditPublisher`，不得反向污染 Audit 核心依赖。
+- 功能清单、Maven 依赖应用和禁用传播测试固定新的独立边界。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-registry,:coco-maven-plugin -am verify
+mvn -B verify
+git diff --check
+codegraph sync .
+```
+
 ## 执行纪律
 
 - 每个 PR 只处理一个主题，不把 sample、Web 重构、API 删除混在一起。

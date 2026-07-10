@@ -47,8 +47,7 @@ class StandardCocoFeaturesTest {
 
         assertEquals("io.github.coco.feature.web.CocoWebAutoConfiguration",
                 definitions.get(CocoFeature.WEB).autoConfigurationClassName());
-        assertEquals(Set.of(CocoFeature.WEB, CocoFeature.MYBATIS_PLUS),
-                definitions.get(CocoFeature.AUDIT).dependencies());
+        assertEquals(Set.of(), definitions.get(CocoFeature.AUDIT).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
                 definitions.get(CocoFeature.TENANT).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
@@ -62,11 +61,11 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
-    void disablesFeaturesThatDependOnDisabledBaseFeature() {
+    void disablesOnlyFeaturesThatDependOnDisabledMybatisPlus() {
         Set<CocoFeature> enabled = StandardCocoFeatures.resolveEnabledFeatures(Set.of(CocoFeature.MYBATIS_PLUS));
 
         assertFalse(enabled.contains(CocoFeature.MYBATIS_PLUS));
-        assertFalse(enabled.contains(CocoFeature.AUDIT));
+        assertTrue(enabled.contains(CocoFeature.AUDIT));
         assertFalse(enabled.contains(CocoFeature.TENANT));
         assertFalse(enabled.contains(CocoFeature.DATA_PERMISSION));
         assertFalse(enabled.contains(CocoFeature.CODEGEN));
@@ -76,12 +75,20 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
+    void keepsAuditEnabledWhenWebIsDisabled() {
+        Set<CocoFeature> enabled = StandardCocoFeatures.resolveEnabledFeatures(Set.of(CocoFeature.WEB));
+
+        assertFalse(enabled.contains(CocoFeature.WEB));
+        assertTrue(enabled.contains(CocoFeature.AUDIT));
+        assertFalse(enabled.contains(CocoFeature.OPENAPI));
+    }
+
+    @Test
     void exposesFeaturesDisabledByMissingDependencies() {
         CocoFeaturePlan plan = StandardCocoFeatures.resolve(
                 CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.MYBATIS_PLUS)));
 
         assertEquals(Set.of(
-                CocoFeature.AUDIT,
                 CocoFeature.TENANT,
                 CocoFeature.DATA_PERMISSION,
                 CocoFeature.CODEGEN), plan.disabledByDependencyFeatures());
@@ -162,6 +169,20 @@ class StandardCocoFeaturesTest {
                 .findFirst()
                 .orElseThrow()
                 .pruneArtifactIds());
+    }
+
+    @Test
+    void writesAuditManifestEntryWithoutDependencies() {
+        CocoFeaturePlan plan = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.WEB, CocoFeature.MYBATIS_PLUS)));
+
+        CocoFeatureManifestEntry auditEntry = StandardCocoFeatures.toManifest(plan, "test").features().stream()
+                .filter(entry -> CocoFeature.AUDIT.id().equals(entry.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(auditEntry.enabled());
+        assertEquals(List.of(), auditEntry.dependencies());
     }
 
     @Test
