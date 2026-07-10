@@ -36,6 +36,12 @@ jobs:
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'pull_request'
     steps:
+      # gh pr diff needs a git repository to resolve base/head refs.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: Fetch PR diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -86,9 +92,10 @@ jobs:
           fi
           # Wrap the model output with a stable header so future runs can be
           # recognized and collapsed by reviewers. The model already follows
-          # the structured format from the prompt.
+          # the structured format from the prompt and identifies itself, so
+          # the header does not need to interpolate the configured model name.
           {
-            printf '### Claude review (%s)\n\n' "${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}"
+            printf '### Claude review\n\n'
             printf '%s\n' "${review_body}"
             printf '\n<sub>Posted by .github/workflows/claude-review.yml.</sub>\n'
           } > /tmp/comment.md
