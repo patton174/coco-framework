@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import hashlib
 import hmac
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -22,15 +24,32 @@ from pathlib import Path
 from typing import Any
 
 SAMPLE_APP_ID = "sample-app"
-SAMPLE_SIGNATURE_SECRET = "sample-secret"
-SAMPLE_AES_KEY = b"0123456789abcdef"
-SAMPLE_AES_IV = b"123456789012"
+SAMPLE_SIGNING_KEY_ENV = "SAMPLE_SIGNING_KEY"
+SAMPLE_ENCRYPTION_KEY_ENV = "SAMPLE_ENCRYPTION_KEY"
+SAMPLE_SIGNATURE_SECRET = os.environ.get(SAMPLE_SIGNING_KEY_ENV) or secrets.token_urlsafe(32)
+SAMPLE_AES_IV = os.urandom(12)
 ORDER_PATH = "/sample/orders"
 SIGNATURE_ORDER_PATH = "/sample/secure/signature/orders"
 REPLAY_ORDER_PATH = "/sample/secure/replay/orders"
 ENCRYPTION_ORDER_PATH = "/sample/secure/encryption/orders"
 APPLICATION_OUTPUT_LIMIT = 400
 APPLICATION_OUTPUT: dict[int, deque[str]] = {}
+
+
+def resolve_sample_encryption_key() -> bytes:
+    encoded_key = os.environ.get(SAMPLE_ENCRYPTION_KEY_ENV)
+    if not encoded_key:
+        return os.urandom(16)
+    try:
+        key = base64.b64decode(encoded_key, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SystemExit(f"{SAMPLE_ENCRYPTION_KEY_ENV} must be valid Base64.") from exc
+    if len(key) not in (16, 24, 32):
+        raise SystemExit(f"{SAMPLE_ENCRYPTION_KEY_ENV} must decode to 16, 24, or 32 bytes.")
+    return key
+
+
+SAMPLE_AES_KEY: bytes = resolve_sample_encryption_key()
 
 
 @dataclass(frozen=True)
@@ -125,8 +144,12 @@ def start_application(
     if not jar_path.is_file():
         raise AssertionError(f"Sample jar does not exist: {jar_path}")
     command = [java_command, "-jar", str(jar_path), f"--server.port={port}", *(extra_args or [])]
+    environment = os.environ.copy()
+    environment[SAMPLE_SIGNING_KEY_ENV] = SAMPLE_SIGNATURE_SECRET
+    environment[SAMPLE_ENCRYPTION_KEY_ENV] = base64.b64encode(SAMPLE_AES_KEY).decode("ascii")
     process = subprocess.Popen(
         command,
+        env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

@@ -5,15 +5,17 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import json
+import os
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
 SAMPLE_APP_ID = "sample-app"
-SAMPLE_SIGNATURE_SECRET = "sample-secret"
-SAMPLE_AES_KEY = b"0123456789abcdef"
-SAMPLE_AES_IV = b"123456789012"
+SAMPLE_SIGNING_KEY_ENV = "SAMPLE_SIGNING_KEY"
+SAMPLE_ENCRYPTION_KEY_ENV = "SAMPLE_ENCRYPTION_KEY"
 ORDER_PATH = "/sample/orders"
 SIGNATURE_ORDER_PATH = "/sample/secure/signature/orders"
 REPLAY_ORDER_PATH = "/sample/secure/replay/orders"
@@ -22,15 +24,20 @@ PRODUCTS_PATH = "/sample/products"
 
 
 def main() -> int:
+    configure_output_encoding()
     args = parse_args()
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     collection_path = output_dir / "coco-sample-basic.postman_collection.json"
     environment_path = output_dir / "coco-sample-basic.postman_environment.json"
 
-    encrypted_body = encrypted_order_body()
-    postman_collection = collection(args.base_url, encrypted_body)
-    postman_environment = environment(args.base_url, encrypted_body)
+    signature_secret = os.environ.get(SAMPLE_SIGNING_KEY_ENV, "").strip()
+    aes_key = resolve_encryption_key(os.environ.get(SAMPLE_ENCRYPTION_KEY_ENV))
+    aes_iv = os.urandom(12) if aes_key is not None else None
+    aes_iv_base64 = "" if aes_iv is None else base64.b64encode(aes_iv).decode("ascii")
+    encrypted_body = "" if aes_key is None or aes_iv is None else encrypted_order_body(aes_key, aes_iv)
+    postman_collection = collection(args.base_url, aes_iv_base64, encrypted_body)
+    postman_environment = environment(args.base_url, signature_secret, aes_iv_base64, encrypted_body)
     validate_assets(postman_collection, postman_environment)
     collection_path.write_text(
         json.dumps(postman_collection, ensure_ascii=False, indent=2) + "\n",
@@ -45,6 +52,10 @@ def main() -> int:
     print(f"Postman 环境已生成：{environment_path}")
     print(f"请求数量：{count_requests(postman_collection)}")
     print(f"环境变量：{len(postman_environment['values'])}")
+    if signature_secret:
+        print("警告：Postman 环境文件包含 SAMPLE_SIGNING_KEY，请勿提交或共享该文件。")
+    if aes_key is None:
+        print("提示：未设置 SAMPLE_ENCRYPTION_KEY，加密请求体保持为空。")
     return 0
 
 
@@ -55,26 +66,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=sample_dir / "postman",
-        help="Directory where Postman import files are written.",
+        default=sample_dir / "target" / "postman",
+        help="Directory where local Postman import files are written (default: target/postman).",
     )
     return parser.parse_args()
 
 
-def collection(base_url: str, encrypted_body: str) -> dict[str, Any]:
+def collection(base_url: str, aes_iv_base64: str, encrypted_body: str) -> dict[str, Any]:
     return {
         "info": {
             "_postman_id": deterministic_id("collection:coco-sample-basic"),
             "name": "Coco Sample Basic",
             "description": (
                 "Coco 示例基础业务接口测试集。导入后选择 Coco Sample Basic Local 环境，"
-                "或修改 collection variable 中的 baseUrl。默认启动示例应用即可执行全部业务与安全接口。"
+                "或修改 collection variable 中的 baseUrl。安全接口需要先配置示例进程和 Postman 环境密钥。"
             ),
             "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
         },
         "auth": {"type": "noauth"},
         "event": [collection_prerequest_event()],
-        "variable": collection_variables(base_url, encrypted_body),
+        "variable": collection_variables(base_url, aes_iv_base64, encrypted_body),
         "item": [
             business_folder(),
             i18n_error_folder(),
@@ -85,7 +96,8 @@ def collection(base_url: str, encrypted_body: str) -> dict[str, Any]:
     }
 
 
-def environment(base_url: str, encrypted_body: str) -> dict[str, Any]:
+def environment(base_url: str, signature_secret: str, aes_iv_base64: str,
+        encrypted_body: str) -> dict[str, Any]:
     return {
         "id": deterministic_id("environment:coco-sample-basic-local"),
         "name": "Coco Sample Basic Local",
@@ -93,10 +105,10 @@ def environment(base_url: str, encrypted_body: str) -> dict[str, Any]:
             env_value("baseUrl", base_url),
             env_value("orderId", ""),
             env_value("secureAppId", SAMPLE_APP_ID),
-            env_value("signatureSecret", SAMPLE_SIGNATURE_SECRET),
+            env_value("signatureSecret", signature_secret, "secret"),
             env_value("replayTimestamp", ""),
             env_value("replayNonce", ""),
-            env_value("aesIvBase64", base64.b64encode(SAMPLE_AES_IV).decode("ascii")),
+            env_value("aesIvBase64", aes_iv_base64),
             env_value("encryptedOrderBody", encrypted_body),
         ],
         "_postman_variable_scope": "environment",
@@ -134,15 +146,22 @@ def count_requests(postman_collection: dict[str, Any]) -> int:
     return sum(len(folder.get("item", [])) for folder in postman_collection["item"])
 
 
-def collection_variables(base_url: str, encrypted_body: str) -> list[dict[str, str]]:
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
+def collection_variables(base_url: str, aes_iv_base64: str,
+        encrypted_body: str) -> list[dict[str, str]]:
     return [
         variable("baseUrl", base_url),
         variable("orderId", ""),
         variable("secureAppId", SAMPLE_APP_ID),
-        variable("signatureSecret", SAMPLE_SIGNATURE_SECRET),
         variable("replayTimestamp", ""),
         variable("replayNonce", ""),
-        variable("aesIvBase64", base64.b64encode(SAMPLE_AES_IV).decode("ascii")),
+        variable("aesIvBase64", aes_iv_base64),
         variable("encryptedOrderBody", encrypted_body),
     ]
 
@@ -286,7 +305,7 @@ def i18n_error_folder() -> dict[str, Any]:
 def signature_folder() -> dict[str, Any]:
     return folder(
         "签名模式",
-        "同一个示例应用默认启动后，对签名保护订单接口执行验签场景。",
+        "配置 SAMPLE_SIGNING_KEY 后，对签名保护订单接口执行验签场景。",
         [
             request_item(
                 "签名订单成功",
@@ -351,7 +370,7 @@ def replay_folder() -> dict[str, Any]:
 def encryption_folder() -> dict[str, Any]:
     return folder(
         "加密模式",
-        "同一个示例应用默认启动后，对加密保护订单接口执行解密和异常场景。",
+        "配置 SAMPLE_ENCRYPTION_KEY 并重新生成 Postman 资产后，对加密保护订单接口执行解密和异常场景。",
         [
             request_item(
                 "加密订单成功",
@@ -379,7 +398,7 @@ def encryption_folder() -> dict[str, Any]:
                 accept_language="en-US",
                 raw_body="invalid-payload",
                 extra_headers=encryption_headers(),
-                tests=error_tests(401, 401, "postman-encryption-invalid", ["Request encryption payload is invalid."]),
+                tests=error_tests(400, 400, "postman-encryption-invalid", ["Request encryption data is malformed."]),
             ),
         ],
     )
@@ -440,7 +459,7 @@ def collection_prerequest_event() -> dict[str, Any]:
             'if (!pm.collectionVariables.get("baseUrl")) {',
             '    pm.collectionVariables.set("baseUrl", "http://localhost:8080");',
             "}",
-            '["secureAppId", "signatureSecret", "aesIvBase64", "encryptedOrderBody"].forEach(function (key) {',
+            '["secureAppId", "aesIvBase64", "encryptedOrderBody"].forEach(function (key) {',
             "    const envValue = pm.environment.get(key);",
             "    if (envValue && !pm.collectionVariables.get(key)) {",
             "        pm.collectionVariables.set(key, envValue);",
@@ -459,7 +478,8 @@ def signature_prerequest_script(path: str, tamper_signature: bool) -> list[str]:
     return [
         'const crypto = typeof CryptoJS !== "undefined" ? CryptoJS : require("crypto-js");',
         'const appId = pm.collectionVariables.get("secureAppId") || pm.environment.get("secureAppId") || "sample-app";',
-        'const secret = pm.collectionVariables.get("signatureSecret") || pm.environment.get("signatureSecret") || "sample-secret";',
+        'const secret = pm.environment.get("signatureSecret");',
+        'pm.expect(secret, "请在 Postman 环境中配置 signatureSecret").to.not.be.empty;',
         'const timestamp = Date.now().toString();',
         'const nonce = "postman-signature-" + timestamp;',
         'pm.request.headers.upsert({ key: "X-Coco-App-Id", value: appId });',
@@ -581,7 +601,7 @@ def replay_second_prerequest_script() -> list[str]:
 def encryption_headers() -> list[dict[str, str]]:
     return [
         {"key": "X-Coco-Encrypted", "value": "true"},
-        {"key": "X-Coco-App-Id", "value": SAMPLE_APP_ID},
+        {"key": "X-Coco-App-Id", "value": "{{secureAppId}}"},
         {"key": "X-Coco-IV", "value": "{{aesIvBase64}}"},
         {"key": "X-Coco-Algorithm", "value": "AES-GCM"},
     ]
@@ -668,20 +688,20 @@ def variable(key: str, value: str) -> dict[str, str]:
     return {"key": key, "value": value, "type": "string"}
 
 
-def env_value(key: str, value: str) -> dict[str, Any]:
-    return {"key": key, "value": value, "type": "default", "enabled": True}
+def env_value(key: str, value: str, value_type: str = "default") -> dict[str, Any]:
+    return {"key": key, "value": value, "type": value_type, "enabled": True}
 
 
 def deterministic_id(seed: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/patton174/coco-framework/" + seed))
 
 
-def encrypted_order_body() -> str:
+def encrypted_order_body(aes_key: bytes, aes_iv: bytes) -> str:
     payload = json.dumps({"buyerName": "Patton", "sku": "COCO-ENCRYPTION", "quantity": 1}).encode("utf-8")
     aad = encryption_associated_data(
         app_id=SAMPLE_APP_ID,
         key_id=None,
-        iv=base64.b64encode(SAMPLE_AES_IV).decode("ascii"),
+        iv=base64.b64encode(aes_iv).decode("ascii"),
         algorithm="AES-GCM",
         encrypted=True,
         method="POST",
@@ -690,7 +710,19 @@ def encrypted_order_body() -> str:
         replay_timestamp=None,
         replay_nonce=None,
     )
-    return base64.b64encode(aes_gcm_encrypt(payload, SAMPLE_AES_KEY, SAMPLE_AES_IV, aad)).decode("ascii")
+    return base64.b64encode(aes_gcm_encrypt(payload, aes_key, aes_iv, aad)).decode("ascii")
+
+
+def resolve_encryption_key(encoded_key: str | None) -> bytes | None:
+    if encoded_key is None or not encoded_key.strip():
+        return None
+    try:
+        key = base64.b64decode(encoded_key.strip(), validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SystemExit(f"{SAMPLE_ENCRYPTION_KEY_ENV} must be valid Base64.") from exc
+    if len(key) not in (16, 24, 32):
+        raise SystemExit(f"{SAMPLE_ENCRYPTION_KEY_ENV} must decode to 16, 24, or 32 bytes.")
+    return key
 
 
 def aes_gcm_encrypt(plain_body: bytes, key: bytes, iv: bytes, aad: bytes) -> bytes:
