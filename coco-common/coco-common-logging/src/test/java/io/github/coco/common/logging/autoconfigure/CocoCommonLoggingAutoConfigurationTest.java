@@ -1,17 +1,26 @@
 package io.github.coco.common.logging.autoconfigure;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import io.github.coco.common.logging.core.AsyncCocoLogSink;
+import io.github.coco.common.logging.core.CocoAsyncLogDropListener;
 import io.github.coco.common.logging.core.CocoLogHandle;
 import io.github.coco.common.logging.core.CocoLogHandleRegistrar;
 import io.github.coco.common.logging.core.CocoLogHandleRegistry;
 import io.github.coco.common.logging.core.CocoLogHandles;
 import io.github.coco.common.logging.core.CocoLogLevel;
+import io.github.coco.common.logging.core.CocoLogSink;
+import io.github.coco.common.logging.core.CocoLoggingProperties;
+import io.github.coco.common.logging.core.Slf4jCocoAsyncLogDropListener;
+import io.github.coco.common.logging.core.Slf4jCocoLogSink;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 /**
  * <p>
@@ -116,6 +125,159 @@ class CocoCommonLoggingAutoConfigurationTest {
 
     /**
      * <p>
+     * 原有单参数工厂方法应继续可直接调用。
+     * </p>
+     */
+    @Test
+    void keepsSingleArgumentLogSinkFactoryMethod() {
+        CocoLogSink sink = new CocoCommonLoggingAutoConfiguration().cocoLogSink(new CocoLoggingProperties());
+
+        assertThat(sink).isInstanceOfSatisfying(AsyncCocoLogSink.class, AsyncCocoLogSink::close);
+    }
+
+    /**
+     * <p>
+     * 未提供自定义监听器时，应注册默认 SLF4J 丢弃监听器。
+     * </p>
+     */
+    @Test
+    void providesDefaultAsyncLogDropListener() {
+        this.contextRunner.run(context -> {
+            assertThat(context).hasNotFailed().hasSingleBean(CocoAsyncLogDropListener.class);
+            assertThat(context.getBean(CocoAsyncLogDropListener.class))
+                    .isInstanceOf(Slf4jCocoAsyncLogDropListener.class);
+        });
+    }
+
+    /**
+     * <p>
+     * 唯一自定义监听器应替换默认监听器并注入异步输出器。
+     * </p>
+     */
+    @Test
+    void replacesDefaultAsyncLogDropListenerWithUniqueCustomBean() {
+        this.contextRunner
+                .withUserConfiguration(CustomDropListenerConfiguration.class)
+                .run(context -> {
+                    CocoAsyncLogDropListener customListener = context.getBean("customDropListener",
+                            CocoAsyncLogDropListener.class);
+
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoAsyncLogDropListener.class);
+                    assertThat(context.getBean(CocoAsyncLogDropListener.class)).isSameAs(customListener);
+                    assertThat(context.getBean(CocoLogSink.class))
+                            .isInstanceOfSatisfying(AsyncCocoLogSink.class,
+                                    sink -> assertThat(sink).extracting("dropListener").isSameAs(customListener));
+                });
+    }
+
+    /**
+     * <p>
+     * 多个监听器存在时，应使用业务显式标记的主候选。
+     * </p>
+     */
+    @Test
+    void usesPrimaryDropListenerWhenMultipleBeansExist() {
+        this.contextRunner
+                .withUserConfiguration(PrimaryDropListenerConfiguration.class)
+                .run(context -> {
+                    CocoAsyncLogDropListener primaryListener = context.getBean("primaryDropListener",
+                            CocoAsyncLogDropListener.class);
+
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoLogSink.class);
+                    assertThat(context.getBean(CocoLogSink.class))
+                            .isInstanceOfSatisfying(AsyncCocoLogSink.class,
+                                    sink -> assertThat(sink).extracting("dropListener").isSameAs(primaryListener));
+                });
+    }
+
+    /**
+     * <p>
+     * 多个无主监听器应导致单值注入失败，避免静默选择。
+     * </p>
+     */
+    @Test
+    void failsWhenMultipleDropListenersHaveNoPrimaryBean() {
+        this.contextRunner
+                .withUserConfiguration(MultipleDropListenersConfiguration.class)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(NoUniqueBeanDefinitionException.class);
+                });
+    }
+
+    /**
+     * <p>
+     * 自定义日志输出器应继续优先于默认异步输出链路。
+     * </p>
+     */
+    @Test
+    void preservesCustomLogSinkPriority() {
+        this.contextRunner
+                .withUserConfiguration(CustomLogSinkConfiguration.class)
+                .run(context -> {
+                    CocoLogSink customSink = context.getBean("customLogSink", CocoLogSink.class);
+
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoLogSink.class);
+                    assertThat(context.getBean(CocoLogSink.class)).isSameAs(customSink);
+                    assertThat(customSink).isNotInstanceOf(AsyncCocoLogSink.class);
+                });
+    }
+
+    /**
+     * <p>
+     * 自定义输出器接管时，不应解析未使用的多监听器候选。
+     * </p>
+     */
+    @Test
+    void ignoresAmbiguousDropListenersWhenCustomLogSinkTakesOver() {
+        this.contextRunner
+                .withUserConfiguration(MultipleDropListenersConfiguration.class, CustomLogSinkConfiguration.class)
+                .run(context -> {
+                    CocoLogSink customSink = context.getBean("customLogSink", CocoLogSink.class);
+
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoLogSink.class);
+                    assertThat(context.getBean(CocoLogSink.class)).isSameAs(customSink);
+                    assertThat(context).getBeans(CocoAsyncLogDropListener.class).hasSize(2);
+                });
+    }
+
+    /**
+     * <p>
+     * 关闭异步日志时，应直接使用 SLF4J 输出器而不创建溢出链路。
+     * </p>
+     */
+    @Test
+    void usesSynchronousSlf4jSinkWhenAsyncLoggingIsDisabled() {
+        this.contextRunner
+                .withPropertyValues("coco.logging.async.enabled=false")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoLogSink.class);
+                    assertThat(context.getBean(CocoLogSink.class))
+                            .isInstanceOf(Slf4jCocoLogSink.class)
+                            .isNotInstanceOf(AsyncCocoLogSink.class);
+                });
+    }
+
+    /**
+     * <p>
+     * 关闭异步日志时，不应解析未使用的多监听器候选。
+     * </p>
+     */
+    @Test
+    void ignoresAmbiguousDropListenersWhenAsyncLoggingIsDisabled() {
+        this.contextRunner
+                .withUserConfiguration(MultipleDropListenersConfiguration.class)
+                .withPropertyValues("coco.logging.async.enabled=false")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoLogSink.class);
+                    assertThat(context.getBean(CocoLogSink.class)).isInstanceOf(Slf4jCocoLogSink.class);
+                    assertThat(context).getBeans(CocoAsyncLogDropListener.class).hasSize(2);
+                });
+    }
+
+    /**
+     * <p>
      * 自定义访问日志句柄测试配置。
      * </p>
      */
@@ -132,6 +294,115 @@ class CocoCommonLoggingAutoConfigurationTest {
         CocoLogHandleRegistrar customAccessHandleRegistrar() {
             return registry -> registry.register(CocoLogHandle.of(CocoLogHandles.ACCESS,
                     "io.github.coco.access.custom", CocoLogLevel.WARN));
+        }
+    }
+
+    /**
+     * <p>
+     * 自定义异步日志丢弃监听器测试配置。
+     * </p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class CustomDropListenerConfiguration {
+
+        /**
+         * <p>
+         * 注册唯一自定义监听器。
+         * </p>
+         * @return 自定义异步日志丢弃监听器
+         */
+        @Bean
+        CocoAsyncLogDropListener customDropListener() {
+            return (level, handleName, totalDropped) -> {
+            };
+        }
+    }
+
+    /**
+     * <p>
+     * 多异步日志丢弃监听器测试配置。
+     * </p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class MultipleDropListenersConfiguration {
+
+        /**
+         * <p>
+         * 注册第一个监听器。
+         * </p>
+         * @return 第一个监听器
+         */
+        @Bean
+        CocoAsyncLogDropListener firstDropListener() {
+            return (level, handleName, totalDropped) -> {
+            };
+        }
+
+        /**
+         * <p>
+         * 注册第二个监听器。
+         * </p>
+         * @return 第二个监听器
+         */
+        @Bean
+        CocoAsyncLogDropListener secondDropListener() {
+            return (level, handleName, totalDropped) -> {
+            };
+        }
+    }
+
+    /**
+     * <p>
+     * 带主候选的多异步日志丢弃监听器测试配置。
+     * </p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class PrimaryDropListenerConfiguration {
+
+        /**
+         * <p>
+         * 注册主监听器。
+         * </p>
+         * @return 主监听器
+         */
+        @Bean
+        @Primary
+        CocoAsyncLogDropListener primaryDropListener() {
+            return (level, handleName, totalDropped) -> {
+            };
+        }
+
+        /**
+         * <p>
+         * 注册次监听器。
+         * </p>
+         * @return 次监听器
+         */
+        @Bean
+        CocoAsyncLogDropListener secondaryDropListener() {
+            return (level, handleName, totalDropped) -> {
+            };
+        }
+    }
+
+    /**
+     * <p>
+     * 自定义日志输出器测试配置。
+     * </p>
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class CustomLogSinkConfiguration {
+
+        /**
+         * <p>
+         * 注册自定义日志输出器。
+         * </p>
+         * @return 自定义日志输出器
+         */
+        @Bean
+        CocoLogSink customLogSink() {
+            return record -> {
+            };
         }
     }
 }

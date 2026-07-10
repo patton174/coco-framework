@@ -6,6 +6,7 @@ import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.DefaultCocoAccessLogFormatter;
 import io.github.coco.common.logging.access.Slf4jCocoAccessLogRecorder;
 import io.github.coco.common.logging.core.AsyncCocoLogSink;
+import io.github.coco.common.logging.core.CocoAsyncLogDropListener;
 import io.github.coco.common.logging.core.CocoLogHandle;
 import io.github.coco.common.logging.core.CocoLogHandleRegistrar;
 import io.github.coco.common.logging.core.CocoLogHandleRegistry;
@@ -14,8 +15,10 @@ import io.github.coco.common.logging.core.CocoLogLevel;
 import io.github.coco.common.logging.core.CocoLogManager;
 import io.github.coco.common.logging.core.CocoLogSink;
 import io.github.coco.common.logging.core.CocoLoggingProperties;
-import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
+import io.github.coco.common.logging.core.Slf4jCocoAsyncLogDropListener;
 import io.github.coco.common.logging.core.Slf4jCocoLogSink;
+import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -85,17 +88,47 @@ public class CocoCommonLoggingAutoConfiguration {
      * 创建默认日志输出器。
      * </p>
      * @param properties Coco 日志配置属性
+     * @param dropListeners 异步日志丢弃监听器提供器
      * @return 日志输出器
      */
     @Bean
     @ConditionalOnMissingBean
+    public CocoLogSink cocoLogSink(CocoLoggingProperties properties,
+            ObjectProvider<CocoAsyncLogDropListener> dropListeners) {
+        return createCocoLogSink(properties, dropListeners::getObject);
+    }
+
+    /**
+     * <p>
+     * 使用默认丢弃监听器创建日志输出器，保留原有直接调用方式。
+     * </p>
+     * @param properties Coco 日志配置属性
+     * @return 日志输出器
+     */
     public CocoLogSink cocoLogSink(CocoLoggingProperties properties) {
+        return createCocoLogSink(properties, Slf4jCocoAsyncLogDropListener::new);
+    }
+
+    private static CocoLogSink createCocoLogSink(CocoLoggingProperties properties,
+            Supplier<CocoAsyncLogDropListener> dropListenerSupplier) {
         CocoLogSink slf4jSink = new Slf4jCocoLogSink();
         CocoLoggingProperties.AsyncProperties async = properties.getAsync();
         if (!async.isEnabled()) {
             return slf4jSink;
         }
-        return new AsyncCocoLogSink(slf4jSink, async.getQueueCapacity());
+        return new AsyncCocoLogSink(slf4jSink, async.getQueueCapacity(), dropListenerSupplier.get());
+    }
+
+    /**
+     * <p>
+     * 创建默认异步日志丢弃监听器。
+     * </p>
+     * @return 异步日志丢弃监听器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoAsyncLogDropListener cocoAsyncLogDropListener() {
+        return new Slf4jCocoAsyncLogDropListener();
     }
 
     /**
