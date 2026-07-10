@@ -20,6 +20,11 @@
 # Stdout:
 #   The validated model reply. Failures produce no stdout, an error on stderr,
 #   and a non-zero exit code.
+#
+# Migration note:
+#   This verdict contract is intentionally merged before the base-context
+#   workflow that enforces it. Landing both at once would make that workflow
+#   execute the old base script while expecting the new output contract.
 
 set -euo pipefail
 umask 077
@@ -74,6 +79,7 @@ if (( DIFF_CHAR_COUNT > MAX_DIFF_CHARS )); then
   exit 1
 fi
 
+SAVED_IFS="${IFS}"
 IFS= read -r -d '' SYSTEM_PROMPT <<'EOF' || :
 You are reviewing a pull request for the Coco Framework, a convention-driven
 Spring Boot server framework published to Maven Central.
@@ -107,6 +113,8 @@ Output requirements:
 - If there are no findings, write No findings. after the verdict line.
 - Do not put any text before the verdict, restate the diff, or add pleasantries.
 EOF
+IFS="${SAVED_IFS}"
+unset SAVED_IFS
 
 if ! REQUEST_FILE="$(mktemp)"; then
   echo "::error::Unable to create the Claude request file." >&2
@@ -193,6 +201,9 @@ if ! STOP_REASON="$(jq -er \
   exit 1
 fi
 
+# A partial, refused, or tool-oriented response is not a completed code review.
+# The caller must treat every non-end_turn result as a blocking infrastructure
+# failure and may retry the workflow after correcting the cause.
 case "${STOP_REASON}" in
   end_turn) ;;
   refusal)

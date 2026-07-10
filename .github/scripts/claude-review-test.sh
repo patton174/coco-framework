@@ -108,6 +108,10 @@ empty_block_response="${TEST_ROOT}/empty-block.json"
 write_response "${empty_block_response}" 'end_turn' $'VERDICT: BLOCK\n\n## Warnings\n- No blocker supplied.'
 run_case 'block-without-blockers' 'failure' "${empty_block_response}" "${diff_file}"
 
+empty_block_section_response="${TEST_ROOT}/empty-block-section.json"
+write_response "${empty_block_section_response}" 'end_turn' $'VERDICT: BLOCK\n\n## Blockers\n\n## Warnings\n- Empty blocker section.'
+run_case 'block-with-empty-blocker-section' 'failure' "${empty_block_section_response}" "${diff_file}"
+
 invalid_response="${TEST_ROOT}/invalid.json"
 write_response "${invalid_response}" 'end_turn' 'No findings.'
 run_case 'missing-verdict' 'failure' "${invalid_response}" "${diff_file}"
