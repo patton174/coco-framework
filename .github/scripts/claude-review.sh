@@ -22,8 +22,10 @@
 #   and a non-zero exit code.
 
 set -euo pipefail
+umask 077
 
 readonly MAX_DIFF_CHARS=60000
+readonly MAX_RESPONSE_BYTES=1048576
 readonly MAX_RESPONSE_TOKENS=4096
 
 DIFF_FILE="${1:?usage: claude-review.sh <diff-file>}"
@@ -104,8 +106,15 @@ Output requirements:
 - Do not put any text before the verdict, restate the diff, or add pleasantries.
 EOF
 
-REQUEST_FILE="$(mktemp)"
-RESPONSE_FILE="$(mktemp)"
+if ! REQUEST_FILE="$(mktemp)"; then
+  echo "::error::Unable to create the Claude request file." >&2
+  exit 1
+fi
+if ! RESPONSE_FILE="$(mktemp)"; then
+  echo "::error::Unable to create the Claude response file." >&2
+  rm -f -- "${REQUEST_FILE}"
+  exit 1
+fi
 trap 'rm -f -- "${REQUEST_FILE}" "${RESPONSE_FILE}"' EXIT
 
 # Build the request with jq so the system rules and untrusted diff remain in
@@ -122,8 +131,7 @@ if ! jq -cn \
      messages: [
        {
          role: "user",
-         content: ("----- BEGIN UNTRUSTED PR DIFF -----\n" + $diff
-           + "\n----- END UNTRUSTED PR DIFF -----")
+         content: $diff
        }
      ]
    }' >"${REQUEST_FILE}"; then
@@ -135,6 +143,7 @@ fi
 # check below, while transport errors remain non-zero curl failures.
 if HTTP_CODE="$(curl -sS \
   --max-time 180 \
+  --max-filesize "${MAX_RESPONSE_BYTES}" \
   -X POST "${BASE_URL}/messages" \
   -H "x-api-key: ${ANTHROPIC_API_KEY}" \
   -H "anthropic-version: 2023-06-01" \
