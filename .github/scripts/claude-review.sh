@@ -42,10 +42,15 @@ case "${BASE_URL}" in
 esac
 
 # Cap the diff at ~60K characters so we leave room in the context for the
-# prompt and the model's response. Larger diffs are truncated with a marker.
+# prompt and the model's response. Use awk to count characters rather than
+# bash ${#} which counts bytes — multi-byte text (CJK, non-ASCII paths) would
+# otherwise truncate earlier than the documented budget.
 MAX_DIFF_CHARS=60000
-DIFF_CONTENT="$(cat "${DIFF_FILE}")"
-if (( ${#DIFF_CONTENT} > MAX_DIFF_CHARS )); then
+# `$(< file)` is faster than $(cat file) and preserves trailing newlines
+# (which $(...) command substitution would strip).
+DIFF_CONTENT="$(< "${DIFF_FILE}")"
+DIFF_CHAR_COUNT="$(printf '%s' "${DIFF_CONTENT}" | awk '{ total += length($0) + 1 } END { print total + 0 }')"
+if (( DIFF_CHAR_COUNT > MAX_DIFF_CHARS )); then
   DIFF_CONTENT="${DIFF_CONTENT:0:MAX_DIFF_CHARS}
 ... (diff truncated for review, see full diff on the PR)"
 fi

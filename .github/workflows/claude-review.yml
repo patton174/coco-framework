@@ -105,12 +105,32 @@ jobs:
             exit 0
           fi
           # Wrap the model output with a stable header so future runs can be
-          # recognized and collapsed by reviewers. The model already follows
-          # the structured format from the prompt and identifies itself, so
-          # the header does not need to interpolate the configured model name.
+          # recognized. The marker comment is used to locate and PATCH the
+          # previous bot comment instead of posting a new one — without this,
+          # every 'synchronize' event adds another copy of the review.
+          pr_number="${{ github.event.pull_request.number }}"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           {
-            printf '### Claude review\n\n'
+            printf '<!-- claude-review-marker: do not edit below this line -->\n'
+            printf '### Claude review\n'
+            printf '<sub><i>Updated %s — <a href="%s">workflow run</a></i></sub>\n\n' \
+              "${timestamp}" "${run_url}"
             printf '%s\n' "${review_body}"
             printf '\n<sub>Posted by .github/workflows/claude-review.yml.</sub>\n'
           } > /tmp/comment.md
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md
+          # Find the previous bot comment (if any) by searching for our marker
+          # in the issue comments. PATCH it in place; otherwise post a new one.
+          prev_id="$(
+            gh api "repos/${{ github.repository }}/issues/${pr_number}/comments?per_page=100" \
+              --jq '.[] | select(.body | startswith("<!-- claude-review-marker:")) | .id' \
+              2>/dev/null | head -n1 || true
+          )"
+          if [[ -n "${prev_id:-}" ]]; then
+            echo "Updating previous review comment (id=${prev_id})."
+            gh api "repos/${{ github.repository }}/issues/comments/${prev_id}" \
+              -X PATCH -f body="$(cat /tmp/comment.md)" > /dev/null
+          else
+            echo "Posting new review comment."
+            gh pr comment "${pr_number}" --body-file /tmp/comment.md
+          fi

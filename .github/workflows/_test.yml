@@ -59,6 +59,12 @@ jobs:
       - name: Verify sample feature pruning
         shell: bash
         run: |
+          set -euo pipefail
+          # pipefail: a `! grep ...` (negative assertion) hides the exit
+          # status of grep itself. Without pipefail, if grep errors for any
+          # reason (e.g. binary-file mismatch) the negation can mask the
+          # failure and the test passes silently. With pipefail, the pipe's
+          # exit code is the rightmost non-zero, so the assertion still trips.
           jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \
             | grep 'BOOT-INF/lib/coco-feature'
           ! jar tf coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar \

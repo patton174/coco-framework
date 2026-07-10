@@ -28,6 +28,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        # CodeQL autobuild uses the working tree, but incremental analysis
+        # benefits from full git history. fetch-depth: 0 also enables the
+        # GitHub UI's blame/annotation features for findings.
+        with:
+          fetch-depth: 0
 
       # setup-java must precede CodeQL init so autobuild uses the right JDK.
       - name: Set up JDK 21 toolchain
