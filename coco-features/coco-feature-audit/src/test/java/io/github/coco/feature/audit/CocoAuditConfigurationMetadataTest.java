@@ -40,8 +40,13 @@ class CocoAuditConfigurationMetadataTest {
         assertProperty(metadata, "coco.audit.enabled", "java.lang.Boolean", true);
         assertProperty(metadata, "coco.audit.failure-policy",
                 "io.github.coco.feature.audit.core.CocoAuditFailurePolicy", "ignore");
+        assertProperty(metadata, "coco.audit.logging.enabled", "java.lang.Boolean", true);
+        assertProperty(metadata, "coco.audit.logging.logger-name", "java.lang.String", "io.github.coco.audit");
+        assertProperty(metadata, "coco.audit.logging.level",
+                "io.github.coco.common.logging.core.CocoLogLevel", "info");
         assertProperty(metadata, "coco.audit.access-log.enabled", "java.lang.Boolean", true);
         assertHintValues(metadata, "coco.audit.failure-policy", "ignore", "throw");
+        assertHintValues(metadata, "coco.audit.logging.level", "off", "error", "warn", "info", "debug", "trace");
     }
 
     private JsonNode configurationMetadata() throws IOException {

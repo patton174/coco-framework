@@ -8,7 +8,7 @@ It uses:
 - Coco trusted-header security context plus `CocoSecurity.requireRole`.
 - Coco tenant SQL isolation on `tenant_id`.
 - Coco data-permission SQL filtering on `owner_id`.
-- A replaceable `CocoAuditRecorder` implementation and explicit business audit publication.
+- A business `CocoAuditRecorder` that replaces the framework's default structured logger, plus explicit business audit publication.
 
 The sample request adapter maps `X-Coco-Tenant-Id` and the authenticated principal into tenant and data-permission contexts. It intentionally remains application code because tenant and organization semantics belong to the business system.
 

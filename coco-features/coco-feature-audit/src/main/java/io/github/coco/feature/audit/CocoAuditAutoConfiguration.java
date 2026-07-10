@@ -6,12 +6,17 @@ import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
+import io.github.coco.common.logging.core.CocoLogHandle;
+import io.github.coco.common.logging.core.CocoLogHandleRegistrar;
+import io.github.coco.common.logging.core.CocoLogManager;
 import io.github.coco.feature.audit.accesslog.CocoAccessLogAuditRecorder;
+import io.github.coco.feature.audit.core.CocoAuditFormatter;
 import io.github.coco.feature.audit.core.CocoAuditErrorHandler;
 import io.github.coco.feature.audit.core.CocoAuditPublisher;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
 import io.github.coco.feature.audit.core.CompositeCocoAuditPublisher;
-import io.github.coco.feature.audit.core.NoOpCocoAuditRecorder;
+import io.github.coco.feature.audit.core.DefaultCocoAuditFormatter;
+import io.github.coco.feature.audit.core.LoggingCocoAuditRecorder;
 import io.github.coco.feature.audit.core.PolicyCocoAuditErrorHandler;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -24,7 +29,7 @@ import org.springframework.context.annotation.Bean;
 /**
  * Coco 审计功能自动配置。
  * <p>
- * 负责为审计功能模块注册国际化消息资源、审计记录器 SPI、审计发布器和访问日志审计适配器。
+ * 负责为审计功能模块注册国际化消息资源、默认日志记录器、审计发布器和访问日志审计适配器。
  * </p>
  * <p>
  * 项目信息：
@@ -56,15 +61,53 @@ public class CocoAuditAutoConfiguration {
 
     /**
      * <p>
-     * 创建默认审计记录器。
+     * 注册独立审计日志句柄。
      * </p>
-     * @return 审计记录器
+     * @param properties 审计配置属性
+     * @return 日志句柄注册器
+     */
+    @Bean
+    @ConditionalOnMissingBean(name = "cocoAuditLogHandleRegistrar")
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "coco.audit.logging", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    public CocoLogHandleRegistrar cocoAuditLogHandleRegistrar(CocoAuditProperties properties) {
+        CocoAuditProperties.LoggingProperties logging = properties.getLogging();
+        return registry -> registry.register(CocoLogHandle.of(LoggingCocoAuditRecorder.LOG_HANDLE,
+                logging.getLoggerName(), logging.getLevel()));
+    }
+
+    /**
+     * <p>
+     * 创建默认审计事件格式化器。
+     * </p>
+     * @return 审计事件格式化器
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
-    public CocoAuditRecorder cocoAuditRecorder() {
-        return new NoOpCocoAuditRecorder();
+    public CocoAuditFormatter cocoAuditFormatter() {
+        return new DefaultCocoAuditFormatter();
+    }
+
+    /**
+     * <p>
+     * 创建默认审计日志记录器。
+     * </p>
+     * @param properties 审计配置属性
+     * @param formatter 审计事件格式化器
+     * @param logManager Coco 日志管理器
+     * @return 审计记录器
+     */
+    @Bean
+    @ConditionalOnBean(CocoLogManager.class)
+    @ConditionalOnMissingBean(CocoAuditRecorder.class)
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "coco.audit.logging", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    public CocoAuditRecorder cocoAuditRecorder(CocoAuditProperties properties, CocoAuditFormatter formatter,
+            CocoLogManager logManager) {
+        return new LoggingCocoAuditRecorder(properties.getLogging(), formatter, logManager);
     }
 
     /**

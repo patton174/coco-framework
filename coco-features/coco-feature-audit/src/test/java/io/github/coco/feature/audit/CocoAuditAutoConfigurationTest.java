@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -16,14 +17,19 @@ import io.github.coco.common.logging.access.CocoAccessLog;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.Slf4jCocoAccessLogRecorder;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
+import io.github.coco.common.logging.core.CocoLogLevel;
+import io.github.coco.common.logging.core.CocoLogRecord;
+import io.github.coco.common.logging.core.CocoLogSink;
 import io.github.coco.feature.audit.accesslog.CocoAccessLogAuditRecorder;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
 import io.github.coco.feature.audit.core.CocoAuditErrorHandler;
 import io.github.coco.feature.audit.core.CocoAuditFailurePolicy;
+import io.github.coco.feature.audit.core.CocoAuditFormatter;
 import io.github.coco.feature.audit.core.CocoAuditPublisher;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
 import io.github.coco.feature.audit.core.CompositeCocoAuditPublisher;
-import io.github.coco.feature.audit.core.NoOpCocoAuditRecorder;
+import io.github.coco.feature.audit.core.DefaultCocoAuditFormatter;
+import io.github.coco.feature.audit.core.LoggingCocoAuditRecorder;
 import io.github.coco.feature.audit.core.PolicyCocoAuditErrorHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -55,6 +61,14 @@ class CocoAuditAutoConfigurationTest {
                     CocoAuditAutoConfiguration.class))
             .withPropertyValues("coco.common.i18n.basename=coco-messages");
 
+    private final ApplicationContextRunner loggingContextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(
+                    CocoCommonAutoConfiguration.class,
+                    CocoCommonLoggingAutoConfiguration.class,
+                    CocoAuditAutoConfiguration.class))
+            .withUserConfiguration(CapturingLoggingConfiguration.class)
+            .withPropertyValues("coco.common.i18n.basename=coco-messages");
+
     @Test
     void registersAuditMessageBundle() {
         this.contextRunner.run(context -> {
@@ -67,15 +81,69 @@ class CocoAuditAutoConfigurationTest {
 
     @Test
     void createsDefaultAuditRecorderAndAccessLogAdapter() {
-        this.contextRunner.run(context -> {
+        this.loggingContextRunner.run(context -> {
+            assertThat(context).hasSingleBean(CocoAuditFormatter.class);
+            assertThat(context.getBean(CocoAuditFormatter.class)).isInstanceOf(DefaultCocoAuditFormatter.class);
             assertThat(context).hasSingleBean(CocoAuditRecorder.class);
-            assertThat(context.getBean(CocoAuditRecorder.class)).isInstanceOf(NoOpCocoAuditRecorder.class);
+            assertThat(context.getBean(CocoAuditRecorder.class)).isInstanceOf(LoggingCocoAuditRecorder.class);
             assertThat(context).hasSingleBean(CocoAuditErrorHandler.class);
             assertThat(context).hasSingleBean(CocoAuditPublisher.class);
             assertThat(context.getBean(CocoAuditPublisher.class)).isInstanceOf(CompositeCocoAuditPublisher.class);
+            assertThat(context).hasBean("cocoAuditLogHandleRegistrar");
             assertThat(context).hasBean("cocoAccessLogAuditRecorder");
             assertThat(context.getBean("cocoAccessLogAuditRecorder")).isInstanceOf(CocoAccessLogAuditRecorder.class);
         });
+    }
+
+    @Test
+    void writesDefaultAuditRecordThroughCocoLogSink() {
+        this.loggingContextRunner
+                .withPropertyValues(
+                        "coco.audit.logging.logger-name=example.audit",
+                        "coco.audit.logging.level=WARN")
+                .run(context -> {
+                    CocoAuditPublisher publisher = context.getBean(CocoAuditPublisher.class);
+                    CapturingCocoLogSink sink = context.getBean(CapturingCocoLogSink.class);
+
+                    publisher.publish(CocoAuditEvent.builder("business-operation")
+                            .action("update")
+                            .resourceType("order")
+                            .resourceId("1001")
+                            .traceId("trace-log")
+                            .occurredAt(Instant.parse("2026-07-10T01:02:03Z"))
+                            .attribute("region", "cn")
+                            .attribute("attempt", 2)
+                            .build());
+
+                    CocoLogRecord record = sink.latest.get();
+                    assertThat(record).isNotNull();
+                    assertThat(record.handle().name()).isEqualTo(LoggingCocoAuditRecorder.LOG_HANDLE);
+                    assertThat(record.handle().loggerName()).isEqualTo("example.audit");
+                    assertThat(record.handle().defaultLevel()).isEqualTo(CocoLogLevel.WARN);
+                    assertThat(record.level()).isEqualTo(CocoLogLevel.WARN);
+                    assertThat(record.failure()).isEmpty();
+                    assertThat(record.message()).isEqualTo("{\"type\":\"business-operation\",\"action\":\"update\","
+                            + "\"resourceType\":\"order\",\"resourceId\":\"1001\",\"traceId\":\"trace-log\","
+                            + "\"actor\":null,\"tenantId\":null,\"success\":true,"
+                            + "\"occurredAt\":\"2026-07-10T01:02:03Z\","
+                            + "\"attributes\":{\"attempt\":2,\"region\":\"cn\"}}");
+                });
+    }
+
+    @Test
+    void usesCustomFormatterWithDefaultLoggingRecorder() {
+        this.loggingContextRunner
+                .withUserConfiguration(CustomFormatterConfiguration.class)
+                .run(context -> {
+                    CocoAuditPublisher publisher = context.getBean(CocoAuditPublisher.class);
+                    CapturingCocoLogSink sink = context.getBean(CapturingCocoLogSink.class);
+
+                    publisher.publish(CocoAuditEvent.builder("custom-format").build());
+
+                    assertThat(context.getBeansOfType(CocoAuditFormatter.class))
+                            .containsOnlyKeys("customAuditFormatter");
+                    assertThat(sink.latest.get().message()).isEqualTo("custom:custom-format");
+                });
     }
 
     @Test
@@ -140,7 +208,7 @@ class CocoAuditAutoConfigurationTest {
 
     @Test
     void autoConfiguredPublisherPublishesToAllCustomRecorders() {
-        this.contextRunner
+        this.loggingContextRunner
                 .withUserConfiguration(MultipleAuditRecorderConfiguration.class)
                 .run(context -> {
                     CocoAuditPublisher auditPublisher = context.getBean(CocoAuditPublisher.class);
@@ -161,6 +229,7 @@ class CocoAuditAutoConfigurationTest {
                     assertThat(secondRecorder.latest.get().resourceId()).contains("1001");
                     assertThat(context.getBeansOfType(CocoAuditRecorder.class))
                             .containsOnlyKeys("firstAuditRecorder", "secondAuditRecorder");
+                    assertThat(context).doesNotHaveBean("cocoAuditRecorder");
                 });
     }
 
@@ -184,7 +253,7 @@ class CocoAuditAutoConfigurationTest {
 
     @Test
     void disablesAccessLogAuditAdapter() {
-        this.contextRunner
+        this.loggingContextRunner
                 .withPropertyValues("coco.audit.access-log.enabled=false")
                 .run(context -> {
                     assertThat(context).hasSingleBean(CocoAuditRecorder.class);
@@ -193,13 +262,63 @@ class CocoAuditAutoConfigurationTest {
     }
 
     @Test
+    void disablesDefaultLoggingRecorder() {
+        this.loggingContextRunner
+                .withPropertyValues("coco.audit.logging.enabled=false")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(CocoAuditFormatter.class);
+                    assertThat(context).doesNotHaveBean(CocoAuditRecorder.class);
+                    assertThat(context).doesNotHaveBean(CocoAuditPublisher.class);
+                    assertThat(context).doesNotHaveBean("cocoAuditLogHandleRegistrar");
+                    assertThat(context).doesNotHaveBean("cocoAccessLogAuditRecorder");
+                });
+    }
+
+    @Test
+    void keepsCustomRecorderPipelineWhenDefaultLoggingIsDisabled() {
+        this.loggingContextRunner
+                .withUserConfiguration(CapturingAuditConfiguration.class)
+                .withPropertyValues("coco.audit.logging.enabled=false")
+                .run(context -> {
+                    CocoAuditPublisher publisher = context.getBean(CocoAuditPublisher.class);
+                    CapturingCocoAuditRecorder recorder = context.getBean(CapturingCocoAuditRecorder.class);
+                    CapturingCocoLogSink sink = context.getBean(CapturingCocoLogSink.class);
+
+                    publisher.publish(CocoAuditEvent.builder("custom-recorder").build());
+
+                    assertThat(recorder.events).hasSize(1);
+                    assertThat(sink.records).isEmpty();
+                    assertThat(context).doesNotHaveBean("cocoAuditLogHandleRegistrar");
+                    assertThat(context).hasBean("cocoAccessLogAuditRecorder");
+                });
+    }
+
+    @Test
+    void keepsAuditPipelineButSkipsLoggingWhenLevelIsOff() {
+        this.loggingContextRunner
+                .withPropertyValues("coco.audit.logging.level=OFF")
+                .run(context -> {
+                    CocoAuditPublisher publisher = context.getBean(CocoAuditPublisher.class);
+                    CapturingCocoLogSink sink = context.getBean(CapturingCocoLogSink.class);
+
+                    publisher.publish(CocoAuditEvent.builder("off-level").build());
+
+                    assertThat(context).hasSingleBean(CocoAuditRecorder.class);
+                    assertThat(context).hasSingleBean(CocoAuditPublisher.class);
+                    assertThat(sink.records).isEmpty();
+                });
+    }
+
+    @Test
     void disablesAuditInfrastructure() {
-        this.contextRunner
+        this.loggingContextRunner
                 .withPropertyValues("coco.audit.enabled=false")
                 .run(context -> {
+                    assertThat(context).doesNotHaveBean(CocoAuditFormatter.class);
                     assertThat(context).doesNotHaveBean(CocoAuditRecorder.class);
                     assertThat(context).doesNotHaveBean(CocoAuditErrorHandler.class);
                     assertThat(context).doesNotHaveBean(CocoAuditPublisher.class);
+                    assertThat(context).doesNotHaveBean("cocoAuditLogHandleRegistrar");
                     assertThat(context).doesNotHaveBean("cocoAccessLogAuditRecorder");
                 });
     }
@@ -238,6 +357,24 @@ class CocoAuditAutoConfigurationTest {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    static class CapturingLoggingConfiguration {
+
+        @Bean
+        CapturingCocoLogSink capturingCocoLogSink() {
+            return new CapturingCocoLogSink();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomFormatterConfiguration {
+
+        @Bean
+        CocoAuditFormatter customAuditFormatter() {
+            return event -> "custom:" + event.type();
+        }
+    }
+
     static class CapturingCocoAuditRecorder implements CocoAuditRecorder {
 
         private final AtomicReference<CocoAuditEvent> latest = new AtomicReference<>();
@@ -248,6 +385,19 @@ class CocoAuditAutoConfigurationTest {
         public void record(CocoAuditEvent event) {
             this.events.add(event);
             this.latest.set(event);
+        }
+    }
+
+    static class CapturingCocoLogSink implements CocoLogSink {
+
+        private final AtomicReference<CocoLogRecord> latest = new AtomicReference<>();
+
+        private final List<CocoLogRecord> records = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void log(CocoLogRecord record) {
+            this.records.add(record);
+            this.latest.set(record);
         }
     }
 }

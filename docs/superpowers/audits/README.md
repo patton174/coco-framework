@@ -60,7 +60,7 @@ Coco Framework 的目标是帮助业务项目快速搭建生产可用的 Spring 
 | sample repository 职责混杂 | business B5 | accepted | sample 修正批次执行。 |
 | sample i18n bundle 错位 | business B6 | accepted | sample 修正批次执行，并同步检查 security messages。 |
 | sample secure endpoint 仅 URL 装饰 | business B7 | accepted | sample 修正批次执行，避免业务方误解端点名参与鉴权。 |
-| audit/openapi/codegen 是占位 SPI | framework C10 | accepted | PR9 先收敛文档；Audit 与 OpenAPI 已有真实消费者，PR37 补齐默认 CRUD 模板生成器和显式 `coco:generate` 交付。 |
+| audit/openapi/codegen 是占位 SPI | framework C10 | accepted | PR9 先收敛文档；OpenAPI 已有真实消费者，PR37 补齐 Codegen，PR38 为 Audit 增加默认结构化日志且保留持久化 SPI。 |
 | OpenAPI 元数据 provider 无消费者 | framework C3 | accepted | PR30 增加可选 SpringDoc 元数据适配器；SpringDoc 在业务项目 classpath 中存在时自动把 Coco 元数据写入 `OpenAPI.info`，框架不强依赖 SpringDoc。 |
 | MyBatis-Plus 自动配置字符串排序 | framework C4 | accepted | PR31 将 Coco MyBatis-Plus、租户和数据权限的自动配置排序改为类型安全引用，并补测试防止回退到 `afterName` / `beforeName` 字符串类名。 |
 | Web 安全输入解析器缺直接测试 | framework C5 | accepted | PR32 补 `DefaultCocoWebRequestSecurityInputResolver` 直接测试，固定签名 / 加密 / 防重放过滤器共享输入快照边界。 |
@@ -869,6 +869,29 @@ codegraph sync .
 
 ```powershell
 mvn -B -pl :coco-feature-codegen,:coco-maven-plugin -am verify
+git diff --check
+codegraph sync .
+```
+
+### PR 38：默认结构化审计日志
+
+状态：done。Audit 默认实现不再静默丢弃事件，提供可替换的结构化日志输出。
+
+目标：在不引入数据库审计模型的前提下，让单 starter 项目启用 Audit 后立即获得可观测输出。
+
+范围：
+
+- 默认 `CocoAuditRecorder` 改为通过独立 Coco log handle 输出稳定单行 JSON。
+- 新增 `CocoAuditFormatter` SPI；业务提供 Formatter 或 Recorder bean 时默认实现回退。
+- 增加 `coco.audit.logging.enabled`、`logger-name` 和 `level` 配置与元数据。
+- Formatter 固定字段顺序、属性 key 排序和控制字符转义，避免日志注入与不稳定输出。
+- 数据库、MQ、防篡改、保留期限和合规报表继续明确为业务侧职责。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-feature-audit -am verify
+mvn -B verify
 git diff --check
 codegraph sync .
 ```
