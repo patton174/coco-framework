@@ -485,7 +485,7 @@ macOS 矩阵中执行。
 | D31 | web | correctness | `CocoWebExceptionHandler.handleUnhandledException` 抓所有 5xx，吞掉客户端断开信号（与 B8 重叠，PR17 已处理） |
 | D32 | web | security | 过滤器顺序：加密先于重放，攻击者可消耗 CPU 后才被拒（与 B7 重叠，PR29 已处理） |
 | D33 | web | correctness | Trace filter 在校验前解析并存储用户提供的 TraceId，被签名 / 加密当作 key material 上下文使用 |
-| D34 | web | api-design | `AsyncCocoLogSink` 在溢出时静默丢 WARN / INFO，无指标无回调 |
+| D34 | web | api-design | `AsyncCocoLogSink` 队列满时丢弃 `TRACE` / `DEBUG` / `INFO` 原缺少计数和回调（PR41 已处理） |
 | D35 | web | correctness | `CocoFilterExceptionResponseWriter` 用 `RequestContextHolder` 侧面拿数据，并行错误渲染下不线程安全（与 B9 重叠，PR20 已处理） |
 | D36 | web | correctness | `BodyCache` filter 触发签名 / 加密的检测用手写 `split("&")`（与 B10 重叠，PR16 已处理） |
 | D37 | web | correctness | `CocoTraceFilter.restoreMdcValue` 用 `==` 判空（与 B11 重叠，PR19 已处理） |

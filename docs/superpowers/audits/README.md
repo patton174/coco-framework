@@ -944,6 +944,31 @@ git diff --check
 codegraph sync .
 ```
 
+### PR 41：异步日志溢出可观测性
+
+状态：done。默认异步日志队列已补充实际丢弃计数、可替换监听 SPI、重入保护和低噪声诊断，同时保持现有非阻塞提交与高等级同步兜底语义。
+
+目标：收口 D34，让允许丢弃的低等级日志在过载时可观测，但不把 common logging 扩成可靠日志传输或外部观测平台。
+
+范围：
+
+- `AsyncCocoLogSink` 对队列满时实际丢弃的 `TRACE`、`DEBUG`、`INFO` 维护并发安全累计计数，并保留现有构造器。
+- 新增 `CocoAsyncLogDropListener` SPI；只暴露级别、句柄和累计数，不传递日志正文或异常；同线程重入时嵌套丢弃继续计数但跳过递归通知。
+- 默认监听器直接使用独立 SLF4J logger，在首次及累计数达到 2 的幂次时输出 WARN，避免诊断递归和告警风暴。
+- 自定义监听器异常被隔离；`WARN` 溢出同步写出，`ERROR` 和携带异常记录始终同步写出的现有语义保持不变。
+- 不新增 Micrometer、Actuator、持久队列、外部日志平台或可靠投递承诺。
+- 补充溢出、并发、监听失败、默认诊断、关闭后写入和自动配置替换测试，并同步中英文 README 与原始审计描述。
+
+验收：
+
+```powershell
+mvn -B -pl :coco-common-logging -am verify
+mvn -B verify
+git diff --check
+codegraph sync .
+codegraph status .
+```
+
 ## 执行纪律
 
 - 每个 PR 只处理一个主题，不把 sample、Web 重构、API 删除混在一起。
