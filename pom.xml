@@ -67,6 +67,8 @@
         <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
         <maven-plugin-plugin.version>3.13.1</maven-plugin-plugin.version>
+        <spotbugs-maven-plugin.version>4.8.6.5</spotbugs-maven-plugin.version>
+        <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
         <central.auto-publish>false</central.auto-publish>
         <central.wait-until>VALIDATED</central.wait-until>
         <coco.enforcer.skip>false</coco.enforcer.skip>
@@ -272,6 +274,34 @@
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring-boot.version}</version>
+                </plugin>
+                <!--
+                  Static analysis. No lifecycle executions are bound on purpose:
+                  local `mvn install` never runs these, so dev/IDE builds stay
+                  fast and never break on style. CI invokes the goals directly
+                  (`mvn spotbugs:check` / `mvn checkstyle:check`) from
+                  _static-analysis.yml, where the soft-vs-hard gate is the
+                  step-level continue-on-error toggle (Phase 1 soft, Phase 2 hard).
+                -->
+                <plugin>
+                    <groupId>com.github.spotbugs</groupId>
+                    <artifactId>spotbugs-maven-plugin</artifactId>
+                    <version>${spotbugs-maven-plugin.version}</version>
+                    <configuration>
+                        <effort>Max</effort>
+                        <threshold>Low</threshold>
+                        <xmlOutput>true</xmlOutput>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>${maven-checkstyle-plugin.version}</version>
+                    <configuration>
+                        <configLocation>google_checks.xml</configLocation>
+                        <consoleOutput>true</consoleOutput>
+                        <linkXRef>false</linkXRef>
+                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>

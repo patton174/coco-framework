@@ -25,9 +25,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Reuse the exact CI verification (cross-platform build + sample checks)
+  # as a hard prerequisite: no publish unless the full test matrix passes.
+  test:
+    name: Test
+    uses: ./.github/workflows/_test.yml
+
   publish:
     name: Publish to Maven Central
     runs-on: ubuntu-latest
+    # Gate: tests must pass, then a human approves the `coco-spring`
+    # environment (required reviewers) before any publish step runs.
+    needs: test
     environment: coco-spring
     steps:
       - name: Checkout

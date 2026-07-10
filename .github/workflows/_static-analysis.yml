@@ -1,0 +1,57 @@
+name: Reusable / Static Analysis
+
+# Reusable static-analysis pipeline: SpotBugs (bug patterns) + Checkstyle (style).
+# Deterministic half of the review stage (the AI half is claude-review.yml).
+# Called by ci.yml. Phase 1 is soft-fail (fail-on-error: false) so the first
+# runs surface findings-as-data without blocking merges; flip to true once the
+# baseline is clean.
+
+on:
+  workflow_call:
+    inputs:
+      fail-on-error:
+        description: 'Fail the job when SpotBugs/Checkstyle report findings'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: SpotBugs + Checkstyle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21 toolchain
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # SpotBugs analyzes compiled bytecode, so classes must exist first.
+      # A single reactor invocation resolves inter-module dependencies.
+      - name: Compile classes
+        run: mvn -B -ntp -DskipTests test-compile
+
+      - name: SpotBugs
+        continue-on-error: ${{ !inputs.fail-on-error }}
+        run: mvn -B -ntp spotbugs:check
+
+      - name: Checkstyle
+        continue-on-error: ${{ !inputs.fail-on-error }}
+        run: mvn -B -ntp checkstyle:check
+
+      - name: Upload analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-reports
+          path: |
+            **/target/spotbugsXml.xml
+            **/target/checkstyle-result.xml
+          if-no-files-found: ignore
