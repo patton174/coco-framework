@@ -10,11 +10,12 @@
 ## Protected Merge Path
 
 `main` accepts changes through pull requests. The repository requires the stable
-`CI gate` and `Agent jury gate` contexts, requires branches to be current with
-`main`, requires one current approval, resolves review conversations before
-merge, and rejects force pushes or branch deletion. The repository currently has
-one human collaborator, so the owner retains the administrator emergency bypass;
-the documented PR path remains the normal development flow.
+`CI gate`, `Agent jury gate`, and `Agent issue gate` contexts, requires branches
+to be current with `main`, requires one current approval, resolves review
+conversations before merge, and rejects force pushes or branch deletion. The
+repository currently has one human collaborator, so the owner retains the
+administrator emergency bypass; the documented PR path remains the normal
+development flow.
 
 Trusted Agent-review runtime changes are the narrow bootstrap exception. Because
 `pull_request_target` deliberately executes the protected base version, a PR
