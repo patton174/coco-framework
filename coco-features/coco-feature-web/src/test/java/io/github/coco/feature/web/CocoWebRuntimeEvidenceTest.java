@@ -18,12 +18,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.context.CocoRequestContext;
-import io.github.coco.common.context.CocoRequestContextAttributes;
-import io.github.coco.common.context.CocoRequestContextHolder;
-import io.github.coco.common.i18n.api.CocoMessage;
-import io.github.coco.common.i18n.api.CocoMessageService;
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.context.CocoRequestContext;
+import io.github.coco.context.CocoRequestContextAttributes;
+import io.github.coco.context.CocoRequestContextHolder;
+import io.github.coco.i18n.CocoMessage;
+import io.github.coco.i18n.CocoMessageService;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;

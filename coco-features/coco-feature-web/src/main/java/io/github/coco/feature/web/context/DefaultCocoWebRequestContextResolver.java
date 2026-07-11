@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.StringJoiner;
 
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
 import io.github.coco.feature.web.body.CocoRequestBodyResolver;

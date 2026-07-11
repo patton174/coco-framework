@@ -1,6 +1,6 @@
 package io.github.coco.spring.boot;
 
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.spring.boot.banner.CocoBannerProperties;
 import io.github.coco.spring.boot.banner.CocoStartupBanner;

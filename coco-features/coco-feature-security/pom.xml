@@ -16,15 +16,15 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-exception</artifactId>
+            <artifactId>coco-exception</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-i18n</artifactId>
+            <artifactId>coco-i18n</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-context</artifactId>
+            <artifactId>coco-context</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>

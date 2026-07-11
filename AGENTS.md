@@ -28,7 +28,7 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-parent` is the recommended parent POM for business applications. It imports the BOM, runs Spring Boot repackage, runs `coco:features`, and runs `coco:prune-package`.
 - `coco-spring-boot-starter` is the single normal starter dependency for applications. It brings common infrastructure and standard feature modules.
 - `coco-api-core` contains stable public contracts such as `CocoConfigurer`, `CocoFeature`, `CocoFeatureRegistry`, and `@CocoFeatures`.
-- `coco-common-*` modules contain reusable infrastructure: context, exception contracts, i18n, and logging.
+- `coco-context`, `coco-exception`, and `coco-i18n` contain reusable infrastructure; logging remains in `coco-common-logging` during the staged 2.0 migration.
 - `coco-config` binds `coco.*` configuration and computes the final runtime feature plan.
 - `coco-feature-registry` owns standard feature metadata, dependencies, manifest model, and feature resolution.
 - `coco-feature-runtime` filters auto-configuration by feature state.

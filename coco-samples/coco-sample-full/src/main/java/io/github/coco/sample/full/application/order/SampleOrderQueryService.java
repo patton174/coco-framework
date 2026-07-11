@@ -3,7 +3,7 @@ package io.github.coco.sample.full.application.order;
 import java.util.List;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
 import io.github.coco.feature.audit.core.CocoAuditPublisher;
 import io.github.coco.feature.datapermission.context.CocoDataPermissionContextHolder;

@@ -5,8 +5,8 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 
-import io.github.coco.common.context.CocoContextScope;
-import io.github.coco.common.context.CocoContextSnapshot;
+import io.github.coco.context.CocoContextScope;
+import io.github.coco.context.CocoContextSnapshot;
 import io.github.coco.feature.security.CocoSecurityErrorCode;
 
 /**

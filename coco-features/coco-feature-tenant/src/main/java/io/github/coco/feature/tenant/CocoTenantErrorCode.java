@@ -1,6 +1,6 @@
 package io.github.coco.feature.tenant;
 
-import io.github.coco.common.exception.CocoErrorCode;
+import io.github.coco.exception.CocoErrorCode;
 
 /**
  * Coco 租户功能错误码。

@@ -6,7 +6,7 @@ import java.util.Locale;
 import java.util.Objects;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.exception.CocoException;
+import io.github.coco.exception.CocoException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;

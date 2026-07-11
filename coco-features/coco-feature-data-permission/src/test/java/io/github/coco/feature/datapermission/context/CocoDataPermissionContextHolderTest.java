@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-import io.github.coco.common.context.CocoContextScope;
-import io.github.coco.common.context.CocoContextSnapshot;
+import io.github.coco.context.CocoContextScope;
+import io.github.coco.context.CocoContextSnapshot;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

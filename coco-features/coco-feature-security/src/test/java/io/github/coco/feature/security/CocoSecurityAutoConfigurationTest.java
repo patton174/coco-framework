@@ -11,9 +11,9 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.exception.type.CocoForbiddenException;
-import io.github.coco.common.exception.type.CocoUnauthorizedException;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.exception.type.CocoForbiddenException;
+import io.github.coco.exception.type.CocoUnauthorizedException;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.feature.security.context.CocoSecurityContext;
 import io.github.coco.feature.security.context.CocoSecurityContextHolder;
 import io.github.coco.feature.security.context.CocoSecurityContextResolver;

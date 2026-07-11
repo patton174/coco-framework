@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.common.logging.access.CocoAccessLog;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.access.Slf4jCocoAccessLogRecorder;

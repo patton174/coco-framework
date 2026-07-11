@@ -1,6 +1,6 @@
 package io.github.coco.feature.datapermission;
 
-import io.github.coco.common.exception.CocoErrorCode;
+import io.github.coco.exception.CocoErrorCode;
 
 /**
  * Coco 数据权限功能错误码。

@@ -1,7 +1,7 @@
 package io.github.coco.feature.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.feature.web.response.CocoResponseBodyFactory;
 import io.github.coco.feature.web.response.CocoResponseWrapAdvice;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;

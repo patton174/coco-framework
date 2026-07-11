@@ -1,7 +1,7 @@
 package io.github.coco.feature.datapermission;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.datapermission.context.CocoDataPermissionContextResolver;
 import io.github.coco.feature.datapermission.context.HolderCocoDataPermissionContextResolver;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;

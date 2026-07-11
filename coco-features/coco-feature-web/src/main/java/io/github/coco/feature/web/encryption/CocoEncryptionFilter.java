@@ -11,12 +11,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import io.github.coco.common.context.CocoRequestContext;
-import io.github.coco.common.context.CocoRequestContextAttributes;
-import io.github.coco.common.context.CocoRequestContextHolder;
-import io.github.coco.common.exception.CocoBusinessExceptions;
-import io.github.coco.common.exception.CocoException;
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.context.CocoRequestContext;
+import io.github.coco.context.CocoRequestContextAttributes;
+import io.github.coco.context.CocoRequestContextHolder;
+import io.github.coco.exception.CocoBusinessExceptions;
+import io.github.coco.exception.CocoException;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.body.CocoRequestBodyResolver;

@@ -2,8 +2,8 @@ package io.github.coco.feature.web.response;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.i18n.api.CocoMessageService;
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.i18n.CocoMessageService;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import java.lang.reflect.Method;
 import java.nio.charset.Charset;

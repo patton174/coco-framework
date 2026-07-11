@@ -1,6 +1,6 @@
 package io.github.coco.feature.security;
 
-import io.github.coco.common.exception.CocoErrorCode;
+import io.github.coco.exception.CocoErrorCode;
 
 /**
  * Coco 安全功能错误码。

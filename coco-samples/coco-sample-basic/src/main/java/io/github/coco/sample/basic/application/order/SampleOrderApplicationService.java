@@ -3,7 +3,7 @@ package io.github.coco.sample.basic.application.order;
 import java.util.List;
 import java.util.Objects;
 
-import io.github.coco.common.exception.CocoCommonErrorCode;
+import io.github.coco.exception.CocoCommonErrorCode;
 import io.github.coco.sample.basic.domain.order.SampleBusinessErrorCode;
 import io.github.coco.sample.basic.domain.order.SampleOrder;
 import io.github.coco.sample.basic.domain.order.SampleOrderRepository;

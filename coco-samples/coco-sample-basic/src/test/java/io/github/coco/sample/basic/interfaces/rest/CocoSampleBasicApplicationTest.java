@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.exception.type.CocoConflictException;
+import io.github.coco.exception.type.CocoConflictException;
 import io.github.coco.common.logging.access.CocoAccessLog;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.core.CocoLogRecord;

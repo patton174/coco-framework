@@ -1,6 +1,6 @@
 package io.github.coco.feature.web.exception;
 
-import io.github.coco.common.exception.CocoException;
+import io.github.coco.exception.CocoException;
 import org.springframework.http.HttpStatusCode;
 
 /**

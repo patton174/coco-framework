@@ -7,9 +7,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import io.github.coco.common.context.CocoRequestContext;
-import io.github.coco.common.context.CocoRequestContextAttributes;
-import io.github.coco.common.context.CocoRequestContextValueCodec;
+import io.github.coco.context.CocoRequestContext;
+import io.github.coco.context.CocoRequestContextAttributes;
+import io.github.coco.context.CocoRequestContextValueCodec;
 import io.github.coco.feature.web.body.CocoRequestBodyMetadata;
 import io.github.coco.feature.web.context.payload.CocoWebPayloadParseStatus;
 import io.github.coco.feature.web.context.target.CocoWebRequestTarget;

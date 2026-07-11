@@ -12,7 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.feature.codegen.core.CocoCodeGenerator;
 import io.github.coco.feature.codegen.core.CocoCodegenRequest;
 import io.github.coco.feature.codegen.core.CocoCodegenResult;

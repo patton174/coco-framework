@@ -6,11 +6,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import io.github.coco.common.context.CocoRequestContext;
-import io.github.coco.common.context.CocoRequestContextHolder;
+import io.github.coco.context.CocoRequestContext;
+import io.github.coco.context.CocoRequestContextHolder;
 import io.github.coco.common.logging.access.CocoAccessLog;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;

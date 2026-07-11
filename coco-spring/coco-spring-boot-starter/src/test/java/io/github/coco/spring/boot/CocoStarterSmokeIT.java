@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
