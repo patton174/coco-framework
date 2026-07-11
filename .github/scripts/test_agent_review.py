@@ -175,6 +175,53 @@ class AgentReviewTests(unittest.TestCase):
             3, len([item for item in protocol["files"] if "prompts/" in item["path"]])
         )
 
+    def test_config_and_context_require_strict_integer_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.json"
+            for invalid_version in (True, 1.0):
+                with self.subTest(target="config", version=invalid_version):
+                    value = config()
+                    value["schema_version"] = invalid_version
+                    review.write_json(config_path, value)
+                    with self.assertRaises(review.ReviewError):
+                        review.load_config(config_path)
+
+                with self.subTest(target="context", version=invalid_version):
+                    context = bound_context()
+                    context["schema_version"] = invalid_version
+                    review.bind_context(context)
+                    with self.assertRaises(review.ReviewError):
+                        review.validate_context(context)
+
+    def test_normalized_limits_reads_output_tokens_with_legacy_priority(self) -> None:
+        token_keys = ("specialist_tokens", "verifier_tokens", "chair_tokens")
+        self.assertEqual(
+            {key: 4096 for key in token_keys},
+            {key: review.normalized_limits({})[key] for key in token_keys},
+        )
+
+        value = {
+            "output_limits": {
+                "specialist_tokens": 4101,
+                "verifier_tokens": 4102,
+                "chair_tokens": 4103,
+            }
+        }
+        self.assertEqual(
+            (4101, 4102, 4103),
+            tuple(review.normalized_limits(value)[key] for key in token_keys),
+        )
+
+        value["limits"] = {
+            "specialist_tokens": 4201,
+            "verifier_tokens": 4202,
+            "chair_tokens": 4203,
+        }
+        self.assertEqual(
+            (4201, 4202, 4203),
+            tuple(review.normalized_limits(value)[key] for key in token_keys),
+        )
+
     def test_role_config_rejects_duplicate_ids(self) -> None:
         value = config()
         value["specialists"].append({"id": "correctness", "focus": "duplicate"})
@@ -344,7 +391,7 @@ class AgentReviewTests(unittest.TestCase):
         report = specialist_report("correctness", context)
         review.validate_specialist_report(report, "correctness", context, 8)
         report["findings"][0]["file"] = "src/Missing.java"
-        with self.assertRaises(review.ReviewError):
+        with self.assertRaises(review.ReportShapeError):
             review.validate_specialist_report(report, "correctness", context, 8)
 
     def test_specialist_schema_rejects_extra_fields_and_output_overflow(self) -> None:
@@ -357,6 +404,18 @@ class AgentReviewTests(unittest.TestCase):
         report["questions"] = ["Question"] * 6
         with self.assertRaises(review.ReviewError):
             review.validate_specialist_report(report, "correctness", context, 8, 5, 10)
+
+    def test_specialist_numeric_fields_require_strict_integers(self) -> None:
+        context = bound_context()
+        for field in ("start_line", "end_line", "confidence"):
+            for invalid_value in (True, 1.0):
+                with self.subTest(field=field, value=invalid_value):
+                    report = specialist_report("correctness", context)
+                    report["findings"][0][field] = invalid_value
+                    with self.assertRaises(review.ReportShapeError):
+                        review.validate_specialist_report(
+                            report, "correctness", context, 8
+                        )
 
     def test_consensus_requires_both_verifiers_to_agree(self) -> None:
         context = bound_context()
@@ -451,7 +510,7 @@ class AgentReviewTests(unittest.TestCase):
         finding_id = "correctness:f1"
         report = verifier_report("evidence-verifier", context, finding_id)
         report["reviews"][0]["confidence"] = 99
-        with self.assertRaises(review.ReviewError):
+        with self.assertRaises(review.ReportShapeError):
             review.validate_cross_report(
                 report, "evidence-verifier", context, {finding_id}
             )
@@ -489,7 +548,7 @@ class AgentReviewTests(unittest.TestCase):
         }
         review.validate_chair(chair, consensus, context)
         chair["confirmed_blocker_ids"] = ["chair:f1"]
-        with self.assertRaises(review.ReviewError):
+        with self.assertRaises(review.ReportShapeError):
             review.validate_chair(chair, consensus, context)
 
     def test_chair_schema_rejects_extra_fields(self) -> None:
@@ -567,6 +626,36 @@ class AgentReviewTests(unittest.TestCase):
             review.validate_final_artifact(
                 final, context, specialists, verifiers, config()
             )
+
+    def test_final_artifact_contract_errors_remain_non_shape_errors(self) -> None:
+        context = bound_context()
+
+        def artifact(schema_version: object = 1) -> dict:
+            return {
+                "schema_version": schema_version,
+                "binding": context["binding"],
+                "verdict": "PASS",
+                "chair": {},
+                "consensus": {},
+                "specialist_roles": [],
+                "verifier_roles": [],
+            }
+
+        missing_field = artifact()
+        missing_field.pop("verdict")
+        extra_field = artifact()
+        extra_field["unexpected"] = True
+        cases = [
+            ("missing-field", missing_field),
+            ("extra-field", extra_field),
+            ("boolean-version", artifact(True)),
+            ("float-version", artifact(1.0)),
+        ]
+        for name, value in cases:
+            with self.subTest(case=name):
+                with self.assertRaises(review.ReviewError) as raised:
+                    review.validate_final_artifact(value, context, [], [], config())
+                self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
     def test_managed_comment_order_supports_legacy_migration(self) -> None:
         self.assertEqual(
@@ -1123,7 +1212,7 @@ class AgentReviewTests(unittest.TestCase):
         client = FakeClient()
 
         def validate(value: dict) -> None:
-            review.require_exact_fields(value, {"required"}, "Test report")
+            review.require_report_fields(value, {"required"}, "Test report")
 
         system = "protected system"
         user = '{"task":"review"}'
@@ -1198,7 +1287,7 @@ class AgentReviewTests(unittest.TestCase):
         client = FakeClient()
 
         def validate(value: dict) -> None:
-            review.require_exact_fields(value, {"required"}, "Test report")
+            review.require_report_fields(value, {"required"}, "Test report")
 
         with patch("builtins.print"):
             with self.assertRaises(review.ReportShapeError):
@@ -1224,7 +1313,7 @@ class AgentReviewTests(unittest.TestCase):
         client = FakeClient()
 
         def validate(value: dict) -> None:
-            review.require_exact_fields(value, {"required"}, "Test report")
+            review.require_report_fields(value, {"required"}, "Test report")
 
         with patch("builtins.print") as warning:
             result = review.complete_with_shape_repair(
@@ -1240,6 +1329,83 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual({"wrong": True}, repair_payload["previous_response"])
         self.assertIn("missing=['required']", repair_payload["validator_message"])
 
+    def test_bound_report_contract_type_errors_receive_correction(self) -> None:
+        class FakeClient:
+            def __init__(self, responses: list[dict]) -> None:
+                self.responses = responses
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        context = bound_context()
+        specialist_invalid = specialist_report("correctness", context)
+        specialist_invalid["context_gaps"] = "not-an-array"
+        specialist_valid = specialist_report("correctness", context)
+
+        finding_id = specialist_valid["findings"][0]["id"]
+        cross_invalid = verifier_report("evidence-verifier", context, finding_id)
+        cross_invalid["reviews"] = "not-an-array"
+        cross_valid = verifier_report("evidence-verifier", context, finding_id)
+
+        chair_valid = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "PASS",
+            "summary": "No independently confirmed blockers.",
+            "confirmed_blocker_ids": [],
+            "follow_up_finding_ids": [],
+            "questions": [],
+        }
+        chair_invalid = dict(chair_valid)
+        chair_invalid["questions"] = "not-an-array"
+        consensus = {"confirmed": [], "challenged": [], "unverified": []}
+
+        cases = [
+            (
+                "specialist",
+                specialist_invalid,
+                specialist_valid,
+                lambda value: review.validate_specialist_report(
+                    value, "correctness", context, 8
+                ),
+            ),
+            (
+                "cross-review",
+                cross_invalid,
+                cross_valid,
+                lambda value: review.validate_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+            ),
+            (
+                "chair",
+                chair_invalid,
+                chair_valid,
+                lambda value: review.validate_chair(value, consensus, context),
+            ),
+        ]
+        for name, invalid, valid, validate in cases:
+            with self.subTest(role=name):
+                with self.assertRaises(review.ReportShapeError):
+                    validate(invalid)
+                client = FakeClient([invalid, valid])
+                with patch("builtins.print") as warning:
+                    result = review.complete_with_shape_repair(
+                        client,
+                        "protected system",
+                        '{"task":"review"}',
+                        100,
+                        validate,
+                    )
+                self.assertEqual(valid, result)
+                self.assertEqual(2, len(client.calls))
+                warning.assert_called_once()
+                self.assertIn("Protected protocol correction", client.calls[1][0])
+
     def test_shape_repair_fails_closed_after_second_shape_error(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
@@ -1253,7 +1419,7 @@ class AgentReviewTests(unittest.TestCase):
         client = FakeClient()
 
         def validate(value: dict) -> None:
-            review.require_exact_fields(value, {"required"}, "Test report")
+            review.require_report_fields(value, {"required"}, "Test report")
 
         with patch("builtins.print"):
             with self.assertRaises(review.ReportShapeError):
@@ -1261,6 +1427,36 @@ class AgentReviewTests(unittest.TestCase):
                     client, "protected system", '{"task":"review"}', 100, validate
                 )
         self.assertEqual(2, client.calls)
+
+    def test_report_identity_schema_version_errors_do_not_retry(self) -> None:
+        class FakeClient:
+            def __init__(self, response: dict) -> None:
+                self.response = response
+                self.calls = 0
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, user, max_tokens
+                self.calls += 1
+                return self.response
+
+        context = bound_context()
+        for invalid_version in (True, 1.0):
+            with self.subTest(version=invalid_version):
+                report = specialist_report("correctness", context)
+                report["schema_version"] = invalid_version
+                client = FakeClient(report)
+                with self.assertRaises(review.ReviewError) as raised:
+                    review.complete_with_shape_repair(
+                        client,
+                        "protected system",
+                        '{"task":"review"}',
+                        100,
+                        lambda value: review.validate_specialist_report(
+                            value, "correctness", context, 8
+                        ),
+                    )
+                self.assertEqual(1, client.calls)
+                self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
     def test_shape_repair_does_not_retry_mixed_shape_and_binding_errors(self) -> None:
         class FakeClient:
@@ -1313,7 +1509,9 @@ class AgentReviewTests(unittest.TestCase):
                 response["head_sha"] = "c" * 40
                 response["unexpected"] = True
                 client = FakeClient(response)
-                with self.assertRaisesRegex(review.ReviewError, "binding mismatch"):
+                with self.assertRaisesRegex(
+                    review.ReviewError, "binding mismatch"
+                ) as raised:
                     review.complete_with_shape_repair(
                         client,
                         "protected system",
@@ -1322,6 +1520,7 @@ class AgentReviewTests(unittest.TestCase):
                         validate,
                     )
                 self.assertEqual(1, client.calls)
+                self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
 
 if __name__ == "__main__":
