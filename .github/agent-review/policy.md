@@ -74,6 +74,30 @@ prompts, policy, and specifications from the protected base SHA. It must never
 checkout, execute, compile, or source PR head content. Fork and bot PRs use the
 no-secret maintainer-approval path for the current head SHA.
 
+## Context Completeness
+
+Protected policy and every specification selected by a changed path are
+mandatory inputs. They must be included in full or context preparation fails;
+clipped or omitted specifications cannot support a verdict. GitHub's 3,000-file
+pull-request ceiling and 300-file raw-diff ceiling are platform protocol limits,
+not configurable review budgets.
+
+For pull requests above the raw-diff ceiling, the reviewer may reconstruct the
+diff from GitHub Files API patches only after exact file-count, path, status,
+rename/copy metadata, and addition/deletion validation. Missing, empty, or
+truncated content patches fail context preparation. Unified-diff hunk old/new
+line counts must match their bodies; file headers outside hunks are metadata and
+must not affect addition/deletion totals. The diagnostic must identify all
+detected offending files, and no partial context may be emitted for model review.
+Binary or unsupported files omitted only from supplemental full-code context
+remain listed in `omissions`.
+
+Bounded supplemental code context is ordered deterministically across repository
+areas, with removals first within each area. This ordering is an internal review
+composition rule, not a public framework SPI. The canonical context records
+whether its complete diff came from raw diff media or validated Files API
+patches.
+
 ## Evidence Standard
 
 A finding is a falsifiable claim about the supplied revision, not a preference

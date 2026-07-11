@@ -92,11 +92,15 @@
   },
   "context_budget": {
     "unit": "unicode_characters",
-    "pr_diff_hard_limit": 60000,
-    "specialist_total_limit": 96000,
-    "protected_policy_and_specs_limit": 20000,
+    "pr_diff_hard_limit": 180000,
+    "specialist_total_limit": 384000,
+    "protected_policy_and_specs_limit": 48000,
     "pr_intent_limit": 8000,
-    "patch_limit": 48000,
+    "patch_limit": 180000,
+    "code_context_total_limit": 60000,
+    "code_context_per_file_limit": 4000,
+    "full_changed_file_limit": 12000,
+    "code_context_file_limit": 24,
     "remainder_sources": [
       "full_changed_files",
       "base_comparisons",
@@ -123,9 +127,9 @@
     "specialist_findings": 10,
     "specialist_questions": 5,
     "specialist_context_gaps": 10,
-    "specialist_tokens": 4096,
+    "specialist_tokens": 8192,
     "verifier_tokens": 8192,
-    "chair_tokens": 4096
+    "chair_tokens": 8192
   },
   "spec_resolution": {
     "revision": "base_sha",
