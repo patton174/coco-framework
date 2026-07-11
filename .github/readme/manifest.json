@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "generatedNotice": "<!-- Generated from .github/readme/manifest.json. Edit the source fragments, then run: node .github/readme/scripts/render.mjs --write -->",
+  "documents": [
+    {
+      "id": "en",
+      "locale": "en",
+      "output": "README.md",
+      "fragments": [
+        { "id": "hero", "path": "fragments/en/00-hero.md", "maintainer": "agent" },
+        { "id": "overview", "path": "fragments/en/10-overview.md", "maintainer": "agent" },
+        { "id": "adoption", "path": "fragments/en/20-adoption.md", "maintainer": "agent" },
+        { "id": "operations", "path": "fragments/en/30-production-operations.md", "maintainer": "agent" },
+        { "id": "capabilities", "path": "fragments/en/40-capabilities-and-boundaries.md", "maintainer": "agent" },
+        { "id": "architecture", "path": "fragments/en/50-samples-and-architecture.md", "maintainer": "agent" },
+        { "id": "community", "path": "fragments/en/80-community.md", "maintainer": "script" },
+        { "id": "license", "path": "fragments/en/90-license.md", "maintainer": "agent" }
+      ]
+    },
+    {
+      "id": "zh-CN",
+      "locale": "zh-CN",
+      "output": "README_CN.md",
+      "fragments": [
+        { "id": "hero", "path": "fragments/zh-CN/00-hero.md", "maintainer": "agent" },
+        { "id": "overview", "path": "fragments/zh-CN/10-overview.md", "maintainer": "agent" },
+        { "id": "adoption", "path": "fragments/zh-CN/20-adoption.md", "maintainer": "agent" },
+        { "id": "operations", "path": "fragments/zh-CN/30-production-operations.md", "maintainer": "agent" },
+        { "id": "capabilities", "path": "fragments/zh-CN/40-capabilities-and-boundaries.md", "maintainer": "agent" },
+        { "id": "architecture", "path": "fragments/zh-CN/50-samples-and-architecture.md", "maintainer": "agent" },
+        { "id": "community", "path": "fragments/zh-CN/80-community.md", "maintainer": "script" },
+        { "id": "license", "path": "fragments/zh-CN/90-license.md", "maintainer": "agent" }
+      ]
+    }
+  ]
+}

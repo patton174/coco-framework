@@ -1,3 +1,5 @@
+<!-- Generated from .github/readme/manifest.json. Edit the source fragments, then run: node .github/readme/scripts/render.mjs --write -->
+
 <div align="center">
 
 # Coco Framework
@@ -32,7 +34,7 @@
   ·
   <a href="#示例">示例</a>
   ·
-  <a href="#星星趋势">星星趋势</a>
+  <a href="#星标历史">星星趋势</a>
   ·
   <a href="#贡献者">贡献者</a>
 </p>
@@ -387,7 +389,7 @@ flowchart LR
 <p><a href="https://github.com/patton174/coco-framework/graphs/contributors">查看全部贡献者</a></p>
 <!-- COCO_CONTRIBUTORS_END -->
 
-<sub>星星和贡献者区域由 GitHub Actions 自动刷新。见 `.github/workflows/update-readme-insights.yml` 和 `tools/docs/update-readme-insights.mjs`。</sub>
+<sub>星标和贡献者区域由 README 维护工作流自动刷新。见 `.github/workflows/readme-maintenance.yml` 和 `.github/readme/scripts/update-insights.mjs`。</sub>
 
 ## 许可证
 

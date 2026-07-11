@@ -1,4 +1,4 @@
-name: Reusable / Test
+name: Reusable / Tests
 
 # Reusable test pipeline: cross-platform framework build + sample verification.
 # Called by ci.yml (push/PR) and release.yml (before publishing) so the exact

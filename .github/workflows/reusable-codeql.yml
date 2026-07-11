@@ -1,4 +1,4 @@
-name: CodeQL
+name: Reusable / CodeQL
 
 # Reusable Java security analysis. CI calls it for pushes, PRs, and manual
 # verification; the schedule keeps the default branch scanned independently.

@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import agent_issue_gate as issue_gate
 import agent_review as review
 
 
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
+APP_BOT_ID = 424242
 
 
 def config(**limit_overrides: int) -> dict:
@@ -174,6 +177,48 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(
             3, len([item for item in protocol["files"] if "prompts/" in item["path"]])
         )
+
+        jury_spec = "docs/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
+        governance_spec = (
+            "docs/superpowers/specs/2026-07-11-agent-governance-automation.md"
+        )
+
+        def mapped_specs(path: str) -> set[str]:
+            return {
+                spec_path
+                for mapping in value["spec_path_mappings"]
+                if any(
+                    review.fnmatch.fnmatch(path, pattern)
+                    for pattern in mapping["path_globs"]
+                )
+                for spec_path in mapping["spec_paths"]
+            }
+
+        for path in (
+            ".github/scripts/agent_review.py",
+            ".github/scripts/agent_issue_gate.py",
+            ".github/workflows/agent-review.yml",
+            ".github/workflows/agent-issue-gate.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    {jury_spec, governance_spec} & mapped_specs(path),
+                    {jury_spec, governance_spec},
+                )
+        for path in (
+            ".github/scripts/auto_merge.py",
+            ".github/workflows/auto-merge.yml",
+            ".github/readme/fragments/en/overview.md",
+            ".github/workflows/readme-maintenance.yml",
+            ".github/workflow-governance.md",
+            "README.md",
+            "README_CN.md",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(governance_spec, mapped_specs(path))
+        serialized_mappings = json.dumps(value["spec_path_mappings"])
+        self.assertNotIn("update-readme-insights.yml", serialized_mappings)
+        self.assertNotIn(".github/README.md", serialized_mappings)
 
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -668,6 +713,625 @@ class AgentReviewTests(unittest.TestCase):
             ),
         )
 
+    def test_finding_issue_marker_is_strict_and_binds_first_head(self) -> None:
+        finding_id = "v1-" + "d" * 64
+        marker = review.finding_issue_marker(60, HEAD_SHA, finding_id)
+        self.assertEqual(
+            '<!-- coco-agent-review: {"schema_version":1,"pull_request":60,'
+            f'"head_sha":"{HEAD_SHA}","finding_id":"{finding_id}"}} -->',
+            marker,
+        )
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "pull_request": 60,
+                "head_sha": HEAD_SHA,
+                "finding_id": finding_id,
+            },
+            review.parse_finding_issue_marker(marker + "\nDetails"),
+        )
+        reordered = (
+            '<!-- coco-agent-review: {"pull_request":60,"schema_version":1,'
+            f'"head_sha":"{HEAD_SHA}","finding_id":"{finding_id}"}} -->'
+        )
+        with self.assertRaisesRegex(review.ReviewError, "canonical"):
+            review.parse_finding_issue_marker(reordered)
+        with self.assertRaisesRegex(review.ReviewError, "first body line"):
+            review.parse_finding_issue_marker("Details\n" + marker)
+        with self.assertRaisesRegex(review.ReviewError, "exactly one"):
+            review.parse_finding_issue_marker(marker + "\n" + marker)
+
+    def test_issue_event_resolver_uses_previous_marker_after_body_edit(self) -> None:
+        app_login = "coco-agent[bot]"
+        finding_id = "v1-" + "a" * 64
+        marker = review.finding_issue_marker(60, HEAD_SHA, finding_id)
+        base_event = {
+            "repository": {"full_name": "patton174/coco-framework"},
+            "issue": {
+                "number": 12,
+                "body": "Marker removed",
+                "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+            },
+            "changes": {"body": {"from": marker + "\nOld body"}},
+        }
+        resolved = issue_gate.resolve_event(base_event, app_login)
+        self.assertFalse(resolved["ignored"])
+        self.assertEqual(60, resolved["pr_number"])
+
+        quoted = json.loads(json.dumps(base_event))
+        quoted["issue"]["body"] = "Documentation example\n" + marker
+        quoted.pop("changes")
+        with self.assertRaisesRegex(review.ReviewError, "first body line"):
+            issue_gate.resolve_event(quoted, app_login)
+
+        for unrelated in (
+            {"repository": {"full_name": "patton174/coco-framework"}},
+            {
+                "repository": {"full_name": "patton174/coco-framework"},
+                "issue": {"number": 12, "body": "Ordinary issue without a marker"},
+            },
+        ):
+            with self.subTest(unrelated=unrelated):
+                self.assertTrue(
+                    issue_gate.resolve_event(unrelated, app_login)["ignored"]
+                )
+
+        spoof_bodies = (
+            "<!-- coco-agent-review: similar but invalid -->",
+            marker + "\nValid-looking spoof",
+            "Documentation example\n" + marker,
+        )
+        for body in spoof_bodies:
+            with self.subTest(spoof_body=body):
+                spoof_event = {
+                    "repository": {"full_name": "patton174/coco-framework"},
+                    "issue": {
+                        "number": 99,
+                        "body": body,
+                        "user": {"id": 7, "login": "mallory", "type": "User"},
+                    },
+                }
+                self.assertTrue(
+                    issue_gate.resolve_event(spoof_event, app_login)["ignored"]
+                )
+
+        terminal_issue = {
+            "number": 12,
+            "body": marker + "\nDeleted or transferred finding",
+            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+            "user": {
+                "id": APP_BOT_ID,
+                "login": app_login,
+                "type": "Bot",
+            },
+        }
+
+        class NoIssueReadClient:
+            @staticmethod
+            def get_json(path: str) -> dict:
+                raise AssertionError(f"Terminal issue must not be re-read: {path}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            event_path = Path(temp_dir) / "event.json"
+            for action in ("deleted", "transferred"):
+                with self.subTest(action=action):
+                    event_path.write_text(
+                        json.dumps(
+                            {
+                                "action": action,
+                                "repository": {"full_name": "patton174/coco-framework"},
+                                "issue": terminal_issue,
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    checked = issue_gate.current_event_issue(
+                        NoIssueReadClient(),
+                        "patton174/coco-framework",
+                        60,
+                        event_path,
+                        app_login,
+                        APP_BOT_ID,
+                    )
+                    self.assertEqual(12, checked["number"])
+
+            event_path.write_text(
+                json.dumps(
+                    {
+                        "action": "edited",
+                        "repository": {"full_name": "patton174/coco-framework"},
+                        "issue": {
+                            "number": 99,
+                            "body": "Documentation example\n" + marker,
+                            "user": {"id": 7, "login": "mallory", "type": "User"},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNone(
+                issue_gate.current_event_issue(
+                    NoIssueReadClient(),
+                    "patton174/coco-framework",
+                    60,
+                    event_path,
+                    app_login,
+                    APP_BOT_ID,
+                )
+            )
+
+        dispatched = issue_gate.resolve_event(
+            {
+                "repository": {"full_name": "patton174/coco-framework"},
+                "inputs": {"pr_number": "60", "head_sha": HEAD_SHA},
+            },
+            app_login,
+        )
+        self.assertEqual(60, dispatched["pr_number"])
+        self.assertEqual(HEAD_SHA, dispatched["expected_head_sha"])
+
+    def test_actionable_findings_are_confirmed_or_chair_selected_and_stable(
+        self,
+    ) -> None:
+        context = bound_context()
+        blocker_report = specialist_report("correctness", context)
+        followup_report = specialist_report("architecture-api", context, severity="P2")
+        omitted_report = specialist_report("tests-release", context, severity="P3")
+        blocker = blocker_report["findings"][0]
+        followup = followup_report["findings"][0]
+        final = {
+            "consensus": {
+                "confirmed": [{"finding": blocker}],
+                "challenged": [],
+                "unverified": [],
+            },
+            "chair": {"follow_up_finding_ids": [followup["id"]]},
+        }
+        actionable = review.actionable_findings(
+            final, [blocker_report, followup_report, omitted_report]
+        )
+        self.assertEqual(
+            {blocker["id"], followup["id"]},
+            {item["source_id"] for item in actionable},
+        )
+        self.assertEqual(
+            {"confirmed-blocker", "follow-up"},
+            {item["kind"] for item in actionable},
+        )
+
+        normalized = json.loads(json.dumps(blocker))
+        normalized["severity"] = "P2"
+        normalized["claim"] = "  THE changed branch   returns an incorrect result.  "
+        self.assertEqual(
+            review.stable_finding_id(blocker), review.stable_finding_id(normalized)
+        )
+
+        moved = json.loads(json.dumps(blocker))
+        moved["start_line"] = 40
+        moved["end_line"] = 42
+        self.assertNotEqual(
+            review.stable_finding_id(blocker), review.stable_finding_id(moved)
+        )
+        changed_claim = json.loads(json.dumps(blocker))
+        changed_claim["claim"] = "A materially different defect claim."
+        self.assertNotEqual(
+            review.stable_finding_id(blocker), review.stable_finding_id(changed_claim)
+        )
+
+    def test_managed_comment_is_owned_and_updated_by_exact_app_identity(self) -> None:
+        app_login = "coco-agent[bot]"
+        old_actions_comment = {
+            "id": 1,
+            "body": (review.COMMENT_MARKER + "\n<!-- agent-jury-run:200:1 -->"),
+            "user": {"id": 1, "login": "github-actions[bot]", "type": "Bot"},
+        }
+        app_comment = {
+            "id": 2,
+            "body": (review.COMMENT_MARKER + "\n<!-- agent-jury-run:100:1 -->"),
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                del path, limit
+                return [old_actions_comment, app_comment]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {
+                    "id": 2,
+                    "body": payload["body"],
+                    "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                }
+
+        client = FakeClient()
+        body = review.COMMENT_MARKER + "\n<!-- agent-jury-run:101:1 -->\nResult"
+        review.upsert_comment(
+            client,
+            "patton174/coco-framework",
+            60,
+            body,
+            (101, 1),
+            app_login,
+            APP_BOT_ID,
+        )
+        self.assertEqual(
+            "repos/patton174/coco-framework/issues/comments/2", client.sent[0][1]
+        )
+
+    def test_finding_issue_sync_updates_reopens_creates_and_closes(self) -> None:
+        app_login = "coco-agent[bot]"
+        context = bound_context()
+        current_finding = specialist_report("correctness", context, severity="P2")[
+            "findings"
+        ][0]
+        new_finding = specialist_report("architecture-api", context, severity="P1")[
+            "findings"
+        ][0]
+        current = {
+            "stable_id": review.stable_finding_id(current_finding),
+            "source_id": current_finding["id"],
+            "kind": "follow-up",
+            "finding": current_finding,
+        }
+        new = {
+            "stable_id": review.stable_finding_id(new_finding),
+            "source_id": new_finding["id"],
+            "kind": "confirmed-blocker",
+            "finding": new_finding,
+        }
+        disappeared_id = "v1-" + "e" * 64
+
+        def issue(number: int, marker: str, state: str) -> dict:
+            return {
+                "number": number,
+                "title": "old",
+                "body": marker + "\nOld body",
+                "state": state,
+                "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                "html_url": f"https://github.example/issues/{number}",
+                "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+            }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.issues = {
+                    10: issue(
+                        10,
+                        review.finding_issue_marker(60, BASE_SHA, disappeared_id),
+                        "open",
+                    ),
+                    11: issue(
+                        11,
+                        review.finding_issue_marker(60, BASE_SHA, current["stable_id"]),
+                        "closed",
+                    ),
+                }
+                self.comments: list[tuple[int, str]] = []
+                self.next_issue = 12
+
+            def get_json(self, path: str) -> dict:
+                if path.endswith("/labels/agent-review"):
+                    return {"name": review.FINDING_ISSUE_LABEL}
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                self.assertEqualLimit(limit)
+                if "issues?state=all" not in path:
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                return list(self.issues.values())
+
+            @staticmethod
+            def assertEqualLimit(limit: int) -> None:
+                if limit != 5000:
+                    raise AssertionError(f"Unexpected issue limit: {limit}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                if method == "POST" and path.endswith("/issues"):
+                    number = self.next_issue
+                    self.next_issue += 1
+                    value = {
+                        "number": number,
+                        "state": "open",
+                        "html_url": f"https://github.example/issues/{number}",
+                        "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                        **payload,
+                    }
+                    value["labels"] = [{"name": name} for name in payload["labels"]]
+                    self.issues[number] = value
+                    return value
+                if method == "POST" and path.endswith("/comments"):
+                    number = int(path.split("/")[-2])
+                    self.comments.append((number, payload["body"]))
+                    return {
+                        "body": payload["body"],
+                        "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                    }
+                if method == "PATCH" and "/issues/" in path:
+                    number = int(path.rsplit("/", 1)[-1])
+                    value = self.issues[number]
+                    value.update(payload)
+                    if "labels" in payload:
+                        value["labels"] = [{"name": name} for name in payload["labels"]]
+                    return value
+                raise AssertionError(f"Unexpected write: {method} {path}")
+
+        client = FakeClient()
+        synchronized = review.synchronize_finding_issues(
+            client,
+            "patton174/coco-framework",
+            60,
+            HEAD_SHA,
+            [current, new],
+            app_login,
+            APP_BOT_ID,
+            "https://github.example/runs/1",
+            "https://github.example",
+            lambda: {},
+        )
+        self.assertEqual(2, len(synchronized))
+        self.assertEqual("closed", client.issues[10]["state"])
+        self.assertEqual(1, len(client.comments))
+        self.assertEqual("open", client.issues[11]["state"])
+        marker = review.parse_finding_issue_marker(client.issues[11]["body"])
+        self.assertEqual(BASE_SHA, marker["head_sha"])
+        created = next(value for number, value in client.issues.items() if number >= 12)
+        created_marker = review.parse_finding_issue_marker(created["body"])
+        self.assertEqual(HEAD_SHA, created_marker["head_sha"])
+
+    def test_agent_issue_gate_fails_with_open_issue_and_passes_with_zero(self) -> None:
+        app_login = "coco-agent[bot]"
+        finding_id = "v1-" + "f" * 64
+        marker = review.finding_issue_marker(60, BASE_SHA, finding_id)
+        spoof_bodies = (
+            "<!-- coco-agent-review: similar but invalid -->",
+            marker + "\nValid-looking spoof",
+            "Documentation example\n" + marker,
+        )
+
+        class FakeClient:
+            def __init__(self, include_issue: bool) -> None:
+                self.include_issue = include_issue
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path.endswith("/pulls/60"):
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if limit != 5000 or (
+                    "issues?state=all&creator=coco-agent%5Bbot%5D" not in path
+                ):
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                issues = [
+                    {
+                        "number": 30 + index,
+                        "body": body,
+                        "state": "open",
+                        "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                        "user": {"id": 7, "login": "mallory", "type": "User"},
+                    }
+                    for index, body in enumerate(spoof_bodies)
+                ]
+                if self.include_issue:
+                    issues.append(
+                        {
+                            "number": 20,
+                            "body": marker + "\nBody",
+                            "state": "open",
+                            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                            "user": {
+                                "id": APP_BOT_ID,
+                                "login": app_login,
+                                "type": "Bot",
+                            },
+                        }
+                    )
+                return issues
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        for include_issue, expected_state in ((True, "failure"), (False, "success")):
+            with self.subTest(include_issue=include_issue):
+                client = FakeClient(include_issue)
+                with patch.object(issue_gate, "GitHubClient", return_value=client):
+                    with patch("builtins.print"):
+                        result = issue_gate.command_recompute(
+                            SimpleNamespace(
+                                repository="patton174/coco-framework",
+                                pr_number=60,
+                                expected_head_sha=HEAD_SHA,
+                                expected_app_login=app_login,
+                                expected_app_bot_id=str(APP_BOT_ID),
+                                event_path=None,
+                                run_url="https://github.example/runs/2",
+                            )
+                        )
+                self.assertEqual(0, result)
+                status = client.sent[-1]
+                self.assertEqual(
+                    f"repos/patton174/coco-framework/statuses/{HEAD_SHA}", status[1]
+                )
+                self.assertEqual(expected_state, status[2]["state"])
+                self.assertEqual(review.ISSUE_STATUS_CONTEXT, status[2]["context"])
+
+    def test_agent_issue_gate_rejects_expected_creator_identity_drift(self) -> None:
+        finding_id = "v1-" + "1" * 64
+        marker = review.finding_issue_marker(60, BASE_SHA, finding_id)
+
+        class FakeClient:
+            def __init__(self, user: dict) -> None:
+                self.user = user
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path.endswith("/pulls/60"):
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if limit != 5000 or (
+                    "issues?state=all&creator=coco-agent%5Bbot%5D" not in path
+                ):
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                return [
+                    {
+                        "number": 20,
+                        "body": "Documentation example\n" + marker,
+                        "state": "open",
+                        "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                        "user": self.user,
+                    }
+                ]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        drifted_users = (
+            {"id": APP_BOT_ID + 1, "login": "coco-agent[bot]", "type": "Bot"},
+            {"id": APP_BOT_ID, "login": "coco-agent[bot]", "type": "User"},
+        )
+        for user in drifted_users:
+            with self.subTest(user=user):
+                client = FakeClient(user)
+                with patch.object(issue_gate, "GitHubClient", return_value=client):
+                    with self.assertRaises(review.ReviewError):
+                        issue_gate.command_recompute(
+                            SimpleNamespace(
+                                repository="patton174/coco-framework",
+                                pr_number=60,
+                                expected_head_sha=HEAD_SHA,
+                                expected_app_login="coco-agent[bot]",
+                                expected_app_bot_id=str(APP_BOT_ID),
+                                event_path=None,
+                                run_url="https://github.example/runs/3",
+                            )
+                        )
+                self.assertEqual("failure", client.sent[-1][2]["state"])
+                self.assertEqual(
+                    review.ISSUE_STATUS_CONTEXT, client.sent[-1][2]["context"]
+                )
+
+    def test_governance_files_follow_naming_convention(self) -> None:
+        github_root = Path(__file__).resolve().parents[1]
+        workflow_root = github_root / "workflows"
+        workflow_name = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\.yml")
+        python_name = re.compile(r"(?:test_)?[a-z][a-z0-9]*(?:_[a-z0-9]+)*\.py")
+        node_name = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\.mjs")
+
+        for path in workflow_root.glob("*.yml"):
+            self.assertIsNotNone(workflow_name.fullmatch(path.name), path.name)
+            workflow = path.read_text(encoding="utf-8")
+            if re.search(r"^  workflow_call:\s*$", workflow, re.MULTILINE):
+                self.assertTrue(path.name.startswith("reusable-"), path.name)
+        for path in (github_root / "scripts").glob("*.py"):
+            self.assertIsNotNone(python_name.fullmatch(path.name), path.name)
+        for path in (github_root / "readme" / "scripts").glob("*.mjs"):
+            self.assertIsNotNone(node_name.fullmatch(path.name), path.name)
+
+        self.assertTrue((workflow_root / "reusable-tests.yml").exists())
+        self.assertTrue((workflow_root / "reusable-static-analysis.yml").exists())
+        self.assertTrue((workflow_root / "reusable-codeql.yml").exists())
+        static_analysis = (workflow_root / "reusable-static-analysis.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("shellcheck --version", static_analysis)
+        self.assertIn("-shellcheck=shellcheck", static_analysis)
+        self.assertFalse((github_root / "README.md").exists())
+        self.assertTrue((github_root / "workflow-governance.md").exists())
+        for legacy_name in (
+            "_test.yml",
+            "_static-analysis.yml",
+            "claude-review.yml",
+            "update-readme-insights.yml",
+        ):
+            self.assertFalse((workflow_root / legacy_name).exists(), legacy_name)
+
+    def test_agent_issue_gate_workflow_has_no_secret_path_and_shared_lock(self) -> None:
+        workflow_root = Path(__file__).resolve().parents[1] / "workflows"
+        review_workflow = (workflow_root / "agent-review.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertFalse((workflow_root / "claude-review.yml").exists())
+        self.assertTrue(review_workflow.startswith("name: Agent Review Jury\n"))
+        trusted = review_workflow.split("\n  trusted-publisher:\n", 1)[1].split(
+            "\n  no-secret-publisher:\n", 1
+        )[0]
+        no_secret = review_workflow.split("\n  no-secret-publisher:\n", 1)[1]
+        self.assertIn("environment: coco-agent", trusted)
+        self.assertIn(
+            "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+            trusted,
+        )
+        self.assertIn("client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}", trusted)
+        self.assertIn("secrets.COCO_AGENT_APP_PRIVATE_KEY", trusted)
+        self.assertIn(
+            "TOKEN_APP_SLUG: ${{ steps.agent-app-token.outputs.app-slug }}", trusted
+        )
+        self.assertIn("EXPECTED_APP_SLUG: ${{ vars.COCO_AGENT_APP_SLUG }}", trusted)
+        self.assertIn("EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}", trusted)
+        self.assertIn("EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}", trusted)
+        self.assertIn('"${TOKEN_APP_SLUG}" != "${EXPECTED_APP_SLUG}"', trusted)
+        self.assertIn("${TOKEN_APP_SLUG}[bot]", trusted)
+        self.assertIn('"${actual_login}" != "${EXPECTED_APP_LOGIN}"', trusted)
+        self.assertIn('"${bot_id}" != "${EXPECTED_APP_BOT_ID}"', trusted)
+        self.assertIn(
+            "AGENT_GH_TOKEN: ${{ steps.agent-app-token.outputs.token }}", trusted
+        )
+        self.assertIn(
+            "COCO_AGENT_APP_LOGIN: ${{ steps.app-identity.outputs.login }}", trusted
+        )
+        self.assertIn(
+            "COCO_AGENT_APP_BOT_ID: ${{ steps.app-identity.outputs.bot-id }}", trusted
+        )
+        self.assertIn("GH_TOKEN: ${{ github.token }}", trusted)
+        self.assertNotIn("permission-statuses", trusted)
+        self.assertNotIn("environment:", no_secret)
+        self.assertNotIn("COCO_AGENT_APP", no_secret)
+        self.assertNotIn("AGENT_GH_TOKEN", no_secret)
+        self.assertNotIn("create-github-app-token", no_secret)
+        self.assertNotIn("private-key", no_secret)
+        self.assertNotIn("ANTHROPIC", no_secret)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", no_secret)
+        self.assertNotIn("repository_dispatch", review_workflow)
+        self.assertNotIn("client_payload", review_workflow)
+        self.assertNotIn("workflow_dispatch", review_workflow)
+
+        gate_workflow = (workflow_root / "agent-issue-gate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "types: [opened, synchronize, reopened, ready_for_review]", gate_workflow
+        )
+        self.assertIn(
+            "types: [opened, closed, reopened, labeled, unlabeled, edited, deleted, transferred]",
+            gate_workflow,
+        )
+        self.assertIn("workflow_dispatch:", gate_workflow)
+        self.assertIn("'refs/heads/main'", gate_workflow)
+        self.assertIn("vars.COCO_AGENT_APP_LOGIN", gate_workflow)
+        self.assertIn("vars.COCO_AGENT_APP_BOT_ID", gate_workflow)
+        self.assertIn('--expected-app-login "${COCO_AGENT_APP_LOGIN}"', gate_workflow)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", gate_workflow)
+        self.assertIn("agent-review-publisher-", gate_workflow)
+        self.assertNotIn("ANTHROPIC", gate_workflow)
+        self.assertNotIn("COCO_AGENT_APP_PRIVATE_KEY", gate_workflow)
+
     def test_rendered_comment_exposes_panel_and_dissent(self) -> None:
         context = bound_context()
         specialist = specialist_report("correctness", context)
@@ -740,8 +1404,9 @@ class AgentReviewTests(unittest.TestCase):
             def get_json(self, path: str) -> dict:
                 if path == "repos/patton174/coco-framework/pulls/1":
                     return {
+                        "state": "open",
                         "head": {"sha": HEAD_SHA},
-                        "base": {"sha": BASE_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
                     }
                 if path.endswith("/collaborators/maintainer/permission"):
                     return {"permission": "write"}
@@ -806,8 +1471,9 @@ class AgentReviewTests(unittest.TestCase):
             def get_json(self, path: str) -> dict:
                 if path == "repos/patton174/coco-framework/pulls/1":
                     return {
+                        "state": "open",
                         "head": {"sha": HEAD_SHA},
-                        "base": {"sha": BASE_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
                     }
                 raise AssertionError(f"Unexpected GET path: {path}")
 
@@ -862,8 +1528,9 @@ class AgentReviewTests(unittest.TestCase):
                     self.pull_reads += 1
                     head_sha = HEAD_SHA if self.pull_reads == 1 else "c" * 40
                     return {
+                        "state": "open",
                         "head": {"sha": head_sha},
-                        "base": {"sha": BASE_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
                     }
                 if path.endswith("/collaborators/maintainer/permission"):
                     return {"permission": "write"}
@@ -909,11 +1576,15 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_publisher_jobs_are_serialized_across_event_groups(self) -> None:
         workflow = (
-            Path(__file__).resolve().parents[1] / "workflows/claude-review.yml"
+            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
         ).read_text(encoding="utf-8")
-        publisher = workflow.split("\n  publisher:\n", 1)[1]
-        self.assertIn("agent-review-publisher-", publisher)
-        self.assertIn("cancel-in-progress: false", publisher)
+        trusted = workflow.split("\n  trusted-publisher:\n", 1)[1].split(
+            "\n  no-secret-publisher:\n", 1
+        )[0]
+        no_secret = workflow.split("\n  no-secret-publisher:\n", 1)[1]
+        for publisher in (trusted, no_secret):
+            self.assertIn("agent-review-publisher-", publisher)
+            self.assertIn("cancel-in-progress: false", publisher)
 
     def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:
         class FakeResponse:

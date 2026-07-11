@@ -1,6 +1,6 @@
 name: Agent Review Jury
 
-# All executable review policy comes from the protected base commit. Pull
+# All executable Agent review policy comes from the protected base commit. Pull
 # request head content is fetched only as untrusted text by agent_review.py.
 
 on:
@@ -9,14 +9,12 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   pull_request_review:
     types: [submitted, edited, dismissed]
-  repository_dispatch:
-    types: [agent-review]
 
 permissions: {}
 
 concurrency:
   group: >-
-    agent-review-${{ github.event.pull_request.number || github.event.client_payload.pr_number || github.run_id }}-${{
+    agent-review-${{ github.event.pull_request.number }}-${{
       github.event_name == 'pull_request_review' && 'approval' || 'head'
     }}
   cancel-in-progress: true
@@ -44,9 +42,9 @@ jobs:
         id: binding
         shell: bash
         env:
-          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.client_payload.head_sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.client_payload.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -95,7 +93,7 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.client_payload.head_sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.binding.outputs.pr-number }}
           REPOSITORY: ${{ github.repository }}
@@ -392,23 +390,25 @@ jobs:
           overwrite: true
           retention-days: 1
 
-  publisher:
-    name: Publish bound Agent jury result
+  trusted-publisher:
+    name: Publish trusted Agent jury result
     needs: [prepare, specialists, verifiers, chair]
-    if: ${{ always() && needs.prepare.result == 'success' }}
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.trusted == 'true' &&
+      needs.prepare.outputs.ignored == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: coco-agent
     concurrency:
       group: >-
-        agent-review-publisher-${{ github.repository_id }}-${{
-          github.event.pull_request.number || github.event.client_payload.pr_number || github.run_id
-        }}
+        agent-review-publisher-${{ github.repository_id }}-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
       actions: read
       contents: read
-      issues: write
-      pull-requests: write
+      pull-requests: read
       statuses: write
     steps:
       - name: Checkout trusted publisher
@@ -453,8 +453,131 @@ jobs:
           path: ${{ runner.temp }}/agent-review-verifiers
           merge-multiple: true
 
+      - name: Create Agent GitHub App token
+        id: agent-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COCO_AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: write
+
+      - name: Resolve immutable Agent App bot identity
+        id: app-identity
+        shell: bash
+        env:
+          TOKEN_APP_SLUG: ${{ steps.agent-app-token.outputs.app-slug }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_AGENT_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TOKEN_APP_SLUG}" || -z "${EXPECTED_APP_SLUG}" || -z "${EXPECTED_APP_LOGIN}" || -z "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::Agent App identity pins must all be configured."
+            exit 1
+          fi
+          if [[ "${TOKEN_APP_SLUG}" != "${EXPECTED_APP_SLUG}" ]]; then
+            echo "::error::Agent App token slug does not match the protected identity pin."
+            exit 1
+          fi
+          derived_login="${TOKEN_APP_SLUG}[bot]"
+          if [[ "${derived_login}" != "${EXPECTED_APP_LOGIN}" ]]; then
+            echo "::error::Agent App login does not match the protected slug and login pins."
+            exit 1
+          fi
+          user_json="$(gh api "users/${derived_login}")"
+          actual_login="$(jq -r '.login' <<< "${user_json}")"
+          actual_type="$(jq -r '.type' <<< "${user_json}")"
+          bot_id="$(jq -r '.id' <<< "${user_json}")"
+          if [[ ! "${EXPECTED_APP_BOT_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Agent App bot ID pin must be a positive integer."
+            exit 1
+          fi
+          if [[ "${actual_login}" != "${EXPECTED_APP_LOGIN}" \
+             || "${actual_type}" != 'Bot' \
+             || "${bot_id}" != "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::GitHub App bot identity could not be bound."
+            exit 1
+          fi
+          {
+            echo "login=${actual_login}"
+            echo "bot-id=${bot_id}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Recheck current PR head and publish
-        if: always()
+        id: trusted-publish
+        if: steps.agent-app-token.outcome == 'success' && steps.app-identity.outcome == 'success'
+        shell: bash
+        env:
+          AGENT_GH_TOKEN: ${{ steps.agent-app-token.outputs.token }}
+          COCO_AGENT_APP_BOT_ID: ${{ steps.app-identity.outputs.bot-id }}
+          COCO_AGENT_APP_LOGIN: ${{ steps.app-identity.outputs.login }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-base/.github/scripts/agent_review.py publish \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --context "${RUNNER_TEMP}/agent-review-input/context.json" \
+            --specialists "${RUNNER_TEMP}/agent-review-specialists" \
+            --verifiers "${RUNNER_TEMP}/agent-review-verifiers" \
+            --final-json "${RUNNER_TEMP}/agent-review-final/final.json" \
+            --final-markdown "${RUNNER_TEMP}/agent-review-final/review.md" \
+            --run-url "${run_url}"
+
+      - name: Fail closed when Agent App identity is unavailable
+        if: >-
+          always() &&
+          (steps.agent-app-token.outcome != 'success' || steps.app-identity.outcome != 'success')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-base/.github/scripts/agent_review.py mark-failed \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --run-url "${run_url}"
+
+  no-secret-publisher:
+    name: Publish no-secret maintainer gate
+    needs: prepare
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.trusted != 'true' &&
+      needs.prepare.outputs.ignored == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: >-
+        agent-review-publisher-${{ github.repository_id }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout trusted no-secret publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Download bound review metadata
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Recheck current approval and publish status
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

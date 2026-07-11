@@ -114,3 +114,24 @@ organize the deterministic result. It may not create a blocker without a source
 finding ID, upgrade severity, override verifier outcomes, or change the
 deterministic verdict. Any required agent failure, schema failure, or SHA/hash
 mismatch is an infrastructure block.
+
+## Finding Issue Governance
+
+For same-repository, non-bot reviews, confirmed P0/P1 blockers and P2/P3
+findings explicitly selected by the chair are actionable findings. The trusted
+publisher uses the configured Coco Agent GitHub App identity to maintain one
+repository issue per stable finding identity and one managed jury comment.
+Fork and bot reviews never receive the App private key and never create or
+update managed comments or finding issues.
+
+Each managed finding issue carries the `agent-review` label and a canonical,
+single-line `coco-agent-review` JSON marker binding it to the pull request, the
+first observed head SHA, and the stable finding identity. A later review updates
+or reopens findings that remain actionable. It comments on and closes findings
+that disappear. The first observed head binding is immutable across updates.
+
+`Agent issue gate` is computed independently from current GitHub state for the
+current pull request head. Any open bound finding issue fails the gate; no open
+bound finding issues pass it. Issue close/reopen events and pull request head
+changes must recompute the gate with exact PR SHA and managed App identity
+validation. Protocol, identity, marker, or synchronization failures fail closed.

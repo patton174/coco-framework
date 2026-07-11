@@ -1,0 +1,13 @@
+{
+  "repository": {
+    "stargazers_count": 1234,
+    "forks_count": 56
+  },
+  "contributors": [
+    { "login": "alice", "type": "User" },
+    { "login": "bob-dev", "type": "User" },
+    { "login": "release[bot]", "type": "Bot" },
+    { "login": "alice", "type": "User" },
+    { "login": "invalid<login", "type": "User" }
+  ]
+}

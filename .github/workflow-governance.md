@@ -1,4 +1,11 @@
-# Repository Workflow Governance
+# Workflow Governance
+
+## Naming Convention
+
+- GitHub Actions workflow files use lowercase kebab-case names.
+- Reusable-only workflows use the `reusable-*.yml` prefix.
+- Python automation uses snake_case modules and `test_*.py` test modules; Node.js automation uses lowercase kebab-case files.
+- Stable external contracts are workflow/job context names such as `CI gate`, `Agent jury gate`, and `Agent issue gate`; file renames must not change those contexts.
 
 ## Protected Merge Path
 
@@ -86,9 +93,19 @@ head SHA, and canonical context SHA-256; that context also binds the base-versio
 config, prompts, and reviewer script through a protocol SHA-256. Before
 publishing, the trusted publisher revalidates every role report, recomputes
 consensus, and re-renders the comment.
-The workflow publishes the `Agent jury gate` status directly to that PR head. It
-never submits a GitHub review or approval; branch protection still requires a
-current human approval.
+The workflow publishes `Agent jury gate` and `Agent issue gate` statuses through
+the built-in GitHub Actions App so every path has one stable required-check
+provider. A dedicated Coco GitHub App is used only for the managed jury comment,
+finding Issues, README pull requests, and final merge commit. It never submits a
+GitHub review or approval; branch protection still requires a current human
+approval.
+
+Every deterministically confirmed blocker and every chair-selected, source-bound
+follow-up is reconciled to an Issue labeled `agent-review`. The Issue carries a
+strict marker binding it to the source pull request, first observed head, and
+stable finding fingerprint. A later review updates, reopens, or closes that Issue.
+Any open bound Issue keeps `Agent issue gate` failed, including after the pull
+request head changes.
 
 Required repository secrets:
 
@@ -99,15 +116,47 @@ Optional repository variable:
 
 - `CLAUDE_MODEL` (defaults to `claude-sonnet-4-6`)
 
+Dedicated Agent identity configuration:
+
+- environment `coco-agent`, restricted to the exact `main` branch;
+- environment secret `COCO_AGENT_APP_PRIVATE_KEY`;
+- repository variables `COCO_AGENT_APP_CLIENT_ID`, `COCO_AGENT_APP_SLUG`,
+  `COCO_AGENT_APP_LOGIN`, and `COCO_AGENT_APP_BOT_ID`.
+
+Install the App only on this repository with read/write `Contents`, `Issues`, and
+`Pull requests`. GitHub supplies read-only `Metadata`; do not grant `Actions`,
+`Checks`, `Commit statuses`, or `Administration` permissions.
+
+The private key is available only to protected trusted-publisher, README
+maintenance, and auto-merge jobs. Fork/bot no-secret review and the standalone
+issue gate never reference it.
+
+`Agent issue gate` remains advisory during bootstrap. Add it to `main` branch
+protection only after the dedicated App and same-repository, no-secret, Issue,
+and auto-merge canaries have all passed from protected `main`.
+
 ## Repository Automations
 
-The README insights workflow updates an automation branch, opens or updates a
-pull request, explicitly dispatches `ci.yml` and a head-SHA-bound base-context
-Agent review, then enables auto-merge. Its bot-authored PR takes the no-secret
-Agent path, so auto-merge waits for maintainer approval. Explicit dispatch is
-required because events created by the built-in `GITHUB_TOKEN` do not trigger
-another workflow automatically, and protected `main` does not accept direct
-automation pushes.
+README content is maintained as paired English and Chinese fragments under
+`.github/readme/`; root README files are deterministic generated outputs. A
+weekly script-only pass refreshes stars and contributors. The content Agent runs
+monthly or by explicit dispatch, and only after a protected baseline check finds
+architecture or documentation-relevant changes since the last successful scan.
+The workflow always rebuilds its automation branch from protected `main`, runs
+only protected scripts while holding secrets, and opens or updates a pull
+request through the dedicated App. It never pushes directly to `main` and never
+executes code from a previous automation branch.
+
+The auto-merge workflow executes the protected default-branch script and treats
+events only as candidate hints. Immediately before a merge commit it rechecks
+the exact head, repository merge settings, `CI gate`, `Agent jury gate`, `Agent
+issue gate`, current non-bot maintainer approval, unresolved review threads, and
+open bound Agent Issues. Missing or stale state exits without merging; no
+administrator bypass is used. Workflow completions and bound Issue changes wake
+the evaluator immediately. Approval and review-thread changes are discovered by
+the ten-minute protected-`main` scan because pull-request review events use an
+unprotected merge ref and therefore cannot enter the secret-bearing
+`coco-agent` environment.
 
 External Actions are pinned to immutable commit SHAs. Dependabot groups weekly
 GitHub Actions updates and separately tracks the pinned Python CI dependency.
@@ -119,8 +168,13 @@ on the PR CI gate for the hosted-runner matrix:
 
 ```powershell
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-python -m py_compile .github/scripts/agent_review.py .github/scripts/test_agent_review.py
+python -m py_compile .github/scripts/agent_review.py .github/scripts/agent_issue_gate.py .github/scripts/auto_merge.py .github/scripts/test_agent_review.py .github/scripts/test_auto_merge.py
 python .github/scripts/test_agent_review.py
+python .github/scripts/test_auto_merge.py
+python -m ruff check .github/scripts
+python -m ruff format --check .github/scripts
+node --test .github/readme/tests/readme.test.mjs
+node .github/readme/scripts/render.mjs --check
 mvn -B -ntp spotbugs:check
 mvn -B -ntp checkstyle:check
 git diff --check

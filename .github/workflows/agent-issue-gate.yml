@@ -1,0 +1,100 @@
+name: Agent Issue Gate
+
+# This workflow never receives Anthropic or GitHub App credentials. It executes
+# only protected-base scripts and recomputes the gate from current GitHub state.
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  issues:
+    types: [opened, closed, reopened, labeled, unlabeled, edited, deleted, transferred]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to recompute
+        required: true
+        type: number
+      head_sha:
+        description: Exact current pull request head SHA
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  resolve:
+    name: Resolve bound pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      ignored: ${{ steps.target.outputs.ignored }}
+      pr-number: ${{ steps.target.outputs.pr-number }}
+      expected-head-sha: ${{ steps.target.outputs.expected-head-sha }}
+    steps:
+      - name: Checkout trusted gate resolver
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || 'refs/heads/main' }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Resolve event binding
+        id: target
+        shell: bash
+        env:
+          COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/agent_issue_gate.py resolve \
+            --event-path "${GITHUB_EVENT_PATH}" \
+            --github-output "${GITHUB_OUTPUT}" \
+            --expected-app-login "${COCO_AGENT_APP_LOGIN}"
+
+  gate:
+    name: Recompute Agent issue gate
+    needs: resolve
+    if: needs.resolve.outputs.ignored == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: >-
+        agent-review-publisher-${{ github.repository_id }}-${{ needs.resolve.outputs.pr-number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout trusted gate implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || 'refs/heads/main' }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Publish current issue gate
+        shell: bash
+        env:
+          COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ needs.resolve.outputs.expected-head-sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .github/scripts/agent_issue_gate.py recompute \
+            --repository "${REPOSITORY}" \
+            --pr-number "${PR_NUMBER}" \
+            --expected-head-sha "${EXPECTED_HEAD_SHA}" \
+            --expected-app-login "${COCO_AGENT_APP_LOGIN}" \
+            --expected-app-bot-id "${COCO_AGENT_APP_BOT_ID}" \
+            --event-path "${GITHUB_EVENT_PATH}" \
+            --run-url "${run_url}"

@@ -1,0 +1,347 @@
+name: Maintain README
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: README maintenance mode
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - insights
+          - content
+      focus:
+        description: Optional focus that explicitly forces content maintenance
+        required: false
+        type: string
+  schedule:
+    - cron: '24 2 * * 1'
+    - cron: '41 3 1 * *'
+  pull_request:
+    paths:
+      - README.md
+      - README_CN.md
+      - .github/readme/**
+      - .github/workflows/readme-maintenance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintain-readme-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '20'
+
+      - name: Run offline README tests
+        run: node --test .github/readme/tests/readme.test.mjs
+
+      - name: Check generated README drift
+        run: node .github/readme/scripts/render.mjs --check
+
+  maintain:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: coco-agent
+    timeout-minutes: 20
+    concurrency:
+      group: maintain-readme-automation-${{ github.repository_id }}
+      cancel-in-progress: false
+    steps:
+      - name: Create Coco Agent installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COCO_AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Checkout protected base
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '20'
+
+      - name: Pin protected execution tree
+        id: trusted-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          git switch --detach refs/remotes/origin/main
+          node .github/readme/scripts/assert-trusted-main.mjs
+          echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve maintenance mode
+        id: mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          CONTENT_FOCUS: ${{ inputs.focus }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            mode="${DISPATCH_MODE}"
+          elif [[ "${EVENT_SCHEDULE}" == "24 2 * * 1" ]]; then
+            mode="insights"
+          elif [[ "${EVENT_SCHEDULE}" == "41 3 1 * *" ]]; then
+            mode="content"
+          else
+            echo "::error::Unable to resolve README maintenance mode."
+            exit 1
+          fi
+
+          case "${mode}" in
+            all)
+              run_insights=true
+              run_content=true
+              ;;
+            insights)
+              run_insights=true
+              run_content=false
+              ;;
+            content)
+              run_insights=false
+              run_content=true
+              ;;
+            *)
+              echo "::error::Unsupported README maintenance mode: ${mode}"
+              exit 1
+              ;;
+          esac
+
+          force_content=false
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && -n "${CONTENT_FOCUS}" ]]; then
+            run_content=true
+            force_content=true
+            if [[ "${mode}" == "insights" ]]; then
+              mode="all"
+            fi
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" && "${run_content}" == "true" ]]; then
+            force_content=true
+          fi
+
+          {
+            echo "mode=${mode}"
+            echo "run-insights=${run_insights}"
+            echo "run-content=${run_content}"
+            echo "force-content=${force_content}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Verify and configure App commit identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTUAL_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_AGENT_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+        run: |
+          set -euo pipefail
+          node .github/readme/scripts/assert-trusted-main.mjs
+          for variable in ACTUAL_APP_SLUG EXPECTED_APP_SLUG EXPECTED_APP_LOGIN EXPECTED_APP_BOT_ID; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured for README maintenance."
+              exit 1
+            fi
+          done
+          if [[ "${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}" || "${EXPECTED_APP_LOGIN}" != "${EXPECTED_APP_SLUG}[bot]" ]]; then
+            echo "::error::GitHub App slug or login does not match the protected repository variables."
+            exit 1
+          fi
+          user_json="$(gh api "users/${EXPECTED_APP_LOGIN}")"
+          actual_login="$(jq -r '.login' <<< "${user_json}")"
+          actual_type="$(jq -r '.type' <<< "${user_json}")"
+          actual_bot_id="$(jq -r '.id' <<< "${user_json}")"
+          if [[ "${actual_login}" != "${EXPECTED_APP_LOGIN}" || "${actual_type}" != 'Bot' || "${actual_bot_id}" != "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::GitHub App bot identity does not match the protected repository variables."
+            exit 1
+          fi
+          git config user.name "${EXPECTED_APP_LOGIN}"
+          git config user.email "${EXPECTED_APP_BOT_ID}+${EXPECTED_APP_LOGIN}@users.noreply.github.com"
+
+      - name: Verify protected source baseline
+        run: |
+          node .github/readme/scripts/assert-trusted-main.mjs
+          node --test .github/readme/tests/readme.test.mjs
+          node .github/readme/scripts/render.mjs --check
+
+      - name: Scan content maintenance baseline
+        id: content-scan
+        if: steps.mode.outputs.run-content == 'true'
+        env:
+          FORCE_CONTENT: ${{ steps.mode.outputs.force-content }}
+        run: >-
+          node .github/readme/scripts/scan-content-changes.mjs
+          --head HEAD
+          --force "${FORCE_CONTENT}"
+          --github-output "${GITHUB_OUTPUT}"
+
+      - name: Refresh stars and contributors
+        if: steps.mode.outputs.run-insights == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          node .github/readme/scripts/assert-trusted-main.mjs
+          node .github/readme/scripts/update-insights.mjs \
+            --repository "${GITHUB_REPOSITORY}" \
+            --date "$(date -u +%F)"
+
+      - name: Run README content Agent orchestration
+        if: steps.mode.outputs.run-content == 'true' && steps.content-scan.outputs.invoke-agent == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          README_AGENT_FOCUS: ${{ inputs.focus }}
+          README_AGENT_BASELINE_SHA: ${{ steps.content-scan.outputs.baseline-sha }}
+          README_AGENT_CHANGED_PATHS_JSON: ${{ steps.content-scan.outputs.relevant-paths-json }}
+        run: |
+          set -euo pipefail
+          node .github/readme/scripts/assert-trusted-main.mjs
+          for variable in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured for README Agent maintenance."
+              exit 1
+            fi
+          done
+          node .github/readme/scripts/maintain-content.mjs
+
+      - name: Report skipped content Agent
+        if: steps.mode.outputs.run-content == 'true' && steps.content-scan.outputs.invoke-agent != 'true'
+        run: echo "No README or architecture-relevant paths changed since the protected baseline; model invocation skipped."
+
+      - name: Render and verify generated documents
+        run: |
+          node .github/readme/scripts/assert-trusted-main.mjs
+          node .github/readme/scripts/render.mjs --write
+          node --test .github/readme/tests/readme.test.mjs
+          node .github/readme/scripts/render.mjs --check
+
+      - name: Commit scoped README updates from protected base
+        id: changes
+        shell: bash
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          BRANCH: automation/readme-maintenance
+        run: |
+          set -euo pipefail
+          node .github/readme/scripts/assert-trusted-main.mjs
+          while IFS= read -r changed_path; do
+            case "${changed_path}" in
+              README.md|README_CN.md|.github/readme/*)
+                ;;
+              *)
+                echo "::error::README maintenance changed an unowned path: ${changed_path}"
+                exit 1
+                ;;
+            esac
+          done < <(git diff --name-only)
+
+          if git diff --quiet -- README.md README_CN.md .github/readme; then
+            echo "README sources, state, and generated outputs are already up to date."
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          git add README.md README_CN.md .github/readme
+          git commit -m "docs: maintain README (${MODE})"
+
+          remote_branch_sha="$(
+            git ls-remote --refs origin "refs/heads/${BRANCH}" | awk '{print $1}'
+          )"
+          if [[ -n "${remote_branch_sha}" ]]; then
+            lease="--force-with-lease=refs/heads/${BRANCH}:${remote_branch_sha}"
+          else
+            lease="--force-with-lease=refs/heads/${BRANCH}:"
+          fi
+          git push "${lease}" origin "HEAD:refs/heads/${BRANCH}"
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Open or update README maintenance PR
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: automation/readme-maintenance
+          MODE: ${{ steps.mode.outputs.mode }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          validate_pr() {
+            local pr_json="$1"
+            local pr_number actual_login actual_type actual_id head_repository head_ref base_ref
+            pr_number="$(jq -r '.number // empty' <<< "${pr_json}")"
+            actual_login="$(jq -r '.user.login // empty' <<< "${pr_json}")"
+            actual_type="$(jq -r '.user.type // empty' <<< "${pr_json}")"
+            actual_id="$(jq -r '.user.id // empty' <<< "${pr_json}")"
+            head_repository="$(jq -r '.head.repo.full_name // empty' <<< "${pr_json}")"
+            head_ref="$(jq -r '.head.ref // empty' <<< "${pr_json}")"
+            base_ref="$(jq -r '.base.ref // empty' <<< "${pr_json}")"
+            if [[ -z "${pr_number}" \
+               || "${actual_login}" != "${EXPECTED_APP_LOGIN}" \
+               || "${actual_type}" != 'Bot' \
+               || "${actual_id}" != "${EXPECTED_APP_BOT_ID}" \
+               || "${head_repository}" != "${GITHUB_REPOSITORY}" \
+               || "${head_ref}" != "${BRANCH}" \
+               || "${base_ref}" != 'main' ]]; then
+              echo "::error::README maintenance PR identity or repository binding is invalid." >&2
+              return 1
+            fi
+            printf '%s\n' "${pr_number}"
+          }
+
+          prs_json="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
+            -f state=open \
+            -f base=main \
+            -f "head=${REPOSITORY_OWNER}:${BRANCH}" \
+            -f per_page=100)"
+          pr_count="$(jq 'length' <<< "${prs_json}")"
+          if (( pr_count > 1 )); then
+            echo "::error::Multiple README maintenance pull requests matched the protected head."
+            exit 1
+          fi
+          if (( pr_count == 1 )); then
+            pr_number="$(validate_pr "$(jq -c '.[0]' <<< "${prs_json}")")"
+            echo "Updated README maintenance PR #${pr_number}."
+            exit 0
+          fi
+
+          pr_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls" \
+            -f title='docs: maintain generated README' \
+            -f "head=${REPOSITORY_OWNER}:${BRANCH}" \
+            -f base=main \
+            -f "body=Automated README maintenance (${MODE}). Source fragments, protected content baseline, and generated roots passed offline tests and drift detection. This PR requires the normal protected-branch review and merge flow.")"
+          pr_number="$(validate_pr "${pr_json}")"
+          echo "Created README maintenance PR #${pr_number}."
