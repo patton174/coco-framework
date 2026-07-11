@@ -105,24 +105,44 @@ receives protected policy and specifications.
 
 Cross-review uses `AGREE`, `DISAGREE`, and `UNVERIFIED`. `DISAGREE` requires
 specific code or policy counter-evidence. Missing context can only produce
-`UNVERIFIED`. A P0 or P1 finding is a confirmed blocker only when both
-`evidence-verifier` and `policy-skeptic` return `AGREE`. P2 and P3 never directly
-block.
+`UNVERIFIED`. Both verifiers must independently classify every P0, P1, P2, and
+P3 finding exactly once. A P0 or P1 finding is a confirmed blocker only when
+both `evidence-verifier` and `policy-skeptic` return `AGREE`. P2 and P3 never
+directly affect the deterministic jury verdict. They enter the chair's eligible
+follow-up pool only when both verifiers return `AGREE`. A P2 or P3 finding with
+`DISAGREE` or `UNVERIFIED` from either verifier remains visible but cannot
+become actionable.
+
+Consensus, severity, and actionable eligibility use only structured severity,
+finding IDs, and explicit verifier status fields. Finding text, verifier prose,
+keywords, regular expressions, `confidence`, and other text heuristics must not
+create or suppress a blocker or actionable finding.
+
+Before App publication, every model-controlled text field is collapsed to
+single-line escaped text with active Markdown, mentions, issue references, and
+autolinks neutralized. The detailed managed comment has a 40,000-byte budget;
+when it would exceed that budget, the renderer emits a deterministic compact
+view that retains every finding disposition and verifier vote. The final
+comment, including actionable Issue links and the workflow footer, must remain
+within a 64,000-byte hard limit.
 
 The chair may merge duplicates, preserve attribution and disagreement, and
-organize the deterministic result. It may not create a blocker without a source
-finding ID, upgrade severity, override verifier outcomes, or change the
-deterministic verdict. Any required agent failure, schema failure, or SHA/hash
-mismatch is an infrastructure block.
+organize the deterministic result. It may select a P2/P3 follow-up only from the
+dual-`AGREE` eligible pool. It may not create a blocker or actionable follow-up
+without a source finding ID, upgrade severity, override verifier outcomes, or
+change the deterministic verdict. Any required agent failure, schema failure,
+or SHA/hash mismatch is an infrastructure block.
 
 ## Finding Issue Governance
 
 For same-repository, non-bot reviews, confirmed P0/P1 blockers and P2/P3
-findings explicitly selected by the chair are actionable findings. The trusted
-publisher uses the configured Coco Agent GitHub App identity to maintain one
-repository issue per stable finding identity and one managed jury comment.
-Fork and bot reviews never receive the App private key and never create or
-update managed comments or finding issues.
+findings selected by the chair from the dual-`AGREE` eligible pool are
+actionable findings. A selected P2/P3 finding does not change `Agent jury gate`,
+but its managed Issue participates in `Agent issue gate`. The trusted publisher
+uses the configured Coco Agent GitHub App identity to maintain one repository
+issue per stable finding identity and one managed jury comment. Fork and bot
+reviews never receive the App private key and never create or update managed
+comments or finding issues.
 
 Each managed finding issue carries the `agent-review` label and a canonical,
 single-line `coco-agent-review` JSON marker binding it to the pull request, the

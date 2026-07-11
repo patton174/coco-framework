@@ -171,6 +171,13 @@ class AgentReviewTests(unittest.TestCase):
             {"evidence-verifier", "policy-skeptic"},
             set(review.role_map(value, "verifiers")),
         )
+        self.assertTrue(
+            all(
+                "P0 through P3" in verifier["lens"]
+                for verifier in value["roles"]["verifiers"]
+            )
+        )
+        self.assertEqual(8192, value["output_limits"]["verifier_tokens"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
         self.assertRegex(protocol["protocol_sha256"], r"^[0-9a-f]{64}$")
@@ -468,6 +475,53 @@ class AgentReviewTests(unittest.TestCase):
         del report["findings"][0]["confidence"]
         review.validate_specialist_report(report, "correctness", context, 8)
 
+    def test_markdown_text_neutralizes_active_content_and_mentions(self) -> None:
+        rendered = review.markdown_text(
+            "@team\n# heading [link](https://example.test) "
+            "![image](https://example.test/image.png) *bold* `code` <tag> "
+            "www.example.test GH-123 deadbeef"
+        )
+        self.assertNotIn("\n", rendered)
+        self.assertNotIn("@team", rendered)
+        self.assertIn("&#64;team", rendered)
+        self.assertIn("&#35; heading", rendered)
+        self.assertIn(r"\[link\]\(", rendered)
+        self.assertIn("https:\u200b//example.test", rendered)
+        self.assertNotIn("www.example.test", rendered)
+        self.assertNotIn("GH-123", rendered)
+        self.assertNotIn("deadbeef", rendered)
+        self.assertIn("&lt;tag&gt;", rendered)
+        for source, escaped in (
+            ("- item", r"\- item"),
+            ("+ item", r"\+ item"),
+            ("1. item", r"1\. item"),
+            ("---", r"\---"),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(escaped, review.markdown_text(source))
+        self.assertLessEqual(
+            review.utf8_size(review.markdown_text("\u6d4b" * 20, 12)), 12
+        )
+        title = review.issue_title(
+            {
+                "finding": {
+                    "severity": "P3",
+                    "title": (
+                        "@team #123 https://example.test www.example.test "
+                        "GH-123 deadbeef\nfollow-up"
+                    ),
+                }
+            }
+        )
+        self.assertNotIn("@team", title)
+        self.assertNotIn("#123", title)
+        self.assertNotIn("https://", title)
+        self.assertNotIn("www.example.test", title)
+        self.assertNotIn("GH-123", title)
+        self.assertNotIn("deadbeef", title)
+        self.assertNotIn("\n", title)
+        self.assertLessEqual(review.utf8_size(title), 240)
+
     def test_consensus_requires_both_verifiers_to_agree(self) -> None:
         context = bound_context()
         specialist = specialist_report("correctness", context)
@@ -511,7 +565,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual("COMPLETE", report["status"])
         self.assertNotIn("verifications", report)
 
-    def test_cross_review_calls_model_when_there_are_no_high_findings(self) -> None:
+    def test_cross_review_calls_model_when_there_are_no_findings(self) -> None:
         context = bound_context()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -536,7 +590,7 @@ class AgentReviewTests(unittest.TestCase):
                 "role": "evidence-verifier",
                 "head_sha": HEAD_SHA,
                 "context_sha256": context["binding"]["context_sha256"],
-                "evidence": "No P0/P1 candidates were present in the bound reports.",
+                "evidence": "No P0-P3 candidates were present in the bound reports.",
                 "verifications": [],
                 "context_gaps": [],
             }
@@ -555,6 +609,62 @@ class AgentReviewTests(unittest.TestCase):
                 client_class.return_value.complete.assert_called_once()
             self.assertEqual(0, result)
             self.assertEqual("NOT_NEEDED", review.read_json(output_path)["status"])
+
+    def test_cross_review_checks_low_severity_findings(self) -> None:
+        context = bound_context()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports = root / "specialists"
+            prompt_root = root / "prompts-root"
+            reports.mkdir()
+            (prompt_root / "prompts").mkdir(parents=True)
+            (prompt_root / "prompts/cross-review.md").write_text(
+                "Return strict JSON.", encoding="utf-8"
+            )
+            finding_id = "correctness:f1"
+            for role in review.role_map(config(), "specialists"):
+                report = specialist_report(role, context, severity="P3")
+                if role != "correctness":
+                    report["findings"] = []
+                review.write_json(reports / f"{role}.json", report)
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_path = root / "verifier.json"
+            review.write_json(config_path, config())
+            review.write_json(context_path, context)
+            model_output = {
+                "schema_version": 1,
+                "role": "evidence-verifier",
+                "head_sha": HEAD_SHA,
+                "context_sha256": context["binding"]["context_sha256"],
+                "evidence": "The verifier checked the P3 claim and its cited trigger.",
+                "verifications": [
+                    {
+                        "finding_id": finding_id,
+                        "status": "AGREE",
+                        "reason": "The cited code supports the low-severity claim.",
+                        "evidence": "The changed branch matches the reported behavior.",
+                        "verification": "Exercise the cited P3 trigger in a focused test.",
+                    }
+                ],
+                "context_gaps": [],
+            }
+            with patch.object(review, "AnthropicClient") as client_class:
+                client_class.return_value.complete.return_value = model_output
+                result = review.command_cross(
+                    SimpleNamespace(
+                        role="evidence-verifier",
+                        config=config_path,
+                        prompt_root=prompt_root,
+                        context=context_path,
+                        reports=reports,
+                        output=output_path,
+                    )
+                )
+            self.assertEqual(0, result)
+            output = review.read_json(output_path)
+            self.assertEqual("COMPLETE", output["status"])
+            self.assertEqual(finding_id, output["reviews"][0]["finding_id"])
 
     def test_cross_review_schema_rejects_extra_fields(self) -> None:
         context = bound_context()
@@ -578,6 +688,112 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(
             [finding_id], [item["finding"]["id"] for item in consensus["unverified"]]
         )
+
+    def test_low_severity_followup_requires_both_verifiers_to_agree(self) -> None:
+        context = bound_context()
+        specialist = specialist_report("correctness", context, severity="P3")
+        finding_id = specialist["findings"][0]["id"]
+        evidence = verifier_report("evidence-verifier", context, finding_id)
+        policy = verifier_report("policy-skeptic", context, finding_id)
+        consensus = review.compute_consensus([specialist], [evidence, policy])
+        self.assertEqual(
+            {finding_id}, review.confirmed_finding_ids(consensus, {"P2", "P3"})
+        )
+        self.assertFalse(review.confirmed_finding_ids(consensus, {"P0", "P1"}))
+        chair = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "PASS",
+            "confirmed_blocker_ids": [],
+            "summary": "No independently verified blockers remain.",
+            "follow_up_finding_ids": [finding_id],
+            "questions": [],
+        }
+        review.validate_chair(chair, consensus, context, {finding_id})
+
+        for action in ("DISAGREE", "UNVERIFIED"):
+            with self.subTest(action=action):
+                policy = verifier_report(
+                    "policy-skeptic", context, finding_id, action=action
+                )
+                consensus = review.compute_consensus([specialist], [evidence, policy])
+                self.assertFalse(review.confirmed_finding_ids(consensus, {"P2", "P3"}))
+                with self.assertRaises(review.ReportShapeError):
+                    review.validate_chair(chair, consensus, context, set())
+
+    def test_consensus_covers_every_severity_and_verifier_disposition(self) -> None:
+        context = bound_context()
+        expected_bucket = {
+            "AGREE": "confirmed",
+            "DISAGREE": "challenged",
+            "UNVERIFIED": "unverified",
+        }
+        for severity in ("P0", "P1", "P2", "P3"):
+            for action, bucket in expected_bucket.items():
+                with self.subTest(severity=severity, action=action):
+                    specialist = specialist_report(
+                        "correctness", context, severity=severity
+                    )
+                    finding_id = specialist["findings"][0]["id"]
+                    evidence = verifier_report("evidence-verifier", context, finding_id)
+                    policy = verifier_report(
+                        "policy-skeptic", context, finding_id, action=action
+                    )
+                    consensus = review.compute_consensus(
+                        [specialist], [evidence, policy]
+                    )
+                    self.assertEqual(
+                        [finding_id],
+                        [item["finding"]["id"] for item in consensus[bucket]],
+                    )
+                    blocker_ids = review.confirmed_finding_ids(consensus, {"P0", "P1"})
+                    followup_ids = review.confirmed_finding_ids(consensus, {"P2", "P3"})
+                    self.assertEqual(
+                        {finding_id}
+                        if action == "AGREE" and severity in {"P0", "P1"}
+                        else set(),
+                        blocker_ids,
+                    )
+                    self.assertEqual(
+                        {finding_id}
+                        if action == "AGREE" and severity in {"P2", "P3"}
+                        else set(),
+                        followup_ids,
+                    )
+
+    def test_no_defect_p3_regression_cannot_create_an_unconfirmed_issue(self) -> None:
+        context = bound_context()
+        specialist = specialist_report("correctness", context, severity="P3")
+        finding = specialist["findings"][0]
+        finding["claim"] = "No defect is present in the reviewed change."
+        finding["trigger"] = "No triggering input exists."
+        finding["impact"] = "No user-visible impact exists."
+        evidence = verifier_report("evidence-verifier", context, finding["id"])
+        policy = verifier_report(
+            "policy-skeptic", context, finding["id"], action="DISAGREE"
+        )
+        consensus = review.compute_consensus([specialist], [evidence, policy])
+        chair = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "PASS",
+            "confirmed_blocker_ids": [],
+            "summary": "No independently verified blockers remain.",
+            "follow_up_finding_ids": [finding["id"]],
+            "questions": [],
+        }
+        with self.assertRaises(review.ReportShapeError):
+            review.validate_chair(chair, consensus, context, set())
+        with self.assertRaisesRegex(
+            review.ReviewError, "without dual-verifier confirmation"
+        ):
+            review.actionable_findings(
+                {"consensus": consensus, "chair": chair}, [specialist]
+            )
 
     def test_chair_cannot_invent_or_drop_blockers(self) -> None:
         context = bound_context()
@@ -637,7 +853,7 @@ class AgentReviewTests(unittest.TestCase):
                 "head_sha": HEAD_SHA,
                 "context_sha256": context["binding"]["context_sha256"],
                 "status": "NOT_NEEDED",
-                "evidence": "No P0/P1 candidates were present in the bound reports.",
+                "evidence": "No P0-P3 candidates were present in the bound reports.",
                 "reviews": [],
                 "context_gaps": [],
             }
@@ -676,6 +892,53 @@ class AgentReviewTests(unittest.TestCase):
         with self.assertRaises(review.ReviewError):
             review.validate_final_artifact(
                 final, context, specialists, verifiers, config()
+            )
+
+    def test_final_artifact_recomputes_confirmed_low_severity_followup(self) -> None:
+        context = bound_context()
+        specialists = []
+        finding_id = "correctness:f1"
+        for role in review.role_map(config(), "specialists"):
+            report = specialist_report(role, context, severity="P2")
+            if role != "correctness":
+                report["findings"] = []
+            specialists.append(report)
+        verifiers = [
+            verifier_report(role, context, finding_id)
+            for role in review.role_map(config(), "verifiers")
+        ]
+        consensus = review.compute_consensus(specialists, verifiers)
+        chair = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "PASS",
+            "confirmed_blocker_ids": [],
+            "summary": "No independently verified blockers remain.",
+            "follow_up_finding_ids": [finding_id],
+            "questions": [],
+        }
+        final = {
+            "schema_version": 1,
+            "binding": context["binding"],
+            "verdict": "PASS",
+            "chair": chair,
+            "consensus": consensus,
+            "specialist_roles": sorted(review.role_map(config(), "specialists")),
+            "verifier_roles": sorted(review.role_map(config(), "verifiers")),
+        }
+        markdown = review.validate_final_artifact(
+            final, context, specialists, verifiers, config()
+        )
+        self.assertIn("verified and selected", markdown)
+
+        tampered = json.loads(json.dumps(final))
+        tampered["consensus"]["challenged"] = tampered["consensus"]["confirmed"]
+        tampered["consensus"]["confirmed"] = []
+        with self.assertRaises(review.ReviewError):
+            review.validate_final_artifact(
+                tampered, context, specialists, verifiers, config()
             )
 
     def test_final_artifact_contract_errors_remain_non_shape_errors(self) -> None:
@@ -887,9 +1150,9 @@ class AgentReviewTests(unittest.TestCase):
         followup = followup_report["findings"][0]
         final = {
             "consensus": {
-                "confirmed": [{"finding": blocker}],
+                "confirmed": [{"finding": blocker}, {"finding": followup}],
                 "challenged": [],
-                "unverified": [],
+                "unverified": [{"finding": omitted_report["findings"][0]}],
             },
             "chair": {"follow_up_finding_ids": [followup["id"]]},
         }
@@ -904,6 +1167,20 @@ class AgentReviewTests(unittest.TestCase):
             {"confirmed-blocker", "follow-up"},
             {item["kind"] for item in actionable},
         )
+
+        for bucket in ("challenged", "unverified"):
+            with self.subTest(bucket=bucket):
+                unconfirmed = json.loads(json.dumps(final))
+                unconfirmed["consensus"]["confirmed"] = [{"finding": blocker}]
+                unconfirmed["consensus"]["challenged"] = []
+                unconfirmed["consensus"]["unverified"] = []
+                unconfirmed["consensus"][bucket] = [{"finding": followup}]
+                with self.assertRaisesRegex(
+                    review.ReviewError, "without dual-verifier confirmation"
+                ):
+                    review.actionable_findings(
+                        unconfirmed, [blocker_report, followup_report, omitted_report]
+                    )
 
         normalized = json.loads(json.dumps(blocker))
         normalized["severity"] = "P2"
@@ -1453,6 +1730,139 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("`correctness`", markdown)
         self.assertIn("`policy-skeptic`: **DISAGREE**", markdown)
         self.assertIn(context["binding"]["context_sha256"], markdown)
+
+    def test_rendered_comment_keeps_unconfirmed_low_findings_visible(self) -> None:
+        context = bound_context()
+        specialist = specialist_report("correctness", context, severity="P3")
+        finding_id = specialist["findings"][0]["id"]
+        evidence = verifier_report("evidence-verifier", context, finding_id)
+        chair = {
+            "verdict": "PASS",
+            "summary": "No independently confirmed blockers remain.",
+            "follow_up_finding_ids": [],
+        }
+        for action, state in (("DISAGREE", "challenged"), ("UNVERIFIED", "unverified")):
+            with self.subTest(action=action):
+                policy = verifier_report(
+                    "policy-skeptic", context, finding_id, action=action
+                )
+                consensus = review.compute_consensus([specialist], [evidence, policy])
+                markdown = review.render_review(
+                    context, [specialist], [evidence, policy], consensus, chair
+                )
+                self.assertIn(f"`{finding_id}`; {state}", markdown)
+                self.assertIn(f"`policy-skeptic`: **{action}**", markdown)
+
+    def test_rendered_comment_compacts_before_github_size_limit(self) -> None:
+        context = bound_context()
+        specialists = []
+        finding_ids = []
+        for role in review.role_map(config(), "specialists"):
+            report = specialist_report(role, context)
+            template = report["findings"][0]
+            report["findings"] = []
+            for index in range(10):
+                finding = json.loads(json.dumps(template))
+                finding["id"] = f"{role}:f{index}"
+                finding["title"] = "@review " + ("title" * 100)
+                finding["claim"] = "claim" * 500
+                finding["trigger"] = "trigger" * 300
+                finding["impact"] = "impact" * 500
+                report["findings"].append(finding)
+                finding_ids.append(finding["id"])
+            specialists.append(report)
+        verifiers = []
+        for role in review.role_map(config(), "verifiers"):
+            report = verifier_report(role, context, finding_ids[0])
+            template = report["reviews"][0]
+            report["reviews"] = []
+            for finding_id in finding_ids:
+                entry = json.loads(json.dumps(template))
+                entry["finding_id"] = finding_id
+                report["reviews"].append(entry)
+            verifiers.append(report)
+        consensus = review.compute_consensus(specialists, verifiers)
+        chair = {
+            "verdict": "BLOCK",
+            "summary": "@review " + ("summary" * 500),
+            "follow_up_finding_ids": [],
+            "questions": [],
+        }
+        markdown = review.render_review(
+            context, specialists, verifiers, consensus, chair
+        )
+        self.assertIn("Compact view", markdown)
+        self.assertLessEqual(review.utf8_size(markdown), review.MAX_REVIEW_BODY_BYTES)
+        self.assertNotIn("@review", markdown)
+        for finding_id in finding_ids:
+            self.assertIn(f"`{finding_id}`", markdown)
+        synchronized = []
+        issue_number = 1
+        for report in specialists:
+            for finding in report["findings"]:
+                synchronized.append(
+                    {
+                        "issue": {
+                            "number": issue_number,
+                            "html_url": (
+                                "https://github.com/patton174/coco-framework/issues/"
+                                f"{issue_number}"
+                            ),
+                        },
+                        "actionable": {
+                            "finding": finding,
+                            "stable_id": f"v1-{issue_number:064x}",
+                        },
+                    }
+                )
+                issue_number += 1
+        complete_comment = review.append_finding_issue_summary(
+            markdown,
+            synchronized,
+            "patton174/coco-framework",
+            "https://github.com",
+        )
+        complete_comment += (
+            "\n<sub>Updated 2026-07-11T00:00:00+00:00 - "
+            "[workflow run](https://github.com/patton174/coco-framework/actions/runs/1)</sub>\n"
+        )
+        self.assertLessEqual(
+            review.utf8_size(complete_comment),
+            review.MAX_GITHUB_COMMENT_BODY_BYTES,
+        )
+        for report in specialists:
+            for finding in report["findings"]:
+                finding["severity"] = "P3"
+        for report in verifiers:
+            for entry in report["reviews"]:
+                entry["evidence"] = "evidence" * 100
+                if report["role"] == "policy-skeptic":
+                    entry["action"] = "DISAGREE"
+        challenged_consensus = review.compute_consensus(specialists, verifiers)
+        challenged_markdown = review.render_review(
+            context,
+            specialists,
+            verifiers,
+            challenged_consensus,
+            {
+                "verdict": "PASS",
+                "summary": "No independently confirmed blockers remain.",
+                "follow_up_finding_ids": [],
+                "questions": [],
+            },
+        )
+        self.assertIn("Compact view", challenged_markdown)
+        self.assertIn("challenged", challenged_markdown)
+        self.assertLessEqual(
+            review.utf8_size(challenged_markdown),
+            review.MAX_REVIEW_BODY_BYTES,
+        )
+        with self.assertRaises(review.ReviewError):
+            review.require_comment_size(
+                "x" * (review.MAX_GITHUB_COMMENT_BODY_BYTES + 1),
+                review.MAX_GITHUB_COMMENT_BODY_BYTES,
+                "test comment",
+            )
 
     def test_classification_excludes_forks_and_bots(self) -> None:
         base = {
