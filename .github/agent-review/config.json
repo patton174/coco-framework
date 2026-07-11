@@ -76,12 +76,12 @@
       {
         "id": "evidence-verifier",
         "prompt_path": ".github/agent-review/prompts/cross-review.md",
-        "lens": "Verify each P0 or P1 finding against concrete code, line anchors, execution paths, triggers, and observable behavior. Distinguish false claims from missing context."
+        "lens": "Verify each P0 through P3 finding against concrete code, line anchors, execution paths, triggers, and observable behavior. Distinguish false claims from missing context."
       },
       {
         "id": "policy-skeptic",
         "prompt_path": ".github/agent-review/prompts/cross-review.md",
-        "lens": "Verify each P0 or P1 finding against protected project policy, explicit non-goals, accepted governance choices, public contracts, and severity criteria."
+        "lens": "Verify each P0 through P3 finding against protected project policy, explicit non-goals, accepted governance choices, public contracts, and severity criteria."
       }
     ],
     "chair": {
@@ -124,7 +124,7 @@
     "specialist_questions": 5,
     "specialist_context_gaps": 10,
     "specialist_tokens": 4096,
-    "verifier_tokens": 4096,
+    "verifier_tokens": 8192,
     "chair_tokens": 4096
   },
   "spec_resolution": {

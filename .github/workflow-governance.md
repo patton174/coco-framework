@@ -71,18 +71,26 @@ The secret-backed path is an actual review panel:
 
 - five specialists independently review architecture/API, correctness,
   security/isolation, tests/release, and blind robustness;
-- two verifiers independently classify every P0/P1 claim as `AGREE`,
+- two verifiers independently classify every P0/P1/P2/P3 claim as `AGREE`,
   `DISAGREE`, or `UNVERIFIED`;
 - one chair deduplicates and presents the result without changing severity,
   verifier votes, or the deterministic verdict.
 
-The protected configuration caps each specialist, verifier, and chair call at
-4,096 output tokens. Every fresh completion or protocol correction uses the
-same cap, and all attempts share a fixed maximum of three model calls per role.
+The protected configuration caps each specialist and chair call at 4,096
+output tokens and each verifier call at 8,192 output tokens so full P0-P3
+coverage can fit the strict response contract. Every fresh completion or
+protocol correction uses the same role-specific cap, and all attempts share a
+fixed maximum of three model calls per role.
 
-P0/P1 blocks only when both verifiers return `AGREE`. P2/P3 never directly
-block. A max-token completion, empty text response, malformed model-output JSON,
-or another explicitly retryable non-completion receives a bounded fresh
+P0/P1 blocks `Agent jury gate` only when both verifiers return `AGREE`. P2/P3
+never directly affect that verdict; only dual-`AGREE` P2/P3 findings enter the
+chair's eligible follow-up pool, and only chair-selected entries become
+actionable. P2/P3 findings with `DISAGREE` or `UNVERIFIED` from either verifier
+remain visible but cannot become actionable. Consensus and eligibility use only
+structured severity, finding IDs, and explicit verifier statuses, never prose,
+keywords, regular expressions, `confidence`, or another text heuristic. A
+max-token completion, empty text response, malformed model-output JSON, or
+another explicitly retryable non-completion receives a bounded fresh
 completion with the same protected prompt and bound input. Parseable reports
 that pass identity and binding checks but violate the report contract receive a
 protected correction. Fresh completions and corrections share the same
@@ -91,11 +99,19 @@ timeout, API or authentication failure, invalid envelopes, identity or hash
 mismatch, incomplete role sets, stale PR SHA, and oversized required context
 fail closed immediately. Specialist `confidence` is optional advisory metadata;
 when present it remains strictly typed and bounded, but it never affects the
-verdict. Every report binds to the base SHA,
+verdict or actionable eligibility. Every report binds to the base SHA,
 head SHA, and canonical context SHA-256; that context also binds the base-version
 config, prompts, and reviewer script through a protocol SHA-256. Before
 publishing, the trusted publisher revalidates every role report, recomputes
 consensus, and re-renders the comment.
+
+Model-controlled text is published only after single-line normalization and
+neutralization of active Markdown, mentions, issue references, and autolinks.
+The detailed review body has a 40,000-byte budget. Oversized reports switch to
+a deterministic compact view that still lists every finding disposition and
+both verifier votes. The complete comment, including actionable Issue links and
+the workflow footer, has a 64,000-byte hard limit.
+
 The workflow publishes `Agent jury gate` and `Agent issue gate` statuses through
 the built-in GitHub Actions App so every path has one stable required-check
 provider. A dedicated Coco GitHub App is used only for the managed jury comment,
@@ -104,12 +120,14 @@ token requests `Issues: write` for finding Issues and `Pull requests: write` for
 comments on PR resources. It never submits a GitHub review or approval; branch
 protection still requires a current human approval.
 
-Every deterministically confirmed blocker and every chair-selected, source-bound
-follow-up is reconciled to an Issue labeled `agent-review`. The Issue carries a
-strict marker binding it to the source pull request, first observed head, and
-stable finding fingerprint. A later review updates, reopens, or closes that Issue.
-Any open bound Issue keeps `Agent issue gate` failed, including after the pull
-request head changes.
+Every deterministically confirmed P0/P1 blocker and every chair-selected,
+source-bound P2/P3 follow-up from the dual-`AGREE` eligible pool is reconciled to
+an Issue labeled `agent-review`. Selecting the P2/P3 follow-up makes it
+actionable without changing the jury verdict. The Issue carries a strict marker
+binding it to the source pull request, first observed head, and stable finding
+fingerprint. A later review updates, reopens, or closes that Issue. Any open
+bound Issue keeps `Agent issue gate` failed, including after the pull request
+head changes.
 
 Required repository secrets:
 

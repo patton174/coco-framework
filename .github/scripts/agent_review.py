@@ -31,11 +31,14 @@ FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 MODEL_COMPLETION_MAX_ATTEMPTS = 3
+MAX_REVIEW_BODY_BYTES = 40_000
+MAX_GITHUB_COMMENT_BODY_BYTES = 64_000
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 APP_BOT_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?\[bot\]$")
 STABLE_FINDING_ID_RE = re.compile(r"^v1-[0-9a-f]{64}$")
+MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 JAVA_BOUNDARY_RE = re.compile(
     r"^\s*(?:@[\w.]+(?:\([^)]*\))?\s*$|"
@@ -1417,12 +1420,12 @@ def require_complete_role_set(
         )
 
 
-def high_findings(reports: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+def reviewable_findings(reports: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         finding
         for report in reports
         for finding in report.get("findings", [])
-        if finding.get("severity") in {"P0", "P1"}
+        if finding.get("severity") in {"P0", "P1", "P2", "P3"}
     ]
 
 
@@ -1527,7 +1530,7 @@ def _validate_cross_report_contract(
         )
     if seen != finding_ids:
         raise ReportShapeError(
-            f"Cross-review {role} did not address every P0/P1 finding."
+            f"Cross-review {role} did not address every P0-P3 finding."
         )
     context_gaps = report.get("context_gaps")
     if (
@@ -1577,7 +1580,7 @@ def command_cross(args: argparse.Namespace) -> int:
             limits["max_questions_per_agent"],
             limits["max_context_gaps_per_agent"],
         )
-    claims = high_findings(reports)
+    claims = reviewable_findings(reports)
     finding_ids = {str(finding["id"]) for finding in claims}
     verifiers = role_map(config, "verifiers")
     if args.role not in verifiers:
@@ -1626,7 +1629,8 @@ def compute_consensus(
     specialist_reports: list[dict[str, Any]], verifier_reports: list[dict[str, Any]]
 ) -> dict[str, Any]:
     findings = {
-        str(finding["id"]): finding for finding in high_findings(specialist_reports)
+        str(finding["id"]): finding
+        for finding in reviewable_findings(specialist_reports)
     }
     votes = {
         str(report["role"]): {
@@ -1648,6 +1652,24 @@ def compute_consensus(
             result["challenged"].append(item)
         else:
             result["unverified"].append(item)
+    return result
+
+
+def confirmed_finding_ids(consensus: dict[str, Any], severities: set[str]) -> set[str]:
+    confirmed = consensus.get("confirmed")
+    if not isinstance(confirmed, list):
+        raise ReviewError("Consensus confirmed findings are invalid.")
+    result: set[str] = set()
+    for item in confirmed:
+        if not isinstance(item, dict) or not isinstance(item.get("finding"), dict):
+            raise ReviewError("Consensus confirmed finding entry is invalid.")
+        finding = item["finding"]
+        finding_id = finding.get("id")
+        severity = finding.get("severity")
+        if not isinstance(finding_id, str) or not finding_id:
+            raise ReviewError("Consensus confirmed finding ID is invalid.")
+        if severity in severities:
+            result.add(finding_id)
     return result
 
 
@@ -1683,7 +1705,7 @@ def _validate_chair_contract(
         },
         "Chair report",
     )
-    confirmed = sorted(item["finding"]["id"] for item in consensus["confirmed"])
+    confirmed = sorted(confirmed_finding_ids(consensus, {"P0", "P1"}))
     chair_ids = chair.get("confirmed_blocker_ids")
     if (
         not isinstance(chair_ids, list)
@@ -1713,23 +1735,181 @@ def _validate_chair_contract(
         )
 
 
+def utf8_size(value: str) -> int:
+    return len(value.encode("utf-8"))
+
+
+def clip_utf8(value: str, maximum: int | None) -> str:
+    if maximum is None or utf8_size(value) <= maximum:
+        return value
+    if maximum <= 3:
+        return value.encode("utf-8")[:maximum].decode("utf-8", errors="ignore")
+    prefix = value.encode("utf-8")[: maximum - 3].decode("utf-8", errors="ignore")
+    return prefix.rstrip() + "..."
+
+
+def normalized_inline_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value).replace("\x00", " ")).strip()
+
+
+def neutralize_github_autolinks(value: str) -> str:
+    value = re.sub(
+        r"(?i)\b(https?):/{2}",
+        lambda match: f"{match.group(1)}:\u200b//",
+        value,
+    )
+    value = re.sub(r"(?i)\bwww\.", lambda match: f"{match.group(0)[:-1]}\u200b.", value)
+    value = re.sub(r"(?i)\bGH-(?=\d)", lambda match: f"{match.group(0)}\u200b", value)
+    return re.sub(
+        r"(?<![0-9A-Fa-f])([0-9A-Fa-f]{7,40})(?![0-9A-Fa-f])",
+        lambda match: f"{match.group(1)[:6]}\u200b{match.group(1)[6:]}",
+        value,
+    )
+
+
+def neutralize_markdown_line_start(value: str) -> str:
+    value = re.sub(r"^([+-])(?=\s)", r"\\\1", value)
+    value = re.sub(r"^(\d{1,9})\.(?=\s)", r"\1\\.", value)
+    return re.sub(r"^-{3,}(?=\s|$)", lambda match: f"\\{match.group(0)}", value)
+
+
 def markdown_text(value: Any, maximum: int | None = None) -> str:
-    text = str(value).replace("\r", " ").replace("\x00", "")
-    text = text.replace("<", "&lt;").replace(">", "&gt;").strip()
-    if maximum is not None and len(text) > maximum:
-        return text[: max(0, maximum - 3)].rstrip() + "..."
-    return text
+    text = normalized_inline_text(value)
+    text = MARKDOWN_INLINE_ESCAPE_RE.sub(r"\\\1", text)
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = text.replace("#", "&#35;").replace("@", "&#64;")
+    text = neutralize_markdown_line_start(text)
+    return clip_utf8(neutralize_github_autolinks(text), maximum)
+
+
+def markdown_code(value: Any, maximum: int | None = None) -> str:
+    text = normalized_inline_text(value).replace("`", "'")
+    return clip_utf8(text, maximum)
+
+
+def github_title_text(value: Any, maximum: int) -> str:
+    text = normalized_inline_text(value)
+    text = text.replace("#", "#\u200b").replace("@", "@\u200b")
+    return clip_utf8(neutralize_github_autolinks(text), maximum)
+
+
+def require_comment_size(value: str, maximum: int, label: str) -> str:
+    if utf8_size(value) > maximum:
+        raise ReviewError(f"{label} exceeds the protected GitHub comment budget.")
+    return value
 
 
 def render_finding(item: dict[str, Any]) -> str:
     finding = item["finding"]
     return (
         f"- **{markdown_text(finding['severity'])} {markdown_text(finding['title'], 200)}** "
-        f"`{markdown_text(finding['file'])}:{finding['start_line']}` "
-        f"({markdown_text(finding['id'])})\n"
+        f"`{markdown_code(finding['file'], 300)}:{finding['start_line']}` "
+        f"(`{markdown_code(finding['id'], 120)}`)\n"
         f"  {markdown_text(finding['claim'], 500)} Trigger: {markdown_text(finding['trigger'], 350)} "
         f"Impact: {markdown_text(finding['impact'], 500)}"
     )
+
+
+def compact_review(
+    context: dict[str, Any],
+    specialist_reports: list[dict[str, Any]],
+    verifier_reports: list[dict[str, Any]],
+    consensus: dict[str, Any],
+    chair: dict[str, Any],
+) -> str:
+    binding = context["binding"]
+    selected_followup_ids = set(chair.get("follow_up_finding_ids", []))
+    consensus_items = {
+        str(item["finding"]["id"]): (state, item)
+        for state in ("confirmed", "challenged", "unverified")
+        for item in consensus[state]
+    }
+    lines = [
+        COMMENT_MARKER,
+        "### Agent Review Jury",
+        "",
+        f"**Verdict: {chair['verdict']}** - {markdown_text(chair['summary'], 500)}",
+        "",
+        f"Reviewed head: `{binding['head_sha']}`  ",
+        f"Protocol SHA-256: `{binding['protocol_sha256']}`  ",
+        f"Context SHA-256: `{binding['context_sha256']}`",
+        "",
+        "_Compact view: all finding dispositions and verifier votes are preserved; evidence and questions are clipped to the protected comment budget._",
+        "",
+        "#### Panel",
+        "",
+        "- Specialists: "
+        + ", ".join(
+            f"`{markdown_code(report['role'], 60)}`"
+            for report in sorted(specialist_reports, key=lambda value: value["role"])
+        ),
+        "- Verifiers: "
+        + ", ".join(
+            f"`{markdown_code(report['role'], 60)}`"
+            for report in sorted(verifier_reports, key=lambda value: value["role"])
+        ),
+        "- Chair: `chair`",
+        "",
+        "#### Findings",
+        "",
+    ]
+    findings = [
+        finding
+        for report in sorted(specialist_reports, key=lambda value: value["role"])
+        for finding in report.get("findings", [])
+    ]
+    if not findings:
+        lines.append("No findings.")
+    for finding in findings:
+        finding_id = str(finding["id"])
+        state, item = consensus_items[finding_id]
+        severity = str(finding["severity"])
+        if state == "confirmed" and severity in {"P0", "P1"}:
+            disposition = "confirmed blocker"
+        elif state == "confirmed" and finding_id in selected_followup_ids:
+            disposition = "verified and selected"
+        elif state == "confirmed":
+            disposition = "verified, not selected"
+        else:
+            disposition = state
+        votes = ", ".join(
+            f"{markdown_code(role, 30)}={markdown_text(vote['action'], 12)} "
+            f"({markdown_text(vote['evidence'], 50)})"
+            for role, vote in sorted(item["verification"].items())
+        )
+        lines.append(
+            f"- **{markdown_text(severity, 10)} {markdown_text(finding['title'], 80)}** "
+            f"`{markdown_code(finding['file'], 120)}:{finding['start_line']}` "
+            f"(`{markdown_code(finding_id, 80)}`) - {markdown_text(disposition, 30)}; {votes}"
+        )
+    questions = list(
+        dict.fromkeys(
+            [
+                question
+                for report in specialist_reports
+                for question in report.get("questions", [])
+            ]
+            + list(chair.get("questions", []))
+        )
+    )
+    if questions:
+        lines.extend(["", "#### Clarifying Questions", ""])
+        lines.extend(f"- {markdown_text(question, 200)}" for question in questions[:5])
+        if len(questions) > 5:
+            lines.append(f"- {len(questions) - 5} additional question(s) omitted.")
+    lines.extend(
+        [
+            "",
+            "#### Context Summary",
+            "",
+            f"- PR diff: {len(context.get('untrusted', {}).get('diff', ''))} characters",
+            f"- Changed-file manifest: {len(context.get('untrusted', {}).get('manifest', []))} files",
+            f"- Base module map: {len(context.get('trusted', {}).get('module_map', []))} modules",
+            f"- Recorded omissions: {len(context.get('omissions', []))}",
+        ]
+    )
+    body = "\n".join(lines).rstrip() + "\n"
+    return require_comment_size(body, MAX_REVIEW_BODY_BYTES, "Compact jury report")
 
 
 def render_review(
@@ -1740,6 +1920,14 @@ def render_review(
     chair: dict[str, Any],
 ) -> str:
     binding = context["binding"]
+    confirmed_blocker_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
+    eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
+    selected_followup_ids = set(chair.get("follow_up_finding_ids", []))
+    consensus_state = {
+        str(item["finding"]["id"]): state
+        for state in ("confirmed", "challenged", "unverified")
+        for item in consensus[state]
+    }
     specialist_rows = []
     for report in sorted(specialist_reports, key=lambda value: value["role"]):
         count = len(report.get("findings", []))
@@ -1759,7 +1947,7 @@ def render_review(
         COMMENT_MARKER,
         "### Agent Review Jury",
         "",
-        f"**Verdict: {chair['verdict']}** - {markdown_text(chair['summary'])}",
+        f"**Verdict: {chair['verdict']}** - {markdown_text(chair['summary'], 500)}",
         "",
         f"Reviewed head: `{binding['head_sha']}`  ",
         f"Protocol SHA-256: `{binding['protocol_sha256']}`  ",
@@ -1786,8 +1974,13 @@ def render_review(
         "#### Confirmed Blockers",
         "",
     ]
-    if consensus["confirmed"]:
-        lines.extend(render_finding(item) for item in consensus["confirmed"])
+    confirmed_blockers = [
+        item
+        for item in consensus["confirmed"]
+        if item["finding"]["id"] in confirmed_blocker_ids
+    ]
+    if confirmed_blockers:
+        lines.extend(render_finding(item) for item in confirmed_blockers)
     else:
         lines.append("No independently confirmed blockers.")
     lower = [
@@ -1798,11 +1991,20 @@ def render_review(
     ]
     lines.extend(["", "#### Follow-up Findings", ""])
     if lower:
-        lines.extend(
-            f"- **{markdown_text(finding['severity'])} {markdown_text(finding['title'])}** "
-            f"`{markdown_text(finding['file'])}:{finding['start_line']}` ({markdown_text(finding['id'])})"
-            for finding in lower
-        )
+        for finding in lower:
+            finding_id = str(finding["id"])
+            state = consensus_state.get(finding_id, "unverified")
+            if finding_id in selected_followup_ids:
+                disposition = "verified and selected"
+            elif finding_id in eligible_followup_ids:
+                disposition = "verified, not selected"
+            else:
+                disposition = state
+            lines.append(
+                f"- **{markdown_text(finding['severity'])} {markdown_text(finding['title'], 200)}** "
+                f"`{markdown_code(finding['file'], 300)}:{finding['start_line']}` "
+                f"(`{markdown_code(finding_id, 120)}`; {markdown_text(disposition, 40)})"
+            )
     else:
         lines.append("No P2/P3 findings.")
     questions = list(
@@ -1817,7 +2019,7 @@ def render_review(
     )
     if questions:
         lines.extend(["", "#### Clarifying Questions", ""])
-        lines.extend(f"- {markdown_text(question)}" for question in questions)
+        lines.extend(f"- {markdown_text(question, 500)}" for question in questions)
     challenged = consensus["challenged"] + consensus["unverified"]
     lines.extend(
         ["", "<details>", "<summary>Challenged or unverified claims</summary>", ""]
@@ -1826,11 +2028,12 @@ def render_review(
         for item in challenged:
             finding = item["finding"]
             lines.append(
-                f"- `{markdown_text(finding['id'])}` {markdown_text(finding['title'])}"
+                f"- `{markdown_code(finding['id'], 120)}` {markdown_text(finding['title'], 200)}"
             )
             for role, vote in sorted(item["verification"].items()):
                 lines.append(
-                    f"  - `{role}`: **{vote['action']}** - {markdown_text(vote['evidence'])}"
+                    f"  - `{markdown_code(role, 60)}`: **{markdown_text(vote['action'], 20)}** - "
+                    f"{markdown_text(vote['evidence'], 350)}"
                 )
     else:
         lines.append("None.")
@@ -1854,15 +2057,21 @@ def render_review(
         f"- Base module map: {len(context.get('trusted', {}).get('module_map', []))} modules"
     )
     for item in context.get("trusted", {}).get("policy", []):
-        lines.append(f"- Policy: `{markdown_text(item['source'])}`")
+        lines.append(f"- Policy: `{markdown_code(item['source'], 300)}`")
     for item in context.get("untrusted", {}).get("code_contexts", []):
         lines.append(
-            f"- Code context: `{markdown_text(item['source'])}` ({markdown_text(item['kind'])})"
+            f"- Code context: `{markdown_code(item['source'], 300)}` "
+            f"({markdown_text(item['kind'], 80)})"
         )
     for omission in context.get("omissions", []):
-        lines.append(f"- Omitted: {markdown_text(omission)}")
+        lines.append(f"- Omitted: {markdown_text(omission, 500)}")
     lines.extend(["", "</details>"])
-    return "\n".join(lines).rstrip() + "\n"
+    body = "\n".join(lines).rstrip() + "\n"
+    if utf8_size(body) <= MAX_REVIEW_BODY_BYTES:
+        return body
+    return compact_review(
+        context, specialist_reports, verifier_reports, consensus, chair
+    )
 
 
 def command_chair(args: argparse.Namespace) -> int:
@@ -1885,7 +2094,9 @@ def command_chair(args: argparse.Namespace) -> int:
             limits["max_questions_per_agent"],
             limits["max_context_gaps_per_agent"],
         )
-    finding_ids = {str(finding["id"]) for finding in high_findings(specialist_reports)}
+    finding_ids = {
+        str(finding["id"]) for finding in reviewable_findings(specialist_reports)
+    }
     for report in verifier_reports:
         validate_cross_report(
             report,
@@ -1895,13 +2106,14 @@ def command_chair(args: argparse.Namespace) -> int:
             limits["max_context_gaps_per_agent"],
         )
     consensus = compute_consensus(specialist_reports, verifier_reports)
+    confirmed_blocker_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
+    eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
     deterministic = {
-        "confirmed_blocker_ids": [
-            item["finding"]["id"] for item in consensus["confirmed"]
-        ],
+        "confirmed_blocker_ids": sorted(confirmed_blocker_ids),
+        "eligible_follow_up_ids": sorted(eligible_followup_ids),
         "challenged_ids": [item["finding"]["id"] for item in consensus["challenged"]],
         "unverified_ids": [item["finding"]["id"] for item in consensus["unverified"]],
-        "required_verdict": "BLOCK" if consensus["confirmed"] else "PASS",
+        "required_verdict": "BLOCK" if confirmed_blocker_ids else "PASS",
     }
     user = canonical_json(
         {
@@ -1928,12 +2140,7 @@ def command_chair(args: argparse.Namespace) -> int:
         ]
     )
     max_tokens = limits["chair_tokens"]
-    allowed_followups = {
-        str(finding["id"])
-        for report in specialist_reports
-        for finding in report.get("findings", [])
-        if finding.get("severity") in {"P2", "P3"}
-    }
+    allowed_followups = eligible_followup_ids
     chair = complete_with_shape_repair(
         AnthropicClient(config),
         system,
@@ -2010,7 +2217,9 @@ def validate_final_artifact(
             limits["max_questions_per_agent"],
             limits["max_context_gaps_per_agent"],
         )
-    finding_ids = {str(finding["id"]) for finding in high_findings(specialist_reports)}
+    finding_ids = {
+        str(finding["id"]) for finding in reviewable_findings(specialist_reports)
+    }
     for report in verifier_reports:
         validate_cross_report(
             report,
@@ -2028,12 +2237,7 @@ def validate_final_artifact(
     chair = final.get("chair")
     if not isinstance(chair, dict):
         raise ReviewError("Final jury chair report is invalid.")
-    allowed_followups = {
-        str(finding["id"])
-        for report in specialist_reports
-        for finding in report.get("findings", [])
-        if finding.get("severity") in {"P2", "P3"}
-    }
+    allowed_followups = confirmed_finding_ids(consensus, {"P2", "P3"})
     validate_chair(
         chair,
         consensus,
@@ -2155,15 +2359,19 @@ def actionable_findings(
     chair = final.get("chair")
     if not isinstance(consensus, dict) or not isinstance(chair, dict):
         raise ReviewError("Final jury artifact cannot select actionable findings.")
-    confirmed_ids = {
-        str((item.get("finding") or {}).get("id") or "")
-        for item in consensus.get("confirmed", [])
-        if isinstance(item, dict)
-    }
+    confirmed_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
+    eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
     followup_ids = chair.get("follow_up_finding_ids")
-    if not isinstance(followup_ids, list):
+    if not isinstance(followup_ids, list) or any(
+        not isinstance(value, str) or not value for value in followup_ids
+    ):
         raise ReviewError("Chair follow-up finding IDs are invalid.")
-    selected_ids = confirmed_ids | {str(value) for value in followup_ids}
+    selected_followup_ids = set(followup_ids)
+    if not selected_followup_ids.issubset(eligible_followup_ids):
+        raise ReviewError(
+            "Chair selected a follow-up finding without dual-verifier confirmation."
+        )
+    selected_ids = confirmed_ids | selected_followup_ids
 
     result: list[dict[str, Any]] = []
     stable_ids: dict[str, str] = {}
@@ -2207,9 +2415,8 @@ def issue_label_names(issue: dict[str, Any]) -> set[str]:
 
 def issue_title(actionable: dict[str, Any]) -> str:
     finding = actionable["finding"]
-    title = re.sub(r"\s+", " ", str(finding["title"])).strip()
     prefix = f"[Agent Review][{finding['severity']}] "
-    return prefix + title[: max(1, 256 - len(prefix))]
+    return prefix + github_title_text(finding["title"], 240 - utf8_size(prefix))
 
 
 def finding_issue_body(
@@ -2238,13 +2445,13 @@ def finding_issue_body(
         f"- Pull request: [#{pr_number}]({repository_url}/pull/{pr_number})",
         f"- First observed head: [`{first_head_sha}`]({repository_url}/commit/{first_head_sha})",
         f"- Latest reviewed head: [`{current_head_sha}`]({repository_url}/commit/{current_head_sha})",
-        f"- Source finding: `{markdown_text(actionable['source_id'])}`",
+        f"- Source finding: `{markdown_code(actionable['source_id'], 120)}`",
         f"- Stable finding ID: `{stable_id}`",
         f"- Disposition: **{disposition}**",
         f"- Severity: **{markdown_text(finding['severity'])}**",
-        f"- Category: `{markdown_text(finding['category'])}`",
+        f"- Category: `{markdown_code(finding['category'], 120)}`",
         (
-            f"- Location: [`{markdown_text(finding['file'])}:{finding['start_line']}`]"
+            f"- Location: [`{markdown_code(finding['file'], 300)}:{finding['start_line']}`]"
             f"({repository_url}/blob/{current_head_sha}/{source_path}{line_fragment})"
         ),
         "",
@@ -2270,7 +2477,10 @@ def finding_issue_body(
         "",
         f"<sub>[Agent workflow run]({run_url})</sub>",
     ]
-    return "\n".join(lines).rstrip() + "\n"
+    body = "\n".join(lines).rstrip() + "\n"
+    return require_comment_size(
+        body, MAX_GITHUB_COMMENT_BODY_BYTES, "Agent finding Issue body"
+    )
 
 
 def ensure_finding_issue_label(client: GitHubClient, repository: str) -> None:
@@ -2523,8 +2733,8 @@ def append_finding_issue_summary(
             )
             lines.append(
                 f"- [#{issue['number']}]({issue_url}) **{markdown_text(finding['severity'])} "
-                f"{markdown_text(finding['title'], 200)}** "
-                f"(`{markdown_text(actionable['stable_id'])}`)"
+                f"{markdown_text(finding['title'], 120)}** "
+                f"(`{markdown_code(actionable['stable_id'], 80)}`)"
             )
     return "\n".join(lines).rstrip() + "\n"
 
@@ -2763,7 +2973,7 @@ def command_publish(args: argparse.Namespace) -> int:
                             "",
                             "**Verdict: BLOCK**",
                             "",
-                            f"The jury artifacts failed deterministic validation: {markdown_text(exc)}",
+                            f"The jury artifacts failed deterministic validation: {markdown_text(exc, 1000)}",
                         ]
                     )
                     + "\n"
@@ -2888,6 +3098,7 @@ def command_publish(args: argparse.Namespace) -> int:
     )
     require_current_pr()
     try:
+        require_comment_size(body, MAX_GITHUB_COMMENT_BODY_BYTES, "Agent jury comment")
         upsert_comment(
             agent_client,
             repository,
