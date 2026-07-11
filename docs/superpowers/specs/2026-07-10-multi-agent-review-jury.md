@@ -97,8 +97,9 @@ flowchart LR
 2. 校验 PR 仍然 open、目标为 `main`。
 3. 校验 `changed_files` 不超过 GitHub 的 3,000 文件平台上限，并要求 Files API 分页结果与其
    精确一致。300 文件以内读取 raw diff；超过 300 文件时使用 Files API patch 重建完整 diff，
-   逐文件校验状态、重命名或复制来源路径以及实际增删行。任一 patch 缺失、为空或被截断时
-   聚合列出全部异常文件并失败，不生成部分评审上下文。
+   逐文件校验状态、重命名或复制来源路径、hunk 声明的旧新行数以及实际增删行；hunk 外的
+   文件头只作为 metadata，不计入增删统计。任一 patch 缺失、为空或被截断时聚合列出全部
+   异常文件并失败，不生成部分评审上下文。
 4. 对 README automation dispatch 额外校验仓库、分支、作者、文件集合和 payload SHA。
 5. 构建上下文后再次读取 PR；SHA 变化立即终止，让新事件创建新一轮。
 6. 对 base 版本的配置、提示词和评审脚本计算 protocol SHA-256，再对包含该协议描述的

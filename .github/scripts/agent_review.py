@@ -53,6 +53,7 @@ APP_BOT_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?\[
 STABLE_FINDING_ID_RE = re.compile(r"^v1-[0-9a-f]{64}$")
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+PATCH_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$")
 JAVA_BOUNDARY_RE = re.compile(
     r"^\s*(?:@[\w.]+(?:\([^)]*\))?\s*$|"
     r"(?:(?:public|protected|private|static|final|abstract|synchronized|default)\s+)*"
@@ -867,6 +868,58 @@ def prioritized_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         offset += 1
 
 
+def patch_change_counts(patch: str) -> tuple[int, int]:
+    additions = 0
+    deletions = 0
+    old_expected: int | None = None
+    new_expected: int | None = None
+    old_seen = 0
+    new_seen = 0
+
+    def validate_hunk() -> None:
+        if old_expected is None or new_expected is None:
+            return
+        if old_seen != old_expected or new_seen != new_expected:
+            raise ReviewError(
+                "patch hunk body is incomplete: "
+                f"expected old/new {old_expected}/{new_expected}, "
+                f"received {old_seen}/{new_seen}"
+            )
+
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            validate_hunk()
+            match = PATCH_HUNK_RE.match(line)
+            if match is None:
+                raise ReviewError(f"patch hunk header is invalid: {line}")
+            old_expected = int(match.group(1) or "1")
+            new_expected = int(match.group(2) or "1")
+            old_seen = 0
+            new_seen = 0
+            continue
+        if old_expected is None:
+            # GitHub may include file or mode metadata before the first hunk.
+            continue
+        if line == r"\ No newline at end of file":
+            continue
+        if line.startswith("+"):
+            additions += 1
+            new_seen += 1
+        elif line.startswith("-"):
+            deletions += 1
+            old_seen += 1
+        elif line.startswith(" "):
+            old_seen += 1
+            new_seen += 1
+        else:
+            raise ReviewError("patch hunk contains an invalid content line")
+        if old_seen > old_expected or new_seen > new_expected:
+            validate_hunk()
+
+    validate_hunk()
+    return additions, deletions
+
+
 def build_files_diff(
     files: list[dict[str, Any]],
 ) -> str:
@@ -889,12 +942,11 @@ def build_files_diff(
             )
             continue
         if isinstance(patch, str) and patch:
-            patch_additions = sum(
-                1 for line in patch.splitlines() if line.startswith("+")
-            )
-            patch_deletions = sum(
-                1 for line in patch.splitlines() if line.startswith("-")
-            )
+            try:
+                patch_additions, patch_deletions = patch_change_counts(patch)
+            except ReviewError as exc:
+                failures.append(f"{filename}: {exc}")
+                continue
             if patch_additions != additions or patch_deletions != deletions:
                 failures.append(
                     f"{filename}: patch expected +{additions}/-{deletions}, "

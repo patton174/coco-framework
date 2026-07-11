@@ -660,6 +660,25 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("src/Truncated.java", message)
         self.assertIn("partial review context is not emitted", message)
 
+    def test_patch_change_counts_ignores_headers_and_rejects_truncated_hunks(
+        self,
+    ) -> None:
+        complete = "\n".join(
+            [
+                "diff --git a/src/Foo.java b/src/Foo.java",
+                "--- a/src/Foo.java",
+                "+++ b/src/Foo.java",
+                "@@ -1 +1 @@",
+                "-old",
+                "+new",
+            ]
+        )
+        self.assertEqual((1, 1), review.patch_change_counts(complete))
+
+        truncated = "@@ -1,3 +1,3 @@\n-old\n+new"
+        with self.assertRaisesRegex(review.ReviewError, "hunk body is incomplete"):
+            review.patch_change_counts(truncated)
+
     def test_removed_files_are_prioritized_before_modified_files(self) -> None:
         files = [
             {
@@ -854,6 +873,7 @@ class AgentReviewTests(unittest.TestCase):
                 if max_bytes != 1024 * 1024:
                     raise AssertionError(f"Unexpected raw byte limit: {max_bytes}")
 
+        self.assertEqual(300, review.MAX_RAW_DIFF_FILES)
         client = FakeClient()
         self.assertEqual(
             "diff --git a/Foo.java b/Foo.java\n+new",

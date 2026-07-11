@@ -74,10 +74,12 @@ not configurable review budgets.
 For pull requests above the raw-diff ceiling, the reviewer may reconstruct the
 diff from GitHub Files API patches only after exact file-count, path, status,
 rename/copy metadata, and addition/deletion validation. Missing, empty, or
-truncated content patches fail context preparation. The diagnostic must identify
-all detected offending files, and no partial context may be emitted for model
-review. Binary or unsupported files omitted only from supplemental full-code
-context remain listed in `omissions`.
+truncated content patches fail context preparation. Unified-diff hunk old/new
+line counts must match their bodies; file headers outside hunks are metadata and
+must not affect addition/deletion totals. The diagnostic must identify all
+detected offending files, and no partial context may be emitted for model review.
+Binary or unsupported files omitted only from supplemental full-code context
+remain listed in `omissions`.
 
 Bounded supplemental code context is ordered deterministically across repository
 areas, with removals first within each area. This ordering is an internal review
