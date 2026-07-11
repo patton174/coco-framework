@@ -154,9 +154,15 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
         ),
         "response_bytes": int(legacy.get("response_bytes", 1048576)),
         "request_timeout_seconds": int(legacy.get("request_timeout_seconds", 180)),
-        "specialist_tokens": int(legacy.get("specialist_tokens", 2600)),
-        "verifier_tokens": int(legacy.get("verifier_tokens", 2400)),
-        "chair_tokens": int(legacy.get("chair_tokens", 2800)),
+        "specialist_tokens": int(
+            legacy.get("specialist_tokens", output.get("specialist_tokens", 4096))
+        ),
+        "verifier_tokens": int(
+            legacy.get("verifier_tokens", output.get("verifier_tokens", 4096))
+        ),
+        "chair_tokens": int(
+            legacy.get("chair_tokens", output.get("chair_tokens", 4096))
+        ),
     }
 
 

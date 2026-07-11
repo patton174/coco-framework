@@ -69,6 +69,10 @@ The secret-backed path is an actual review panel:
 - one chair deduplicates and presents the result without changing severity,
   verifier votes, or the deterministic verdict.
 
+The protected configuration caps each specialist, verifier, and chair call at
+4,096 output tokens. A fresh retry or protocol correction uses the same cap; it
+does not receive an expanded budget or a third call.
+
 P0/P1 blocks only when both verifiers return `AGREE`. P2/P3 never directly
 block. A max-token completion, empty text response, or malformed model-output
 JSON receives one fresh attempt with the same protected prompt and bound input.

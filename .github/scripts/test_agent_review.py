@@ -193,6 +193,35 @@ class AgentReviewTests(unittest.TestCase):
                     with self.assertRaises(review.ReviewError):
                         review.validate_context(context)
 
+    def test_normalized_limits_reads_output_tokens_with_legacy_priority(self) -> None:
+        token_keys = ("specialist_tokens", "verifier_tokens", "chair_tokens")
+        self.assertEqual(
+            {key: 4096 for key in token_keys},
+            {key: review.normalized_limits({})[key] for key in token_keys},
+        )
+
+        value = {
+            "output_limits": {
+                "specialist_tokens": 4101,
+                "verifier_tokens": 4102,
+                "chair_tokens": 4103,
+            }
+        }
+        self.assertEqual(
+            (4101, 4102, 4103),
+            tuple(review.normalized_limits(value)[key] for key in token_keys),
+        )
+
+        value["limits"] = {
+            "specialist_tokens": 4201,
+            "verifier_tokens": 4202,
+            "chair_tokens": 4203,
+        }
+        self.assertEqual(
+            (4201, 4202, 4203),
+            tuple(review.normalized_limits(value)[key] for key in token_keys),
+        )
+
     def test_role_config_rejects_duplicate_ids(self) -> None:
         value = config()
         value["specialists"].append({"id": "correctness", "focus": "duplicate"})
