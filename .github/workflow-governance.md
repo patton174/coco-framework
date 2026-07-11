@@ -77,18 +77,21 @@ The secret-backed path is an actual review panel:
   verifier votes, or the deterministic verdict.
 
 The protected configuration caps each specialist, verifier, and chair call at
-4,096 output tokens. A fresh retry or protocol correction uses the same cap; it
-does not receive an expanded budget or a third call.
+4,096 output tokens. Every fresh completion or protocol correction uses the
+same cap, and all attempts share a fixed maximum of three model calls per role.
 
 P0/P1 blocks only when both verifiers return `AGREE`. P2/P3 never directly
-block. A max-token completion, empty text response, or malformed model-output
-JSON receives one fresh attempt with the same protected prompt and bound input.
-That attempt and the one protected correction for bound report-contract errors
-after identity and binding validation are mutually exclusive, so each Agent
-makes at most two model calls. Refusal, timeout, API or authentication failure,
-invalid envelopes, identity or hash mismatch, incomplete role sets, stale PR
-SHA, and oversized required context fail closed immediately; every
-second-attempt failure also fails closed. Every report binds to the base SHA,
+block. A max-token completion, empty text response, malformed model-output JSON,
+or another explicitly retryable non-completion receives a bounded fresh
+completion with the same protected prompt and bound input. Parseable reports
+that pass identity and binding checks but violate the report contract receive a
+protected correction. Fresh completions and corrections share the same
+three-call ceiling and may occur in sequence; exhaustion fails closed. Refusal,
+timeout, API or authentication failure, invalid envelopes, identity or hash
+mismatch, incomplete role sets, stale PR SHA, and oversized required context
+fail closed immediately. Specialist `confidence` is optional advisory metadata;
+when present it remains strictly typed and bounded, but it never affects the
+verdict. Every report binds to the base SHA,
 head SHA, and canonical context SHA-256; that context also binds the base-version
 config, prompts, and reviewer script through a protocol SHA-256. Before
 publishing, the trusted publisher revalidates every role report, recomputes
@@ -96,9 +99,10 @@ consensus, and re-renders the comment.
 The workflow publishes `Agent jury gate` and `Agent issue gate` statuses through
 the built-in GitHub Actions App so every path has one stable required-check
 provider. A dedicated Coco GitHub App is used only for the managed jury comment,
-finding Issues, README pull requests, and final merge commit. It never submits a
-GitHub review or approval; branch protection still requires a current human
-approval.
+finding Issues, README pull requests, and final merge commit. Its publisher
+token requests `Issues: write` for finding Issues and `Pull requests: write` for
+comments on PR resources. It never submits a GitHub review or approval; branch
+protection still requires a current human approval.
 
 Every deterministically confirmed blocker and every chair-selected, source-bound
 follow-up is reconciled to an Issue labeled `agent-review`. The Issue carries a

@@ -717,6 +717,16 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
 }
 """
 
+REPOSITORY_MERGE_SETTINGS_QUERY = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    mergeCommitAllowed
+    squashMergeAllowed
+    rebaseMergeAllowed
+  }
+}
+"""
+
 
 def pull_request_review_state(
     client: GitHubClient, repository: str, pull_request: int
@@ -784,9 +794,9 @@ def open_bound_agent_issues(
     expected_app_login: str,
     expected_app_bot_id: int,
 ) -> tuple[int, ...]:
-    encoded_creator = urllib.parse.quote(expected_app_login, safe="")
+    encoded_label = urllib.parse.quote(AGENT_ISSUE_LABEL, safe="")
     issues = client.paginate(
-        f"repos/{repository}/issues?state=open&creator={encoded_creator}"
+        f"repos/{repository}/issues?state=open&labels={encoded_label}"
         "&sort=created&direction=asc",
         limit=5000,
     )
@@ -837,15 +847,25 @@ def open_bound_agent_issues(
 def repository_merge_settings(
     client: GitHubClient, repository: str
 ) -> RepositoryMergeSettings:
+    owner, name = repository.split("/", 1)
     payload = require_mapping(
-        client.get_json(f"repos/{repository}"), "repository merge settings"
+        client.graphql(
+            REPOSITORY_MERGE_SETTINGS_QUERY,
+            {"owner": owner, "name": name},
+        ).get("repository"),
+        "GraphQL repository merge settings",
     )
     values: dict[str, bool] = {}
-    for name in ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge"):
-        value = payload.get(name)
+    fields = {
+        "mergeCommitAllowed": "allow_merge_commit",
+        "squashMergeAllowed": "allow_squash_merge",
+        "rebaseMergeAllowed": "allow_rebase_merge",
+    }
+    for field, model_name in fields.items():
+        value = payload.get(field)
         if type(value) is not bool:
-            raise ContractError(f"Repository setting {name} is missing or invalid.")
-        values[name] = value
+            raise ContractError(f"Repository setting {field} is missing or invalid.")
+        values[model_name] = value
     return RepositoryMergeSettings(**values)
 
 

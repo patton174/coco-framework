@@ -179,9 +179,9 @@ class FakeClient:
         self.open_pulls: list[dict] = []
         self.permissions = {"maintainer": "write"}
         self.repository_settings = {
-            "allow_merge_commit": True,
-            "allow_squash_merge": False,
-            "allow_rebase_merge": False,
+            "mergeCommitAllowed": True,
+            "squashMergeAllowed": False,
+            "rebaseMergeAllowed": False,
         }
         self.review_pages: list[list[dict]] | None = None
         self.status_pages: list[list[dict]] | None = None
@@ -199,13 +199,6 @@ class FakeClient:
             if not self.pull_reads:
                 raise AssertionError("unexpected extra pull request read")
             return copy.deepcopy(self.pull_reads.pop(0))
-        if path == f"repos/{REPOSITORY}":
-            self.repository_reads += 1
-            if self.repository_setting_pages is not None:
-                if not self.repository_setting_pages:
-                    raise AssertionError("unexpected extra repository settings read")
-                return copy.deepcopy(self.repository_setting_pages.pop(0))
-            return copy.deepcopy(self.repository_settings)
         permission_marker = f"repos/{REPOSITORY}/collaborators/"
         if path.startswith(permission_marker) and path.endswith("/permission"):
             login = path[len(permission_marker) : -len("/permission")]
@@ -226,10 +219,7 @@ class FakeClient:
         if "/check-runs?filter=latest" in path:
             self.assert_check_key(key)
             return self.next_page(self.check_run_pages, self.check_runs, "check runs")
-        if (
-            "/issues?state=open&creator=coco-agent%5Bbot%5D"
-            "&sort=created&direction=asc" in path
-        ):
+        if "/issues?state=open&labels=agent-review&sort=created&direction=asc" in path:
             return self.next_page(self.issue_pages, self.issues, "issues")
         if "/pulls?state=open&base=main" in path:
             return copy.deepcopy(self.open_pulls)
@@ -251,20 +241,46 @@ class FakeClient:
             raise AssertionError(f"unexpected check run key: {key}")
 
     def graphql(self, query: str, variables: dict) -> dict:
-        self.assert_query(query, variables)
-        if not self.thread_pages:
-            raise AssertionError("unexpected extra GraphQL call")
-        self.graphql_calls += 1
-        return copy.deepcopy(self.thread_pages.pop(0))
+        if "reviewThreads" in query:
+            self.assert_review_query(query, variables)
+            if not self.thread_pages:
+                raise AssertionError("unexpected extra GraphQL call")
+            self.graphql_calls += 1
+            return copy.deepcopy(self.thread_pages.pop(0))
+        if "mergeCommitAllowed" in query:
+            self.assert_repository_settings_query(query, variables)
+            self.repository_reads += 1
+            if self.repository_setting_pages is not None:
+                if not self.repository_setting_pages:
+                    raise AssertionError("unexpected extra repository settings read")
+                settings = self.repository_setting_pages.pop(0)
+            else:
+                settings = self.repository_settings
+            return {"repository": copy.deepcopy(settings)}
+        raise AssertionError("unexpected GraphQL request")
 
     @staticmethod
-    def assert_query(query: str, variables: dict) -> None:
+    def assert_review_query(query: str, variables: dict) -> None:
         if (
             "reviewThreads" not in query
             or "reviewDecision" not in query
             or variables["number"] != 17
         ):
             raise AssertionError("unexpected GraphQL request")
+
+    @staticmethod
+    def assert_repository_settings_query(query: str, variables: dict) -> None:
+        required_fields = {
+            "mergeCommitAllowed",
+            "squashMergeAllowed",
+            "rebaseMergeAllowed",
+        }
+        owner, name = REPOSITORY.split("/", 1)
+        if not all(field in query for field in required_fields) or variables != {
+            "owner": owner,
+            "name": name,
+        }:
+            raise AssertionError("unexpected repository settings GraphQL request")
 
     def send_json(self, method: str, path: str, payload: dict) -> dict:
         del method, path, payload
@@ -532,9 +548,9 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_repository_must_be_merge_commit_only(self) -> None:
         cases = (
-            ("allow_merge_commit", False),
-            ("allow_squash_merge", True),
-            ("allow_rebase_merge", True),
+            ("mergeCommitAllowed", False),
+            ("squashMergeAllowed", True),
+            ("rebaseMergeAllowed", True),
         )
         for setting, value in cases:
             with self.subTest(setting=setting):
@@ -544,6 +560,24 @@ class AutoMergeTests(unittest.TestCase):
                 decision = self.evaluate(client)
                 self.assertEqual("blocked", decision.state)
                 self.assertEqual([], client.sent)
+
+    def test_repository_merge_settings_use_graphql_public_fields(self) -> None:
+        client = FakeClient()
+        settings = merge.repository_merge_settings(client, REPOSITORY)
+        self.assertEqual(
+            merge.RepositoryMergeSettings(True, False, False),
+            settings,
+        )
+        self.assertEqual(1, client.repository_reads)
+        self.assertEqual(0, client.graphql_calls)
+
+    def test_repository_merge_settings_fail_closed_on_missing_graphql_field(
+        self,
+    ) -> None:
+        client = FakeClient()
+        del client.repository_settings["mergeCommitAllowed"]
+        with self.assertRaisesRegex(merge.ContractError, "mergeCommitAllowed"):
+            merge.repository_merge_settings(client, REPOSITORY)
 
     def test_unresolved_review_thread_blocks(self) -> None:
         client = FakeClient()
