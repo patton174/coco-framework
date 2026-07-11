@@ -22,12 +22,13 @@ APP_BOT_ID = 424242
 def config(**limit_overrides: int) -> dict:
     limits = {
         "diff_chars": 60000,
-        "patch_chars": 48000,
+        "patch_chars": 60000,
         "intent_chars": 8000,
         "policy_chars": 20000,
         "code_context_chars": 20000,
         "per_file_chars": 12000,
         "full_file_chars": 16000,
+        "max_context_files": 24,
         "assembled_context_chars": 96000,
         "max_findings_per_agent": 8,
         "max_questions_per_agent": 5,
@@ -178,6 +179,10 @@ class AgentReviewTests(unittest.TestCase):
             )
         )
         self.assertEqual(8192, value["output_limits"]["verifier_tokens"])
+        limits = review.normalized_limits(value)
+        self.assertEqual(180_000, limits["diff_chars"])
+        self.assertEqual(320_000, limits["assembled_context_chars"])
+        self.assertEqual(24, limits["max_context_files"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
         self.assertRegex(protocol["protocol_sha256"], r"^[0-9a-f]{64}$")
@@ -413,30 +418,385 @@ class AgentReviewTests(unittest.TestCase):
                     config(),
                 )
 
-    def test_build_context_clips_patch_and_records_omission(self) -> None:
+    def test_build_context_rejects_patch_budget_below_hard_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            with self.assertRaisesRegex(review.ReviewError, "complete"):
+                review.build_context(
+                    FakeContextClient({}),
+                    "patton174/coco-framework",
+                    {
+                        "number": 1,
+                        "title": "x",
+                        "body": "",
+                        "base": {"sha": BASE_SHA},
+                        "head": {"sha": HEAD_SHA},
+                    },
+                    [],
+                    [],
+                    "x" * 40,
+                    root,
+                    config(diff_chars=50, patch_chars=32),
+                )
+
+    def test_build_context_assembles_bounded_round_robin_file_patches(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            files = [
+                {
+                    "filename": ".github/scripts/agent_review.py",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "changes": 2,
+                    "patch": "@@ -1 +1 @@\n-old-agent\n+new-agent",
+                },
+                {
+                    "filename": ".github/scripts/test_agent_review.py",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "changes": 2,
+                    "patch": "@@ -1 +1 @@\n-old-test\n+new-test",
+                },
+                {
+                    "filename": "coco-features/coco-web/src/main/java/Foo.java",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "changes": 2,
+                    "patch": "@@ -1 +1 @@\n-old-web\n+new-web",
+                },
+                {
+                    "filename": "docs/architecture/module-layout.md",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "changes": 2,
+                    "patch": "@@ -1 +1 @@\n-old-doc\n+new-doc",
+                },
+            ]
             context = review.build_context(
                 FakeContextClient({}),
                 "patton174/coco-framework",
                 {
                     "number": 1,
-                    "title": "x",
+                    "title": "large layout",
                     "body": "",
                     "base": {"sha": BASE_SHA},
                     "head": {"sha": HEAD_SHA},
                 },
+                files,
                 [],
-                [],
-                "x" * 40,
+                None,
                 root,
-                config(diff_chars=50, patch_chars=32),
+                config(
+                    diff_chars=10_000,
+                    patch_chars=10_000,
+                    code_context_chars=0,
+                    max_context_files=0,
+                    assembled_context_chars=20_000,
+                ),
             )
-            self.assertLessEqual(len(context["untrusted"]["diff"]), 32)
-            self.assertTrue(
-                any("PR diff: clipped" in item for item in context["omissions"])
+
+            diff = context["untrusted"]["diff"]
+            self.assertIn(".github/scripts/agent_review.py", diff)
+            self.assertIn("coco-features/coco-web/src/main/java/Foo.java", diff)
+            self.assertIn("docs/architecture/module-layout.md", diff)
+            self.assertLess(
+                diff.index("coco-features/coco-web/src/main/java/Foo.java"),
+                diff.index(".github/scripts/test_agent_review.py"),
             )
+
+    def test_build_context_rejects_missing_changed_file_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            with self.assertRaisesRegex(review.ReviewError, "omitted"):
+                review.build_context(
+                    FakeContextClient({}),
+                    "patton174/coco-framework",
+                    {
+                        "number": 1,
+                        "title": "large file",
+                        "body": "",
+                        "base": {"sha": BASE_SHA},
+                        "head": {"sha": HEAD_SHA},
+                    },
+                    [
+                        {
+                            "filename": "src/Large.java",
+                            "status": "modified",
+                            "additions": 1000,
+                            "deletions": 1000,
+                            "changes": 2000,
+                        }
+                    ],
+                    [],
+                    None,
+                    root,
+                    config(),
+                )
+
+    def test_build_context_rejects_empty_or_truncated_changed_file_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            base_file = {
+                "filename": "src/Large.java",
+                "status": "modified",
+                "additions": 2,
+                "deletions": 1,
+                "changes": 3,
+            }
+            for patch_text in ("", "@@ -1 +1 @@\n-old\n+new"):
+                with self.subTest(patch=patch_text):
+                    with self.assertRaisesRegex(
+                        review.ReviewError, "omitted|incomplete"
+                    ):
+                        review.build_context(
+                            FakeContextClient({}),
+                            "patton174/coco-framework",
+                            {
+                                "number": 1,
+                                "title": "large file",
+                                "body": "",
+                                "base": {"sha": BASE_SHA},
+                                "head": {"sha": HEAD_SHA},
+                            },
+                            [{**base_file, "patch": patch_text}],
+                            [],
+                            None,
+                            root,
+                            config(),
+                        )
+
+    def test_code_context_budget_stops_additional_remote_file_reads(self) -> None:
+        class CountingClient:
+            def __init__(self) -> None:
+                self.paths: list[str] = []
+
+            def file_text(
+                self, repository: str, path: str, ref: str, max_bytes: int
+            ) -> str:
+                del repository, ref, max_bytes
+                self.paths.append(path)
+                if len(self.paths) > 1:
+                    raise AssertionError(
+                        "file_text called after context budget was full"
+                    )
+                return "class Foo {}"
+
+        files = [
+            {
+                "filename": "coco-a/module/src/main/java/Foo.java",
+                "status": "modified",
+                "patch": "@@ -1 +1 @@\n-old\n+new",
+            },
+            {
+                "filename": "coco-b/module/src/main/java/Bar.java",
+                "status": "modified",
+                "patch": "@@ -1 +1 @@\n-old\n+new",
+            },
+        ]
+        client = CountingClient()
+        omissions: list[str] = []
+        contexts = review.build_code_contexts(
+            client,
+            "patton174/coco-framework",
+            HEAD_SHA,
+            Path.cwd(),
+            files,
+            config(
+                code_context_chars=1,
+                per_file_chars=1,
+                full_file_chars=100,
+            ),
+            omissions,
+        )
+
+        self.assertEqual(["coco-a/module/src/main/java/Foo.java"], client.paths)
+        self.assertEqual(1, len(contexts))
+        self.assertTrue(any("character budget" in item for item in omissions))
+
+    def test_prepare_uses_bounded_files_api_without_raw_diff_request(self) -> None:
+        pull_request = {
+            "number": 1,
+            "state": "open",
+            "title": "large layout",
+            "body": "",
+            "changed_files": 501,
+            "base": {"sha": BASE_SHA, "ref": "main"},
+            "head": {
+                "sha": HEAD_SHA,
+                "repo": {"full_name": "patton174/coco-framework"},
+            },
+            "user": {"login": "patton174", "type": "User"},
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.paginated: list[tuple[str, int]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path == "repos/patton174/coco-framework/pulls/1":
+                    return pull_request
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                self.paginated.append((path, limit))
+                if path.endswith("/files"):
+                    return [
+                        {
+                            "filename": f"module-{index}/Foo.java",
+                            "status": "modified",
+                            "additions": 1,
+                            "deletions": 1,
+                            "changes": 2,
+                            "patch": "@@ -1 +1 @@\n-old\n+new",
+                        }
+                        for index in range(501)
+                    ]
+                if path.endswith("/commits"):
+                    return []
+                raise AssertionError(f"Unexpected paginated path: {path}")
+
+        client = FakeClient()
+        context = bound_context()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(review, "load_config", return_value=config()),
+                patch.object(review, "build_context", return_value=context) as builder,
+                patch("builtins.print"),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}),
+            ):
+                result = review.command_prepare(
+                    SimpleNamespace(
+                        repository="patton174/coco-framework",
+                        pr_number=1,
+                        event_name="pull_request_target",
+                        expected_head_sha=HEAD_SHA,
+                        base_root=root,
+                        config=root / "config.json",
+                        context_output=root / "context.json",
+                        metadata_output=root / "metadata.json",
+                    )
+                )
+
+        self.assertEqual(0, result)
+        self.assertIn(
+            (
+                "repos/patton174/coco-framework/pulls/1/files",
+                review.MAX_PULL_REQUEST_FILES,
+            ),
+            client.paginated,
+        )
+        self.assertIsNone(builder.call_args.args[5])
+
+    def test_pull_request_diff_uses_raw_media_only_within_github_limit(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def get_raw(self, path: str, accept: str, max_bytes: int) -> bytes:
+                self.calls += 1
+                self.assert_request(path, accept, max_bytes)
+                return b"diff --git a/Foo.java b/Foo.java\n+new"
+
+            @staticmethod
+            def assert_request(path: str, accept: str, max_bytes: int) -> None:
+                if path != "repos/patton174/coco-framework/pulls/1":
+                    raise AssertionError(f"Unexpected raw path: {path}")
+                if accept != "application/vnd.github.v3.diff":
+                    raise AssertionError(f"Unexpected raw media type: {accept}")
+                if max_bytes != 1024 * 1024:
+                    raise AssertionError(f"Unexpected raw byte limit: {max_bytes}")
+
+        client = FakeClient()
+        self.assertEqual(
+            "diff --git a/Foo.java b/Foo.java\n+new",
+            review.pull_request_diff(
+                client,
+                "patton174/coco-framework",
+                1,
+                review.MAX_RAW_DIFF_FILES,
+            ),
+        )
+        self.assertIsNone(
+            review.pull_request_diff(
+                client,
+                "patton174/coco-framework",
+                1,
+                review.MAX_RAW_DIFF_FILES + 1,
+            )
+        )
+        self.assertEqual(1, client.calls)
+
+    def test_changed_file_count_rejects_github_overflow_before_pagination(self) -> None:
+        self.assertEqual(
+            review.MAX_PULL_REQUEST_FILES,
+            review.changed_file_count({"changed_files": review.MAX_PULL_REQUEST_FILES}),
+        )
+        with self.assertRaisesRegex(review.ReviewError, "split"):
+            review.changed_file_count(
+                {"changed_files": review.MAX_PULL_REQUEST_FILES + 1}
+            )
+
+    def test_pull_file_validation_rejects_short_duplicate_and_unsafe_results(
+        self,
+    ) -> None:
+        valid = {
+            "filename": "src/Foo.java",
+            "status": "modified",
+            "additions": 1,
+            "deletions": 1,
+            "changes": 2,
+            "patch": "@@ -1 +1 @@\n-old\n+new",
+        }
+        review.validate_pull_files([valid], 1)
+        with self.assertRaisesRegex(review.ReviewError, "changed_files"):
+            review.validate_pull_files([valid], 2)
+        with self.assertRaisesRegex(review.ReviewError, "duplicate"):
+            review.validate_pull_files([valid, dict(valid)], 2)
+        unsafe = {**valid, "filename": "../Foo.java"}
+        with self.assertRaisesRegex(review.ReviewError, "unsafe"):
+            review.validate_pull_files([unsafe], 1)
+
+    def test_pull_file_validation_requires_safe_rename_source(self) -> None:
+        renamed = {
+            "filename": "src/New.java",
+            "previous_filename": "src/Old.java",
+            "status": "renamed",
+            "additions": 0,
+            "deletions": 0,
+            "changes": 0,
+        }
+        review.validate_pull_files([renamed], 1)
+        for previous in (None, "", "../Old.java", "src\\Old.java", "src/New.java"):
+            with self.subTest(previous=previous):
+                candidate = dict(renamed)
+                if previous is None:
+                    candidate.pop("previous_filename")
+                else:
+                    candidate["previous_filename"] = previous
+                with self.assertRaisesRegex(review.ReviewError, "previous|identical"):
+                    review.validate_pull_files([candidate], 1)
+
+    def test_pull_file_validation_rejects_inconsistent_change_totals(self) -> None:
+        invalid = {
+            "filename": "src/Foo.java",
+            "status": "modified",
+            "additions": 1,
+            "deletions": 1,
+            "changes": 3,
+            "patch": "@@ -1 +1 @@\n-old\n+new",
+        }
+        with self.assertRaisesRegex(review.ReviewError, "inconsistent"):
+            review.validate_pull_files([invalid], 1)
 
     def test_specialist_schema_rejects_unknown_file(self) -> None:
         context = bound_context()
