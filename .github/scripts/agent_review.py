@@ -33,6 +33,7 @@ FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 MODEL_COMPLETION_MAX_ATTEMPTS = 3
 MAX_REVIEW_BODY_BYTES = 40_000
 MAX_GITHUB_COMMENT_BODY_BYTES = 64_000
+# GitHub platform limits are protocol constants, not operator-tunable budgets.
 MAX_PULL_REQUEST_FILES = 3000
 MAX_RAW_DIFF_FILES = 300
 PULL_FILE_STATUSES = {
@@ -44,6 +45,7 @@ PULL_FILE_STATUSES = {
     "renamed",
     "unchanged",
 }
+PREVIOUS_PATH_STATUSES = {"copied", "renamed"}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -208,40 +210,42 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
     output = config.get("output_limits", {})
     return {
         "diff_chars": int(
-            legacy.get("diff_chars", context.get("pr_diff_hard_limit", 60000))
+            legacy.get("diff_chars", context.get("pr_diff_hard_limit", 180000))
         ),
         "assembled_context_chars": int(
             legacy.get(
-                "assembled_context_chars", context.get("specialist_total_limit", 96000)
+                "assembled_context_chars",
+                context.get("specialist_total_limit", 384000),
             )
         ),
         "policy_chars": int(
             legacy.get(
-                "policy_chars", context.get("protected_policy_and_specs_limit", 20000)
+                "policy_chars",
+                context.get("protected_policy_and_specs_limit", 48000),
             )
         ),
         "intent_chars": int(
             legacy.get("intent_chars", context.get("pr_intent_limit", 8000))
         ),
         "patch_chars": int(
-            legacy.get("patch_chars", context.get("patch_limit", 48000))
+            legacy.get("patch_chars", context.get("patch_limit", 180000))
         ),
         "code_context_chars": int(
             legacy.get(
                 "code_context_chars",
-                context.get("code_context_total_limit", 20000),
+                context.get("code_context_total_limit", 60000),
             )
         ),
         "per_file_chars": int(
             legacy.get(
                 "per_file_chars",
-                context.get("code_context_per_file_limit", 12000),
+                context.get("code_context_per_file_limit", 4000),
             )
         ),
         "full_file_chars": int(
             legacy.get(
                 "full_file_chars",
-                context.get("full_changed_file_limit", 16000),
+                context.get("full_changed_file_limit", 12000),
             )
         ),
         "max_context_files": int(
@@ -633,7 +637,9 @@ def collect_policy(
             for path in changed_paths
             for pattern in patterns
         ):
-            paths.extend(rule.get("files", []))
+            matched_files = [str(item) for item in rule.get("files", [])]
+            paths.extend(matched_files)
+            required_paths.update(matched_files)
     unique_paths = list(dict.fromkeys(paths))
     limit = normalized_limits(config)["policy_chars"]
     sources: list[dict[str, str]] = []
@@ -676,9 +682,9 @@ def build_code_contexts(
     omissions: list[str],
 ) -> list[dict[str, Any]]:
     limits = normalized_limits(config)
-    total_limit = int(limits.get("code_context_chars", 20000))
-    per_file = int(limits.get("per_file_chars", 12000))
-    full_file = int(limits.get("full_file_chars", 16000))
+    total_limit = int(limits.get("code_context_chars", 60000))
+    per_file = int(limits.get("per_file_chars", 4000))
+    full_file = int(limits.get("full_file_chars", 12000))
     max_context_files = int(limits.get("max_context_files", 24))
     contexts: list[dict[str, Any]] = []
     used = 0
@@ -811,7 +817,7 @@ def review_bucket(filename: str) -> str:
 
 def changed_file_priority(entry: dict[str, Any]) -> tuple[int, int, int, str]:
     filename = str(entry.get("filename", ""))
-    status_priority = 1 if str(entry.get("status", "")) == "removed" else 0
+    status_priority = 0 if str(entry.get("status", "")) == "removed" else 1
     if (
         filename in {"pom.xml", "AGENTS.md"}
         or filename.endswith("/pom.xml")
@@ -837,6 +843,7 @@ def changed_file_priority(entry: dict[str, Any]) -> tuple[int, int, int, str]:
 
 
 def prioritized_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Spread bounded supplemental context across modules without hiding removals.
     buckets: dict[str, list[dict[str, Any]]] = {}
     for entry in files:
         filename = str(entry.get("filename", ""))
@@ -863,8 +870,9 @@ def prioritized_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def build_files_diff(
     files: list[dict[str, Any]],
 ) -> str:
-    chunks: list[str] = []
     ordered = prioritized_files(files)
+    prepared: list[tuple[str, str, str, int, int, str | None]] = []
+    failures: list[str] = []
     for entry in ordered:
         filename = str(entry.get("filename", ""))
         previous = str(entry.get("previous_filename") or filename)
@@ -874,11 +882,12 @@ def build_files_diff(
         deletions = int(entry.get("deletions") or 0)
         changes = int(entry.get("changes") or 0)
         patch_missing = not isinstance(patch, str) or not patch
-        if patch_missing and not (status == "renamed" and changes == 0):
-            raise ReviewError(
-                f"GitHub omitted the changed-file patch for {filename}; split the PR "
-                "or reduce that file before Agent review."
+        if patch_missing and not (status in PREVIOUS_PATH_STATUSES and changes == 0):
+            failures.append(
+                f"{filename}: patch omitted for status={status}, "
+                f"+{additions}/-{deletions}"
             )
+            continue
         if isinstance(patch, str) and patch:
             patch_additions = sum(
                 1 for line in patch.splitlines() if line.startswith("+")
@@ -887,19 +896,39 @@ def build_files_diff(
                 1 for line in patch.splitlines() if line.startswith("-")
             )
             if patch_additions != additions or patch_deletions != deletions:
-                raise ReviewError(
-                    f"GitHub returned an incomplete changed-file patch for {filename}; "
-                    f"expected +{additions}/-{deletions}, received "
-                    f"+{patch_additions}/-{patch_deletions}. Split the PR or reduce "
-                    "that file before Agent review."
+                failures.append(
+                    f"{filename}: patch expected +{additions}/-{deletions}, "
+                    f"received +{patch_additions}/-{patch_deletions}"
                 )
+                continue
+        prepared.append(
+            (
+                filename,
+                previous,
+                status,
+                additions,
+                deletions,
+                patch if isinstance(patch, str) and patch else None,
+            )
+        )
+    if failures:
+        details = "; ".join(failures[:20])
+        remainder = len(failures) - 20
+        if remainder > 0:
+            details += f"; and {remainder} more file(s)"
+        raise ReviewError(
+            f"GitHub changed-file patches are incomplete for {len(failures)} "
+            f"file(s): {details}. Split the PR or reduce those files before "
+            "Agent review; partial review context is not emitted."
+        )
+
+    chunks: list[str] = []
+    for filename, previous, status, additions, deletions, patch in prepared:
         header = (
             f"diff --git a/{previous} b/{filename}\n"
             f"status {status}; additions {additions}; deletions {deletions}\n"
         )
-        chunks.append(
-            header + (patch if isinstance(patch, str) else "[no content change]")
-        )
+        chunks.append(header + (patch or "[no content change]"))
     return "\n\n".join(chunks)
 
 
@@ -932,15 +961,19 @@ def validate_pull_files(files: list[dict[str, Any]], expected_count: int) -> Non
             )
         seen.add(filename)
         previous = entry.get("previous_filename")
-        if status == "renamed" and previous is None:
+        if status in PREVIOUS_PATH_STATUSES and previous is None:
             raise ReviewError(
-                f"GitHub omitted the previous path for renamed file: {filename}"
+                f"GitHub omitted the previous path for {status} file: {filename}"
             )
         if previous is not None:
             previous = validated_pull_file_path(previous, "previous file")
+            if status not in PREVIOUS_PATH_STATUSES:
+                raise ReviewError(
+                    f"GitHub returned a previous path for status={status}: {filename}"
+                )
             if previous == filename:
                 raise ReviewError(
-                    f"GitHub returned identical paths for renamed file: {filename}"
+                    f"GitHub returned identical current and previous paths: {filename}"
                 )
         for field in ("additions", "deletions", "changes"):
             value = entry.get(field)
@@ -1023,24 +1056,23 @@ def build_context(
     config: dict[str, Any],
 ) -> dict[str, Any]:
     limits = normalized_limits(config)
-    max_diff = int(limits.get("diff_chars", 60000))
-    patch_limit = int(limits.get("patch_chars", 48000))
+    max_diff = int(limits.get("diff_chars", 180000))
+    patch_limit = int(limits.get("patch_chars", 180000))
     if patch_limit < max_diff:
         raise ReviewError(
-            "Agent review patch_limit must cover the complete pr_diff_hard_limit."
+            "Agent review patch_limit must cover the complete "
+            f"pr_diff_hard_limit: patch_limit={patch_limit}, "
+            f"pr_diff_hard_limit={max_diff}."
         )
+    diff_source = (
+        "github-raw-diff" if diff_text is not None else "github-files-api-patches"
+    )
     complete_diff = diff_text if diff_text is not None else build_files_diff(files)
     if len(complete_diff) > max_diff:
         raise ReviewError(
             f"PR diff has {len(complete_diff)} characters; split the PR before Agent review."
         )
     omissions: list[str] = []
-    bounded_diff = clip_text(
-        complete_diff,
-        patch_limit,
-        "PR diff",
-        omissions,
-    )
     changed_paths = [
         path
         for entry in files
@@ -1105,12 +1137,13 @@ def build_context(
         "untrusted": {
             "intent_json": intent,
             "manifest": manifest,
-            "diff": bounded_diff,
+            "diff_source": diff_source,
+            "diff": complete_diff,
             "code_contexts": code_contexts,
         },
         "omissions": omissions,
     }
-    max_context = int(limits.get("assembled_context_chars", 96000))
+    max_context = int(limits.get("assembled_context_chars", 384000))
     while (
         len(canonical_json(context)) > max_context
         and context["untrusted"]["code_contexts"]

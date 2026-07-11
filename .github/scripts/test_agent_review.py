@@ -181,7 +181,8 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(8192, value["output_limits"]["verifier_tokens"])
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
-        self.assertEqual(320_000, limits["assembled_context_chars"])
+        self.assertEqual(384_000, limits["assembled_context_chars"])
+        self.assertEqual(48_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
@@ -251,6 +252,14 @@ class AgentReviewTests(unittest.TestCase):
                         review.validate_context(context)
 
     def test_normalized_limits_reads_output_tokens_with_legacy_priority(self) -> None:
+        defaults = review.normalized_limits({})
+        self.assertEqual(180_000, defaults["diff_chars"])
+        self.assertEqual(180_000, defaults["patch_chars"])
+        self.assertEqual(384_000, defaults["assembled_context_chars"])
+        self.assertEqual(48_000, defaults["policy_chars"])
+        self.assertEqual(60_000, defaults["code_context_chars"])
+        self.assertEqual(4_000, defaults["per_file_chars"])
+        self.assertEqual(12_000, defaults["full_file_chars"])
         token_keys = ("specialist_tokens", "verifier_tokens", "chair_tokens")
         self.assertEqual(
             {key: 4096 for key in token_keys},
@@ -371,6 +380,7 @@ class AgentReviewTests(unittest.TestCase):
                 config(),
             )
             review.validate_context(context)
+            self.assertEqual("github-raw-diff", context["untrusted"]["diff_source"])
             sources = {item["source"] for item in context["untrusted"]["code_contexts"]}
             self.assertIn(filename, sources)
             self.assertIn("module/src/test/java/io/example/FooTest.java", sources)
@@ -416,6 +426,47 @@ class AgentReviewTests(unittest.TestCase):
                     "diff",
                     Path(directory),
                     config(),
+                )
+
+    def test_collect_policy_requires_complete_specs_for_both_rename_paths(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs/old.md").write_text("Old specification", encoding="utf-8")
+            (root / "docs/new.md").write_text("New specification", encoding="utf-8")
+            value = config(policy_chars=100)
+            value["context"]["path_rules"] = [
+                {"patterns": ["old/**"], "files": ["docs/old.md"]},
+                {"patterns": ["new/**"], "files": ["docs/new.md"]},
+            ]
+            omissions: list[str] = []
+            sources = review.collect_policy(
+                root,
+                value,
+                ["old/Foo.java", "new/Foo.java"],
+                omissions,
+            )
+
+            self.assertEqual(
+                {"AGENTS.md", "docs/old.md", "docs/new.md"},
+                {item["source"] for item in sources},
+            )
+            self.assertEqual([], omissions)
+            with self.assertRaisesRegex(review.ReviewError, "exceeds"):
+                review.collect_policy(
+                    root,
+                    config(policy_chars=7)
+                    | {
+                        "context": {
+                            "always": ["AGENTS.md"],
+                            "path_rules": value["context"]["path_rules"],
+                        }
+                    },
+                    ["old/Foo.java"],
+                    [],
                 )
 
     def test_build_context_rejects_patch_budget_below_hard_limit(self) -> None:
@@ -502,6 +553,9 @@ class AgentReviewTests(unittest.TestCase):
             )
 
             diff = context["untrusted"]["diff"]
+            self.assertEqual(
+                "github-files-api-patches", context["untrusted"]["diff_source"]
+            )
             self.assertIn(".github/scripts/agent_review.py", diff)
             self.assertIn("coco-features/coco-web/src/main/java/Foo.java", diff)
             self.assertIn("docs/architecture/module-layout.md", diff)
@@ -572,6 +626,50 @@ class AgentReviewTests(unittest.TestCase):
                             root,
                             config(),
                         )
+
+    def test_build_files_diff_reports_all_incomplete_patches(self) -> None:
+        files = [
+            {
+                "filename": "src/Missing.java",
+                "status": "modified",
+                "additions": 1,
+                "deletions": 0,
+                "changes": 1,
+            },
+            {
+                "filename": "src/Truncated.java",
+                "status": "modified",
+                "additions": 2,
+                "deletions": 1,
+                "changes": 3,
+                "patch": "@@ -1 +1 @@\n-old\n+new",
+            },
+        ]
+        with self.assertRaises(review.ReviewError) as caught:
+            review.build_files_diff(files)
+
+        message = str(caught.exception)
+        self.assertIn("2 file(s)", message)
+        self.assertIn("src/Missing.java", message)
+        self.assertIn("src/Truncated.java", message)
+        self.assertIn("partial review context is not emitted", message)
+
+    def test_removed_files_are_prioritized_before_modified_files(self) -> None:
+        files = [
+            {
+                "filename": "coco-a/module/src/main/java/Modified.java",
+                "status": "modified",
+                "changes": 100,
+            },
+            {
+                "filename": "coco-a/module/src/main/java/Removed.java",
+                "status": "removed",
+                "changes": 1,
+            },
+        ]
+
+        ordered = review.prioritized_files(files)
+        self.assertEqual("removed", ordered[0]["status"])
 
     def test_code_context_budget_stops_additional_remote_file_reads(self) -> None:
         class CountingClient:
@@ -819,6 +917,12 @@ class AgentReviewTests(unittest.TestCase):
                     candidate["previous_filename"] = previous
                 with self.assertRaisesRegex(review.ReviewError, "previous|identical"):
                     review.validate_pull_files([candidate], 1)
+
+        copied = {**renamed, "status": "copied"}
+        review.validate_pull_files([copied], 1)
+        unexpected_previous = {**renamed, "status": "modified"}
+        with self.assertRaisesRegex(review.ReviewError, "status=modified"):
+            review.validate_pull_files([unexpected_previous], 1)
 
     def test_pull_file_validation_rejects_inconsistent_change_totals(self) -> None:
         invalid = {
