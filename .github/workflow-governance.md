@@ -150,9 +150,9 @@ Install the App only on this repository with read/write `Contents`, `Issues`, an
 `Pull requests`. GitHub supplies read-only `Metadata`; do not grant `Actions`,
 `Checks`, `Commit statuses`, or `Administration` permissions.
 
-The private key is available only to protected trusted-publisher, README
-maintenance, and auto-merge jobs. Fork/bot no-secret review and the standalone
-issue gate never reference it.
+The private key is available only to protected trusted-publisher, contribution
+PR, README maintenance, and auto-merge jobs. Fork/bot no-secret review and the
+standalone issue gate never reference it.
 
 `Agent issue gate` was promoted from advisory status after the dedicated App and
 same-repository, no-secret, Issue, and auto-merge canaries passed from protected
@@ -162,6 +162,14 @@ GitHub Actions App ID `15368`. A same-name status from another provider cannot
 satisfy the protected merge contract.
 
 ## Repository Automations
+
+The Agent contribution workflow opens pull requests for existing same-repository
+`codex/*` branches without checking out or executing their contents. A dispatch
+from current protected `main` must bind the exact head SHA; the workflow verifies
+repository identity, branch state, and the compare result before requesting an
+App token. Existing pull requests are reused only when their App author,
+repository, branch, SHA, and `main` base all match. The resulting bot pull request
+still requires a current human approval and all protected merge gates.
 
 README content is maintained as paired English and Chinese fragments under
 `.github/readme/`; root README files are deterministic generated outputs. A

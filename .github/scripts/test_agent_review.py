@@ -228,6 +228,7 @@ class AgentReviewTests(unittest.TestCase):
         for path in (
             ".github/scripts/auto_merge.py",
             ".github/workflows/auto-merge.yml",
+            ".github/workflows/agent-open-pr.yml",
             ".github/readme/fragments/en/overview.md",
             ".github/workflows/readme-maintenance.yml",
             ".github/workflow-governance.md",
@@ -255,6 +256,56 @@ class AgentReviewTests(unittest.TestCase):
         serialized_mappings = json.dumps(value["spec_path_mappings"])
         self.assertNotIn("update-readme-insights.yml", serialized_mappings)
         self.assertNotIn(".github/README.md", serialized_mappings)
+
+    def test_agent_open_pr_workflow_uses_protected_app_identity(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-open-pr.yml"
+        ).read_text(encoding="utf-8")
+        for value in (
+            "workflow_dispatch:",
+            "head_sha:",
+            "github.ref == 'refs/heads/main'",
+            "environment: coco-agent",
+            "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+            "client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}",
+            "secrets.COCO_AGENT_APP_PRIVATE_KEY",
+            "permission-contents: read",
+            "permission-pull-requests: write",
+            "vars.COCO_AGENT_APP_SLUG",
+            "vars.COCO_AGENT_APP_LOGIN",
+            "vars.COCO_AGENT_APP_BOT_ID",
+            "GITHUB_REPOSITORY_ID",
+            '"${GITHUB_SHA}" != "${main_sha}"',
+            "^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+            "'$value | @uri'",
+            '"repos/${GITHUB_REPOSITORY}/compare/${main_sha}...${HEAD_SHA}"',
+            '"${branch_sha}" != "${HEAD_SHA}"',
+            "GH_TOKEN: ${{ steps.app-token.outputs.token }}",
+            "READ_TOKEN: ${{ github.token }}",
+            "Multiple pull requests match the requested branch.",
+            "Pull request identity or branch binding is invalid.",
+            'gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls"',
+            'gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}"',
+        ):
+            self.assertIn(value, workflow)
+        self.assertNotIn("actions/checkout", workflow)
+        self.assertNotIn("inputs.body", workflow)
+        self.assertNotIn("git clone", workflow)
+        self.assertNotIn("git fetch", workflow)
+        self.assertNotIn("git checkout", workflow)
+        self.assertNotIn("gh pr checkout", workflow)
+        self.assertNotIn("eval ", workflow)
+        self.assertNotIn("bash -c", workflow)
+        self.assertNotIn("sh -c", workflow)
+        self.assertNotIn(".github/scripts/", workflow)
+        self.assertNotIn("\n  pull_request:", workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertNotIn("\n  push:", workflow)
+        self.assertNotIn("\n  workflow_run:", workflow)
+        self.assertNotIn("permission-contents: write", workflow)
+        self.assertNotIn("permission-issues:", workflow)
+        self.assertNotIn("permission-checks:", workflow)
+        self.assertNotIn("permission-statuses:", workflow)
 
     def test_repository_module_migration_policy_fits_each_batch(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
