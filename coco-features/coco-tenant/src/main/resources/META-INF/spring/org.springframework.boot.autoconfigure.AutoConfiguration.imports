@@ -1,0 +1,2 @@
+io.github.coco.tenant.CocoTenantAutoConfiguration
+io.github.coco.tenant.sql.CocoTenantMybatisPlusAutoConfiguration

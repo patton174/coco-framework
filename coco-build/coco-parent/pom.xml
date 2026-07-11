@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.patton174</groupId>
+        <artifactId>coco-framework</artifactId>
+        <version>${revision}</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>coco-parent</artifactId>
+    <packaging>pom</packaging>
+    <name>Coco Parent</name>
+    <description>Recommended parent POM for Coco business applications.</description>
+
+    <properties>
+        <coco.version>${revision}</coco.version>
+        <coco.enforcer.skip>true</coco.enforcer.skip>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.patton174</groupId>
+                <artifactId>coco-dependencies</artifactId>
+                <version>${coco.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>io.github.patton174</groupId>
+                    <artifactId>coco-maven-plugin</artifactId>
+                    <version>${coco.version}</version>
+                    <configuration>
+                        <featureVersion>${coco.version}</featureVersion>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>spring-boot-repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>io.github.patton174</groupId>
+                <artifactId>coco-maven-plugin</artifactId>
+                <configuration>
+                    <featureVersion>${coco.version}</featureVersion>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>coco-feature-assembly</id>
+                        <goals>
+                            <goal>features</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>coco-package-prune</id>
+                        <goals>
+                            <goal>prune-package</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

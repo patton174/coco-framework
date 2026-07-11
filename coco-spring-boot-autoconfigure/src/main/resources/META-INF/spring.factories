@@ -1,6 +1,0 @@
-# Coco Spring Boot early startup integration
-org.springframework.boot.SpringApplicationRunListener=\
-io.github.coco.spring.boot.banner.CocoSpringApplicationRunListener
-
-org.springframework.boot.EnvironmentPostProcessor=\
-io.github.coco.spring.boot.logging.CocoLoggingEnvironmentPostProcessor

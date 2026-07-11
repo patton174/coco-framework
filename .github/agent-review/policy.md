@@ -22,22 +22,27 @@ encapsulate repeated infrastructure while leaving business code, domain design,
 generated CRUD source, custom queries, and transaction boundaries under the
 business application's control.
 
-- `coco-parent` owns the recommended build lifecycle, Spring Boot repackage,
-  feature assembly, and package pruning.
-- `coco-spring-boot-starter` composes normal dependencies. It must not become an
-  implementation module.
-- `coco-api-core` owns small, stable public contracts. Public API and SPI changes
-  require compatibility analysis and a real replacement point.
-- `coco-common-*` modules own reusable infrastructure and must not depend on
-  concrete feature modules.
-- `coco-config` binds `coco.*` configuration and computes the final runtime
-  feature plan.
-- `coco-feature-registry` owns standard feature metadata and dependency
-  resolution; `coco-feature-runtime` enforces resolved feature state at runtime.
-- Each `coco-feature-*` module owns its stated behavior. Feature implementation
-  must not be moved into the starter or an unrelated common module.
-- `coco-maven-plugin` owns generated feature manifests, enabled dependency
-  application, package pruning, and the explicit code-generation goal.
+- `coco-build/coco-parent` owns the recommended build lifecycle, Spring Boot
+  repackage, feature assembly, and package pruning;
+  `coco-build/coco-dependencies` owns dependency management.
+- `coco-build/coco-maven-plugin` owns generated feature manifests, enabled
+  dependency application, and package pruning. It does not own source
+  generation.
+- `coco-foundation/coco-api` owns small, stable public contracts. Public API and
+  SPI changes require compatibility analysis and a real replacement point.
+- The other `coco-foundation` artifacts own reusable, Spring-independent
+  infrastructure and must not depend on Spring integration or concrete
+  features. `coco-feature-model` owns standard feature metadata and dependency
+  resolution.
+- `coco-spring/coco-spring-boot-autoconfigure` binds `coco.*`, computes the final
+  runtime feature plan, and enforces resolved feature state.
+- `coco-spring/coco-spring-boot-starter` composes normal dependencies. It must
+  not become an implementation module.
+- Each `coco-features/coco-*` module owns its stated behavior. Feature
+  implementation must not be moved into the starter or an unrelated foundation
+  module.
+- `coco-support/coco-test-support` owns test support and must not become an
+  implicit production dependency.
 
 Build-time feature selection, runtime activation, generated manifests, and the
 contents of the packaged application must agree. Defaults should be useful and
@@ -48,6 +53,12 @@ Do not report the following accepted design choices as defects by themselves:
 ordinary Spring and Java code in business projects, explicit generated CRUD
 source owned by applications, the absence of runtime dynamic controllers, or
 the absence of a framework-mandated user, role, menu, or tenant domain model.
+
+Business products and source generation are separate ecosystem concerns.
+`coco-admin` is the ERP product built on the framework, and `coco-generate` is
+the development-time generator. Framework changes must not add runtime
+dependencies on either repository or recreate generator behavior inside the
+starter, auto-configuration, Maven plugin, or feature modules.
 
 ## Security And Isolation
 

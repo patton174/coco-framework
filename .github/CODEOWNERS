@@ -4,9 +4,10 @@
 /.github/agent-review/ @patton174
 /.github/readme/ @patton174
 /.github/requirements/ @patton174
-/.github/workflow-governance.md @patton174
+/docs/architecture/ @patton174
+/docs/engineering/ @patton174
 /.github/dependabot.yml @patton174
 /AGENTS.md @patton174
 /README.md @patton174
 /README_CN.md @patton174
-/docs/superpowers/specs/2026-07-11-agent-governance-automation.md @patton174
+/docs/archive/1.x/superpowers/specs/2026-07-11-agent-governance-automation.md @patton174

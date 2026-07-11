@@ -135,104 +135,41 @@
   "spec_path_mappings": [
     {
       "path_globs": [
-        ".github/agent-review/**",
-        ".github/workflows/*agent-review*.yml",
-        ".github/workflows/agent-review.yml",
-        ".github/workflows/agent-issue-gate.yml",
-        ".github/scripts/agent_review.py",
-        ".github/scripts/agent_issue_gate.py",
-        ".github/scripts/test_agent_review.py"
-      ],
-      "spec_paths": [
-        "docs/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
-      ]
-    },
-    {
-      "path_globs": [
-        ".github/agent-review/**",
-        ".github/workflows/*agent-review*.yml",
-        ".github/workflows/agent-review.yml",
-        ".github/workflows/agent-issue-gate.yml",
-        ".github/scripts/agent_review.py",
-        ".github/scripts/agent_issue_gate.py",
-        ".github/scripts/test_agent_review.py",
-        ".github/scripts/auto_merge.py",
-        ".github/scripts/test_auto_merge.py",
-        ".github/workflows/auto-merge.yml",
-        ".github/readme/**",
-        ".github/workflows/readme-maintenance.yml",
-        ".github/workflow-governance.md",
+        ".github/**",
+        "docs/engineering/automation-governance.md",
         "README.md",
         "README_CN.md"
       ],
       "spec_paths": [
-        "docs/superpowers/specs/2026-07-11-agent-governance-automation.md"
+        "docs/engineering/automation-governance.md"
+      ]
+    },
+    {
+      "path_globs": [
+        ".github/readme/**",
+        "README.md",
+        "README_CN.md"
+      ],
+      "spec_paths": [
+        "docs/architecture/framework-boundary.md",
+        "docs/architecture/module-layout.md"
       ]
     },
     {
       "path_globs": [
         "pom.xml",
-        "coco-parent/**",
-        "coco-bom/**",
-        "coco-api/**",
-        "coco-config/**",
-        "coco-spring-boot-autoconfigure/**",
-        "coco-spring-boot-starter/**",
-        "coco-features/coco-feature-registry/**",
-        "coco-features/coco-feature-runtime/**",
-        "coco-maven-plugin/**"
+        "coco-build/**",
+        "coco-foundation/**",
+        "coco-spring/**",
+        "coco-features/**",
+        "coco-support/**",
+        "docs/architecture/**",
+        "docs/engineering/release.md"
       ],
       "spec_paths": [
-        "docs/superpowers/specs/2026-07-04-coco-framework-skeleton-design.md",
-        "docs/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md"
-      ]
-    },
-    {
-      "path_globs": [
-        "coco-api/**",
-        "coco-common/coco-common-i18n/**",
-        "coco-config/**",
-        "coco-features/coco-feature-registry/**"
-      ],
-      "spec_paths": [
-        "docs/superpowers/specs/2026-07-04-coco-api-core-i18n-design.md",
-        "docs/superpowers/specs/2026-07-04-coco-common-i18n-design.md"
-      ]
-    },
-    {
-      "path_globs": [
-        "coco-features/coco-feature-web/**"
-      ],
-      "spec_paths": [
-        "docs/superpowers/specs/2026-07-05-coco-web-response-wrap-design.md",
-        "docs/superpowers/specs/2026-07-10-coco-jdbc-replay-store.md",
-        "docs/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md"
-      ]
-    },
-    {
-      "path_globs": [
-        "coco-features/coco-feature-audit/**"
-      ],
-      "spec_paths": [
-        "docs/superpowers/specs/2026-07-10-coco-default-audit-logging.md",
-        "docs/superpowers/specs/2026-07-10-coco-audit-feature-independence.md"
-      ]
-    },
-    {
-      "path_globs": [
-        "coco-common/coco-common-logging/**"
-      ],
-      "spec_paths": [
-        "docs/superpowers/specs/2026-07-10-coco-async-log-overflow-observability.md"
-      ]
-    },
-    {
-      "path_globs": [
-        "coco-features/coco-feature-codegen/**",
-        "coco-maven-plugin/**"
-      ],
-      "spec_paths": [
-        "docs/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
+        "docs/architecture/framework-boundary.md",
+        "docs/architecture/module-layout.md",
+        "docs/architecture/feature-lifecycle.md"
       ]
     }
   ]

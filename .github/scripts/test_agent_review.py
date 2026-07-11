@@ -185,10 +185,12 @@ class AgentReviewTests(unittest.TestCase):
             3, len([item for item in protocol["files"] if "prompts/" in item["path"]])
         )
 
-        jury_spec = "docs/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
-        governance_spec = (
-            "docs/superpowers/specs/2026-07-11-agent-governance-automation.md"
-        )
+        governance_spec = "docs/engineering/automation-governance.md"
+        architecture_specs = {
+            "docs/architecture/framework-boundary.md",
+            "docs/architecture/module-layout.md",
+            "docs/architecture/feature-lifecycle.md",
+        }
 
         def mapped_specs(path: str) -> set[str]:
             return {
@@ -206,24 +208,29 @@ class AgentReviewTests(unittest.TestCase):
             ".github/scripts/agent_issue_gate.py",
             ".github/workflows/agent-review.yml",
             ".github/workflows/agent-issue-gate.yml",
-        ):
-            with self.subTest(path=path):
-                self.assertEqual(
-                    {jury_spec, governance_spec} & mapped_specs(path),
-                    {jury_spec, governance_spec},
-                )
-        for path in (
             ".github/scripts/auto_merge.py",
             ".github/workflows/auto-merge.yml",
             ".github/readme/fragments/en/overview.md",
             ".github/workflows/readme-maintenance.yml",
-            ".github/workflow-governance.md",
+            "docs/engineering/automation-governance.md",
             "README.md",
             "README_CN.md",
         ):
             with self.subTest(path=path):
                 self.assertIn(governance_spec, mapped_specs(path))
+        for path in (
+            "pom.xml",
+            "coco-build/coco-parent/pom.xml",
+            "coco-foundation/coco-api/pom.xml",
+            "coco-spring/coco-spring-boot-autoconfigure/pom.xml",
+            "coco-features/coco-web/pom.xml",
+            "coco-support/coco-test-support/pom.xml",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(architecture_specs, mapped_specs(path))
         serialized_mappings = json.dumps(value["spec_path_mappings"])
+        self.assertNotIn("docs/superpowers", serialized_mappings)
+        self.assertNotIn("coco-feature-codegen", serialized_mappings)
         self.assertNotIn("update-readme-insights.yml", serialized_mappings)
         self.assertNotIn(".github/README.md", serialized_mappings)
 
@@ -1629,7 +1636,11 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("shellcheck --version", static_analysis)
         self.assertIn("-shellcheck=shellcheck", static_analysis)
         self.assertFalse((github_root / "README.md").exists())
-        self.assertTrue((github_root / "workflow-governance.md").exists())
+        repository_root = github_root.parent
+        self.assertFalse((github_root / "workflow-governance.md").exists())
+        self.assertTrue(
+            (repository_root / "docs/engineering/automation-governance.md").exists()
+        )
         for legacy_name in (
             "_test.yml",
             "_static-analysis.yml",

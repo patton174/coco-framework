@@ -1,0 +1,6 @@
+io.github.coco.spring.boot.autoconfigure.i18n.CocoI18nAutoConfiguration
+io.github.coco.spring.boot.autoconfigure.logging.CocoLoggingAutoConfiguration
+io.github.coco.spring.boot.autoconfigure.feature.CocoFeatureModelAutoConfiguration
+io.github.coco.spring.boot.autoconfigure.feature.CocoFeaturePlanAutoConfiguration
+io.github.coco.spring.boot.autoconfigure.feature.CocoFeatureRuntimeAutoConfiguration
+io.github.coco.spring.boot.CocoAutoConfiguration

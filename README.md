@@ -32,7 +32,7 @@
   ·
   <a href="#extension-boundaries">Extension Boundaries</a>
   ·
-  <a href="#samples">Samples</a>
+  <a href="#repository-architecture">Architecture</a>
   ·
   <a href="#star-history">Stars</a>
   ·
@@ -116,29 +116,7 @@ class OrderController {
 }
 ```
 
-## Explicit CRUD Source Generation
-
-When a project needs standard CRUD scaffolding, add `coco-codegen.yml` at its root:
-
-```yaml
-base-package: com.example.catalog
-resources:
-  - name: Product
-    table: catalog_product
-    api-path: /products
-    id: { name: id, column: id, type: Long, strategy: AUTO }
-    fields:
-      - { name: sku, column: sku, type: String, required: true }
-      - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
-```
-
-Run the opt-in goal:
-
-```powershell
-mvn coco:generate
-```
-
-The generator writes to `src/main/java` by default and refuses to overwrite existing files. It produces ordinary Controller, DTO, application-service, domain-repository, and MyBatis-Plus infrastructure source owned by the business project. The goal is not bound to the build lifecycle and never exposes entities automatically at runtime.
+Source scaffolding is a development-time ecosystem concern. Use [coco-generate](https://github.com/patton174/coco-generate) when a project needs generated application source; the Framework starter and Maven plugin do not ship a generator or expose entities as runtime CRUD APIs.
 
 ## Production SQL Guard
 
@@ -227,7 +205,7 @@ The callback receives only the level, log handle name, and cumulative count; mes
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
       <strong>Feature Control</strong><br/>
-      Parent POM, BOM, one starter, declarative feature selection, dependency-aware feature plans, and runtime feature conditions.
+      Parent POM, <code>coco-dependencies</code> BOM, one starter, declarative feature selection, dependency-aware feature plans, and runtime feature conditions.
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
@@ -235,9 +213,9 @@ The callback receives only the level, log handle name, and cumulative count; mes
       Structured audit logging by default, plus formatter and recorder SPI, publisher, failure policy, and access-log adaptation.
     </td>
     <td width="33%">
-      <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
-      <strong>Explicit Source Generation</strong><br/>
-      Replaceable templates, built-in CRUD source scaffolding, and safe writes. Hidden runtime CRUD controllers remain out of scope.
+      <p><img src="https://img.shields.io/badge/Build-Manifest%20%26%20Pruning-475569?style=flat-square" alt="Build Integrity"/></p>
+      <strong>Build Integrity</strong><br/>
+      One feature model drives dependency composition, the packaged manifest, runtime conditions, and pruning of disabled artifacts.
     </td>
   </tr>
 </table>
@@ -271,7 +249,7 @@ The callback receives only the level, log handle name, and cumulative count; mes
   </tbody>
 </table>
 
-CRUD belongs to code generation, not runtime entity exposure. Generated code should be readable Java source that the business project can keep, edit, delete, or replace.
+Coco never exposes entities as runtime CRUD APIs. Application source remains owned by the business project; teams that need development-time scaffolding use the separate [coco-generate](https://github.com/patton174/coco-generate) project.
 
 ## Extension Boundaries
 
@@ -305,36 +283,53 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
       <td>Document renderer, UI integration, and endpoint-specific documentation strategy.</td>
     </tr>
     <tr>
-      <td>Codegen</td>
-      <td>Generator SPI, built-in CRUD templates, an explicit Maven goal, overwrite protection, and custom template locations.</td>
-      <td>Project-specific templates, business rules, and ongoing ownership of generated CRUD source.</td>
+      <td>Source generation</td>
+      <td>Outside the Framework runtime and Maven plugin; <a href="https://github.com/patton174/coco-generate">coco-generate</a> owns generator APIs and templates.</td>
+      <td>Project-specific templates, business rules, review, and ongoing ownership of generated source.</td>
     </tr>
   </tbody>
 </table>
 
-## Samples
+## Repository Architecture
 
 <table>
   <thead>
     <tr>
-      <th width="24%">Sample</th>
-      <th width="46%">What It Proves</th>
-      <th width="30%">Entry</th>
+      <th width="20%">Outer Directory</th>
+      <th width="47%">Published Artifacts</th>
+      <th width="33%">Responsibility</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td><strong>Basic</strong></td>
-      <td>Web responses, exceptions, i18n, trace, signatures, encryption, and replay protection without a database.</td>
-      <td><a href="./coco-samples/coco-sample-basic/README.md">Open sample</a></td>
+      <td><code>coco-build</code></td>
+      <td><code>coco-dependencies</code>, <code>coco-parent</code>, <code>coco-maven-plugin</code></td>
+      <td>Dependency management and application build lifecycle.</td>
     </tr>
     <tr>
-      <td><strong>Full</strong></td>
-      <td>H2 + MyBatis-Plus with security assertions, tenant SQL isolation, data-permission SQL filtering, and audit publication.</td>
-      <td><a href="./coco-samples/coco-sample-full/README.md">Open sample</a></td>
+      <td><code>coco-foundation</code></td>
+      <td><code>coco-api</code>, <code>coco-context</code>, <code>coco-i18n</code>, <code>coco-exception</code>, <code>coco-logging</code>, <code>coco-feature-model</code></td>
+      <td>Stable contracts and reusable infrastructure without auto-configuration or concrete feature ownership.</td>
+    </tr>
+    <tr>
+      <td><code>coco-spring</code></td>
+      <td><code>coco-spring-boot-autoconfigure</code>, <code>coco-spring-boot-starter</code></td>
+      <td>Spring Boot integration and the single application entry point.</td>
+    </tr>
+    <tr>
+      <td><code>coco-features</code></td>
+      <td><code>coco-web</code>, <code>coco-security</code>, <code>coco-audit</code>, <code>coco-mybatis-plus</code>, <code>coco-tenant</code>, <code>coco-data-permission</code>, <code>coco-openapi</code></td>
+      <td>Concrete, independently controlled server capabilities.</td>
+    </tr>
+    <tr>
+      <td><code>coco-support</code></td>
+      <td><code>coco-test-support</code></td>
+      <td>Test support without production runtime ownership.</td>
     </tr>
   </tbody>
 </table>
+
+See [framework boundaries](./docs/architecture/framework-boundary.md), the [complete module layout](./docs/architecture/module-layout.md), and the [feature lifecycle](./docs/architecture/feature-lifecycle.md).
 
 ## Runtime Shape
 
@@ -342,14 +337,14 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
 flowchart LR
     app["Business Application"] --> parent["coco-parent"]
     app --> starter["coco-spring-boot-starter"]
-    starter --> config["coco-config"]
-    config --> runtime["coco-feature-runtime"]
-    runtime --> web["Web Runtime"]
-    runtime --> security["Security Foundation"]
-    runtime --> data["Data Integration"]
-    web --> business["Normal Spring Business Code"]
-    security --> business
-    data --> business
+    parent -. "build lifecycle" .-> plugin["coco-maven-plugin"]
+    plugin --> manifest["META-INF/coco/features.json"]
+    starter --> autoconfigure["coco-spring-boot-autoconfigure"]
+    starter --> features["coco-features"]
+    autoconfigure --> model["coco-feature-model"]
+    manifest --> autoconfigure
+    autoconfigure --> foundation["coco-foundation"]
+    features --> foundation
 ```
 
 ## Coco Ecosystem

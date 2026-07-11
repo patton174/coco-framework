@@ -32,7 +32,7 @@
   ·
   <a href="#扩展边界">扩展边界</a>
   ·
-  <a href="#示例">示例</a>
+  <a href="#仓库架构">仓库架构</a>
   ·
   <a href="#星标历史">星星趋势</a>
   ·
@@ -116,29 +116,7 @@ class OrderController {
 }
 ```
 
-## 显式 CRUD 源码生成
-
-需要标准 CRUD 脚手架时，在业务项目根目录创建 `coco-codegen.yml`：
-
-```yaml
-base-package: com.example.catalog
-resources:
-  - name: Product
-    table: catalog_product
-    api-path: /products
-    id: { name: id, column: id, type: Long, strategy: AUTO }
-    fields:
-      - { name: sku, column: sku, type: String, required: true }
-      - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
-```
-
-然后显式运行：
-
-```powershell
-mvn coco:generate
-```
-
-生成器默认写入 `src/main/java`，并拒绝覆盖已有文件。它会生成普通的 Controller、DTO、应用服务、领域仓储契约和 MyBatis-Plus 基础设施源码；生成后由业务项目继续维护。该 goal 不绑定构建生命周期，也不会在运行时自动暴露实体。
+源码脚手架属于开发期生态能力。项目需要生成应用源码时使用 [coco-generate](https://github.com/patton174/coco-generate)；Framework 的 starter 和 Maven plugin 不内置生成器，也不会在运行时根据实体自动暴露 CRUD API。
 
 ## 生产 SQL 防护
 
@@ -227,7 +205,7 @@ CocoAsyncLogDropListener cocoAsyncLogDropListener(MeterRegistry registry) {
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
       <strong>功能控制</strong><br/>
-      父 POM、BOM、单 starter、声明式功能选择、依赖感知的功能计划和运行时功能条件。
+      父 POM、<code>coco-dependencies</code> BOM、单 starter、声明式功能选择、依赖感知的功能计划和运行时功能条件。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
@@ -235,9 +213,9 @@ CocoAsyncLogDropListener cocoAsyncLogDropListener(MeterRegistry registry) {
       默认结构化审计日志，以及格式化器和记录器 SPI、发布器、失败策略和访问日志适配器。
     </td>
     <td width="33%">
-      <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
-      <strong>显式源码生成</strong><br/>
-      可替换模板生成器、内置 CRUD 源码模板和安全写入；隐藏式运行时 CRUD Controller 明确不在范围内。
+      <p><img src="https://img.shields.io/badge/Build-Manifest%20%26%20Pruning-475569?style=flat-square" alt="Build Integrity"/></p>
+      <strong>构建一致性</strong><br/>
+      同一份 feature 模型驱动依赖组合、打包清单、运行时条件和禁用制品裁剪。
     </td>
   </tr>
 </table>
@@ -271,7 +249,7 @@ CocoAsyncLogDropListener cocoAsyncLogDropListener(MeterRegistry registry) {
   </tbody>
 </table>
 
-CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码应当是可读的 Java 源码，业务项目可以保留、修改、删除或替换。
+Coco 不会在运行时根据实体自动暴露 CRUD API。应用源码始终归业务项目所有；需要开发期脚手架的团队使用独立的 [coco-generate](https://github.com/patton174/coco-generate) 项目。
 
 ## 扩展边界
 
@@ -305,36 +283,53 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
       <td>文档渲染、UI 集成和接口级文档策略。</td>
     </tr>
     <tr>
-      <td>Codegen</td>
-      <td>生成器 SPI、内置 CRUD 模板、显式 Maven goal、覆盖保护和自定义模板位置。</td>
-      <td>项目专属模板、业务规则，以及生成后的 CRUD 源码维护。</td>
+      <td>源码生成</td>
+      <td>不属于 Framework 运行时或 Maven plugin；生成器 API 和模板由 <a href="https://github.com/patton174/coco-generate">coco-generate</a> 维护。</td>
+      <td>项目专属模板、业务规则、代码审阅，以及生成后源码的持续维护。</td>
     </tr>
   </tbody>
 </table>
 
-## 示例
+## 仓库架构
 
 <table>
   <thead>
     <tr>
-      <th width="24%">示例</th>
-      <th width="46%">验证范围</th>
-      <th width="30%">入口</th>
+      <th width="20%">外层目录</th>
+      <th width="47%">发布制品</th>
+      <th width="33%">职责</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td><strong>Basic</strong></td>
-      <td>无数据库场景下的统一响应、异常、i18n、Trace、签名、加密和防重放。</td>
-      <td><a href="./coco-samples/coco-sample-basic/README.md">查看示例</a></td>
+      <td><code>coco-build</code></td>
+      <td><code>coco-dependencies</code>、<code>coco-parent</code>、<code>coco-maven-plugin</code></td>
+      <td>依赖管理和应用构建生命周期。</td>
     </tr>
     <tr>
-      <td><strong>Full</strong></td>
-      <td>H2 + MyBatis-Plus，以及安全断言、租户 SQL 隔离、数据权限 SQL 过滤和审计发布。</td>
-      <td><a href="./coco-samples/coco-sample-full/README.md">查看示例</a></td>
+      <td><code>coco-foundation</code></td>
+      <td><code>coco-api</code>、<code>coco-context</code>、<code>coco-i18n</code>、<code>coco-exception</code>、<code>coco-logging</code>、<code>coco-feature-model</code></td>
+      <td>稳定契约，以及不承载自动配置和具体 Feature 实现的通用基础设施。</td>
+    </tr>
+    <tr>
+      <td><code>coco-spring</code></td>
+      <td><code>coco-spring-boot-autoconfigure</code>、<code>coco-spring-boot-starter</code></td>
+      <td>Spring Boot 集成和单一应用入口。</td>
+    </tr>
+    <tr>
+      <td><code>coco-features</code></td>
+      <td><code>coco-web</code>、<code>coco-security</code>、<code>coco-audit</code>、<code>coco-mybatis-plus</code>、<code>coco-tenant</code>、<code>coco-data-permission</code>、<code>coco-openapi</code></td>
+      <td>可独立控制的具体服务器能力。</td>
+    </tr>
+    <tr>
+      <td><code>coco-support</code></td>
+      <td><code>coco-test-support</code></td>
+      <td>不承担生产运行时职责的测试支持。</td>
     </tr>
   </tbody>
 </table>
+
+进一步阅读：[框架边界](./docs/architecture/framework-boundary.md)、[完整模块布局](./docs/architecture/module-layout.md)和 [Feature 生命周期](./docs/architecture/feature-lifecycle.md)。
 
 ## 运行形态
 
@@ -342,14 +337,14 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
 flowchart LR
     app["业务应用"] --> parent["coco-parent"]
     app --> starter["coco-spring-boot-starter"]
-    starter --> config["coco-config"]
-    config --> runtime["coco-feature-runtime"]
-    runtime --> web["Web 运行时"]
-    runtime --> security["安全基础"]
-    runtime --> data["数据集成"]
-    web --> business["普通 Spring 业务代码"]
-    security --> business
-    data --> business
+    parent -. "构建生命周期" .-> plugin["coco-maven-plugin"]
+    plugin --> manifest["META-INF/coco/features.json"]
+    starter --> autoconfigure["coco-spring-boot-autoconfigure"]
+    starter --> features["coco-features"]
+    autoconfigure --> model["coco-feature-model"]
+    manifest --> autoconfigure
+    autoconfigure --> foundation["coco-foundation"]
+    features --> foundation
 ```
 
 ## Coco 生态

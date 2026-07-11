@@ -1,0 +1,84 @@
+{
+  "properties": [
+    {
+      "name": "coco.audit.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco audit infrastructure is enabled.",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.audit.failure-policy",
+      "type": "io.github.coco.audit.core.CocoAuditFailurePolicy",
+      "description": "How Coco handles a recorder failure while publishing an audit event.",
+      "defaultValue": "ignore"
+    },
+    {
+      "name": "coco.audit.logging.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco writes audit events through the default logging recorder.",
+      "defaultValue": true
+    },
+    {
+      "name": "coco.audit.logging.logger-name",
+      "type": "java.lang.String",
+      "description": "SLF4J logger name used by the default Coco audit logging recorder.",
+      "defaultValue": "io.github.coco.audit"
+    },
+    {
+      "name": "coco.audit.logging.level",
+      "type": "io.github.coco.logging.CocoLogLevel",
+      "description": "Log level used by the default Coco audit logging recorder.",
+      "defaultValue": "info"
+    },
+    {
+      "name": "coco.audit.access-log.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco converts access log events to audit events.",
+      "defaultValue": true
+    }
+  ],
+  "hints": [
+    {
+      "name": "coco.audit.failure-policy",
+      "values": [
+        {
+          "value": "ignore",
+          "description": "Ignore the failed recorder and continue publishing to remaining recorders."
+        },
+        {
+          "value": "throw",
+          "description": "Throw the recorder failure immediately."
+        }
+      ]
+    },
+    {
+      "name": "coco.audit.logging.level",
+      "values": [
+        {
+          "value": "off",
+          "description": "Disable output from the default Coco audit logging recorder."
+        },
+        {
+          "value": "error",
+          "description": "Write default Coco audit records at ERROR level."
+        },
+        {
+          "value": "warn",
+          "description": "Write default Coco audit records at WARN level."
+        },
+        {
+          "value": "info",
+          "description": "Write default Coco audit records at INFO level."
+        },
+        {
+          "value": "debug",
+          "description": "Write default Coco audit records at DEBUG level."
+        },
+        {
+          "value": "trace",
+          "description": "Write default Coco audit records at TRACE level."
+        }
+      ]
+    }
+  ]
+}

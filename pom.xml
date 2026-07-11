@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>Coco Framework</name>
-    <description>Spring Boot based framework skeleton for rapid web application development.</description>
+    <description>High-convention Spring Boot framework for rapidly building production-ready web services.</description>
     <url>https://github.com/patton174/coco-framework</url>
 
     <licenses>
@@ -37,20 +37,29 @@
     </scm>
 
     <modules>
-        <module>coco-parent</module>
-        <module>coco-bom</module>
-        <module>coco-api</module>
-        <module>coco-common</module>
-        <module>coco-config</module>
-        <module>coco-spring-boot-autoconfigure</module>
-        <module>coco-spring-boot-starter</module>
-        <module>coco-features</module>
-        <module>coco-maven-plugin</module>
-        <module>coco-test</module>
+        <module>coco-build/coco-dependencies</module>
+        <module>coco-build/coco-parent</module>
+        <module>coco-foundation/coco-api</module>
+        <module>coco-foundation/coco-context</module>
+        <module>coco-foundation/coco-i18n</module>
+        <module>coco-foundation/coco-exception</module>
+        <module>coco-foundation/coco-logging</module>
+        <module>coco-foundation/coco-feature-model</module>
+        <module>coco-spring/coco-spring-boot-autoconfigure</module>
+        <module>coco-features/coco-web</module>
+        <module>coco-features/coco-security</module>
+        <module>coco-features/coco-audit</module>
+        <module>coco-features/coco-mybatis-plus</module>
+        <module>coco-features/coco-tenant</module>
+        <module>coco-features/coco-data-permission</module>
+        <module>coco-features/coco-openapi</module>
+        <module>coco-spring/coco-spring-boot-starter</module>
+        <module>coco-build/coco-maven-plugin</module>
+        <module>coco-support/coco-test-support</module>
     </modules>
 
     <properties>
-        <revision>1.0.0-SNAPSHOT</revision>
+        <revision>2.0.0-SNAPSHOT</revision>
         <java.version>17</java.version>
         <spring-boot.version>4.1.0</spring-boot.version>
         <mybatis-plus.version>3.5.16</mybatis-plus.version>
@@ -88,82 +97,67 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-api-core</artifactId>
+                <artifactId>coco-api</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-context</artifactId>
+                <artifactId>coco-context</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-exception</artifactId>
+                <artifactId>coco-exception</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-i18n</artifactId>
+                <artifactId>coco-i18n</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-logging</artifactId>
+                <artifactId>coco-logging</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-runtime</artifactId>
+                <artifactId>coco-feature-model</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-config</artifactId>
+                <artifactId>coco-web</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-registry</artifactId>
+                <artifactId>coco-mybatis-plus</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-web</artifactId>
+                <artifactId>coco-audit</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-mybatis-plus</artifactId>
+                <artifactId>coco-security</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-audit</artifactId>
+                <artifactId>coco-tenant</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-security</artifactId>
+                <artifactId>coco-data-permission</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-tenant</artifactId>
-                <version>${revision}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-data-permission</artifactId>
-                <version>${revision}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-openapi</artifactId>
-                <version>${revision}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-codegen</artifactId>
+                <artifactId>coco-openapi</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -178,7 +172,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-test</artifactId>
+                <artifactId>coco-test-support</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -425,7 +419,7 @@
                                 <configuration>
                                     <rules>
                                         <requireReleaseVersion>
-                                            <message>Release profile requires a non-SNAPSHOT revision, for example -Drevision=1.0.0.</message>
+                                            <message>Release profile requires a non-SNAPSHOT revision, for example -Drevision=2.0.0.</message>
                                         </requireReleaseVersion>
                                     </rules>
                                 </configuration>

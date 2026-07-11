@@ -63,26 +63,4 @@ class OrderController {
 }
 ```
 
-## 显式 CRUD 源码生成
-
-需要标准 CRUD 脚手架时，在业务项目根目录创建 `coco-codegen.yml`：
-
-```yaml
-base-package: com.example.catalog
-resources:
-  - name: Product
-    table: catalog_product
-    api-path: /products
-    id: { name: id, column: id, type: Long, strategy: AUTO }
-    fields:
-      - { name: sku, column: sku, type: String, required: true }
-      - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
-```
-
-然后显式运行：
-
-```powershell
-mvn coco:generate
-```
-
-生成器默认写入 `src/main/java`，并拒绝覆盖已有文件。它会生成普通的 Controller、DTO、应用服务、领域仓储契约和 MyBatis-Plus 基础设施源码；生成后由业务项目继续维护。该 goal 不绑定构建生命周期，也不会在运行时自动暴露实体。
+源码脚手架属于开发期生态能力。项目需要生成应用源码时使用 [coco-generate](https://github.com/patton174/coco-generate)；Framework 的 starter 和 Maven plugin 不内置生成器，也不会在运行时根据实体自动暴露 CRUD API。

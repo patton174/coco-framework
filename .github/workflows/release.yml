@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Reuse the release-critical cross-platform build and sample verification as
+  # Reuse the release-critical cross-platform build and starter integration as
   # a hard prerequisite. Static analysis and CodeQL remain merge-time CI gates.
   test:
     name: Test

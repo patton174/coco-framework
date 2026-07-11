@@ -18,27 +18,23 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 ## Ecosystem Boundaries
 
 - `coco-framework` is the independent Web server foundation. It must not depend on `coco-admin` or `coco-generate`.
-- `coco-admin` is an ERP product built on the framework. ERP domains, authentication choices, organization and permission models, workflows, reports, and transactions belong there.
-- `coco-generate` is a development-time source generator and template platform. Generated source may target Coco applications, but business applications must not require the generator at runtime.
+- [`coco-admin`](https://github.com/patton174/coco-admin) is an ERP product built on the framework. ERP domains, authentication choices, organization and permission models, workflows, reports, and transactions belong there.
+- [`coco-generate`](https://github.com/patton174/coco-generate) is a development-time source generator and template platform. Generated source may target Coco applications, but business applications must not require the generator at runtime.
 - `coco-admin` may use `coco-generate` during development; generated files are then reviewed, committed, and owned by the Admin repository.
-- Existing public Codegen APIs and the `coco:generate` goal remain supported until a separately reviewed compatibility migration moves implementation ownership. Do not remove or duplicate them without a versioned migration path.
+- `coco-framework` does not own business sample applications or source-generation runtime behavior. Product usage belongs in `coco-admin`; generator APIs, templates, and commands belong in `coco-generate`.
 
 ## Current Architecture
 
-- `coco-parent` is the recommended parent POM for business applications. It imports the BOM, runs Spring Boot repackage, runs `coco:features`, and runs `coco:prune-package`.
-- `coco-spring-boot-starter` is the single normal starter dependency for applications. It brings common infrastructure and standard feature modules.
-- `coco-api-core` contains stable public contracts such as `CocoConfigurer`, `CocoFeature`, `CocoFeatureRegistry`, and `@CocoFeatures`.
-- `coco-common-*` modules contain reusable infrastructure: context, exception contracts, i18n, and logging.
-- `coco-config` binds `coco.*` configuration and computes the final runtime feature plan.
-- `coco-feature-registry` owns standard feature metadata, dependencies, manifest model, and feature resolution.
-- `coco-feature-runtime` filters auto-configuration by feature state.
-- `coco-feature-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
-- `coco-feature-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
-- `coco-feature-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
-- `coco-feature-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
-- `coco-feature-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
-- `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe generated-file writing; `coco-maven-plugin` exposes this through the opt-in `coco:generate` goal.
-- `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
+- `coco-build` groups `coco-dependencies`, `coco-parent`, and `coco-maven-plugin`. The parent imports the dependency BOM and runs Spring Boot repackage, `coco:features`, and `coco:prune-package`.
+- `coco-foundation` groups stable contracts and reusable infrastructure: `coco-api`, `coco-context`, `coco-i18n`, `coco-exception`, `coco-logging`, and `coco-feature-model`. It owns no Spring Boot auto-configuration or concrete feature behavior.
+- `coco-api` contains public contracts such as `CocoConfigurer`, `CocoFeature`, `CocoFeatureRegistry`, and `@CocoFeatures`; `coco-feature-model` owns standard feature metadata, dependencies, manifests, and resolution.
+- `coco-spring` groups Spring Boot integration. `coco-spring-boot-autoconfigure` binds `coco.*`, computes the runtime feature plan, and filters auto-configuration; `coco-spring-boot-starter` is the single normal application dependency.
+- `coco-features` groups concrete feature artifacts: `coco-web`, `coco-security`, `coco-audit`, `coco-mybatis-plus`, `coco-tenant`, `coco-data-permission`, and `coco-openapi`.
+- `coco-web` owns Servlet Web integration: response wrapping, exception responses, trace, request context, access logging, signatures, encryption, process-local replay protection, and the explicitly selected JDBC replay-store reference implementation.
+- `coco-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration; `coco-tenant` and `coco-data-permission` own their contexts and SQL isolation rules.
+- `coco-security` owns the framework-neutral security context boundary; `coco-audit` owns the audit event pipeline; `coco-openapi` adapts Coco metadata to SpringDoc when present.
+- `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages. It does not provide source generation.
+- `coco-support` contains `coco-test-support`; support modules are not a production runtime layer.
 
 ## Development Rules
 
@@ -50,7 +46,7 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - Preserve business-facing simplicity: one starter, declarative configuration, clear override points.
 - Prefer generated source code for business CRUD over runtime dynamic controllers.
 - Avoid adding feature behavior to `coco-spring-boot-starter`; starters should compose capabilities, not own behavior.
-- Do not make common modules depend on concrete feature modules.
+- Do not make foundation modules depend on Coco's `coco-spring` integration layer or concrete feature modules. Narrow framework API usage required by i18n and logging is allowed, but Spring Boot auto-configuration belongs in `coco-spring-boot-autoconfigure`.
 - Use standard JavaDoc HTML tags for public classes. Existing project docs and JavaDoc use Chinese descriptions; continue that style where appropriate.
 - Keep message text in module message bundles instead of hard-coding user-visible text.
 - Do not introduce unrelated refactors, formatting churn, or generated build artifacts into commits.
@@ -82,18 +78,16 @@ Focused module verification:
 mvn -pl :module-artifact-id -am test
 ```
 
-Sample verification:
+Starter integration verification:
 
 ```powershell
-mvn -B install
-mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
-python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
+mvn -B -ntp -pl :coco-spring-boot-starter -am verify
 ```
 
 Release profile smoke check without local GPG:
 
 ```powershell
-mvn -B -Prelease -Drevision=1.0.0 -Dgpg.skip=true -DskipTests verify
+mvn -B -Prelease "-Drevision=1.0.0" "-Dgpg.skip=true" -DskipTests verify
 ```
 
 ## Git Workflow

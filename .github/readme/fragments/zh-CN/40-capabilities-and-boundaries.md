@@ -22,7 +22,7 @@
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
       <strong>功能控制</strong><br/>
-      父 POM、BOM、单 starter、声明式功能选择、依赖感知的功能计划和运行时功能条件。
+      父 POM、<code>coco-dependencies</code> BOM、单 starter、声明式功能选择、依赖感知的功能计划和运行时功能条件。
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
@@ -30,9 +30,9 @@
       默认结构化审计日志，以及格式化器和记录器 SPI、发布器、失败策略和访问日志适配器。
     </td>
     <td width="33%">
-      <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
-      <strong>显式源码生成</strong><br/>
-      可替换模板生成器、内置 CRUD 源码模板和安全写入；隐藏式运行时 CRUD Controller 明确不在范围内。
+      <p><img src="https://img.shields.io/badge/Build-Manifest%20%26%20Pruning-475569?style=flat-square" alt="Build Integrity"/></p>
+      <strong>构建一致性</strong><br/>
+      同一份 feature 模型驱动依赖组合、打包清单、运行时条件和禁用制品裁剪。
     </td>
   </tr>
 </table>
@@ -66,7 +66,7 @@
   </tbody>
 </table>
 
-CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码应当是可读的 Java 源码，业务项目可以保留、修改、删除或替换。
+Coco 不会在运行时根据实体自动暴露 CRUD API。应用源码始终归业务项目所有；需要开发期脚手架的团队使用独立的 [coco-generate](https://github.com/patton174/coco-generate) 项目。
 
 ## 扩展边界
 
@@ -100,9 +100,9 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
       <td>文档渲染、UI 集成和接口级文档策略。</td>
     </tr>
     <tr>
-      <td>Codegen</td>
-      <td>生成器 SPI、内置 CRUD 模板、显式 Maven goal、覆盖保护和自定义模板位置。</td>
-      <td>项目专属模板、业务规则，以及生成后的 CRUD 源码维护。</td>
+      <td>源码生成</td>
+      <td>不属于 Framework 运行时或 Maven plugin；生成器 API 和模板由 <a href="https://github.com/patton174/coco-generate">coco-generate</a> 维护。</td>
+      <td>项目专属模板、业务规则、代码审阅，以及生成后源码的持续维护。</td>
     </tr>
   </tbody>
 </table>

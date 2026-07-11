@@ -1,0 +1,107 @@
+{
+  "groups": [
+    {
+      "name": "coco.data-permission",
+      "type": "io.github.coco.datapermission.CocoDataPermissionProperties",
+      "sourceType": "io.github.coco.datapermission.CocoDataPermissionProperties"
+    },
+    {
+      "name": "coco.data-permission.sql",
+      "type": "io.github.coco.datapermission.sql.CocoDataPermissionSqlProperties",
+      "sourceType": "io.github.coco.datapermission.CocoDataPermissionProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "coco.data-permission.sql.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "io.github.coco.datapermission.sql.CocoDataPermissionSqlProperties",
+      "defaultValue": false,
+      "description": "Coco 数据权限是否启用 SQL 拦截接入。"
+    },
+    {
+      "name": "coco.data-permission.sql.missing-context-policy",
+      "type": "io.github.coco.datapermission.sql.CocoDataPermissionMissingContextPolicy",
+      "sourceType": "io.github.coco.datapermission.sql.CocoDataPermissionSqlProperties",
+      "defaultValue": "throw",
+      "description": "Coco 数据权限 SQL 拦截在缺少当前数据权限上下文时的处理策略。"
+    },
+    {
+      "name": "coco.data-permission.sql.missing-rule-policy",
+      "type": "io.github.coco.datapermission.sql.CocoDataPermissionMissingRulePolicy",
+      "sourceType": "io.github.coco.datapermission.sql.CocoDataPermissionSqlProperties",
+      "defaultValue": "deny",
+      "description": "Coco 数据权限 SQL 拦截在业务资源已匹配但缺少权限规则时的处理策略。"
+    },
+    {
+      "name": "coco.data-permission.sql.resources",
+      "type": "java.util.Map<java.lang.String,io.github.coco.datapermission.sql.CocoDataPermissionSqlResourceProperties>",
+      "sourceType": "io.github.coco.datapermission.sql.CocoDataPermissionSqlProperties",
+      "description": "Coco 数据权限业务资源到 SQL 表和权限列的映射。"
+    },
+    {
+      "name": "coco.data-permission.sql.resources.*.tables",
+      "type": "java.util.List<java.lang.String>",
+      "sourceType": "io.github.coco.datapermission.sql.CocoDataPermissionSqlResourceProperties",
+      "description": "Coco 数据权限业务资源关联的数据表名称集合。"
+    },
+    {
+      "name": "coco.data-permission.sql.resources.*.column",
+      "type": "java.lang.String",
+      "sourceType": "io.github.coco.datapermission.sql.CocoDataPermissionSqlResourceProperties",
+      "description": "Coco 数据权限默认谓词生成器使用的数据范围列名。"
+    },
+    {
+      "name": "coco.data-permission.sql.resources.*.column-type",
+      "type": "io.github.coco.datapermission.sql.CocoDataPermissionSqlColumnType",
+      "sourceType": "io.github.coco.datapermission.sql.CocoDataPermissionSqlResourceProperties",
+      "defaultValue": "string",
+      "description": "Coco 数据权限默认谓词生成器使用的数据范围列值类型。"
+    }
+  ],
+  "hints": [
+    {
+      "name": "coco.data-permission.sql.missing-context-policy",
+      "values": [
+        {
+          "value": "throw",
+          "description": "缺少数据权限上下文时抛出框架异常。"
+        },
+        {
+          "value": "deny",
+          "description": "缺少数据权限上下文时追加永假 SQL 条件。"
+        },
+        {
+          "value": "ignore",
+          "description": "缺少数据权限上下文时不追加 SQL 条件。"
+        }
+      ]
+    },
+    {
+      "name": "coco.data-permission.sql.missing-rule-policy",
+      "values": [
+        {
+          "value": "deny",
+          "description": "缺少业务资源权限规则时追加永假 SQL 条件。"
+        },
+        {
+          "value": "ignore",
+          "description": "缺少业务资源权限规则时不追加 SQL 条件。"
+        }
+      ]
+    },
+    {
+      "name": "coco.data-permission.sql.resources.*.column-type",
+      "values": [
+        {
+          "value": "string",
+          "description": "权限值生成字符串字面量，适用于 VARCHAR 等文本列。"
+        },
+        {
+          "value": "long",
+          "description": "权限值生成长整数字面量，适用于 BIGINT、INT 等整数列。"
+        }
+      ]
+    }
+  ]
+}

@@ -63,26 +63,4 @@ class OrderController {
 }
 ```
 
-## Explicit CRUD Source Generation
-
-When a project needs standard CRUD scaffolding, add `coco-codegen.yml` at its root:
-
-```yaml
-base-package: com.example.catalog
-resources:
-  - name: Product
-    table: catalog_product
-    api-path: /products
-    id: { name: id, column: id, type: Long, strategy: AUTO }
-    fields:
-      - { name: sku, column: sku, type: String, required: true }
-      - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
-```
-
-Run the opt-in goal:
-
-```powershell
-mvn coco:generate
-```
-
-The generator writes to `src/main/java` by default and refuses to overwrite existing files. It produces ordinary Controller, DTO, application-service, domain-repository, and MyBatis-Plus infrastructure source owned by the business project. The goal is not bound to the build lifecycle and never exposes entities automatically at runtime.
+Source scaffolding is a development-time ecosystem concern. Use [coco-generate](https://github.com/patton174/coco-generate) when a project needs generated application source; the Framework starter and Maven plugin do not ship a generator or expose entities as runtime CRUD APIs.
