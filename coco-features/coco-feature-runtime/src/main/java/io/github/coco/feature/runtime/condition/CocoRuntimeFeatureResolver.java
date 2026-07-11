@@ -4,10 +4,10 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.registry.CocoFeatureManifestLoader;
-import io.github.coco.feature.registry.CocoFeaturePlan;
-import io.github.coco.feature.registry.CocoFeatureSelection;
-import io.github.coco.feature.registry.StandardCocoFeatures;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
+import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.Environment;

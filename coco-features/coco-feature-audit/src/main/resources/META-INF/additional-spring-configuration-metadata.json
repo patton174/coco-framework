@@ -26,7 +26,7 @@
     },
     {
       "name": "coco.audit.logging.level",
-      "type": "io.github.coco.common.logging.core.CocoLogLevel",
+      "type": "io.github.coco.logging.core.CocoLogLevel",
       "description": "Log level used by the default Coco audit logging recorder.",
       "defaultValue": "info"
     },

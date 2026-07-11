@@ -26,13 +26,13 @@ business application's control.
   feature assembly, and package pruning.
 - `coco-spring-boot-starter` composes normal dependencies. It must not become an
   implementation module.
-- `coco-api-core` owns small, stable public contracts. Public API and SPI changes
+- `coco-api` owns small, stable public contracts. Public API and SPI changes
   require compatibility analysis and a real replacement point.
-- `coco-common-*` modules own reusable infrastructure and must not depend on
-  concrete feature modules.
+- `coco-context`, `coco-exception`, `coco-i18n`, and `coco-logging` own reusable
+  foundation infrastructure and must not depend on concrete feature modules.
 - `coco-config` binds `coco.*` configuration and computes the final runtime
   feature plan.
-- `coco-feature-registry` owns standard feature metadata and dependency
+- `coco-feature-model` owns standard feature metadata and dependency
   resolution; `coco-feature-runtime` enforces resolved feature state at runtime.
 - Each `coco-feature-*` module owns its stated behavior. Feature implementation
   must not be moved into the starter or an unrelated common module.

@@ -13,7 +13,7 @@ import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.registry.CocoFeatureSelection;
+import io.github.coco.feature.model.CocoFeatureSelection;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

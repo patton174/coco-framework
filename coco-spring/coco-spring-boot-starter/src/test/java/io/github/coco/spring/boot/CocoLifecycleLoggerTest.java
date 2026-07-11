@@ -8,10 +8,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-import io.github.coco.common.logging.core.CocoLogHandleRegistry;
-import io.github.coco.common.logging.core.CocoLogHandles;
-import io.github.coco.common.logging.core.CocoLogManager;
-import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
+import io.github.coco.logging.core.CocoLogHandleRegistry;
+import io.github.coco.logging.core.CocoLogHandles;
+import io.github.coco.logging.core.CocoLogManager;
+import io.github.coco.logging.lifecycle.CocoLifecycleLogger;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.GenericApplicationContext;
 

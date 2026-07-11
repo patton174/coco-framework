@@ -17,7 +17,6 @@
     <description>Feature aggregate modules for Coco Framework.</description>
 
     <modules>
-        <module>coco-feature-registry</module>
         <module>coco-feature-runtime</module>
         <module>coco-feature-web</module>
         <module>coco-feature-mybatis-plus</module>

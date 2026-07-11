@@ -27,10 +27,10 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 
 - `coco-parent` is the recommended parent POM for business applications. It imports the BOM, runs Spring Boot repackage, runs `coco:features`, and runs `coco:prune-package`.
 - `coco-spring-boot-starter` is the single normal starter dependency for applications. It brings common infrastructure and standard feature modules.
-- `coco-api-core` contains stable public contracts such as `CocoConfigurer`, `CocoFeature`, `CocoFeatureRegistry`, and `@CocoFeatures`.
-- `coco-context`, `coco-exception`, and `coco-i18n` contain reusable infrastructure; logging remains in `coco-common-logging` during the staged 2.0 migration.
+- `coco-api` contains stable public contracts such as `CocoConfigurer`, `CocoFeature`, `CocoFeatureRegistry`, and `@CocoFeatures`.
+- `coco-context`, `coco-exception`, `coco-i18n`, and `coco-logging` contain reusable foundation infrastructure.
 - `coco-config` binds `coco.*` configuration and computes the final runtime feature plan.
-- `coco-feature-registry` owns standard feature metadata, dependencies, manifest model, and feature resolution.
+- `coco-feature-model` owns standard feature metadata, dependencies, manifest model, and feature resolution.
 - `coco-feature-runtime` filters auto-configuration by feature state.
 - `coco-feature-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
 - `coco-feature-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
@@ -39,6 +39,7 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-feature-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
 - `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe generated-file writing; `coco-maven-plugin` exposes this through the opt-in `coco:generate` goal.
 - `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
+- During the staged 2.0 migration, I18n, Logging, and Feature Model retain their existing auto-configuration FQCNs. Their Spring bindings move to `coco-spring-boot-autoconfigure` in the separately reviewed Spring composition batch.
 
 ## Development Rules
 

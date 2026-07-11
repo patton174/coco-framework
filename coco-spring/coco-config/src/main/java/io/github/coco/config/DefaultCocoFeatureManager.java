@@ -5,9 +5,9 @@ import java.util.Objects;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.registry.CocoFeaturePlan;
-import io.github.coco.feature.registry.CocoFeatureSelection;
-import io.github.coco.feature.registry.StandardCocoFeatures;
+import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
 
 /**
  * 默认 Coco 功能管理器。

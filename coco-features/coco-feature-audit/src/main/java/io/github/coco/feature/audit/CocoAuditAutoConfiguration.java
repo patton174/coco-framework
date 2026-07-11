@@ -4,11 +4,11 @@ import java.util.Collection;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
-import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
-import io.github.coco.common.logging.core.CocoLogHandle;
-import io.github.coco.common.logging.core.CocoLogHandleRegistrar;
-import io.github.coco.common.logging.core.CocoLogManager;
+import io.github.coco.logging.core.CocoLogHandle;
+import io.github.coco.logging.core.CocoLogHandleRegistrar;
+import io.github.coco.logging.core.CocoLogManager;
 import io.github.coco.feature.audit.accesslog.CocoAccessLogAuditRecorder;
 import io.github.coco.feature.audit.core.CocoAuditFormatter;
 import io.github.coco.feature.audit.core.CocoAuditErrorHandler;

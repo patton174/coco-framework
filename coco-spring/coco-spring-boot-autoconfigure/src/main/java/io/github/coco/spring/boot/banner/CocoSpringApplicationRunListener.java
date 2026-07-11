@@ -2,7 +2,7 @@ package io.github.coco.spring.boot.banner;
 
 import java.time.Duration;
 
-import io.github.coco.common.logging.lifecycle.CocoLifecycleLogger;
+import io.github.coco.logging.lifecycle.CocoLifecycleLogger;
 import io.github.coco.spring.boot.logging.CocoNodeLogRendererBootstrap;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
