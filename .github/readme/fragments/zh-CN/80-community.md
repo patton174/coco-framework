@@ -6,7 +6,7 @@
     <td align="center"><strong>1</strong><br/>星标</td>
     <td align="center"><strong>0</strong><br/>派生</td>
     <td align="center"><strong>1</strong><br/>贡献者</td>
-    <td align="center"><a href="https://github.com/patton174/coco-framework">更新时间: 2026-07-10</a></td>
+    <td align="center"><a href="https://github.com/patton174/coco-framework">更新时间: 2026-07-11</a></td>
   </tr>
 </table>
 <!-- COCO_STATS_END -->
@@ -26,7 +26,7 @@
   <tr>
     <td align="center">
       <a href="https://github.com/patton174">
-        <img src="https://avatars.githubusercontent.com/u/151543933?v=4&s=96" width="48" height="48" alt="patton174"/><br/>
+        <img src="https://avatars.githubusercontent.com/patton174?s=96" width="48" height="48" alt="patton174"/><br/>
         <sub>patton174</sub>
       </a>
     </td>
