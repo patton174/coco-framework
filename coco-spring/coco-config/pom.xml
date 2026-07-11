@@ -8,21 +8,25 @@
         <groupId>io.github.patton174</groupId>
         <artifactId>coco-framework</artifactId>
         <version>${revision}</version>
-        <relativePath>../pom.xml</relativePath>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>coco-spring-boot-autoconfigure</artifactId>
-    <name>Coco Spring Boot Autoconfigure</name>
-    <description>Spring Boot auto-configuration and early startup integration for Coco Framework.</description>
+    <artifactId>coco-config</artifactId>
+    <name>Coco Config</name>
+    <description>Configuration binding and feature selection support for Coco Framework.</description>
 
     <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-api-core</artifactId>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>coco-common-i18n</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-logging</artifactId>
+            <artifactId>coco-feature-registry</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -40,11 +44,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
