@@ -2,14 +2,14 @@ package io.github.coco.feature.web.exception;
 
 import java.util.Objects;
 
-import io.github.coco.common.exception.CocoCommonErrorCode;
-import io.github.coco.common.exception.CocoException;
-import io.github.coco.common.exception.type.CocoConflictException;
-import io.github.coco.common.exception.type.CocoForbiddenException;
-import io.github.coco.common.exception.type.CocoNotFoundException;
-import io.github.coco.common.exception.type.CocoRequestException;
-import io.github.coco.common.exception.type.CocoSystemException;
-import io.github.coco.common.exception.type.CocoUnauthorizedException;
+import io.github.coco.exception.CocoCommonErrorCode;
+import io.github.coco.exception.CocoException;
+import io.github.coco.exception.type.CocoConflictException;
+import io.github.coco.exception.type.CocoForbiddenException;
+import io.github.coco.exception.type.CocoNotFoundException;
+import io.github.coco.exception.type.CocoRequestException;
+import io.github.coco.exception.type.CocoSystemException;
+import io.github.coco.exception.type.CocoUnauthorizedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 

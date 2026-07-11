@@ -77,7 +77,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-exception</artifactId>
+            <artifactId>coco-exception</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

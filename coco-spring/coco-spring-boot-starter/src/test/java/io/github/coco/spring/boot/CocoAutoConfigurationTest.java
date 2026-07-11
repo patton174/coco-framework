@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.exception.CocoCommonErrorCode;
-import io.github.coco.common.exception.CocoException;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.exception.CocoCommonErrorCode;
+import io.github.coco.exception.CocoException;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.common.logging.core.CocoLoggingProperties;
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.spring.boot.banner.CocoBannerProperties;
 import io.github.coco.spring.boot.banner.CocoStartupBanner;
 import org.junit.jupiter.api.AfterEach;

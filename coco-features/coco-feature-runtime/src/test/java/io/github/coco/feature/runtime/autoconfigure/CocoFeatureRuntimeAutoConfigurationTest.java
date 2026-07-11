@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Locale;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

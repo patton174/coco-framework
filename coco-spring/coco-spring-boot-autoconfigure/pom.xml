@@ -18,7 +18,7 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-i18n</artifactId>
+            <artifactId>coco-i18n</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>

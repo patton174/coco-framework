@@ -1,7 +1,7 @@
 package io.github.coco.feature.codegen;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.codegen.core.CocoCodeGenerator;
 import io.github.coco.feature.codegen.core.CocoGeneratedFileWriter;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;

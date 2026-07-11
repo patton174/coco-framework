@@ -4,7 +4,7 @@ package ${crud.basePackage}.application.${crud.resourcePackage};
 import ${typeImport};
 </#list>
 
-import io.github.coco.common.exception.CocoCommonErrorCode;
+import io.github.coco.exception.CocoCommonErrorCode;
 import ${crud.basePackage}.domain.${crud.resourcePackage}.${crud.resourceName};
 import ${crud.basePackage}.domain.${crud.resourcePackage}.${crud.resourceName}Repository;
 import org.springframework.stereotype.Service;

@@ -1,6 +1,6 @@
 package io.github.coco.feature.web.exception;
 
-import io.github.coco.common.exception.type.CocoRequestException;
+import io.github.coco.exception.type.CocoRequestException;
 
 /**
  * Coco Web 请求体过大异常。

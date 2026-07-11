@@ -13,9 +13,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import io.github.coco.common.context.CocoContextScope;
-import io.github.coco.common.context.CocoContextSnapshot;
-import io.github.coco.common.exception.type.CocoUnauthorizedException;
+import io.github.coco.context.CocoContextScope;
+import io.github.coco.context.CocoContextSnapshot;
+import io.github.coco.exception.type.CocoUnauthorizedException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

@@ -1,8 +1,8 @@
 package io.github.coco.feature.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.coco.common.CocoCommonProperties;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.CocoCommonProperties;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.common.logging.core.CocoLogManager;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;

@@ -3,8 +3,8 @@ package io.github.coco.feature.web.replay;
 import java.io.IOException;
 import java.util.Objects;
 
-import io.github.coco.common.exception.CocoException;
-import io.github.coco.common.trace.CocoTraceContext;
+import io.github.coco.exception.CocoException;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;

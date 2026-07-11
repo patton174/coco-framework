@@ -2,7 +2,7 @@ package io.github.coco.feature.web.response;
 
 import java.util.Objects;
 
-import io.github.coco.common.exception.CocoBusinessCode;
+import io.github.coco.exception.CocoBusinessCode;
 
 /**
  * Coco Web 默认系统响应码。

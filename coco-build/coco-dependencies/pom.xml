@@ -32,17 +32,17 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-context</artifactId>
+                <artifactId>coco-context</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-exception</artifactId>
+                <artifactId>coco-exception</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-i18n</artifactId>
+                <artifactId>coco-i18n</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

@@ -1,8 +1,8 @@
 package io.github.coco.feature.web;
 
-import io.github.coco.common.CocoCommonProperties;
-import io.github.coco.common.i18n.api.CocoLocaleResolver;
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.CocoCommonProperties;
+import io.github.coco.i18n.CocoLocaleResolver;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;

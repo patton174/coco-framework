@@ -6,7 +6,7 @@ import java.util.stream.Collectors;
 
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.registry.CocoFeatureManifestLoader;
 import io.github.coco.feature.registry.CocoFeaturePlan;
 import io.github.coco.feature.registry.CocoFeatureSelection;

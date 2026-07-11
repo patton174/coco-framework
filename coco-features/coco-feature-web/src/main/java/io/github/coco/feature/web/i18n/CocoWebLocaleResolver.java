@@ -3,8 +3,8 @@ package io.github.coco.feature.web.i18n;
 import java.util.Locale;
 import java.util.Objects;
 
-import io.github.coco.common.i18n.CocoI18nProperties;
-import io.github.coco.common.i18n.api.CocoLocaleResolver;
+import io.github.coco.i18n.CocoI18nProperties;
+import io.github.coco.i18n.CocoLocaleResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.context.request.RequestAttributes;

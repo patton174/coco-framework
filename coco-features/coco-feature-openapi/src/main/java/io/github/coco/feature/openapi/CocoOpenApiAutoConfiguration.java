@@ -1,7 +1,7 @@
 package io.github.coco.feature.openapi;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.core.DefaultCocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.springdoc.CocoSpringDocOpenApiCustomizerFactoryBean;

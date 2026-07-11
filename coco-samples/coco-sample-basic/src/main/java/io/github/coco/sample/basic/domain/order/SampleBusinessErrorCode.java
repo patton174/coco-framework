@@ -1,6 +1,6 @@
 package io.github.coco.sample.basic.domain.order;
 
-import io.github.coco.common.exception.CocoBusinessCode;
+import io.github.coco.exception.CocoBusinessCode;
 
 /**
  * Coco 示例业务错误码。

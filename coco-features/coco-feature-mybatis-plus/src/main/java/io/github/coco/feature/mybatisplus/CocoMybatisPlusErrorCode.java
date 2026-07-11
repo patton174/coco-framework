@@ -1,6 +1,6 @@
 package io.github.coco.feature.mybatisplus;
 
-import io.github.coco.common.exception.CocoErrorCode;
+import io.github.coco.exception.CocoErrorCode;
 
 /**
  * Coco MyBatis-Plus 功能错误码。

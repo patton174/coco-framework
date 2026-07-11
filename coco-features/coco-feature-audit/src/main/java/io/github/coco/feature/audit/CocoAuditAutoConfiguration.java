@@ -3,7 +3,7 @@ package io.github.coco.feature.audit;
 import java.util.Collection;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.common.logging.access.CocoAccessLogRecorder;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.common.logging.core.CocoLogHandle;

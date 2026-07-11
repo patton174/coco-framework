@@ -1,7 +1,7 @@
 package io.github.coco.feature.tenant;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.i18n.api.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
 import io.github.coco.feature.tenant.context.HolderCocoTenantContextResolver;

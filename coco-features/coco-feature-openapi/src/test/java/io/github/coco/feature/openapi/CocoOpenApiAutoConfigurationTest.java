@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.common.i18n.api.CocoMessageService;
+import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadata;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.core.DefaultCocoOpenApiMetadataProvider;

@@ -1,7 +1,7 @@
 package io.github.coco.feature.web;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.common.CocoCommonProperties;
+import io.github.coco.CocoCommonProperties;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;

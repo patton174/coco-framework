@@ -2,7 +2,7 @@ package io.github.coco.feature.web.replay;
 
 import java.time.Instant;
 
-import io.github.coco.common.exception.CocoBusinessExceptions;
+import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadata;
 import jakarta.servlet.http.HttpServletRequest;

@@ -40,6 +40,9 @@
         <module>coco-build/coco-dependencies</module>
         <module>coco-build/coco-parent</module>
         <module>coco-foundation/coco-api</module>
+        <module>coco-foundation/coco-context</module>
+        <module>coco-foundation/coco-i18n</module>
+        <module>coco-foundation/coco-exception</module>
         <module>coco-foundation/coco-common</module>
         <module>coco-spring/coco-config</module>
         <module>coco-spring/coco-spring-boot-autoconfigure</module>
@@ -93,17 +96,17 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-context</artifactId>
+                <artifactId>coco-context</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-exception</artifactId>
+                <artifactId>coco-exception</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-i18n</artifactId>
+                <artifactId>coco-i18n</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
