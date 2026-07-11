@@ -25,7 +25,7 @@
         <dependencies>
             <dependency>
                 <groupId>io.github.patton174</groupId>
-                <artifactId>coco-bom</artifactId>
+                <artifactId>coco-dependencies</artifactId>
                 <version>${coco.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
