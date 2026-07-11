@@ -73,12 +73,14 @@
                 <executions>
                     <execution>
                         <id>coco-feature-assembly</id>
+                        <phase>process-classes</phase>
                         <goals>
                             <goal>features</goal>
                         </goals>
                     </execution>
                     <execution>
                         <id>coco-package-prune</id>
+                        <phase>package</phase>
                         <goals>
                             <goal>prune-package</goal>
                         </goals>

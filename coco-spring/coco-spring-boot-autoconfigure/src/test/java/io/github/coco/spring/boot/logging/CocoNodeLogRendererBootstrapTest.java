@@ -117,6 +117,16 @@ class CocoNodeLogRendererBootstrapTest {
         assertEquals(script, CocoNodeLogRendererBootstrap.findLocalRendererScript(tempDir));
     }
 
+    @Test
+    void locatesRendererScriptFromSpringModuleSourceTree(@TempDir Path tempDir) throws Exception {
+        Path script = tempDir.resolve(
+                "coco-spring/coco-spring-boot-autoconfigure/src/main/resources/META-INF/coco/coco-log-renderer.mjs");
+        Files.createDirectories(script.getParent());
+        Files.writeString(script, "console.log('coco');");
+
+        assertEquals(script, CocoNodeLogRendererBootstrap.findLocalRendererScript(tempDir));
+    }
+
     private static Path findWorkspaceCliRendererScript() {
         Path current = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
         while (current != null) {
