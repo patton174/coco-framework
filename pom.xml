@@ -46,7 +46,7 @@
         <module>coco-spring/coco-spring-boot-starter</module>
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
-        <module>coco-test</module>
+        <module>coco-support/coco-test</module>
     </modules>
 
     <properties>
