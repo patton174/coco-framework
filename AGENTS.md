@@ -15,6 +15,14 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - Defaults should be useful and safe, but every major integration point should remain configurable or replaceable through properties, beans, or SPI.
 - Business developers are expected to understand normal Java, Spring Boot, Maven, and the generated code they keep. Coco should reduce boilerplate, not remove engineering ownership.
 
+## Ecosystem Boundaries
+
+- `coco-framework` is the independent Web server foundation. It must not depend on `coco-admin` or `coco-generate`.
+- `coco-admin` is an ERP product built on the framework. ERP domains, authentication choices, organization and permission models, workflows, reports, and transactions belong there.
+- `coco-generate` is a development-time source generator and template platform. Generated source may target Coco applications, but business applications must not require the generator at runtime.
+- `coco-admin` may use `coco-generate` during development; generated files are then reviewed, committed, and owned by the Admin repository.
+- Existing public Codegen APIs and the `coco:generate` goal remain supported until a separately reviewed compatibility migration moves implementation ownership. Do not remove or duplicate them without a versioned migration path.
+
 ## Current Architecture
 
 - `coco-parent` is the recommended parent POM for business applications. It imports the BOM, runs Spring Boot repackage, runs `coco:features`, and runs `coco:prune-package`.
