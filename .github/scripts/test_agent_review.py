@@ -201,6 +201,7 @@ class AgentReviewTests(unittest.TestCase):
         governance_spec = (
             "docs/superpowers/specs/2026-07-11-agent-governance-automation.md"
         )
+        module_layout_spec = "docs/architecture/module-layout.md"
 
         def mapped_specs(path: str) -> set[str]:
             return {
@@ -235,9 +236,75 @@ class AgentReviewTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(governance_spec, mapped_specs(path))
+        for path in (
+            "coco-parent/pom.xml",
+            "coco-build/coco-parent/pom.xml",
+            "coco-api/pom.xml",
+            "coco-foundation/coco-api/pom.xml",
+            "coco-config/pom.xml",
+            "coco-spring/coco-config/pom.xml",
+            "coco-test/pom.xml",
+            "coco-support/coco-test/pom.xml",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(module_layout_spec, mapped_specs(path))
+        self.assertEqual(
+            {module_layout_spec},
+            mapped_specs("coco-support/coco-test/pom.xml"),
+        )
         serialized_mappings = json.dumps(value["spec_path_mappings"])
         self.assertNotIn("update-readme-insights.yml", serialized_mappings)
         self.assertNotIn(".github/README.md", serialized_mappings)
+
+    def test_repository_module_migration_policy_fits_each_batch(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        config_path = repository_root / ".github/agent-review/config.json"
+        value = review.load_config(config_path)
+        batches = {
+            "build": [
+                "pom.xml",
+                "coco-parent/pom.xml",
+                "coco-build/coco-parent/pom.xml",
+                "coco-maven-plugin/src/main/java/Example.java",
+                "coco-build/coco-maven-plugin/src/main/java/Example.java",
+            ],
+            "foundation": [
+                "pom.xml",
+                "coco-api/pom.xml",
+                "coco-foundation/coco-api/pom.xml",
+                "coco-common/coco-common-i18n/pom.xml",
+                "coco-foundation/coco-common/coco-common-i18n/pom.xml",
+            ],
+            "spring": [
+                "pom.xml",
+                "coco-config/pom.xml",
+                "coco-spring/coco-config/pom.xml",
+                "coco-spring-boot-autoconfigure/pom.xml",
+                "coco-spring/coco-spring-boot-autoconfigure/pom.xml",
+                "coco-spring-boot-starter/pom.xml",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+            ],
+            "support": [
+                "pom.xml",
+                "coco-test/pom.xml",
+                "coco-support/coco-test/pom.xml",
+            ],
+        }
+
+        for name, changed_paths in batches.items():
+            with self.subTest(batch=name):
+                omissions: list[str] = []
+                sources = review.collect_policy(
+                    repository_root,
+                    value,
+                    changed_paths,
+                    omissions,
+                )
+                self.assertEqual([], omissions)
+                self.assertIn(
+                    "docs/architecture/module-layout.md",
+                    {source["source"] for source in sources},
+                )
 
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
