@@ -72,15 +72,16 @@ The secret-backed path is an actual review panel:
 P0/P1 blocks only when both verifiers return `AGREE`. P2/P3 never directly
 block. A max-token completion, empty text response, or malformed model-output
 JSON receives one fresh attempt with the same protected prompt and bound input.
-That attempt and the one protected correction for schema-only field mismatches
-are mutually exclusive, so each Agent makes at most two model calls. Refusal,
-timeout, API or authentication failure, invalid envelopes, identity or hash
-mismatch, incomplete role sets, stale PR SHA, and oversized required context
-fail closed immediately; every second-attempt failure also fails closed. Every
-report binds to the base SHA, head SHA, and canonical context SHA-256; that
-context also binds the base-version config, prompts, and reviewer script through
-a protocol SHA-256. Before publishing, the trusted publisher revalidates every
-role report, recomputes consensus, and re-renders the comment.
+That attempt and the one protected correction for bound report-contract errors
+after identity and binding validation are mutually exclusive, so each Agent
+makes at most two model calls. Refusal, timeout, API or authentication failure,
+invalid envelopes, identity or hash mismatch, incomplete role sets, stale PR
+SHA, and oversized required context fail closed immediately; every
+second-attempt failure also fails closed. Every report binds to the base SHA,
+head SHA, and canonical context SHA-256; that context also binds the base-version
+config, prompts, and reviewer script through a protocol SHA-256. Before
+publishing, the trusted publisher revalidates every role report, recomputes
+consensus, and re-renders the comment.
 The workflow publishes the `Agent jury gate` status directly to that PR head. It
 never submits a GitHub review or approval; branch protection still requires a
 current human approval.

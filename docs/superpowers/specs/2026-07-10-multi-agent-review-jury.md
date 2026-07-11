@@ -230,11 +230,14 @@ P0/P1 候选，也要明确记录已检查的绑定报告集合，并返回空 `
 - 首次模型输出因 `max_tokens` 未完成、没有文本或文本不是严格 JSON 时，允许使用原受保护
   prompt、原 canonical task、原角色和原 binding 进行一次全新输出重试。重试输入不得包含上次
   输出，第二次发生任何错误时基础设施 BLOCK。
-- 对可解析 JSON 的字段集合不匹配，允许在同一受保护 prompt、角色和 binding 下进行一次
-  协议纠错。纠错输入包含原 canonical task、上次输出和确定性校验错误，并全部按不可信数据
-  处理；第二次仍不符合 schema 时基础设施 BLOCK。全新输出重试与协议纠错互斥，每个 Agent
-  最多调用模型两次。拒答、API/鉴权或传输错误、非法响应 envelope、角色、SHA、hash 或 binding
-  不匹配不进入任何重试，立即失败关闭。
+- 对可解析 JSON，先校验 `schema_version`、受保护角色、`head_sha` 和 `context_sha256`；
+  `schema_version` 必须是 JSON 整数 `1`，布尔值或浮点数均不接受。任一身份或 binding 不匹配
+  都立即失败关闭。上述绑定通过后，字段集合、字段类型、数组、枚举、范围、
+  引用完整性或确定性权限契约不匹配，允许在同一受保护 prompt、角色和 binding 下进行一次协议
+  纠错。纠错输入包含原 canonical task、上次输出和确定性校验错误，并全部按不可信数据处理；
+  第二次仍不符合契约时基础设施 BLOCK。全新输出重试与协议纠错互斥，每个 Agent 最多调用模型
+  两次。拒答、API/鉴权或传输错误、非法响应 envelope、角色、SHA、hash 或 binding 不匹配不
+  进入任何重试，立即失败关闭。
 - P0/P1 只有同时得到 `evidence-verifier=AGREE` 和 `policy-skeptic=AGREE`，才能成为
   confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不阻断。
