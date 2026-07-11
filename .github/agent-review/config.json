@@ -122,7 +122,10 @@
   "output_limits": {
     "specialist_findings": 10,
     "specialist_questions": 5,
-    "specialist_context_gaps": 10
+    "specialist_context_gaps": 10,
+    "specialist_tokens": 4096,
+    "verifier_tokens": 4096,
+    "chair_tokens": 4096
   },
   "spec_resolution": {
     "revision": "base_sha",
