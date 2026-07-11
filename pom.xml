@@ -37,15 +37,15 @@
     </scm>
 
     <modules>
-        <module>coco-parent</module>
-        <module>coco-bom</module>
+        <module>coco-build/coco-parent</module>
+        <module>coco-build/coco-bom</module>
         <module>coco-api</module>
         <module>coco-common</module>
         <module>coco-config</module>
         <module>coco-spring-boot-autoconfigure</module>
         <module>coco-spring-boot-starter</module>
         <module>coco-features</module>
-        <module>coco-maven-plugin</module>
+        <module>coco-build/coco-maven-plugin</module>
         <module>coco-test</module>
     </modules>
 
