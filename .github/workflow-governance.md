@@ -154,9 +154,12 @@ The private key is available only to protected trusted-publisher, README
 maintenance, and auto-merge jobs. Fork/bot no-secret review and the standalone
 issue gate never reference it.
 
-`Agent issue gate` remains advisory during bootstrap. Add it to `main` branch
-protection only after the dedicated App and same-repository, no-secret, Issue,
-and auto-merge canaries have all passed from protected `main`.
+`Agent issue gate` was promoted from advisory status after the dedicated App and
+same-repository, no-secret, Issue, and auto-merge canaries passed from protected
+`main`. Branch protection requires `CI gate`, `Agent jury gate`, and
+`Agent issue gate` in strict mode, with all three contexts bound to the built-in
+GitHub Actions App ID `15368`. A same-name status from another provider cannot
+satisfy the protected merge contract.
 
 ## Repository Automations
 
