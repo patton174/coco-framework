@@ -705,11 +705,13 @@ def build_code_contexts(
         used += len(clipped)
 
     ordered_files = prioritized_files(files)
-    text_files = [
-        entry
-        for entry in ordered_files
-        if Path(str(entry.get("filename", ""))).suffix.lower() in TEXT_SUFFIXES
-    ]
+    text_files: list[dict[str, Any]] = []
+    for entry in ordered_files:
+        filename = str(entry.get("filename", ""))
+        if Path(filename).suffix.lower() in TEXT_SUFFIXES:
+            text_files.append(entry)
+        else:
+            omissions.append(f"binary or unsupported changed file: {filename}")
     selected_files = text_files[:max_context_files]
     if len(text_files) > len(selected_files):
         omissions.append(

@@ -621,6 +621,40 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(1, len(contexts))
         self.assertTrue(any("character budget" in item for item in omissions))
 
+    def test_code_context_records_binary_and_unsupported_file_omissions(self) -> None:
+        files = [
+            {
+                "filename": "docs/architecture.png",
+                "status": "modified",
+                "patch": "",
+            },
+            {
+                "filename": "src/main/java/Foo.java",
+                "status": "modified",
+                "patch": "@@ -1 +1 @@\n-old\n+new",
+            },
+        ]
+        omissions: list[str] = []
+        contexts = review.build_code_contexts(
+            FakeContextClient({"src/main/java/Foo.java": "class Foo {}"}),
+            "patton174/coco-framework",
+            HEAD_SHA,
+            Path.cwd(),
+            files,
+            config(),
+            omissions,
+        )
+
+        self.assertTrue(
+            any(
+                item == "binary or unsupported changed file: docs/architecture.png"
+                for item in omissions
+            )
+        )
+        self.assertTrue(
+            any(item["source"] == "src/main/java/Foo.java" for item in contexts)
+        )
+
     def test_prepare_uses_bounded_files_api_without_raw_diff_request(self) -> None:
         pull_request = {
             "number": 1,
