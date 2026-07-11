@@ -41,7 +41,7 @@ public final class CocoNodeLogRendererBootstrap {
     private static final String WORKSPACE_TOOL_PATH = "tools/coco-log-renderer/bin/coco-log-renderer.mjs";
 
     private static final String WORKSPACE_RESOURCE_PATH =
-            "coco-spring-boot-autoconfigure/src/main/resources/META-INF/coco/coco-log-renderer.mjs";
+            "coco-spring/coco-spring-boot-autoconfigure/src/main/resources/META-INF/coco/coco-log-renderer.mjs";
 
     private static final AtomicBoolean INSTALLED = new AtomicBoolean();
 

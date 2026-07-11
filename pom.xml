@@ -41,9 +41,9 @@
         <module>coco-build/coco-bom</module>
         <module>coco-foundation/coco-api</module>
         <module>coco-foundation/coco-common</module>
-        <module>coco-config</module>
-        <module>coco-spring-boot-autoconfigure</module>
-        <module>coco-spring-boot-starter</module>
+        <module>coco-spring/coco-config</module>
+        <module>coco-spring/coco-spring-boot-autoconfigure</module>
+        <module>coco-spring/coco-spring-boot-starter</module>
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
         <module>coco-test</module>
