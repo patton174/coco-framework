@@ -2115,24 +2115,18 @@ def command_publish(args: argparse.Namespace) -> int:
             if approved
             else "Jury skipped; maintainer approval required"
         )
-        approver_text = (
-            ", ".join(f"`@{markdown_text(login)}`" for login in approvers) or "None yet"
-        )
-        review_body = (
-            "\n".join(
-                [
-                    COMMENT_MARKER,
-                    "### Agent Review Jury",
-                    "",
-                    "The secret-backed jury was not run because this PR comes from a fork or bot account.",
-                    "Repository Anthropic secrets were not exposed.",
-                    "",
-                    f"Reviewed head: `{head_sha}`  ",
-                    f"Current-head maintainer approval: {approver_text}",
-                ]
+        require_current_pr()
+        publish_status(client, repository, head_sha, state, description, args.run_url)
+        print(
+            canonical_json(
+                {
+                    "state": state,
+                    "description": description,
+                    "approvers": approvers,
+                }
             )
-            + "\n"
         )
+        return 0
 
     try:
         run_order = (

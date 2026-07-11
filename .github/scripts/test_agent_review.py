@@ -643,6 +643,189 @@ class AgentReviewTests(unittest.TestCase):
         self.assertTrue(approved)
         self.assertEqual(["maintainer"], approvers)
 
+    def test_no_secret_publish_writes_only_bound_status(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path == "repos/patton174/coco-framework/pulls/1":
+                    return {
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA},
+                    }
+                if path.endswith("/collaborators/maintainer/permission"):
+                    return {"permission": "write"}
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                self.assert_review_path(path, limit)
+                return [
+                    {
+                        "state": "APPROVED",
+                        "commit_id": HEAD_SHA,
+                        "user": {"login": "maintainer", "type": "User"},
+                    }
+                ]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+            @staticmethod
+            def assert_review_path(path: str, limit: int) -> None:
+                if path != "repos/patton174/coco-framework/pulls/1/reviews":
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                if limit != 500:
+                    raise AssertionError(f"Unexpected review limit: {limit}")
+
+        metadata = {
+            "repository": "patton174/coco-framework",
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "trusted": False,
+            "ignored": False,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            client = FakeClient()
+            with patch.object(review, "GitHubClient", return_value=client):
+                with patch("builtins.print") as output:
+                    result = review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            run_url="https://github.example/runs/1",
+                        )
+                    )
+
+        self.assertEqual(0, result)
+        output.assert_called_once()
+        self.assertEqual(1, len(client.sent))
+        method, path, payload = client.sent[0]
+        self.assertEqual("POST", method)
+        self.assertEqual(f"repos/patton174/coco-framework/statuses/{HEAD_SHA}", path)
+        self.assertEqual("success", payload["state"])
+        self.assertNotIn("comments", path)
+
+    def test_no_secret_publish_without_approval_remains_pending(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path == "repos/patton174/coco-framework/pulls/1":
+                    return {
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA},
+                    }
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                self.assert_review_path(path, limit)
+                return []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+            @staticmethod
+            def assert_review_path(path: str, limit: int) -> None:
+                if path != "repos/patton174/coco-framework/pulls/1/reviews":
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                if limit != 500:
+                    raise AssertionError(f"Unexpected review limit: {limit}")
+
+        metadata = {
+            "repository": "patton174/coco-framework",
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "trusted": False,
+            "ignored": False,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            client = FakeClient()
+            with patch.object(review, "GitHubClient", return_value=client):
+                with patch("builtins.print"):
+                    result = review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            run_url="https://github.example/runs/1",
+                        )
+                    )
+
+        self.assertEqual(0, result)
+        self.assertEqual(1, len(client.sent))
+        self.assertEqual("pending", client.sent[0][2]["state"])
+
+    def test_no_secret_publish_rejects_pr_drift_before_status(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.pull_reads = 0
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path == "repos/patton174/coco-framework/pulls/1":
+                    self.pull_reads += 1
+                    head_sha = HEAD_SHA if self.pull_reads == 1 else "c" * 40
+                    return {
+                        "head": {"sha": head_sha},
+                        "base": {"sha": BASE_SHA},
+                    }
+                if path.endswith("/collaborators/maintainer/permission"):
+                    return {"permission": "write"}
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                del path, limit
+                return [
+                    {
+                        "state": "APPROVED",
+                        "commit_id": HEAD_SHA,
+                        "user": {"login": "maintainer", "type": "User"},
+                    }
+                ]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        metadata = {
+            "repository": "patton174/coco-framework",
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "trusted": False,
+            "ignored": False,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            client = FakeClient()
+            with patch.object(review, "GitHubClient", return_value=client):
+                with self.assertRaisesRegex(review.ReviewError, "changed"):
+                    review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            run_url="https://github.example/runs/1",
+                        )
+                    )
+
+        self.assertEqual(2, client.pull_reads)
+        self.assertEqual([], client.sent)
+
+    def test_publisher_jobs_are_serialized_across_event_groups(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/claude-review.yml"
+        ).read_text(encoding="utf-8")
+        publisher = workflow.split("\n  publisher:\n", 1)[1]
+        self.assertIn("agent-review-publisher-", publisher)
+        self.assertIn("cancel-in-progress: false", publisher)
+
     def test_anthropic_client_accepts_strict_json_and_rejects_partial(self) -> None:
         class FakeResponse:
             def __init__(self, body: bytes) -> None:

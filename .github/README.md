@@ -43,7 +43,12 @@ as untrusted text and never checks out or executes the PR head.
 Only same-repository, non-bot pull requests enter the secret-backed Agent path.
 Fork and bot pull requests never receive repository Agent secrets; they publish
 a no-secret policy status and remain pending until a maintainer with write,
-maintain, or admin permission approves the current head SHA.
+maintain, or admin permission approves the current head SHA. This path does not
+write a managed PR comment because GitHub may reject comment writes on
+Dependabot or fork-associated events; the approval and bound status remain the
+visible audit record. Publisher jobs are serialized per pull request and
+re-read the current head and approval immediately before writing status, so a
+head event cannot overwrite a newer approval or dismissal result.
 
 The secret-backed path is an actual review panel:
 

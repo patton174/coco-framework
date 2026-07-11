@@ -398,6 +398,12 @@ jobs:
     if: ${{ always() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: >-
+        agent-review-publisher-${{ github.repository_id }}-${{
+          github.event.pull_request.number || github.event.client_payload.pr_number || github.run_id
+        }}
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: read
