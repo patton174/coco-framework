@@ -37,8 +37,8 @@
     </scm>
 
     <modules>
+        <module>coco-build/coco-dependencies</module>
         <module>coco-build/coco-parent</module>
-        <module>coco-build/coco-bom</module>
         <module>coco-foundation/coco-api</module>
         <module>coco-foundation/coco-common</module>
         <module>coco-spring/coco-config</module>

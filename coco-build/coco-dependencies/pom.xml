@@ -11,9 +11,9 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>coco-bom</artifactId>
+    <artifactId>coco-dependencies</artifactId>
     <packaging>pom</packaging>
-    <name>Coco BOM</name>
+    <name>Coco Dependencies</name>
     <description>Dependency management BOM for Coco Framework modules.</description>
 
     <dependencyManagement>
