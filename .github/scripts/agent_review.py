@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +29,7 @@ STATUS_CONTEXT = "Agent jury gate"
 ISSUE_STATUS_CONTEXT = "Agent issue gate"
 FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
+FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -2288,9 +2290,9 @@ def app_finding_issues(
     expected_login: str,
     expected_bot_id: int,
 ) -> dict[str, dict[str, Any]]:
-    creator = urllib.parse.quote(expected_login, safe="")
+    label = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
     issues = client.paginate(
-        f"repos/{repository}/issues?state=all&creator={creator}&sort=created&direction=asc",
+        f"repos/{repository}/issues?state=all&labels={label}&sort=created&direction=asc",
         limit=5000,
     )
     result: dict[str, dict[str, Any]] = {}
@@ -2307,6 +2309,10 @@ def app_finding_issues(
         require_resource_actor(
             issue, expected_login, expected_bot_id, "Agent review finding issue"
         )
+        if FINDING_ISSUE_LABEL not in issue_label_names(issue):
+            raise ReviewError(
+                "Agent review label query returned an issue without the required label."
+            )
         marker = parse_finding_issue_marker(issue.get("body"))
         if marker is None:
             continue
@@ -2320,6 +2326,33 @@ def app_finding_issues(
             raise ReviewError("Duplicate Agent review issues bind the same finding ID.")
         result[finding_id] = issue
     return result
+
+
+def wait_for_finding_issue_convergence(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    expected_login: str,
+    expected_bot_id: int,
+    expected_open_ids: set[str],
+    require_current_pr: Callable[[], dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    for attempt in range(len(FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1):
+        if attempt:
+            time.sleep(FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[attempt - 1])
+        require_current_pr()
+        current = app_finding_issues(
+            client, repository, pr_number, expected_login, expected_bot_id
+        )
+        require_current_pr()
+        open_ids = {
+            finding_id
+            for finding_id, issue in current.items()
+            if issue.get("state") == "open"
+        }
+        if open_ids == expected_open_ids:
+            return current
+    raise ReviewError("Agent review finding issue synchronization did not converge.")
 
 
 def verify_finding_issue(
@@ -2448,19 +2481,15 @@ def synchronize_finding_issues(
             closed, expected_login, expected_bot_id, marker_line, "closed"
         )
 
-    require_current_pr()
-    current = app_finding_issues(
-        client, repository, pr_number, expected_login, expected_bot_id
+    wait_for_finding_issue_convergence(
+        client,
+        repository,
+        pr_number,
+        expected_login,
+        expected_bot_id,
+        set(selected),
+        require_current_pr,
     )
-    open_ids = {
-        finding_id
-        for finding_id, issue in current.items()
-        if issue.get("state") == "open"
-    }
-    if open_ids != set(selected):
-        raise ReviewError(
-            "Agent review finding issue synchronization did not converge."
-        )
     return synchronized
 
 

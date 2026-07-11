@@ -1009,9 +1009,32 @@ class AgentReviewTests(unittest.TestCase):
                         review.finding_issue_marker(60, BASE_SHA, current["stable_id"]),
                         "closed",
                     ),
+                    98: {
+                        **issue(
+                            98,
+                            review.finding_issue_marker(
+                                60, BASE_SHA, current["stable_id"]
+                            ),
+                            "open",
+                        ),
+                        "user": {"id": 7, "login": "mallory", "type": "User"},
+                    },
+                    99: {
+                        **issue(
+                            99,
+                            review.finding_issue_marker(60, BASE_SHA, disappeared_id),
+                            "open",
+                        ),
+                        "body": (
+                            "Documentation example\n"
+                            + review.finding_issue_marker(60, BASE_SHA, disappeared_id)
+                        ),
+                        "user": {"id": 7, "login": "mallory", "type": "User"},
+                    },
                 }
                 self.comments: list[tuple[int, str]] = []
                 self.next_issue = 12
+                self.scan_snapshots: list[set[int]] = []
 
             def get_json(self, path: str) -> dict:
                 if path.endswith("/labels/agent-review"):
@@ -1020,9 +1043,24 @@ class AgentReviewTests(unittest.TestCase):
 
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 self.assertEqualLimit(limit)
-                if "issues?state=all" not in path:
+                if (
+                    path
+                    != "repos/patton174/coco-framework/issues?state=all&labels=agent-review&sort=created&direction=asc"
+                    or "creator=" in path
+                ):
                     raise AssertionError(f"Unexpected paginated path: {path}")
-                return list(self.issues.values())
+                filtered = [
+                    value
+                    for value in self.issues.values()
+                    if review.FINDING_ISSUE_LABEL
+                    in {label["name"] for label in value.get("labels", [])}
+                ]
+                if len(self.scan_snapshots) == 1:
+                    filtered = [
+                        value for value in filtered if int(value["number"]) != 12
+                    ]
+                self.scan_snapshots.append({int(value["number"]) for value in filtered})
+                return filtered
 
             @staticmethod
             def assertEqualLimit(limit: int) -> None:
@@ -1060,17 +1098,21 @@ class AgentReviewTests(unittest.TestCase):
                 raise AssertionError(f"Unexpected write: {method} {path}")
 
         client = FakeClient()
-        synchronized = review.synchronize_finding_issues(
-            client,
-            "patton174/coco-framework",
-            60,
-            HEAD_SHA,
-            [current, new],
-            app_login,
-            APP_BOT_ID,
-            "https://github.example/runs/1",
-            "https://github.example",
-            lambda: {},
+        with patch.object(review.time, "sleep") as sleep:
+            synchronized = review.synchronize_finding_issues(
+                client,
+                "patton174/coco-framework",
+                60,
+                HEAD_SHA,
+                [current, new],
+                app_login,
+                APP_BOT_ID,
+                "https://github.example/runs/1",
+                "https://github.example",
+                lambda: {},
+            )
+        sleep.assert_called_once_with(
+            review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[0]
         )
         self.assertEqual(2, len(synchronized))
         self.assertEqual("closed", client.issues[10]["state"])
@@ -1078,9 +1120,58 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual("open", client.issues[11]["state"])
         marker = review.parse_finding_issue_marker(client.issues[11]["body"])
         self.assertEqual(BASE_SHA, marker["head_sha"])
-        created = next(value for number, value in client.issues.items() if number >= 12)
+        self.assertEqual(3, len(client.scan_snapshots))
+        self.assertNotIn(12, client.scan_snapshots[0])
+        self.assertNotIn(12, client.scan_snapshots[1])
+        self.assertIn(12, client.scan_snapshots[2])
+        self.assertEqual("open", client.issues[98]["state"])
+        self.assertEqual("open", client.issues[99]["state"])
+        created = client.issues[12]
         created_marker = review.parse_finding_issue_marker(created["body"])
         self.assertEqual(HEAD_SHA, created_marker["head_sha"])
+
+    def test_finding_issue_convergence_retry_exhaustion_fails_closed(self) -> None:
+        finding_id = "v1-" + "9" * 64
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.scans = 0
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if (
+                    limit != 5000
+                    or "issues?state=all&labels=agent-review" not in path
+                    or "creator=" in path
+                ):
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                self.scans += 1
+                return []
+
+        client = FakeClient()
+        pr_checks: list[int] = []
+
+        def require_current_pr() -> dict:
+            pr_checks.append(len(pr_checks))
+            return {}
+
+        with patch.object(review.time, "sleep") as sleep:
+            with self.assertRaisesRegex(review.ReviewError, "did not converge"):
+                review.wait_for_finding_issue_convergence(
+                    client,
+                    "patton174/coco-framework",
+                    60,
+                    "coco-agent[bot]",
+                    APP_BOT_ID,
+                    {finding_id},
+                    require_current_pr,
+                )
+        self.assertEqual(
+            list(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS),
+            [value.args[0] for value in sleep.call_args_list],
+        )
+        attempts = len(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1
+        self.assertEqual(attempts, client.scans)
+        self.assertEqual(attempts * 2, len(pr_checks))
 
     def test_agent_issue_gate_fails_with_open_issue_and_passes_with_zero(self) -> None:
         app_login = "coco-agent[bot]"
@@ -1108,7 +1199,8 @@ class AgentReviewTests(unittest.TestCase):
 
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 if limit != 5000 or (
-                    "issues?state=all&creator=coco-agent%5Bbot%5D" not in path
+                    "issues?state=all&labels=agent-review" not in path
+                    or "creator=" in path
                 ):
                     raise AssertionError(f"Unexpected paginated path: {path}")
                 issues = [
@@ -1185,7 +1277,8 @@ class AgentReviewTests(unittest.TestCase):
 
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 if limit != 5000 or (
-                    "issues?state=all&creator=coco-agent%5Bbot%5D" not in path
+                    "issues?state=all&labels=agent-review" not in path
+                    or "creator=" in path
                 ):
                     raise AssertionError(f"Unexpected paginated path: {path}")
                 return [
