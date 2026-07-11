@@ -176,29 +176,26 @@
     {
       "path_globs": [
         "pom.xml",
-        "coco-build/coco-parent/**",
-        "coco-build/coco-bom/**",
-        "coco-foundation/coco-api/**",
-        "coco-spring/coco-config/**",
-        "coco-spring/coco-spring-boot-autoconfigure/**",
-        "coco-spring/coco-spring-boot-starter/**",
+        "coco-parent/**",
+        "coco-bom/**",
+        "coco-api/**",
+        "coco-config/**",
+        "coco-spring-boot-autoconfigure/**",
+        "coco-spring-boot-starter/**",
         "coco-features/coco-feature-registry/**",
         "coco-features/coco-feature-runtime/**",
-        "coco-build/coco-maven-plugin/**",
-        "coco-support/coco-test/**",
-        "docs/architecture/module-layout.md"
+        "coco-maven-plugin/**"
       ],
       "spec_paths": [
-        "docs/architecture/module-layout.md",
         "docs/superpowers/specs/2026-07-04-coco-framework-skeleton-design.md",
         "docs/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md"
       ]
     },
     {
       "path_globs": [
-        "coco-foundation/coco-api/**",
-        "coco-foundation/coco-common/coco-common-i18n/**",
-        "coco-spring/coco-config/**",
+        "coco-api/**",
+        "coco-common/coco-common-i18n/**",
+        "coco-config/**",
         "coco-features/coco-feature-registry/**"
       ],
       "spec_paths": [
@@ -227,7 +224,7 @@
     },
     {
       "path_globs": [
-        "coco-foundation/coco-common/coco-common-logging/**"
+        "coco-common/coco-common-logging/**"
       ],
       "spec_paths": [
         "docs/superpowers/specs/2026-07-10-coco-async-log-overflow-observability.md"
@@ -236,7 +233,7 @@
     {
       "path_globs": [
         "coco-features/coco-feature-codegen/**",
-        "coco-build/coco-maven-plugin/**"
+        "coco-maven-plugin/**"
       ],
       "spec_paths": [
         "docs/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
