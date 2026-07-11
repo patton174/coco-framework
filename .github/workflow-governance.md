@@ -10,11 +10,12 @@
 ## Protected Merge Path
 
 `main` accepts changes through pull requests. The repository requires the stable
-`CI gate` and `Agent jury gate` contexts, requires branches to be current with
-`main`, requires one current approval, resolves review conversations before
-merge, and rejects force pushes or branch deletion. The repository currently has
-one human collaborator, so the owner retains the administrator emergency bypass;
-the documented PR path remains the normal development flow.
+`CI gate`, `Agent jury gate`, and `Agent issue gate` contexts, requires branches
+to be current with `main`, requires one current approval, resolves review
+conversations before merge, and rejects force pushes or branch deletion. The
+repository currently has one human collaborator, so the owner retains the
+administrator emergency bypass; the documented PR path remains the normal
+development flow.
 
 Trusted Agent-review runtime changes are the narrow bootstrap exception. Because
 `pull_request_target` deliberately executes the protected base version, a PR
@@ -153,9 +154,12 @@ The private key is available only to protected trusted-publisher, README
 maintenance, and auto-merge jobs. Fork/bot no-secret review and the standalone
 issue gate never reference it.
 
-`Agent issue gate` remains advisory during bootstrap. Add it to `main` branch
-protection only after the dedicated App and same-repository, no-secret, Issue,
-and auto-merge canaries have all passed from protected `main`.
+`Agent issue gate` was promoted from advisory status after the dedicated App and
+same-repository, no-secret, Issue, and auto-merge canaries passed from protected
+`main`. Branch protection requires `CI gate`, `Agent jury gate`, and
+`Agent issue gate` in strict mode, with all three contexts bound to the built-in
+GitHub Actions App ID `15368`. A same-name status from another provider cannot
+satisfy the protected merge contract.
 
 ## Repository Automations
 
