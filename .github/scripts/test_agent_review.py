@@ -178,7 +178,13 @@ class AgentReviewTests(unittest.TestCase):
                 for verifier in value["roles"]["verifiers"]
             )
         )
-        self.assertEqual(8192, value["output_limits"]["verifier_tokens"])
+        self.assertEqual(
+            {8192},
+            {
+                value["output_limits"][key]
+                for key in ("specialist_tokens", "verifier_tokens", "chair_tokens")
+            },
+        )
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
@@ -262,7 +268,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(12_000, defaults["full_file_chars"])
         token_keys = ("specialist_tokens", "verifier_tokens", "chair_tokens")
         self.assertEqual(
-            {key: 4096 for key in token_keys},
+            {key: 8192 for key in token_keys},
             {key: review.normalized_limits({})[key] for key in token_keys},
         )
 

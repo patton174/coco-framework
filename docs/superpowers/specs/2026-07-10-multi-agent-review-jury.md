@@ -189,8 +189,8 @@ blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续
   diff 预算为 180,000 字符；补充代码上下文总计最多 60,000 字符、每个来源最多 4,000
   字符，单个完整变更文件最多读取 12,000 字符。
 - 输出 schema、当前 task、固定 SHA 和省略清单不可被裁掉。
-- specialist 和 chair 的单次输出预算为 4,096 tokens，verifier 为覆盖全部 P0-P3 使用
-  8,192 tokens；预算由受保护配置固定。全新输出重试或协议纠错每次都使用同一角色预算，
+- specialist、verifier 和 chair 的单次输出预算均为 8,192 tokens；预算由受保护配置固定。
+  全新输出重试或协议纠错每次都使用同一角色预算，
   不扩大预算，并共享每个 Agent 最多三次模型调用的固定上限。
 
 ## 提示词分层
