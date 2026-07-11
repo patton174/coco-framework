@@ -462,6 +462,8 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-issues: write
+          # PR comments use Pull requests permission even through the issue-comments endpoint.
+          permission-pull-requests: write
 
       - name: Resolve immutable Agent App bot identity
         id: app-identity

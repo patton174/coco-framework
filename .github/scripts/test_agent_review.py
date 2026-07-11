@@ -462,6 +462,12 @@ class AgentReviewTests(unittest.TestCase):
                             report, "correctness", context, 8
                         )
 
+    def test_specialist_confidence_is_optional(self) -> None:
+        context = bound_context()
+        report = specialist_report("correctness", context)
+        del report["findings"][0]["confidence"]
+        review.validate_specialist_report(report, "correctness", context, 8)
+
     def test_consensus_requires_both_verifiers_to_agree(self) -> None:
         context = bound_context()
         specialist = specialist_report("correctness", context)
@@ -1009,9 +1015,32 @@ class AgentReviewTests(unittest.TestCase):
                         review.finding_issue_marker(60, BASE_SHA, current["stable_id"]),
                         "closed",
                     ),
+                    98: {
+                        **issue(
+                            98,
+                            review.finding_issue_marker(
+                                60, BASE_SHA, current["stable_id"]
+                            ),
+                            "open",
+                        ),
+                        "user": {"id": 7, "login": "mallory", "type": "User"},
+                    },
+                    99: {
+                        **issue(
+                            99,
+                            review.finding_issue_marker(60, BASE_SHA, disappeared_id),
+                            "open",
+                        ),
+                        "body": (
+                            "Documentation example\n"
+                            + review.finding_issue_marker(60, BASE_SHA, disappeared_id)
+                        ),
+                        "user": {"id": 7, "login": "mallory", "type": "User"},
+                    },
                 }
                 self.comments: list[tuple[int, str]] = []
                 self.next_issue = 12
+                self.scan_snapshots: list[set[int]] = []
 
             def get_json(self, path: str) -> dict:
                 if path.endswith("/labels/agent-review"):
@@ -1020,9 +1049,24 @@ class AgentReviewTests(unittest.TestCase):
 
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 self.assertEqualLimit(limit)
-                if "issues?state=all" not in path:
+                if (
+                    path
+                    != "repos/patton174/coco-framework/issues?state=all&labels=agent-review&sort=created&direction=asc"
+                    or "creator=" in path
+                ):
                     raise AssertionError(f"Unexpected paginated path: {path}")
-                return list(self.issues.values())
+                filtered = [
+                    value
+                    for value in self.issues.values()
+                    if review.FINDING_ISSUE_LABEL
+                    in {label["name"] for label in value.get("labels", [])}
+                ]
+                if len(self.scan_snapshots) == 1:
+                    filtered = [
+                        value for value in filtered if int(value["number"]) != 12
+                    ]
+                self.scan_snapshots.append({int(value["number"]) for value in filtered})
+                return filtered
 
             @staticmethod
             def assertEqualLimit(limit: int) -> None:
@@ -1060,17 +1104,21 @@ class AgentReviewTests(unittest.TestCase):
                 raise AssertionError(f"Unexpected write: {method} {path}")
 
         client = FakeClient()
-        synchronized = review.synchronize_finding_issues(
-            client,
-            "patton174/coco-framework",
-            60,
-            HEAD_SHA,
-            [current, new],
-            app_login,
-            APP_BOT_ID,
-            "https://github.example/runs/1",
-            "https://github.example",
-            lambda: {},
+        with patch.object(review.time, "sleep") as sleep:
+            synchronized = review.synchronize_finding_issues(
+                client,
+                "patton174/coco-framework",
+                60,
+                HEAD_SHA,
+                [current, new],
+                app_login,
+                APP_BOT_ID,
+                "https://github.example/runs/1",
+                "https://github.example",
+                lambda: {},
+            )
+        sleep.assert_called_once_with(
+            review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[0]
         )
         self.assertEqual(2, len(synchronized))
         self.assertEqual("closed", client.issues[10]["state"])
@@ -1078,9 +1126,58 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual("open", client.issues[11]["state"])
         marker = review.parse_finding_issue_marker(client.issues[11]["body"])
         self.assertEqual(BASE_SHA, marker["head_sha"])
-        created = next(value for number, value in client.issues.items() if number >= 12)
+        self.assertEqual(3, len(client.scan_snapshots))
+        self.assertNotIn(12, client.scan_snapshots[0])
+        self.assertNotIn(12, client.scan_snapshots[1])
+        self.assertIn(12, client.scan_snapshots[2])
+        self.assertEqual("open", client.issues[98]["state"])
+        self.assertEqual("open", client.issues[99]["state"])
+        created = client.issues[12]
         created_marker = review.parse_finding_issue_marker(created["body"])
         self.assertEqual(HEAD_SHA, created_marker["head_sha"])
+
+    def test_finding_issue_convergence_retry_exhaustion_fails_closed(self) -> None:
+        finding_id = "v1-" + "9" * 64
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.scans = 0
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if (
+                    limit != 5000
+                    or "issues?state=all&labels=agent-review" not in path
+                    or "creator=" in path
+                ):
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                self.scans += 1
+                return []
+
+        client = FakeClient()
+        pr_checks: list[int] = []
+
+        def require_current_pr() -> dict:
+            pr_checks.append(len(pr_checks))
+            return {}
+
+        with patch.object(review.time, "sleep") as sleep:
+            with self.assertRaisesRegex(review.ReviewError, "did not converge"):
+                review.wait_for_finding_issue_convergence(
+                    client,
+                    "patton174/coco-framework",
+                    60,
+                    "coco-agent[bot]",
+                    APP_BOT_ID,
+                    {finding_id},
+                    require_current_pr,
+                )
+        self.assertEqual(
+            list(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS),
+            [value.args[0] for value in sleep.call_args_list],
+        )
+        attempts = len(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1
+        self.assertEqual(attempts, client.scans)
+        self.assertEqual(attempts * 2, len(pr_checks))
 
     def test_agent_issue_gate_fails_with_open_issue_and_passes_with_zero(self) -> None:
         app_login = "coco-agent[bot]"
@@ -1108,7 +1205,8 @@ class AgentReviewTests(unittest.TestCase):
 
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 if limit != 5000 or (
-                    "issues?state=all&creator=coco-agent%5Bbot%5D" not in path
+                    "issues?state=all&labels=agent-review" not in path
+                    or "creator=" in path
                 ):
                     raise AssertionError(f"Unexpected paginated path: {path}")
                 issues = [
@@ -1185,7 +1283,8 @@ class AgentReviewTests(unittest.TestCase):
 
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 if limit != 5000 or (
-                    "issues?state=all&creator=coco-agent%5Bbot%5D" not in path
+                    "issues?state=all&labels=agent-review" not in path
+                    or "creator=" in path
                 ):
                     raise AssertionError(f"Unexpected paginated path: {path}")
                 return [
@@ -1280,6 +1379,8 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertIn("client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}", trusted)
         self.assertIn("secrets.COCO_AGENT_APP_PRIVATE_KEY", trusted)
+        self.assertIn("permission-issues: write", trusted)
+        self.assertIn("permission-pull-requests: write", trusted)
         self.assertIn(
             "TOKEN_APP_SLUG: ${{ steps.agent-app-token.outputs.app-slug }}", trusted
         )
@@ -1898,7 +1999,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual([expected_call, expected_call], client.calls)
         warning.assert_called_once()
 
-    def test_retryable_output_failure_stops_after_second_completion(self) -> None:
+    def test_retryable_output_failure_stops_after_bounded_completions(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
                 self.calls = 0
@@ -1911,7 +2012,8 @@ class AgentReviewTests(unittest.TestCase):
         client = FakeClient()
         with patch("builtins.print"):
             with self.assertRaisesRegex(
-                review.RetryableModelOutputError, "retryable 2"
+                review.RetryableModelOutputError,
+                f"retryable {review.MODEL_COMPLETION_MAX_ATTEMPTS}",
             ):
                 review.complete_with_shape_repair(
                     client,
@@ -1920,7 +2022,7 @@ class AgentReviewTests(unittest.TestCase):
                     100,
                     lambda value: value,
                 )
-        self.assertEqual(2, client.calls)
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, client.calls)
 
     def test_refusal_error_does_not_retry_completion(self) -> None:
         class FakeClient:
@@ -1943,33 +2045,36 @@ class AgentReviewTests(unittest.TestCase):
             )
         self.assertEqual(1, client.calls)
 
-    def test_fresh_retry_shape_error_does_not_trigger_third_completion(self) -> None:
+    def test_fresh_retry_shape_error_receives_final_protocol_correction(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
-                self.calls = 0
+                self.calls: list[tuple[str, str, int]] = []
 
             def complete(self, system: str, user: str, max_tokens: int) -> dict:
-                del system, user, max_tokens
-                self.calls += 1
-                if self.calls == 1:
+                self.calls.append((system, user, max_tokens))
+                if len(self.calls) == 1:
                     raise review.RetryableModelOutputError("retryable")
-                return {"wrong": True}
+                if len(self.calls) == 2:
+                    return {"wrong": True}
+                return {"required": True}
 
         client = FakeClient()
 
         def validate(value: dict) -> None:
             review.require_report_fields(value, {"required"}, "Test report")
 
-        with patch("builtins.print"):
-            with self.assertRaises(review.ReportShapeError):
-                review.complete_with_shape_repair(
-                    client,
-                    "protected system",
-                    '{"task":"review"}',
-                    100,
-                    validate,
-                )
-        self.assertEqual(2, client.calls)
+        with patch("builtins.print") as warning:
+            result = review.complete_with_shape_repair(
+                client,
+                "protected system",
+                '{"task":"review"}',
+                100,
+                validate,
+            )
+        self.assertEqual({"required": True}, result)
+        self.assertEqual(3, len(client.calls))
+        self.assertIn("Protected protocol correction", client.calls[2][0])
+        self.assertEqual(2, warning.call_count)
 
     def test_shape_repair_retries_once_with_bound_original_task(self) -> None:
         class FakeClient:
@@ -2077,7 +2182,7 @@ class AgentReviewTests(unittest.TestCase):
                 warning.assert_called_once()
                 self.assertIn("Protected protocol correction", client.calls[1][0])
 
-    def test_shape_repair_fails_closed_after_second_shape_error(self) -> None:
+    def test_shape_repair_fails_closed_after_bounded_shape_errors(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
                 self.calls = 0
@@ -2097,7 +2202,7 @@ class AgentReviewTests(unittest.TestCase):
                 review.complete_with_shape_repair(
                     client, "protected system", '{"task":"review"}', 100, validate
                 )
-        self.assertEqual(2, client.calls)
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, client.calls)
 
     def test_report_identity_schema_version_errors_do_not_retry(self) -> None:
         class FakeClient:

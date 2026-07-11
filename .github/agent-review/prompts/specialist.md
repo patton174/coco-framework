@@ -76,7 +76,8 @@ Return exactly one valid JSON object with this shape:
   ]
 }
 
-`confidence` is an integer from 0 through 100. Use only the listed top-level and
-finding fields. Use empty arrays when there are no entries. Do not output
-Markdown, code fences, comments, prefixes, suffixes, a verdict, or hidden
-reasoning.
+`confidence` is optional advisory metadata and is not used to determine the
+verdict. When supplied, it must be an integer from 0 through 100. Use only the
+listed top-level and finding fields. Use empty arrays when there are no entries.
+Do not output Markdown, code fences, comments, prefixes, suffixes, a verdict, or
+hidden reasoning.

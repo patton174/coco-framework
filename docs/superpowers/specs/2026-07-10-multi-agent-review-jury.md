@@ -73,7 +73,9 @@ PR 标题、正文、commit message、文件名、diff、head 文件内容和所
 按固定 SHA 读取，仅作为文本进入上下文。
 
 Anthropic secrets 只进入 specialist、cross-review 和 chair job。prepare 和 publisher
-没有 Anthropic secrets；publisher 只拥有发布评论和 commit status 所需的最小写权限。
+没有 Anthropic secrets。publisher 的专用 App 安装令牌只申请 `Issues: write` 与
+`Pull requests: write`，分别用于 finding Issue 和 PR 汇总评论；commit status 由内置
+GitHub Actions App 发布。
 
 ## 工作流拓扑
 
@@ -170,7 +172,8 @@ blocker。
   完整代码、相关测试和模块信息共享剩余预算。
 - 输出 schema、当前 task、固定 SHA 和省略清单不可被裁掉。
 - specialist、verifier 和 chair 的单次输出预算均为 4,096 tokens，由受保护配置固定；全新
-  输出重试或协议纠错使用同一预算，不扩大预算，也不增加第三次调用。
+  输出重试或协议纠错每次都使用同一预算，不扩大预算，并共享每个 Agent 最多三次模型调用的
+  固定上限。
 
 ## 提示词分层
 
@@ -219,6 +222,9 @@ Specialist finding 至少包含：
 `context_gaps`。字段不一致、未知 finding ID、非法严重度、越界数量或 hash 不匹配都使
 该 Agent 失败。
 
+`confidence` 是可选的 0 到 100 整数，只作为展示性元数据，不参与 verifier 共识、严重度或
+最终 verdict。字段存在时必须严格校验类型和范围；缺失不构成基础设施失败。
+
 Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `verifications`。即使没有
 P0/P1 候选，也要明确记录已检查的绑定报告集合，并返回空 `verifications`，不能省略该
 席位的模型调用。
@@ -229,17 +235,17 @@ P0/P1 候选，也要明确记录已检查的绑定报告集合，并返回空 `
 
 - 任一必要 Agent 超时、拒答、API 错误、无法纠正的 schema 错误或 hash 不匹配：基础设施
   BLOCK。
-- 首次模型输出因 `max_tokens` 未完成、没有文本或文本不是严格 JSON 时，允许使用原受保护
-  prompt、原 canonical task、原角色和原 binding 进行一次全新输出重试。重试输入不得包含上次
-  输出，第二次发生任何错误时基础设施 BLOCK。
+- 模型输出因 `max_tokens` 未完成、没有文本、文本不是严格 JSON 或兼容模型明确返回可重试的
+  非完成状态时，使用当前受保护 prompt、canonical task、角色和 binding 进行有界全新完成。
+  在尚未取得可解析报告时，重试输入不得包含上次输出。
 - 对可解析 JSON，先校验 `schema_version`、受保护角色、`head_sha` 和 `context_sha256`；
   `schema_version` 必须是 JSON 整数 `1`，布尔值或浮点数均不接受。任一身份或 binding 不匹配
   都立即失败关闭。上述绑定通过后，字段集合、字段类型、数组、枚举、范围、
-  引用完整性或确定性权限契约不匹配，允许在同一受保护 prompt、角色和 binding 下进行一次协议
-  纠错。纠错输入包含原 canonical task、上次输出和确定性校验错误，并全部按不可信数据处理；
-  第二次仍不符合契约时基础设施 BLOCK。全新输出重试与协议纠错互斥，每个 Agent 最多调用模型
-  两次。拒答、API/鉴权或传输错误、非法响应 envelope、角色、SHA、hash 或 binding 不匹配不
-  进入任何重试，立即失败关闭。
+  引用完整性或确定性权限契约不匹配，允许在同一受保护 prompt、角色和 binding 下进行协议
+  纠错。纠错输入包含原 canonical task、上次输出和确定性校验错误，并全部按不可信数据处理。
+  全新输出重试与协议纠错共享同一个固定预算，可以按实际失败顺序组合，但每个 Agent 总计最多
+  调用模型三次；第三次仍未完成或不符合契约时基础设施 BLOCK。拒答、API/鉴权或传输错误、
+  非法响应 envelope、角色、SHA、hash 或 binding 不匹配不进入任何重试，立即失败关闭。
 - P0/P1 只有同时得到 `evidence-verifier=AGREE` 和 `policy-skeptic=AGREE`，才能成为
   confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不阻断。
