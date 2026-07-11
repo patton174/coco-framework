@@ -388,7 +388,7 @@ The dependency direction is intentionally one-way: Admin depends on Framework at
 <!-- COCO_STATS_START -->
 <table>
   <tr>
-    <td align="center"><strong>1</strong><br/>Stars</td>
+    <td align="center"><strong>0</strong><br/>Stars</td>
     <td align="center"><strong>0</strong><br/>Forks</td>
     <td align="center"><strong>1</strong><br/>Contributors</td>
     <td align="center"><a href="https://github.com/patton174/coco-framework">Updated: 2026-07-11</a></td>
