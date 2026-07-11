@@ -95,11 +95,16 @@ flowchart LR
 
 1. 从 GitHub API 读取 PR，并固定 `base_sha`、`head_sha`。
 2. 校验 PR 仍然 open、目标为 `main`。
-3. 对 README automation dispatch 额外校验仓库、分支、作者、文件集合和 payload SHA。
-4. 构建上下文后再次读取 PR；SHA 变化立即终止，让新事件创建新一轮。
-5. 对 base 版本的配置、提示词和评审脚本计算 protocol SHA-256，再对包含该协议描述的
+3. 校验 `changed_files` 不超过 GitHub 的 3,000 文件平台上限，并要求 Files API 分页结果与其
+   精确一致。300 文件以内读取 raw diff；超过 300 文件时使用 Files API patch 重建完整 diff，
+   逐文件校验状态、重命名或复制来源路径、hunk 声明的旧新行数以及实际增删行；hunk 外的
+   文件头只作为 metadata，不计入增删统计。任一 patch 缺失、为空或被截断时聚合列出全部
+   异常文件并失败，不生成部分评审上下文。
+4. 对 README automation dispatch 额外校验仓库、分支、作者、文件集合和 payload SHA。
+5. 构建上下文后再次读取 PR；SHA 变化立即终止，让新事件创建新一轮。
+6. 对 base 版本的配置、提示词和评审脚本计算 protocol SHA-256，再对包含该协议描述的
    canonical context JSON 计算 context SHA-256。
-6. 上传只读 context artifact，并把 `Agent jury gate` 标为 pending。
+7. 上传只读 context artifact，并把 `Agent jury gate` 标为 pending。
 
 ### Specialist
 
@@ -155,7 +160,8 @@ blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续
 上下文按以下优先级构建并保留来源：
 
 1. **受保护政策**：`AGENTS.md` 和 `.github/agent-review/policy.md`。
-2. **相关规格**：由变更路径映射到 `docs/superpowers/specs/*.md`，只读取 base 版本。
+2. **相关规格**：由新旧变更路径映射到 `docs/superpowers/specs/*.md`，只读取 base 版本；
+   所有命中的规格必须完整注入，否则上下文构建失败。
 3. **PR 意图**：标题、正文、commit message；标记为不可信声明，不覆盖政策和代码事实。
 4. **变更清单**：文件状态、增删行、模块归属和 diff hash。
 5. **代码证据**：patch、head 完整文件或动态 hunk、base 对照、相关测试和模块 POM。
@@ -168,18 +174,24 @@ blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续
 - 大文件围绕每个 hunk 提供更多前置上下文和较少后置上下文。
 - Java hunk 最多向前搜索 30 行，优先扩展到最近的方法、构造器、类或注解边界。
 - 自动补充同模块 `pom.xml`、对应测试文件、AutoConfiguration imports 和配置 metadata。
+- 变更文本文件先在仓库区域之间确定性轮询，再在区域内优先删除、构建治理文件、主代码、
+  测试和文档；最多为 24 个变更文本文件读取补充代码上下文。
+- 二进制或不支持的文件不读取完整内容，但必须逐路径写入省略清单。canonical context 明确
+  记录完整 diff 来自 GitHub raw diff 还是经过完整性校验的 Files API patches。
 - `robustness-blind` 不接收 PR 正文、commit message 或“by design”说明，但仍接收受保护
   项目政策，避免把故意范围说明变成审查禁区。
 
 ### 预算
 
-- PR diff 超过 60,000 Unicode 字符时失败，要求拆分 PR；不静默截断。
-- 单个 specialist 的组装上下文上限为 96,000 字符。
-- 政策和规格最多 20,000 字符；PR 意图最多 8,000 字符；patch 最多 48,000 字符；
-  完整代码、相关测试和模块信息共享剩余预算。
+- PR diff 超过 180,000 Unicode 字符时失败，要求拆分 PR；不静默截断，也不生成可供模型
+  继续裁决的部分 diff。
+- 单个 specialist 的 canonical 组装上下文上限为 384,000 字符。
+- 受保护政策和所有命中规格最多 48,000 字符且不得裁剪；PR 意图最多 8,000 字符；完整
+  diff 预算为 180,000 字符；补充代码上下文总计最多 60,000 字符、每个来源最多 4,000
+  字符，单个完整变更文件最多读取 12,000 字符。
 - 输出 schema、当前 task、固定 SHA 和省略清单不可被裁掉。
-- specialist 和 chair 的单次输出预算为 4,096 tokens，verifier 为覆盖全部 P0-P3 使用
-  8,192 tokens；预算由受保护配置固定。全新输出重试或协议纠错每次都使用同一角色预算，
+- specialist、verifier 和 chair 的单次输出预算均为 8,192 tokens；预算由受保护配置固定。
+  全新输出重试或协议纠错每次都使用同一角色预算，
   不扩大预算，并共享每个 Agent 最多三次模型调用的固定上限。
 
 ## 提示词分层
