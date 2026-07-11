@@ -46,6 +46,15 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - Use standard JavaDoc HTML tags for public classes. Existing project docs and JavaDoc use Chinese descriptions; continue that style where appropriate.
 - Keep message text in module message bundles instead of hard-coding user-visible text.
 - Do not introduce unrelated refactors, formatting churn, or generated build artifacts into commits.
+- Name GitHub Actions files with lowercase kebab-case; prefix reusable-only workflows with `reusable-`. Keep Python automation in snake_case and Node.js automation in lowercase kebab-case. Workflow file renames must preserve stable required-check contexts.
+
+## README Maintenance
+
+- `README.md` and `README_CN.md` are deterministic generated documents. Do not edit them directly.
+- Maintain English and Chinese source fragments under `.github/readme/fragments/`; the Chinese document is the structural and visual reference, and both manifests must remain aligned.
+- Run `node .github/readme/scripts/render.mjs --write` after fragment changes and `node .github/readme/scripts/render.mjs --check` before committing.
+- Architecture and explanatory fragments may be updated by the protected, low-frequency README Agent workflow. Stars, forks, contributor data, and timestamps remain script-owned and must not be model-generated.
+- README automation must rebuild its branch from protected `main`, open a PR, and pass the normal protected merge path. It must never execute scripts from an existing automation branch with repository secrets.
 
 ## Verification
 
@@ -83,11 +92,13 @@ mvn -B -Prelease -Drevision=1.0.0 -Dgpg.skip=true -DskipTests verify
 
 - Work on `codex-dev-*` or focused feature branches, then merge through PR into `main`.
 - `main` is protected. Direct pushes, force pushes, and branch deletion are not part of the development flow.
-- Keep `main` release-ready and require the stable `CI gate` and `Agent jury gate` contexts before merging. `CI gate` aggregates the cross-platform test matrix, static analysis, and CodeQL; do not protect matrix-generated check names individually.
+- Keep `main` release-ready and require the stable `CI gate` and `Agent jury gate` contexts before merging. `CI gate` aggregates the cross-platform test matrix, static analysis, governance protocol tests, README drift validation, and CodeQL; do not protect matrix-generated check names individually. Add `Agent issue gate` only after its same-repository, no-secret, and auto-merge canaries pass on protected `main`.
 - Agent review uses five independent specialists, two independent verifiers, and one chair. P0/P1 findings block only when both verifiers agree; the chair cannot change the deterministic result.
 - Agent review may use repository secrets only for same-repository, non-bot pull requests. It runs trusted tooling from the protected base branch, reads PR content as untrusted text through GitHub APIs, and never checks out or executes PR code. Fork and bot PRs take a no-secret path and require explicit maintainer approval for the current head SHA.
 - Trusted Agent-review runtime changes cannot self-host their PR-head code under `pull_request_target`. Only when a protected-base reviewer defect prevents `Agent jury gate` success, and the failure is confirmed not to be a valid P0/P1 finding, may the owner emergency bypass bootstrap a reviewed update after `CI gate` succeeds, exact-head protocol tests and independent review pass, and conversations are resolved. Never execute PR-head reviewer code with repository secrets; immediately validate the merged base with same-repository and no-secret canaries before allowing further normal merges.
-- The Agent workflow publishes a commit status and one managed jury comment; it does not submit GitHub approvals. Require one current human approval and resolve review conversations before merging. Use merge commits so roadmap PR boundaries remain visible; squash and rebase merging are disabled at repository level.
+- The Agent workflow publishes gate statuses through the GitHub Actions App. A dedicated Coco GitHub App publishes the managed jury comment and PR-bound finding Issues; it does not submit GitHub approvals. Every open Issue carrying the protected `coco-agent-review` marker blocks `Agent issue gate` until a later bound review or maintainer resolution closes it.
+- Automatic merge uses the dedicated App only after re-reading the exact head and confirming all three gates, one current human approval, zero unresolved review conversations, zero open bound Agent Issues, a clean mergeable branch, and merge-commit-only repository settings. It never uses an administrator bypass for a missing condition.
+- Require one current human approval and resolve review conversations before merging. Use merge commits so roadmap PR boundaries remain visible; squash and rebase merging are disabled at repository level.
 - Repository automations that update tracked files must use a PR and the protected CI workflow rather than pushing directly to `main`.
 - Use SemVer release tags such as `v1.0.2`.
 - Fetch and push use the HTTPS remote through the GitHub CLI credential helper so proxy-enabled environments do not depend on SSH transport.

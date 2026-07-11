@@ -1,3 +1,5 @@
+<!-- Generated from .github/readme/manifest.json. Edit the source fragments, then run: node .github/readme/scripts/render.mjs --write -->
+
 <div align="center">
 
 # Coco Framework
@@ -32,7 +34,7 @@
   ·
   <a href="#samples">Samples</a>
   ·
-  <a href="#stars">Stars</a>
+  <a href="#star-history">Stars</a>
   ·
   <a href="#contributors">Contributors</a>
 </p>
@@ -387,7 +389,7 @@ flowchart LR
 <p><a href="https://github.com/patton174/coco-framework/graphs/contributors">View all contributors</a></p>
 <!-- COCO_CONTRIBUTORS_END -->
 
-<sub>The stars and contributors sections are refreshed by GitHub Actions. See `.github/workflows/update-readme-insights.yml` and `tools/docs/update-readme-insights.mjs`.</sub>
+<sub>The stars and contributors sections are refreshed by the README maintenance workflow. See `.github/workflows/readme-maintenance.yml` and `.github/readme/scripts/update-insights.mjs`.</sub>
 
 ## License
 

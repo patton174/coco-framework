@@ -39,18 +39,35 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Validate workflows
+      - name: Install Python governance tooling
+        run: python -m pip install --disable-pip-version-check -r .github/requirements/static-analysis.txt
+
+      - name: Set up Node.js for README protocol tests
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '24'
+
+      - name: Validate workflows and embedded shell
         shell: bash
         run: |
           set -euo pipefail
-          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          shellcheck --version
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck=shellcheck
 
-      - name: Test Agent jury protocol
+      - name: Test repository governance protocols
         run: |
           python -m py_compile \
             .github/scripts/agent_review.py \
-            .github/scripts/test_agent_review.py
+            .github/scripts/agent_issue_gate.py \
+            .github/scripts/auto_merge.py \
+            .github/scripts/test_agent_review.py \
+            .github/scripts/test_auto_merge.py
           python .github/scripts/test_agent_review.py
+          python .github/scripts/test_auto_merge.py
+          python -m ruff check .github/scripts
+          python -m ruff format --check .github/scripts
+          node --test .github/readme/tests/readme.test.mjs
+          node .github/readme/scripts/render.mjs --check
 
       # SpotBugs analyzes compiled bytecode, so classes must exist first.
       # A single reactor invocation resolves inter-module dependencies.

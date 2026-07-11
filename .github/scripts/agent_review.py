@@ -25,8 +25,14 @@ SCHEMA_VERSION = 1
 COMMENT_MARKER = "<!-- agent-jury:v1 -->"
 LEGACY_COMMENT_MARKER = "<!-- claude-review-marker: managed by workflow -->"
 STATUS_CONTEXT = "Agent jury gate"
+ISSUE_STATUS_CONTEXT = "Agent issue gate"
+FINDING_ISSUE_LABEL = "agent-review"
+FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}$")
+REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+APP_BOT_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?\[bot\]$")
+STABLE_FINDING_ID_RE = re.compile(r"^v1-[0-9a-f]{64}$")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 JAVA_BOUNDARY_RE = re.compile(
     r"^\s*(?:@[\w.]+(?:\([^)]*\))?\s*$|"
@@ -77,6 +83,71 @@ class GitHubNotFoundError(ReviewError):
 
 def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def finding_issue_marker(pr_number: int, first_head_sha: str, finding_id: str) -> str:
+    if type(pr_number) is not int or pr_number < 1:
+        raise ReviewError("Finding issue pull request number is invalid.")
+    if not SHA_RE.fullmatch(first_head_sha):
+        raise ReviewError("Finding issue first head SHA is invalid.")
+    if not STABLE_FINDING_ID_RE.fullmatch(finding_id):
+        raise ReviewError("Finding issue stable ID is invalid.")
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "pull_request": pr_number,
+        "head_sha": first_head_sha,
+        "finding_id": finding_id,
+    }
+    return (
+        FINDING_ISSUE_MARKER_PREFIX
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        + " -->"
+    )
+
+
+def parse_finding_issue_marker(body: Any) -> dict[str, Any] | None:
+    text = body if isinstance(body, str) else ""
+    marker_count = text.count(FINDING_ISSUE_MARKER_PREFIX)
+    if marker_count == 0:
+        return None
+    if marker_count != 1:
+        raise ReviewError("Finding issue body must contain exactly one marker.")
+    lines = text.splitlines()
+    if not lines:
+        raise ReviewError("Finding issue marker is malformed.")
+    first_line = lines[0]
+    if not first_line.startswith(FINDING_ISSUE_MARKER_PREFIX):
+        raise ReviewError("Finding issue marker must be the first body line.")
+    if not first_line.endswith(" -->"):
+        raise ReviewError("Finding issue marker is malformed.")
+    encoded = first_line[len(FINDING_ISSUE_MARKER_PREFIX) : -4]
+    try:
+        payload = json.loads(encoded)
+    except json.JSONDecodeError as exc:
+        raise ReviewError("Finding issue marker JSON is invalid.") from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version",
+        "pull_request",
+        "head_sha",
+        "finding_id",
+    }:
+        raise ReviewError("Finding issue marker schema is invalid.")
+    if not valid_schema_version(payload.get("schema_version")):
+        raise ReviewError("Finding issue marker schema_version is invalid.")
+    pr_number = payload.get("pull_request")
+    head_sha = payload.get("head_sha")
+    finding_id = payload.get("finding_id")
+    if type(pr_number) is not int or pr_number < 1:
+        raise ReviewError("Finding issue marker pull_request is invalid.")
+    if not isinstance(head_sha, str) or not SHA_RE.fullmatch(head_sha):
+        raise ReviewError("Finding issue marker head_sha is invalid.")
+    if not isinstance(finding_id, str) or not STABLE_FINDING_ID_RE.fullmatch(
+        finding_id
+    ):
+        raise ReviewError("Finding issue marker finding_id is invalid.")
+    if first_line != finding_issue_marker(pr_number, head_sha, finding_id):
+        raise ReviewError("Finding issue marker is not canonical JSON.")
+    return payload
 
 
 def sha256_text(value: str) -> str:
@@ -824,27 +895,11 @@ def command_prepare(args: argparse.Namespace) -> int:
     if not SHA_RE.fullmatch(base_sha) or not SHA_RE.fullmatch(head_sha):
         raise ReviewError("GitHub returned invalid PR commit SHAs.")
     if args.expected_head_sha and args.expected_head_sha != head_sha:
-        raise ReviewError("The dispatched head SHA does not match the pull request.")
+        raise ReviewError("The event head SHA does not match the pull request.")
 
     files = client.paginate(
         f"repos/{args.repository}/pulls/{args.pr_number}/files", limit=500
     )
-    if args.event_name == "repository_dispatch":
-        author = str((pr.get("user") or {}).get("login") or "")
-        head_repo = str(
-            (((pr.get("head") or {}).get("repo") or {}).get("full_name")) or ""
-        )
-        filenames = sorted(str(item.get("filename", "")) for item in files)
-        if (
-            (pr.get("head") or {}).get("ref") != "automation/readme-insights"
-            or author != "github-actions[bot]"
-            or head_repo != args.repository
-            or filenames != ["README.md", "README_CN.md"]
-            or not args.expected_head_sha
-        ):
-            raise ReviewError(
-                "repository_dispatch is reserved for the bound README automation PR."
-            )
 
     trusted = classify_pr(pr, args.repository)
     ignored = args.event_name == "pull_request_review" and trusted
@@ -1992,43 +2047,517 @@ def managed_comment_order(body: str) -> tuple[int, int]:
     return (int(match.group(1)), int(match.group(2)))
 
 
+def require_repository(value: Any) -> str:
+    repository = str(value or "")
+    if not REPOSITORY_RE.fullmatch(repository):
+        raise ReviewError("GitHub repository identity is invalid.")
+    return repository
+
+
+def require_app_bot_login(value: Any) -> str:
+    login = str(value or "")
+    if not APP_BOT_LOGIN_RE.fullmatch(login):
+        raise ReviewError("GitHub App bot identity is invalid.")
+    return login
+
+
+def require_app_bot_id(value: Any) -> int:
+    if type(value) is int:
+        bot_id = value
+    elif isinstance(value, str) and re.fullmatch(r"[1-9][0-9]*", value):
+        bot_id = int(value)
+    else:
+        raise ReviewError("GitHub App bot user ID is invalid.")
+    if bot_id < 1:
+        raise ReviewError("GitHub App bot user ID is invalid.")
+    return bot_id
+
+
+def resource_actor_identity(resource: dict[str, Any], label: str) -> tuple[str, int]:
+    user = resource.get("user")
+    if not isinstance(user, dict):
+        raise ReviewError(f"{label} has no GitHub actor identity.")
+    login = str(user.get("login") or "")
+    if user.get("type") != "Bot" or not APP_BOT_LOGIN_RE.fullmatch(login):
+        raise ReviewError(f"{label} was not authored by a GitHub App bot.")
+    bot_id = user.get("id")
+    if type(bot_id) is not int or bot_id < 1:
+        raise ReviewError(f"{label} has no immutable GitHub bot user ID.")
+    return login, bot_id
+
+
+def require_resource_actor(
+    resource: Any, expected_login: str, expected_bot_id: int, label: str
+) -> dict[str, Any]:
+    if not isinstance(resource, dict):
+        raise ReviewError(f"{label} GitHub response is invalid.")
+    if resource_actor_identity(resource, label) != (expected_login, expected_bot_id):
+        raise ReviewError(f"{label} GitHub App identity mismatch.")
+    return resource
+
+
+def normalized_finding_identity_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+def stable_finding_id(finding: dict[str, Any]) -> str:
+    source_id = str(finding.get("id") or "")
+    role = source_id.partition(":")[0]
+    start_line = finding.get("start_line")
+    end_line = finding.get("end_line")
+    if (
+        type(start_line) is not int
+        or type(end_line) is not int
+        or start_line < 1
+        or end_line < start_line
+    ):
+        raise ReviewError("Actionable finding line identity is invalid.")
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "role": normalized_finding_identity_text(role),
+        "category": normalized_finding_identity_text(finding.get("category")),
+        "file": str(finding.get("file") or "").strip(),
+        "start_line": start_line,
+        "end_line": end_line,
+        "title": normalized_finding_identity_text(finding.get("title")),
+        "claim": normalized_finding_identity_text(finding.get("claim")),
+    }
+    text_fields = ("role", "category", "file", "title", "claim")
+    if any(not str(material[key]) for key in text_fields):
+        raise ReviewError("Actionable finding identity is incomplete.")
+    return "v1-" + sha256_text(canonical_json(material))
+
+
+def actionable_findings(
+    final: dict[str, Any], specialist_reports: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    by_source_id: dict[str, dict[str, Any]] = {}
+    for report in specialist_reports:
+        for finding in report.get("findings", []):
+            source_id = str(finding.get("id") or "")
+            if not source_id or source_id in by_source_id:
+                raise ReviewError(
+                    "Specialist finding IDs are incomplete or duplicated."
+                )
+            by_source_id[source_id] = finding
+
+    consensus = final.get("consensus")
+    chair = final.get("chair")
+    if not isinstance(consensus, dict) or not isinstance(chair, dict):
+        raise ReviewError("Final jury artifact cannot select actionable findings.")
+    confirmed_ids = {
+        str((item.get("finding") or {}).get("id") or "")
+        for item in consensus.get("confirmed", [])
+        if isinstance(item, dict)
+    }
+    followup_ids = chair.get("follow_up_finding_ids")
+    if not isinstance(followup_ids, list):
+        raise ReviewError("Chair follow-up finding IDs are invalid.")
+    selected_ids = confirmed_ids | {str(value) for value in followup_ids}
+
+    result: list[dict[str, Any]] = []
+    stable_ids: dict[str, str] = {}
+    for source_id in sorted(selected_ids):
+        finding = by_source_id.get(source_id)
+        if finding is None:
+            raise ReviewError(
+                "Actionable finding references an unknown source finding."
+            )
+        stable_id = stable_finding_id(finding)
+        duplicate = stable_ids.get(stable_id)
+        if duplicate is not None:
+            raise ReviewError(
+                f"Actionable findings {duplicate} and {source_id} have the same stable identity."
+            )
+        stable_ids[stable_id] = source_id
+        result.append(
+            {
+                "stable_id": stable_id,
+                "source_id": source_id,
+                "kind": "confirmed-blocker"
+                if source_id in confirmed_ids
+                else "follow-up",
+                "finding": finding,
+            }
+        )
+    return result
+
+
+def issue_label_names(issue: dict[str, Any]) -> set[str]:
+    result: set[str] = set()
+    for label in issue.get("labels") or []:
+        if isinstance(label, dict):
+            name = str(label.get("name") or "")
+        else:
+            name = str(label or "")
+        if name:
+            result.add(name)
+    return result
+
+
+def issue_title(actionable: dict[str, Any]) -> str:
+    finding = actionable["finding"]
+    title = re.sub(r"\s+", " ", str(finding["title"])).strip()
+    prefix = f"[Agent Review][{finding['severity']}] "
+    return prefix + title[: max(1, 256 - len(prefix))]
+
+
+def finding_issue_body(
+    repository: str,
+    pr_number: int,
+    first_head_sha: str,
+    current_head_sha: str,
+    actionable: dict[str, Any],
+    run_url: str,
+    server_url: str,
+) -> str:
+    finding = actionable["finding"]
+    stable_id = str(actionable["stable_id"])
+    source_path = urllib.parse.quote(str(finding["file"]), safe="/")
+    line_fragment = f"#L{finding['start_line']}-L{finding['end_line']}"
+    repository_url = f"{server_url.rstrip('/')}/{repository}"
+    disposition = (
+        "Confirmed blocker"
+        if actionable["kind"] == "confirmed-blocker"
+        else "Chair-selected follow-up"
+    )
+    lines = [
+        finding_issue_marker(pr_number, first_head_sha, stable_id),
+        "## Agent review finding",
+        "",
+        f"- Pull request: [#{pr_number}]({repository_url}/pull/{pr_number})",
+        f"- First observed head: [`{first_head_sha}`]({repository_url}/commit/{first_head_sha})",
+        f"- Latest reviewed head: [`{current_head_sha}`]({repository_url}/commit/{current_head_sha})",
+        f"- Source finding: `{markdown_text(actionable['source_id'])}`",
+        f"- Stable finding ID: `{stable_id}`",
+        f"- Disposition: **{disposition}**",
+        f"- Severity: **{markdown_text(finding['severity'])}**",
+        f"- Category: `{markdown_text(finding['category'])}`",
+        (
+            f"- Location: [`{markdown_text(finding['file'])}:{finding['start_line']}`]"
+            f"({repository_url}/blob/{current_head_sha}/{source_path}{line_fragment})"
+        ),
+        "",
+        "### Claim",
+        "",
+        markdown_text(finding["claim"], 4000),
+        "",
+        "### Trigger",
+        "",
+        markdown_text(finding["trigger"], 4000) or "Not supplied.",
+        "",
+        "### Impact",
+        "",
+        markdown_text(finding["impact"], 4000),
+        "",
+        "### Evidence",
+        "",
+        markdown_text(finding["evidence"], 6000),
+        "",
+        "### Verification",
+        "",
+        markdown_text(finding["verification"], 4000),
+        "",
+        f"<sub>[Agent workflow run]({run_url})</sub>",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def ensure_finding_issue_label(client: GitHubClient, repository: str) -> None:
+    encoded = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
+    try:
+        label = client.get_json(f"repos/{repository}/labels/{encoded}")
+    except GitHubNotFoundError:
+        label = client.send_json(
+            "POST",
+            f"repos/{repository}/labels",
+            {
+                "name": FINDING_ISSUE_LABEL,
+                "color": "b60205",
+                "description": "Actionable finding managed by Coco Agent review",
+            },
+        )
+    if not isinstance(label, dict) or label.get("name") != FINDING_ISSUE_LABEL:
+        raise ReviewError("Agent review issue label could not be verified.")
+
+
+def app_finding_issues(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    expected_login: str,
+    expected_bot_id: int,
+) -> dict[str, dict[str, Any]]:
+    creator = urllib.parse.quote(expected_login, safe="")
+    issues = client.paginate(
+        f"repos/{repository}/issues?state=all&creator={creator}&sort=created&direction=asc",
+        limit=5000,
+    )
+    result: dict[str, dict[str, Any]] = {}
+    for issue in issues:
+        if not isinstance(issue, dict) or issue.get("pull_request"):
+            continue
+        user = issue.get("user")
+        if not isinstance(user, dict):
+            raise ReviewError(
+                "Agent review finding issue has no GitHub actor identity."
+            )
+        if str(user.get("login") or "") != expected_login:
+            continue
+        require_resource_actor(
+            issue, expected_login, expected_bot_id, "Agent review finding issue"
+        )
+        marker = parse_finding_issue_marker(issue.get("body"))
+        if marker is None:
+            continue
+        if marker["pull_request"] != pr_number:
+            continue
+        number = issue.get("number")
+        if type(number) is not int or number < 1:
+            raise ReviewError("Agent review finding issue number is invalid.")
+        finding_id = str(marker["finding_id"])
+        if finding_id in result:
+            raise ReviewError("Duplicate Agent review issues bind the same finding ID.")
+        result[finding_id] = issue
+    return result
+
+
+def verify_finding_issue(
+    issue: Any,
+    expected_login: str,
+    expected_bot_id: int,
+    expected_marker: str,
+    expected_state: str,
+) -> dict[str, Any]:
+    value = require_resource_actor(
+        issue, expected_login, expected_bot_id, "Agent review finding issue"
+    )
+    body = str(value.get("body") or "")
+    marker = parse_finding_issue_marker(body)
+    if (
+        marker is None
+        or finding_issue_marker(
+            int(marker["pull_request"]),
+            str(marker["head_sha"]),
+            str(marker["finding_id"]),
+        )
+        != expected_marker
+    ):
+        raise ReviewError(
+            "Agent review finding issue marker changed during publication."
+        )
+    if str(value.get("state") or "") != expected_state:
+        raise ReviewError("Agent review finding issue state was not persisted.")
+    if FINDING_ISSUE_LABEL not in issue_label_names(value):
+        raise ReviewError("Agent review finding issue label was not persisted.")
+    return value
+
+
+def synchronize_finding_issues(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    head_sha: str,
+    findings: list[dict[str, Any]],
+    expected_login: str,
+    expected_bot_id: int,
+    run_url: str,
+    server_url: str,
+    require_current_pr: Callable[[], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    existing = app_finding_issues(
+        client, repository, pr_number, expected_login, expected_bot_id
+    )
+    if findings or existing:
+        ensure_finding_issue_label(client, repository)
+    selected = {str(item["stable_id"]): item for item in findings}
+    synchronized: list[dict[str, Any]] = []
+
+    for stable_id, actionable in sorted(selected.items()):
+        previous = existing.get(stable_id)
+        first_head_sha = head_sha
+        if previous is not None:
+            marker = parse_finding_issue_marker(previous.get("body"))
+            if marker is None:
+                raise ReviewError("Existing Agent review issue lost its marker.")
+            first_head_sha = str(marker["head_sha"])
+        marker_line = finding_issue_marker(pr_number, first_head_sha, stable_id)
+        labels = issue_label_names(previous or {}) | {FINDING_ISSUE_LABEL}
+        payload = {
+            "title": issue_title(actionable),
+            "body": finding_issue_body(
+                repository,
+                pr_number,
+                first_head_sha,
+                head_sha,
+                actionable,
+                run_url,
+                server_url,
+            ),
+            "labels": sorted(labels),
+        }
+        require_current_pr()
+        if previous is None:
+            issue = client.send_json("POST", f"repos/{repository}/issues", payload)
+        else:
+            issue = client.send_json(
+                "PATCH",
+                f"repos/{repository}/issues/{previous['number']}",
+                {**payload, "state": "open"},
+            )
+        value = verify_finding_issue(
+            issue, expected_login, expected_bot_id, marker_line, "open"
+        )
+        synchronized.append({"actionable": actionable, "issue": value})
+
+    repository_url = f"{server_url.rstrip('/')}/{repository}"
+    for stable_id, issue in sorted(existing.items()):
+        if stable_id in selected or issue.get("state") != "open":
+            continue
+        require_current_pr()
+        comment = client.send_json(
+            "POST",
+            f"repos/{repository}/issues/{issue['number']}/comments",
+            {
+                "body": (
+                    "This finding no longer appears in the bound Agent review for "
+                    f"[PR #{pr_number}]({repository_url}/pull/{pr_number}) at "
+                    f"[`{head_sha}`]({repository_url}/commit/{head_sha}). Closing it automatically."
+                )
+            },
+        )
+        require_resource_actor(
+            comment,
+            expected_login,
+            expected_bot_id,
+            "Agent review issue closure comment",
+        )
+        labels = issue_label_names(issue) | {FINDING_ISSUE_LABEL}
+        require_current_pr()
+        closed = client.send_json(
+            "PATCH",
+            f"repos/{repository}/issues/{issue['number']}",
+            {
+                "state": "closed",
+                "state_reason": "completed",
+                "labels": sorted(labels),
+            },
+        )
+        marker_line = str(issue.get("body") or "").splitlines()[0]
+        verify_finding_issue(
+            closed, expected_login, expected_bot_id, marker_line, "closed"
+        )
+
+    require_current_pr()
+    current = app_finding_issues(
+        client, repository, pr_number, expected_login, expected_bot_id
+    )
+    open_ids = {
+        finding_id
+        for finding_id, issue in current.items()
+        if issue.get("state") == "open"
+    }
+    if open_ids != set(selected):
+        raise ReviewError(
+            "Agent review finding issue synchronization did not converge."
+        )
+    return synchronized
+
+
+def append_finding_issue_summary(
+    review_body: str,
+    synchronized: list[dict[str, Any]],
+    repository: str,
+    server_url: str,
+) -> str:
+    lines = [review_body.rstrip(), "", "#### Actionable Issues", ""]
+    if not synchronized:
+        lines.append("No open Agent review issues.")
+    else:
+        repository_url = f"{server_url.rstrip('/')}/{repository}"
+        for value in sorted(
+            synchronized, key=lambda item: int(item["issue"]["number"])
+        ):
+            issue = value["issue"]
+            actionable = value["actionable"]
+            finding = actionable["finding"]
+            issue_url = str(issue.get("html_url") or "") or (
+                f"{repository_url}/issues/{issue['number']}"
+            )
+            lines.append(
+                f"- [#{issue['number']}]({issue_url}) **{markdown_text(finding['severity'])} "
+                f"{markdown_text(finding['title'], 200)}** "
+                f"(`{markdown_text(actionable['stable_id'])}`)"
+            )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def managed_comment(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    expected_login: str,
+    expected_bot_id: int,
+) -> dict[str, Any] | None:
+    comments = client.paginate(
+        f"repos/{repository}/issues/{pr_number}/comments", limit=500
+    )
+    managed: list[dict[str, Any]] = []
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        body = str(comment.get("body") or "")
+        login = str((comment.get("user") or {}).get("login") or "")
+        if login != expected_login or not body.startswith(
+            (COMMENT_MARKER, LEGACY_COMMENT_MARKER)
+        ):
+            continue
+        require_resource_actor(
+            comment, expected_login, expected_bot_id, "Agent jury managed comment"
+        )
+        managed.append(comment)
+    if len(managed) > 1:
+        raise ReviewError("Multiple GitHub App comments claim the Agent jury marker.")
+    return managed[0] if managed else None
+
+
+def require_managed_comment_order(
+    previous: dict[str, Any] | None, run_order: tuple[int, int]
+) -> None:
+    if previous and managed_comment_order(str(previous.get("body") or "")) > run_order:
+        raise ReviewError("A newer Agent jury run already owns the managed comment.")
+
+
 def upsert_comment(
     client: GitHubClient,
     repository: str,
     pr_number: int,
     body: str,
     run_order: tuple[int, int],
-) -> None:
-    comments = client.paginate(
-        f"repos/{repository}/issues/{pr_number}/comments", limit=500
+    expected_login: str,
+    expected_bot_id: int,
+    previous: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    previous = previous or managed_comment(
+        client, repository, pr_number, expected_login, expected_bot_id
     )
-    managed = [
-        comment
-        for comment in comments
-        if str((comment.get("user") or {}).get("login") or "") == "github-actions[bot]"
-        and str(comment.get("body") or "").startswith(
-            (COMMENT_MARKER, LEGACY_COMMENT_MARKER)
-        )
-    ]
-    previous = max(
-        managed,
-        key=lambda comment: managed_comment_order(str(comment.get("body") or "")),
-        default=None,
-    )
+    require_managed_comment_order(previous, run_order)
     if previous:
-        if managed_comment_order(str(previous.get("body") or "")) > run_order:
-            raise ReviewError(
-                "A newer Agent jury run already owns the managed comment."
-            )
-        client.send_json(
+        value = client.send_json(
             "PATCH",
             f"repos/{repository}/issues/comments/{previous['id']}",
             {"body": body},
         )
     else:
-        client.send_json(
+        value = client.send_json(
             "POST", f"repos/{repository}/issues/{pr_number}/comments", {"body": body}
         )
+    comment = require_resource_actor(
+        value, expected_login, expected_bot_id, "Agent jury managed comment"
+    )
+    if comment.get("body") != body:
+        raise ReviewError("Agent jury managed comment body was not persisted.")
+    return comment
 
 
 def publish_status(
@@ -2038,13 +2567,14 @@ def publish_status(
     state: str,
     description: str,
     target_url: str,
+    context: str = STATUS_CONTEXT,
 ) -> None:
     client.send_json(
         "POST",
         f"repos/{repository}/statuses/{head_sha}",
         {
             "state": state,
-            "context": STATUS_CONTEXT,
+            "context": context,
             "description": description[:140],
             "target_url": target_url,
         },
@@ -2094,25 +2624,45 @@ def command_publish(args: argparse.Namespace) -> int:
     if metadata.get("ignored"):
         print(canonical_json({"state": "ignored"}))
         return 0
-    client = GitHubClient(
+    status_client = GitHubClient(
         os.environ.get("GH_TOKEN", ""),
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
     )
-    repository = str(metadata["repository"])
-    pr_number = int(metadata["pr_number"])
+    repository = require_repository(metadata.get("repository"))
+    pr_number = metadata.get("pr_number")
+    if type(pr_number) is not int or pr_number < 1:
+        raise ReviewError("Agent jury publication PR number is invalid.")
     head_sha = str(metadata["head_sha"])
+    base_sha = str(metadata["base_sha"])
+    if not SHA_RE.fullmatch(head_sha) or not SHA_RE.fullmatch(base_sha):
+        raise ReviewError("Agent jury publication commit binding is invalid.")
 
     def require_current_pr() -> dict[str, Any]:
-        value = client.get_json(f"repos/{repository}/pulls/{pr_number}")
-        if (value.get("head") or {}).get("sha") != head_sha or (
-            value.get("base") or {}
-        ).get("sha") != metadata["base_sha"]:
+        value = status_client.get_json(f"repos/{repository}/pulls/{pr_number}")
+        if (
+            value.get("state") != "open"
+            or (value.get("base") or {}).get("ref") != "main"
+            or (value.get("head") or {}).get("sha") != head_sha
+            or (value.get("base") or {}).get("sha") != base_sha
+        ):
             raise ReviewError("Pull request changed before Agent jury publication.")
         return value
 
     require_current_pr()
 
     if metadata.get("trusted"):
+        agent_client = GitHubClient(
+            os.environ.get("AGENT_GH_TOKEN", ""),
+            os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+        )
+        expected_app_login = require_app_bot_login(
+            os.environ.get("COCO_AGENT_APP_LOGIN", "")
+        )
+        expected_app_bot_id = require_app_bot_id(
+            os.environ.get("COCO_AGENT_APP_BOT_ID", "")
+        )
+        artifact_valid = False
+        selected_findings: list[dict[str, Any]] = []
         required_paths = (
             args.config,
             args.context,
@@ -2163,6 +2713,8 @@ def command_publish(args: argparse.Namespace) -> int:
                     if verdict == "PASS"
                     else "Agent jury confirmed blockers"
                 )
+                selected_findings = actionable_findings(final, specialist_reports)
+                artifact_valid = True
             except ReviewError as exc:
                 state = "failure"
                 description = "Agent jury artifact validation failed"
@@ -2197,7 +2749,7 @@ def command_publish(args: argparse.Namespace) -> int:
             )
     else:
         approved, approvers = current_maintainer_approval(
-            client, repository, pr_number, head_sha
+            status_client, repository, pr_number, head_sha
         )
         state = "success" if approved else "pending"
         description = (
@@ -2206,7 +2758,9 @@ def command_publish(args: argparse.Namespace) -> int:
             else "Jury skipped; maintainer approval required"
         )
         require_current_pr()
-        publish_status(client, repository, head_sha, state, description, args.run_url)
+        publish_status(
+            status_client, repository, head_sha, state, description, args.run_url
+        )
         print(
             canonical_json(
                 {
@@ -2230,17 +2784,100 @@ def command_publish(args: argparse.Namespace) -> int:
     review_body = review_body.replace(
         COMMENT_MARKER, f"{COMMENT_MARKER}\n{run_marker}", 1
     )
+    server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+
+    try:
+        require_current_pr()
+        previous_comment = managed_comment(
+            agent_client,
+            repository,
+            pr_number,
+            expected_app_login,
+            expected_app_bot_id,
+        )
+        require_managed_comment_order(previous_comment, run_order)
+        if artifact_valid:
+            synchronized = synchronize_finding_issues(
+                agent_client,
+                repository,
+                pr_number,
+                head_sha,
+                selected_findings,
+                expected_app_login,
+                expected_app_bot_id,
+                args.run_url,
+                server_url,
+                require_current_pr,
+            )
+            review_body = append_finding_issue_summary(
+                review_body, synchronized, repository, server_url
+            )
+            open_issue_count = len(synchronized)
+        else:
+            existing_issues = app_finding_issues(
+                agent_client,
+                repository,
+                pr_number,
+                expected_app_login,
+                expected_app_bot_id,
+            )
+            open_issue_count = sum(
+                1 for issue in existing_issues.values() if issue.get("state") == "open"
+            )
+    except ReviewError:
+        require_current_pr()
+        publish_status(
+            status_client,
+            repository,
+            head_sha,
+            "failure",
+            "Agent issue governance publication failed",
+            args.run_url,
+            ISSUE_STATUS_CONTEXT,
+        )
+        publish_status(
+            status_client,
+            repository,
+            head_sha,
+            "failure",
+            "Agent jury publication failed",
+            args.run_url,
+        )
+        raise
+
     body = (
         review_body.rstrip()
         + f"\n\n<sub>Updated {timestamp} - [workflow run]({args.run_url})</sub>\n"
     )
     require_current_pr()
     try:
-        upsert_comment(client, repository, pr_number, body, run_order)
+        upsert_comment(
+            agent_client,
+            repository,
+            pr_number,
+            body,
+            run_order,
+            expected_app_login,
+            expected_app_bot_id,
+            previous_comment,
+        )
     except ReviewError:
         require_current_pr()
         publish_status(
-            client,
+            status_client,
+            repository,
+            head_sha,
+            "failure" if open_issue_count else "success",
+            (
+                f"{open_issue_count} open Agent review issue(s)"
+                if open_issue_count
+                else "No open Agent review issues"
+            ),
+            args.run_url,
+            ISSUE_STATUS_CONTEXT,
+        )
+        publish_status(
+            status_client,
             repository,
             head_sha,
             "failure",
@@ -2249,8 +2886,32 @@ def command_publish(args: argparse.Namespace) -> int:
         )
         raise
     require_current_pr()
-    publish_status(client, repository, head_sha, state, description, args.run_url)
-    print(canonical_json({"state": state, "description": description}))
+    publish_status(
+        status_client,
+        repository,
+        head_sha,
+        "failure" if open_issue_count else "success",
+        (
+            f"{open_issue_count} open Agent review issue(s)"
+            if open_issue_count
+            else "No open Agent review issues"
+        ),
+        args.run_url,
+        ISSUE_STATUS_CONTEXT,
+    )
+    require_current_pr()
+    publish_status(
+        status_client, repository, head_sha, state, description, args.run_url
+    )
+    print(
+        canonical_json(
+            {
+                "state": state,
+                "description": description,
+                "open_agent_review_issues": open_issue_count,
+            }
+        )
+    )
     return 1 if state == "failure" else 0
 
 

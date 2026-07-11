@@ -1,0 +1,143 @@
+name: Auto Merge
+
+# This workflow executes only the protected main-branch implementation. Pull
+# request content is inspected through GitHub APIs and is never checked out.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_run:
+    workflows: [CI, Agent Review Jury, Agent Issue Gate]
+    types: [completed]
+  issues:
+    types: [opened, closed, reopened, deleted, transferred, edited, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number
+        required: true
+        type: string
+      head_sha:
+        description: Optional exact pull request head SHA
+        required: false
+        type: string
+      dry_run:
+        description: Evaluate without merging
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  checks: read
+  contents: read
+  issues: read
+  pull-requests: read
+  statuses: read
+
+concurrency:
+  group: auto-merge-${{ github.repository_id }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate-and-merge:
+    name: Evaluate protected merge contract
+    if: >-
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'issues' ||
+       contains(github.event.issue.labels.*.name, 'agent-review') ||
+       github.event.label.name == 'agent-review')
+    runs-on: ubuntu-latest
+    environment: coco-agent
+    timeout-minutes: 10
+    steps:
+      - name: Checkout protected main automation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Create repository GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COCO_AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Verify dedicated GitHub App identity
+        shell: bash
+        env:
+          ACTUAL_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_AGENT_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${EXPECTED_APP_SLUG}" || -z "${EXPECTED_APP_LOGIN}" ]]; then
+            echo "::error::Dedicated App slug and login variables are required."
+            exit 1
+          fi
+          if [[ ! "${EXPECTED_APP_BOT_ID}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Dedicated App bot ID must be numeric."
+            exit 1
+          fi
+          expected_login="${EXPECTED_APP_SLUG}[bot]"
+          if [[ "${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}" \
+             || "${EXPECTED_APP_LOGIN}" != "${expected_login}" ]]; then
+            echo "::error::Dedicated App slug/login identity mismatch."
+            exit 1
+          fi
+          bot_json="$(gh api "users/${EXPECTED_APP_LOGIN}")"
+          actual_login="$(jq -r '.login' <<< "${bot_json}")"
+          actual_type="$(jq -r '.type' <<< "${bot_json}")"
+          actual_id="$(jq -r '.id' <<< "${bot_json}")"
+          if [[ "${actual_login}" != "${EXPECTED_APP_LOGIN}" \
+             || "${actual_type}" != 'Bot' \
+             || "${actual_id}" != "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::Dedicated App bot identity mismatch."
+            exit 1
+          fi
+
+      - name: Verify trusted auto-merge implementation
+        env:
+          PYTHONUTF8: '1'
+        run: python .github/scripts/test_auto_merge.py
+
+      - name: Evaluate and merge eligible pull requests
+        shell: bash
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          EXPECTED_HEAD_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || '' }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          AGENT_GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          MANUAL_PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_request || '' }}
+          PYTHONUTF8: '1'
+        run: |
+          set -euo pipefail
+          args=(
+            --repository "${GITHUB_REPOSITORY}"
+            --event-name "${GITHUB_EVENT_NAME}"
+            --event-path "${GITHUB_EVENT_PATH}"
+            --expected-app-login "${EXPECTED_APP_LOGIN}"
+            --expected-app-bot-id "${EXPECTED_APP_BOT_ID}"
+          )
+          if [[ -n "${MANUAL_PR_NUMBER}" ]]; then
+            args+=(--pr-number "${MANUAL_PR_NUMBER}")
+          fi
+          if [[ -n "${EXPECTED_HEAD_SHA}" ]]; then
+            args+=(--expected-head-sha "${EXPECTED_HEAD_SHA}")
+          fi
+          if [[ "${DRY_RUN}" == 'true' ]]; then
+            args+=(--dry-run)
+          fi
+          python .github/scripts/auto_merge.py "${args[@]}"

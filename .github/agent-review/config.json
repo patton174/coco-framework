@@ -137,12 +137,36 @@
       "path_globs": [
         ".github/agent-review/**",
         ".github/workflows/*agent-review*.yml",
-        ".github/workflows/claude-review.yml",
+        ".github/workflows/agent-review.yml",
+        ".github/workflows/agent-issue-gate.yml",
         ".github/scripts/agent_review.py",
+        ".github/scripts/agent_issue_gate.py",
         ".github/scripts/test_agent_review.py"
       ],
       "spec_paths": [
         "docs/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
+      ]
+    },
+    {
+      "path_globs": [
+        ".github/agent-review/**",
+        ".github/workflows/*agent-review*.yml",
+        ".github/workflows/agent-review.yml",
+        ".github/workflows/agent-issue-gate.yml",
+        ".github/scripts/agent_review.py",
+        ".github/scripts/agent_issue_gate.py",
+        ".github/scripts/test_agent_review.py",
+        ".github/scripts/auto_merge.py",
+        ".github/scripts/test_auto_merge.py",
+        ".github/workflows/auto-merge.yml",
+        ".github/readme/**",
+        ".github/workflows/readme-maintenance.yml",
+        ".github/workflow-governance.md",
+        "README.md",
+        "README_CN.md"
+      ],
+      "spec_paths": [
+        "docs/superpowers/specs/2026-07-11-agent-governance-automation.md"
       ]
     },
     {

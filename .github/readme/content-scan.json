@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "include": {
+    "exact": [
+      "AGENTS.md",
+      "pom.xml"
+    ],
+    "prefixes": [
+      "coco-",
+      "docs/"
+    ],
+    "suffixes": [
+      "/pom.xml"
+    ]
+  },
+  "exclude": {
+    "exact": [
+      "README.md",
+      "README_CN.md",
+      ".github/workflows/readme-maintenance.yml"
+    ],
+    "prefixes": [
+      ".github/readme/"
+    ],
+    "suffixes": []
+  }
+}

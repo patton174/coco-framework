@@ -29,7 +29,7 @@ jobs:
   # a hard prerequisite. Static analysis and CodeQL remain merge-time CI gates.
   test:
     name: Test
-    uses: ./.github/workflows/_test.yml
+    uses: ./.github/workflows/reusable-tests.yml
 
   publish:
     name: Publish to Maven Central

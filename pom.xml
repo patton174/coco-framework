@@ -280,7 +280,7 @@
                   local `mvn install` never runs these, so dev/IDE builds stay
                   fast and never break on style. CI invokes the goals directly
                   (`mvn spotbugs:check` / `mvn checkstyle:check`) from
-                  _static-analysis.yml, where the soft-vs-hard gate is the
+                  reusable-static-analysis.yml, where the soft-vs-hard gate is the
                   step-level continue-on-error toggle (Phase 1 soft, Phase 2 hard).
                 -->
                 <plugin>
@@ -293,7 +293,7 @@
                         <xmlOutput>true</xmlOutput>
                         <!--
                           Phase 1 runs soft-fail (continue-on-error). Phase 2
-                          (when _static-analysis.yml is flipped to
+                          (when reusable-static-analysis.yml is flipped to
                           fail-on-error: true) should add a per-module
                           excludeFilterFile that skips generated sources
                           (Spring Boot repackage, Lombok, MapStruct, Q-classes).

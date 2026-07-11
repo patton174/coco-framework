@@ -21,11 +21,11 @@ concurrency:
 jobs:
   test:
     name: Test
-    uses: ./.github/workflows/_test.yml
+    uses: ./.github/workflows/reusable-tests.yml
 
   static-analysis:
     name: Static analysis
-    uses: ./.github/workflows/_static-analysis.yml
+    uses: ./.github/workflows/reusable-static-analysis.yml
 
   codeql:
     name: CodeQL
@@ -33,7 +33,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: ./.github/workflows/codeql.yml
+    uses: ./.github/workflows/reusable-codeql.yml
 
   gate:
     name: CI gate
