@@ -14,10 +14,10 @@ import java.util.List;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.registry.CocoFeaturePlan;
-import io.github.coco.feature.registry.CocoFeatureManifest;
-import io.github.coco.feature.registry.CocoFeatureManifestLoader;
-import io.github.coco.feature.registry.StandardCocoFeatures;
+import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.feature.model.CocoFeatureManifest;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;

@@ -1,6 +1,6 @@
 package io.github.coco.feature.web;
 
-import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import io.github.coco.feature.web.trace.CocoTraceIdValidator;

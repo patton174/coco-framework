@@ -17,11 +17,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.registry.CocoFeatureDefinition;
-import io.github.coco.feature.registry.CocoFeatureManifestLoader;
-import io.github.coco.feature.registry.CocoFeaturePlan;
-import io.github.coco.feature.registry.CocoFeatureSelection;
-import io.github.coco.feature.registry.StandardCocoFeatures;
+import io.github.coco.feature.model.CocoFeatureDefinition;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
+import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;

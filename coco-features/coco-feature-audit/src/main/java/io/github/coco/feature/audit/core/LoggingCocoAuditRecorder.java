@@ -2,8 +2,8 @@ package io.github.coco.feature.audit.core;
 
 import java.util.Objects;
 
-import io.github.coco.common.logging.core.CocoLogLevel;
-import io.github.coco.common.logging.core.CocoLogManager;
+import io.github.coco.logging.core.CocoLogLevel;
+import io.github.coco.logging.core.CocoLogManager;
 import io.github.coco.feature.audit.CocoAuditProperties;
 
 /**

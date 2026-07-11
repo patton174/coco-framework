@@ -1,6 +1,6 @@
 package io.github.coco.feature.audit;
 
-import io.github.coco.common.logging.core.CocoLogLevel;
+import io.github.coco.logging.core.CocoLogLevel;
 import io.github.coco.feature.audit.core.CocoAuditFailurePolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;

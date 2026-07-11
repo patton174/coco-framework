@@ -8,8 +8,8 @@ import java.util.concurrent.TimeUnit;
 
 import io.github.coco.context.CocoRequestContext;
 import io.github.coco.context.CocoRequestContextHolder;
-import io.github.coco.common.logging.access.CocoAccessLog;
-import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.logging.access.CocoAccessLog;
+import io.github.coco.logging.access.CocoAccessLogRecorder;
 import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;

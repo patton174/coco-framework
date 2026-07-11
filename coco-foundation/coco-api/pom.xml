@@ -12,11 +12,14 @@
     </parent>
 
     <artifactId>coco-api</artifactId>
-    <packaging>pom</packaging>
     <name>Coco API</name>
-    <description>Public API aggregate modules for Coco business applications.</description>
+    <description>Stable public API contracts for Coco business applications.</description>
 
-    <modules>
-        <module>coco-api-core</module>
-    </modules>
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

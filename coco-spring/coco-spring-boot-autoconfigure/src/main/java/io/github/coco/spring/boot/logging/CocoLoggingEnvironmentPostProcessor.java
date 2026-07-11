@@ -3,7 +3,7 @@ package io.github.coco.spring.boot.logging;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import io.github.coco.common.logging.core.CocoLoggingProperties;
+import io.github.coco.logging.core.CocoLoggingProperties;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.core.Ordered;

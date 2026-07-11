@@ -17,9 +17,9 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.registry.CocoFeatureManifestLoader;
-import io.github.coco.feature.registry.CocoFeatureSelection;
-import io.github.coco.feature.registry.StandardCocoFeatures;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
+import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
 import org.apache.maven.project.MavenProject;

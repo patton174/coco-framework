@@ -11,7 +11,7 @@ import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatures;
-import io.github.coco.feature.registry.CocoFeatureSelection;
+import io.github.coco.feature.model.CocoFeatureSelection;
 
 /**
  * Coco 注解功能扫描器。

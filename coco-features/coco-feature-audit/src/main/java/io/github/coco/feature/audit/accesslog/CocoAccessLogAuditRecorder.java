@@ -3,8 +3,8 @@ package io.github.coco.feature.audit.accesslog;
 import java.time.Instant;
 import java.util.Objects;
 
-import io.github.coco.common.logging.access.CocoAccessLog;
-import io.github.coco.common.logging.access.CocoAccessLogRecorder;
+import io.github.coco.logging.access.CocoAccessLog;
+import io.github.coco.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
 import io.github.coco.feature.audit.core.CocoAuditPublisher;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;

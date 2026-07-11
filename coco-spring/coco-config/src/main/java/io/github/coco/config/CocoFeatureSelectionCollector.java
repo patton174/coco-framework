@@ -5,7 +5,7 @@ import java.util.EnumSet;
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatures;
-import io.github.coco.feature.registry.CocoFeatureSelection;
+import io.github.coco.feature.model.CocoFeatureSelection;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 

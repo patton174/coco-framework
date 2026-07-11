@@ -9,7 +9,7 @@ import io.github.coco.exception.CocoCommonErrorCode;
 import io.github.coco.exception.CocoException;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
-import io.github.coco.common.logging.core.CocoLoggingProperties;
+import io.github.coco.logging.core.CocoLoggingProperties;
 import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.spring.boot.banner.CocoBannerProperties;
 import io.github.coco.spring.boot.banner.CocoStartupBanner;

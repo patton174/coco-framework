@@ -18,8 +18,8 @@ import java.util.jar.JarOutputStream;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 
-import io.github.coco.feature.registry.CocoFeatureManifest;
-import io.github.coco.feature.registry.CocoFeatureManifestLoader;
+import io.github.coco.feature.model.CocoFeatureManifest;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;

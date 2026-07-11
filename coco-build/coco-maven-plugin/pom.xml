@@ -37,11 +37,11 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-api-core</artifactId>
+            <artifactId>coco-api</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-registry</artifactId>
+            <artifactId>coco-feature-model</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>

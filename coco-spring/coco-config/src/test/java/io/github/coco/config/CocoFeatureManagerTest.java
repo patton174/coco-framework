@@ -8,8 +8,8 @@ import java.util.EnumSet;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.registry.CocoFeatureSelection;
-import io.github.coco.feature.registry.StandardCocoFeatures;
+import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import org.junit.jupiter.api.Test;
 
 /**

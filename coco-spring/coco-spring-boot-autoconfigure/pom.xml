@@ -22,7 +22,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-common-logging</artifactId>
+            <artifactId>coco-logging</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

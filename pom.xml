@@ -41,9 +41,10 @@
         <module>coco-build/coco-parent</module>
         <module>coco-foundation/coco-api</module>
         <module>coco-foundation/coco-context</module>
-        <module>coco-foundation/coco-i18n</module>
         <module>coco-foundation/coco-exception</module>
-        <module>coco-foundation/coco-common</module>
+        <module>coco-foundation/coco-feature-model</module>
+        <module>coco-foundation/coco-i18n</module>
+        <module>coco-foundation/coco-logging</module>
         <module>coco-spring/coco-config</module>
         <module>coco-spring/coco-spring-boot-autoconfigure</module>
         <module>coco-spring/coco-spring-boot-starter</module>
@@ -91,7 +92,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-api-core</artifactId>
+                <artifactId>coco-api</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -111,7 +112,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-common-logging</artifactId>
+                <artifactId>coco-logging</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -126,7 +127,7 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-registry</artifactId>
+                <artifactId>coco-feature-model</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>

@@ -13,7 +13,7 @@ import java.util.Map;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
-import io.github.coco.common.logging.core.CocoLoggingProperties;
+import io.github.coco.logging.core.CocoLoggingProperties;
 import io.github.coco.spring.boot.banner.CocoBannerProperties;
 import io.github.coco.spring.boot.banner.CocoSpringBanner;
 import io.github.coco.spring.boot.banner.CocoStartupBanner;
