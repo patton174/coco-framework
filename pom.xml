@@ -39,8 +39,8 @@
     <modules>
         <module>coco-build/coco-parent</module>
         <module>coco-build/coco-bom</module>
-        <module>coco-api</module>
-        <module>coco-common</module>
+        <module>coco-foundation/coco-api</module>
+        <module>coco-foundation/coco-common</module>
         <module>coco-config</module>
         <module>coco-spring-boot-autoconfigure</module>
         <module>coco-spring-boot-starter</module>
