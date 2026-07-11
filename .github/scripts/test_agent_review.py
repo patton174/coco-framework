@@ -826,7 +826,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("agent-review-publisher-", publisher)
         self.assertIn("cancel-in-progress: false", publisher)
 
-    def test_anthropic_client_accepts_strict_json_and_rejects_partial(self) -> None:
+    def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:
         class FakeResponse:
             def __init__(self, body: bytes) -> None:
                 self.body = body
@@ -858,13 +858,242 @@ class AgentReviewTests(unittest.TestCase):
                 return_value=FakeResponse(json.dumps(payload).encode()),
             ):
                 self.assertEqual({"ok": True}, client.complete("system", "user", 100))
-            payload["stop_reason"] = "max_tokens"
-            with patch(
-                "urllib.request.urlopen",
-                return_value=FakeResponse(json.dumps(payload).encode()),
-            ):
-                with self.assertRaises(review.ReviewError):
+
+            cases = [
+                (
+                    "max_tokens",
+                    {
+                        "stop_reason": "max_tokens",
+                        "content": [{"type": "text", "text": '{"ok":'}],
+                    },
+                    "max_tokens",
+                ),
+                (
+                    "empty content",
+                    {
+                        "stop_reason": "end_turn",
+                        "content": [],
+                    },
+                    "no text",
+                ),
+                (
+                    "empty text",
+                    {
+                        "stop_reason": "end_turn",
+                        "content": [{"type": "text", "text": "   "}],
+                    },
+                    "no text",
+                ),
+                (
+                    "invalid output JSON",
+                    {
+                        "stop_reason": "end_turn",
+                        "content": [{"type": "text", "text": "not-json"}],
+                    },
+                    "strict JSON",
+                ),
+            ]
+            for name, response_payload, message in cases:
+                with self.subTest(name=name):
+                    with patch(
+                        "urllib.request.urlopen",
+                        return_value=FakeResponse(
+                            json.dumps(response_payload).encode()
+                        ),
+                    ):
+                        with self.assertRaisesRegex(
+                            review.RetryableModelOutputError, message
+                        ):
+                            client.complete("system", "user", 100)
+
+    def test_anthropic_client_refusal_precedes_max_tokens(self) -> None:
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                payload = {
+                    "stop_reason": "max_tokens",
+                    "content": [{"type": "refusal", "text": "No"}],
+                }
+                return json.dumps(payload).encode()[:limit]
+
+        with patch.dict(
+            "os.environ",
+            {
+                "ANTHROPIC_API_KEY": "test",
+                "ANTHROPIC_BASE_URL": "https://example.invalid",
+            },
+            clear=False,
+        ):
+            client = review.AnthropicClient(config())
+            with patch("urllib.request.urlopen", return_value=FakeResponse()):
+                with self.assertRaisesRegex(review.ReviewError, "refused") as raised:
                     client.complete("system", "user", 100)
+        self.assertNotIsInstance(raised.exception, review.RetryableModelOutputError)
+
+    def test_anthropic_client_keeps_other_response_errors_non_retryable(self) -> None:
+        class FakeResponse:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                return self.body[:limit]
+
+        cases = [
+            (
+                "other stop reason",
+                json.dumps(
+                    {
+                        "stop_reason": "stop_sequence",
+                        "content": [{"type": "text", "text": '{"ok":true}'}],
+                    }
+                ).encode(),
+                "did not complete",
+            ),
+            (
+                "invalid API JSON",
+                b"not-an-envelope",
+                "API returned invalid JSON",
+            ),
+            (
+                "invalid envelope",
+                json.dumps({"stop_reason": "end_turn", "content": {}}).encode(),
+                "invalid response envelope",
+            ),
+            (
+                "non-object output",
+                json.dumps(
+                    {
+                        "stop_reason": "end_turn",
+                        "content": [{"type": "text", "text": "[]"}],
+                    }
+                ).encode(),
+                "JSON object",
+            ),
+        ]
+        with patch.dict(
+            "os.environ",
+            {
+                "ANTHROPIC_API_KEY": "test",
+                "ANTHROPIC_BASE_URL": "https://example.invalid",
+            },
+            clear=False,
+        ):
+            client = review.AnthropicClient(config())
+            for name, body, message in cases:
+                with self.subTest(name=name):
+                    with patch(
+                        "urllib.request.urlopen", return_value=FakeResponse(body)
+                    ):
+                        with self.assertRaisesRegex(
+                            review.ReviewError, message
+                        ) as raised:
+                            client.complete("system", "user", 100)
+                    self.assertNotIsInstance(
+                        raised.exception, review.RetryableModelOutputError
+                    )
+
+    def test_anthropic_client_rejects_malformed_content_blocks_before_stop_reason(
+        self,
+    ) -> None:
+        class FakeResponse:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                return self.body[:limit]
+
+        cases = [
+            ("non-dict block", ["not-a-block"], "end_turn"),
+            ("missing type", [{"text": "{}"}], "end_turn"),
+            ("unknown type", [{"type": "tool_use", "text": "{}"}], "end_turn"),
+            ("non-string text", [{"type": "text", "text": 1}], "end_turn"),
+            ("malformed before max_tokens", [None], "max_tokens"),
+        ]
+        with patch.dict(
+            "os.environ",
+            {
+                "ANTHROPIC_API_KEY": "test",
+                "ANTHROPIC_BASE_URL": "https://example.invalid",
+            },
+            clear=False,
+        ):
+            client = review.AnthropicClient(config())
+            for name, content, stop_reason in cases:
+                with self.subTest(name=name):
+                    payload = {"stop_reason": stop_reason, "content": content}
+                    with patch(
+                        "urllib.request.urlopen",
+                        return_value=FakeResponse(json.dumps(payload).encode()),
+                    ):
+                        with self.assertRaisesRegex(
+                            review.ReviewError, "invalid response envelope"
+                        ) as raised:
+                            client.complete("system", "user", 100)
+                    self.assertNotIsInstance(
+                        raised.exception, review.RetryableModelOutputError
+                    )
+
+    def test_anthropic_client_keeps_http_and_transport_errors_non_retryable(
+        self,
+    ) -> None:
+        cases = [
+            (
+                "authentication",
+                review.urllib.error.HTTPError(
+                    "https://example.invalid/v1/messages",
+                    401,
+                    "Unauthorized",
+                    None,
+                    None,
+                ),
+                "HTTP 401",
+            ),
+            (
+                "transport",
+                review.urllib.error.URLError("connection failed"),
+                "transport failed",
+            ),
+        ]
+        with patch.dict(
+            "os.environ",
+            {
+                "ANTHROPIC_API_KEY": "test",
+                "ANTHROPIC_BASE_URL": "https://example.invalid",
+            },
+            clear=False,
+        ):
+            client = review.AnthropicClient(config())
+            for name, error, message in cases:
+                with self.subTest(name=name):
+                    try:
+                        with patch("urllib.request.urlopen", side_effect=error):
+                            with self.assertRaisesRegex(
+                                review.ReviewError, message
+                            ) as raised:
+                                client.complete("system", "user", 100)
+                        self.assertNotIsInstance(
+                            raised.exception, review.RetryableModelOutputError
+                        )
+                    finally:
+                        if isinstance(error, review.urllib.error.HTTPError):
+                            error.close()
 
     def test_anthropic_client_rejects_insecure_relay_url(self) -> None:
         with patch.dict(
@@ -874,6 +1103,113 @@ class AgentReviewTests(unittest.TestCase):
         ):
             with self.assertRaises(review.ReviewError):
                 review.AnthropicClient(config())
+
+    def test_retryable_output_failure_retries_once_with_same_arguments(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [
+                    review.RetryableModelOutputError("retryable"),
+                    {"required": True},
+                ]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                response = self.responses.pop(0)
+                if isinstance(response, Exception):
+                    raise response
+                return response
+
+        client = FakeClient()
+
+        def validate(value: dict) -> None:
+            review.require_exact_fields(value, {"required"}, "Test report")
+
+        system = "protected system"
+        user = '{"task":"review"}'
+        max_tokens = 100
+        expected_call = (system, user, max_tokens)
+        with patch("builtins.print") as warning:
+            result = review.complete_with_shape_repair(
+                client, system, user, max_tokens, validate
+            )
+
+        self.assertEqual({"required": True}, result)
+        self.assertEqual([expected_call, expected_call], client.calls)
+        warning.assert_called_once()
+
+    def test_retryable_output_failure_stops_after_second_completion(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, user, max_tokens
+                self.calls += 1
+                raise review.RetryableModelOutputError(f"retryable {self.calls}")
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(
+                review.RetryableModelOutputError, "retryable 2"
+            ):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected system",
+                    '{"task":"review"}',
+                    100,
+                    lambda value: value,
+                )
+        self.assertEqual(2, client.calls)
+
+    def test_refusal_error_does_not_retry_completion(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, user, max_tokens
+                self.calls += 1
+                raise review.ReviewError("Anthropic refused the review.")
+
+        client = FakeClient()
+        with self.assertRaisesRegex(review.ReviewError, "refused"):
+            review.complete_with_shape_repair(
+                client,
+                "protected system",
+                '{"task":"review"}',
+                100,
+                lambda value: value,
+            )
+        self.assertEqual(1, client.calls)
+
+    def test_fresh_retry_shape_error_does_not_trigger_third_completion(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, user, max_tokens
+                self.calls += 1
+                if self.calls == 1:
+                    raise review.RetryableModelOutputError("retryable")
+                return {"wrong": True}
+
+        client = FakeClient()
+
+        def validate(value: dict) -> None:
+            review.require_exact_fields(value, {"required"}, "Test report")
+
+        with patch("builtins.print"):
+            with self.assertRaises(review.ReportShapeError):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected system",
+                    '{"task":"review"}',
+                    100,
+                    validate,
+                )
+        self.assertEqual(2, client.calls)
 
     def test_shape_repair_retries_once_with_bound_original_task(self) -> None:
         class FakeClient:

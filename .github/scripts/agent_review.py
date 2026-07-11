@@ -63,6 +63,10 @@ class ReviewError(RuntimeError):
     """Expected fail-closed review error."""
 
 
+class RetryableModelOutputError(ReviewError):
+    """A model output failure eligible for one fresh completion."""
+
+
 class ReportShapeError(ReviewError):
     """A parseable model report does not match the protected field set."""
 
@@ -963,30 +967,38 @@ class AnthropicClient:
             envelope.get("content"), list
         ):
             raise ReviewError("Anthropic API returned an invalid response envelope.")
+        text_blocks: list[str] = []
+        for block in envelope["content"]:
+            if not isinstance(block, dict):
+                raise ReviewError(
+                    "Anthropic API returned an invalid response envelope."
+                )
+            block_type = block.get("type")
+            if block_type == "refusal":
+                raise ReviewError("Anthropic refused the review.")
+            if block_type != "text" or not isinstance(block.get("text"), str):
+                raise ReviewError(
+                    "Anthropic API returned an invalid response envelope."
+                )
+            text_blocks.append(block["text"])
         stop_reason = envelope.get("stop_reason")
+        if stop_reason == "max_tokens":
+            raise RetryableModelOutputError(
+                "Anthropic response did not complete (stop_reason='max_tokens')."
+            )
         if stop_reason != "end_turn":
             raise ReviewError(
                 f"Anthropic response did not complete (stop_reason={stop_reason!r})."
             )
-        if any(
-            item.get("type") == "refusal"
-            for item in envelope["content"]
-            if isinstance(item, dict)
-        ):
-            raise ReviewError("Anthropic refused the review.")
-        text = "\n\n".join(
-            str(item.get("text"))
-            for item in envelope["content"]
-            if isinstance(item, dict)
-            and item.get("type") == "text"
-            and isinstance(item.get("text"), str)
-        ).strip()
+        text = "\n\n".join(text_blocks).strip()
         if not text:
-            raise ReviewError("Anthropic response contained no text.")
+            raise RetryableModelOutputError("Anthropic response contained no text.")
         try:
             value = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ReviewError("Agent output was not strict JSON.") from exc
+            raise RetryableModelOutputError(
+                "Agent output was not strict JSON."
+            ) from exc
         if not isinstance(value, dict):
             raise ReviewError("Agent output must be a JSON object.")
         return value
@@ -999,7 +1011,16 @@ def complete_with_shape_repair(
     max_tokens: int,
     validate: Callable[[dict[str, Any]], Any],
 ) -> dict[str, Any]:
-    report = client.complete(system, user, max_tokens)
+    try:
+        report = client.complete(system, user, max_tokens)
+    except RetryableModelOutputError:
+        print(
+            "::warning::Agent output was incomplete or not strict JSON; "
+            "attempting one fresh completion."
+        )
+        fresh_report = client.complete(system, user, max_tokens)
+        validate(fresh_report)
+        return fresh_report
     try:
         validate(report)
         return report

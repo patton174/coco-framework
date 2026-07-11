@@ -9,6 +9,16 @@ merge, and rejects force pushes or branch deletion. The repository currently has
 one human collaborator, so the owner retains the administrator emergency bypass;
 the documented PR path remains the normal development flow.
 
+Trusted Agent-review runtime changes are the narrow bootstrap exception. Because
+`pull_request_target` deliberately executes the protected base version, a PR
+cannot safely self-host new reviewer code with repository secrets. The owner may
+use the emergency bypass only when a protected-base reviewer defect prevents the
+`Agent jury gate` from succeeding and the failure is confirmed not to be a valid
+P0/P1 finding. The `CI gate`, exact-head protocol tests, independent review, and
+conversation resolution must also succeed. The merged base must then pass
+same-repository and no-secret canaries before other normal merges. PR-head
+reviewer code must never receive repository secrets.
+
 The repository keeps merge commits enabled and disables squash and rebase
 merges. Head branches are deleted automatically after merge.
 
@@ -60,12 +70,17 @@ The secret-backed path is an actual review panel:
   verifier votes, or the deterministic verdict.
 
 P0/P1 blocks only when both verifiers return `AGREE`. P2/P3 never directly
-block. Refusal, timeout, malformed or schema-incompatible JSON, incomplete role
-sets, hash mismatch, stale PR SHA, API failure, and oversized required context
-fail closed. Every report binds to the base SHA, head SHA, and canonical context
-SHA-256; that context also binds the base-version config, prompts, and reviewer
-script through a protocol SHA-256. Before publishing, the trusted publisher
-revalidates every role report, recomputes consensus, and re-renders the comment.
+block. A max-token completion, empty text response, or malformed model-output
+JSON receives one fresh attempt with the same protected prompt and bound input.
+That attempt and the one protected correction for schema-only field mismatches
+are mutually exclusive, so each Agent makes at most two model calls. Refusal,
+timeout, API or authentication failure, invalid envelopes, identity or hash
+mismatch, incomplete role sets, stale PR SHA, and oversized required context
+fail closed immediately; every second-attempt failure also fails closed. Every
+report binds to the base SHA, head SHA, and canonical context SHA-256; that
+context also binds the base-version config, prompts, and reviewer script through
+a protocol SHA-256. Before publishing, the trusted publisher revalidates every
+role report, recomputes consensus, and re-renders the comment.
 The workflow publishes the `Agent jury gate` status directly to that PR head. It
 never submits a GitHub review or approval; branch protection still requires a
 current human approval.
