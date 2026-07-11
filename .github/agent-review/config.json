@@ -163,6 +163,7 @@
         ".github/scripts/auto_merge.py",
         ".github/scripts/test_auto_merge.py",
         ".github/workflows/auto-merge.yml",
+        ".github/workflows/agent-open-pr.yml",
         ".github/readme/**",
         ".github/workflows/readme-maintenance.yml",
         ".github/workflow-governance.md",

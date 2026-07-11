@@ -1,0 +1,221 @@
+name: Open Agent Pull Request
+
+on:
+  workflow_dispatch:
+    inputs:
+      head_branch:
+        description: Existing same-repository codex branch
+        required: true
+        type: string
+      head_sha:
+        description: Exact 40-character commit SHA for the head branch
+        required: true
+        type: string
+      title:
+        description: Pull request title
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-open-pr-${{ github.repository_id }}
+  cancel-in-progress: false
+
+jobs:
+  open:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: coco-agent
+    timeout-minutes: 5
+    steps:
+      - name: Validate protected source and requested branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ inputs.head_branch }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != 'refs/heads/main' ]]; then
+            echo "::error::Agent pull requests can only be opened from protected main."
+            exit 1
+          fi
+
+          repository_json="$(gh api "repos/${GITHUB_REPOSITORY}")"
+          if [[ "$(jq -r '.id' <<< "${repository_json}")" != "${GITHUB_REPOSITORY_ID}" \
+             || "$(jq -r '.default_branch' <<< "${repository_json}")" != 'main' ]]; then
+            echo "::error::Repository identity or default branch is invalid."
+            exit 1
+          fi
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "${GITHUB_SHA}" != "${main_sha}" ]]; then
+            echo "::error::Workflow source is not the current protected main commit."
+            exit 1
+          fi
+
+          if [[ ! "${HEAD_BRANCH}" =~ ^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$ \
+             || "${HEAD_BRANCH}" == */ \
+             || "${HEAD_BRANCH}" == *..* \
+             || "${HEAD_BRANCH}" == *//* \
+             || "${HEAD_BRANCH}" == *'@{'* \
+             || "${HEAD_BRANCH}" == *.lock ]]; then
+            echo "::error::Head branch is not a valid codex contribution branch."
+            exit 1
+          fi
+          if [[ ! "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ \
+             || -z "${PR_TITLE//[[:space:]]/}" ]]; then
+            echo "::error::Head SHA or pull request title is invalid."
+            exit 1
+          fi
+
+          # shellcheck disable=SC2016
+          encoded_branch="$(jq -rn --arg value "${HEAD_BRANCH}" '$value | @uri')"
+          branch_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded_branch}" \
+            --jq '.commit.sha')"
+          if [[ "${branch_sha}" != "${HEAD_SHA}" ]]; then
+            echo "::error::Head branch no longer points to the requested SHA."
+            exit 1
+          fi
+          compare_json="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/compare/${main_sha}...${HEAD_SHA}")"
+          ahead_by="$(jq -r '.ahead_by' <<< "${compare_json}")"
+          behind_by="$(jq -r '.behind_by' <<< "${compare_json}")"
+          if [[ ! "${ahead_by}" =~ ^[0-9]+$ || ! "${behind_by}" =~ ^[0-9]+$ \
+             || "${ahead_by}" -le 0 || "${behind_by}" -ne 0 ]]; then
+            echo "::error::Head must contain current main and add at least one commit."
+            exit 1
+          fi
+
+      - name: Create Coco Agent installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COCO_AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-pull-requests: write
+
+      - name: Verify App identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTUAL_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_AGENT_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+        run: |
+          set -euo pipefail
+          for variable in ACTUAL_APP_SLUG EXPECTED_APP_SLUG EXPECTED_APP_LOGIN EXPECTED_APP_BOT_ID; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured."
+              exit 1
+            fi
+          done
+          if [[ "${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}" \
+             || "${EXPECTED_APP_LOGIN}" != "${EXPECTED_APP_SLUG}[bot]" \
+             || ! "${EXPECTED_APP_BOT_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::GitHub App identity variables do not match repository policy."
+            exit 1
+          fi
+          user_json="$(gh api "users/${EXPECTED_APP_LOGIN}")"
+          if [[ "$(jq -r '.login' <<< "${user_json}")" != "${EXPECTED_APP_LOGIN}" \
+             || "$(jq -r '.type' <<< "${user_json}")" != 'Bot' \
+             || "$(jq -r '.id' <<< "${user_json}")" != "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::GitHub App bot identity does not match repository policy."
+            exit 1
+          fi
+
+      - name: Open or reuse the bound pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ inputs.head_branch }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_TITLE: ${{ inputs.title }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+        run: |
+          set -euo pipefail
+          repository_json="$(GH_TOKEN="${READ_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}")"
+          repository_id="$(jq -r '.id' <<< "${repository_json}")"
+          default_branch="$(jq -r '.default_branch' <<< "${repository_json}")"
+          main_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          # shellcheck disable=SC2016
+          encoded_branch="$(jq -rn --arg value "${HEAD_BRANCH}" '$value | @uri')"
+          branch_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/branches/${encoded_branch}" --jq '.commit.sha')"
+          compare_json="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/compare/${main_sha}...${HEAD_SHA}")"
+          ahead_by="$(jq -r '.ahead_by' <<< "${compare_json}")"
+          behind_by="$(jq -r '.behind_by' <<< "${compare_json}")"
+          if [[ "${repository_id}" != "${GITHUB_REPOSITORY_ID}" \
+             || "${default_branch}" != 'main' \
+             || "${branch_sha}" != "${HEAD_SHA}" \
+             || ! "${ahead_by}" =~ ^[0-9]+$ \
+             || ! "${behind_by}" =~ ^[0-9]+$ \
+             || "${ahead_by}" -le 0 \
+             || "${behind_by}" -ne 0 ]]; then
+            echo "::error::Repository or branch binding changed before PR creation."
+            exit 1
+          fi
+
+          validate_pr() {
+            local pr_json="$1"
+            if [[ "$(jq -r '.state // empty' <<< "${pr_json}")" != 'open' \
+               || "$(jq -r '.user.login // empty' <<< "${pr_json}")" != "${EXPECTED_APP_LOGIN}" \
+               || "$(jq -r '.user.type // empty' <<< "${pr_json}")" != 'Bot' \
+               || "$(jq -r '.user.id // empty' <<< "${pr_json}")" != "${EXPECTED_APP_BOT_ID}" \
+               || "$(jq -r '.head.repo.id // empty' <<< "${pr_json}")" != "${repository_id}" \
+               || "$(jq -r '.head.repo.full_name // empty' <<< "${pr_json}")" != "${GITHUB_REPOSITORY}" \
+               || "$(jq -r '.head.ref // empty' <<< "${pr_json}")" != "${HEAD_BRANCH}" \
+               || "$(jq -r '.head.sha // empty' <<< "${pr_json}")" != "${HEAD_SHA}" \
+               || "$(jq -r '.base.repo.id // empty' <<< "${pr_json}")" != "${repository_id}" \
+               || "$(jq -r '.base.repo.full_name // empty' <<< "${pr_json}")" != "${GITHUB_REPOSITORY}" \
+               || "$(jq -r '.base.ref // empty' <<< "${pr_json}")" != 'main' ]]; then
+              echo "::error::Pull request identity or branch binding is invalid." >&2
+              return 1
+            fi
+          }
+
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          prs_json="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
+            -f state=open \
+            -f "head=${owner}:${HEAD_BRANCH}" \
+            -f per_page=100)"
+          pr_count="$(jq 'length' <<< "${prs_json}")"
+          if (( pr_count > 1 )); then
+            echo "::error::Multiple pull requests match the requested branch."
+            exit 1
+          fi
+          if (( pr_count == 1 )); then
+            pr_json="$(jq -c '.[0]' <<< "${prs_json}")"
+            validate_pr "${pr_json}"
+            echo "Reusing $(jq -r '.html_url' <<< "${pr_json}")."
+            exit 0
+          fi
+
+          # shellcheck disable=SC2016
+          printf -v pr_body \
+            'Opened by the protected Coco Agent contribution workflow. Branch: `%s`. Head: `%s`. Requested by: `%s`. Run: %s' \
+            "${HEAD_BRANCH}" "${HEAD_SHA}" "${GITHUB_ACTOR}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          created_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls" \
+            -f "title=${PR_TITLE}" \
+            -f "head=${owner}:${HEAD_BRANCH}" \
+            -f base=main \
+            -f "body=${pr_body}" \
+            -F maintainer_can_modify=true)"
+          pr_number="$(jq -r '.number // empty' <<< "${created_json}")"
+          if [[ ! "${pr_number}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::GitHub did not return a pull request number."
+            exit 1
+          fi
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+          validate_pr "${pr_json}"
+          echo "Created $(jq -r '.html_url' <<< "${pr_json}")."
