@@ -60,7 +60,14 @@ The three foundation modules retain their contracts, implementation classes, con
 
 Batch 7a keeps `coco-config` and `coco-feature-runtime` as source-free compatibility facades. Each facade depends only on `coco-spring-boot-autoconfigure`; it contains no duplicate classes, messages, auto-configuration imports, or `spring.factories` entries. Existing starter and feature POMs therefore continue to build while every implementation class has one physical owner.
 
-The cutover was split because the original path rules selected unrelated feature implementation specifications for POM-only migration changes and nearly exhausted the protected `48000`-character policy budget. Batch 7b may proceed only after governance routes POM-only module migration to this specification and the module-layout contract while retaining full feature specifications for source changes. A regression test must assemble the complete 7b path set and prove that every required trusted document fits without omission.
+The cutover was split because all nine consumer POMs together select the complete Web, Audit, and Codegen specifications and leave no safe room in the protected `48000`-character policy budget. Path mappings remain module-wide so POM, source, resources, and module metadata never silently lose their required feature specifications. Governance tests therefore lock batch 7b into independently buildable sub-batches and prove that each sub-batch fits without omission:
+
+1. `7b1`: starter, data-permission, MyBatis-Plus, OpenAPI, security, and tenant;
+2. `7b2`: Web;
+3. `7b3`: Audit;
+4. `7b4`: Codegen and the final repository-wide no-internal-facade assertion.
+
+Each intermediate sub-batch may leave only the explicitly scheduled later consumers on `coco-feature-runtime`. Every changed consumer must switch atomically, and the final sub-batch must prove that all nine implementation consumers use `coco-spring-boot-autoconfigure` directly.
 
 Batch 7b rewires the starter and feature implementation modules so they stop depending on the two facades. The reactor and dependency management continue publishing the compatibility coordinates, but those coordinates are leaves from the primary architecture's perspective and are not used to compose framework modules. Feature modules that use `@ConditionalOnCocoFeature` then depend on `coco-spring-boot-autoconfigure`, matching the target dependency direction:
 
@@ -117,7 +124,7 @@ Its `spring.factories` preserves the existing Spring application listener and en
 - Batch 7a leaves `coco-config` and `coco-feature-runtime` as source-free facades depending only on `coco-spring-boot-autoconfigure`.
 - Batch 7a contains each moved implementation class and registration exactly once and keeps all existing consumers buildable.
 - Batch 7b keeps both facade coordinates in the reactor, root dependency management, and published BOM.
-- After batch 7b, only the two compatibility POMs themselves depend on `coco-spring-boot-autoconfigure`; starter and feature implementation POMs do not depend on either old coordinate.
+- After batch 7b, only the two compatibility POMs define the old artifactIds; starter and feature implementation POMs contain no dependency on either old coordinate and use `coco-spring-boot-autoconfigure` directly.
 - Each facade remains source-free and contains no auto-configuration imports, `spring.factories`, messages, templates, or duplicate implementation resources.
 - A focused compatibility test resolves the old coordinates and compiles representative existing public FQCNs through their transitive replacement surface.
 - The replacement artifact contains each moved class and registration exactly once.
