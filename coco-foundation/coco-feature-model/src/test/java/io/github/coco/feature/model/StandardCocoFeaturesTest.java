@@ -163,6 +163,7 @@ class StandardCocoFeaturesTest {
                 "mybatis-plus-jsqlparser-common",
                 "mybatis-plus-spring",
                 "mybatis-plus-spring-boot-autoconfigure",
+                "mybatis-plus-spring-boot-native-image",
                 "mybatis-plus-spring-boot4-starter",
                 "mybatis-spring"), manifest.features().stream()
                 .filter(entry -> "mybatis-plus".equals(entry.id()))

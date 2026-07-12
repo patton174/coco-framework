@@ -157,6 +157,7 @@ class CocoFeaturesMojoTest {
         Set<Artifact> artifacts = new LinkedHashSet<>(Set.of(
                 artifact("com.baomidou", "mybatis-plus-core"),
                 artifact("com.baomidou", "mybatis-plus-jsqlparser-common"),
+                artifact("com.baomidou", "mybatis-plus-spring-boot-native-image"),
                 artifact("com.baomidou", "mybatis-plus-spring-boot4-starter"),
                 artifact("com.example", "mybatis"),
                 artifact("coco-feature-audit"),
@@ -195,6 +196,7 @@ class CocoFeaturesMojoTest {
                 .doesNotContain(
                         "com.baomidou:mybatis-plus-core",
                         "com.baomidou:mybatis-plus-jsqlparser-common",
+                        "com.baomidou:mybatis-plus-spring-boot-native-image",
                         "com.baomidou:mybatis-plus-spring-boot4-starter",
                         "io.github.patton174:coco-feature-mybatis-plus",
                         "org.mybatis:mybatis",
@@ -210,6 +212,7 @@ class CocoFeaturesMojoTest {
                 .doesNotContain(
                         "com.baomidou:mybatis-plus-core",
                         "com.baomidou:mybatis-plus-jsqlparser-common",
+                        "com.baomidou:mybatis-plus-spring-boot-native-image",
                         "com.baomidou:mybatis-plus-spring-boot4-starter",
                         "io.github.patton174:coco-feature-mybatis-plus",
                         "org.mybatis:mybatis",
