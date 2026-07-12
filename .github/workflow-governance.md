@@ -7,25 +7,39 @@
 - Python automation uses snake_case modules and `test_*.py` test modules; Node.js automation uses lowercase kebab-case files.
 - Stable external contracts are workflow/job context names such as `CI gate`, `Agent jury gate`, and `Agent issue gate`; file renames must not change those contexts.
 
+## Repository Settings Baseline
+
+- Repository merge policy is merge-commit-only. Squash, rebase, and GitHub native auto-merge are disabled, and merged branches are deleted automatically. The protected Coco App workflow is the only automated merge path.
+- `main` protection is strict and applies to administrators. It requires `CI gate`, `Agent jury gate`, and `Agent issue gate` from GitHub Actions App ID `15368`, one current CODEOWNER approval, and resolved conversations.
+- Actions use a read-only default token. Only GitHub-owned actions are allowed, every action reference must use an immutable commit SHA, and untrusted `pull_request` runs from external contributors require maintainer approval.
+- Actions artifacts and logs are retained for 30 days. No workflow exposes repository or environment secrets to fork or bot PR content. `pull_request_target` governance jobs execute protected base code and treat PR changes only as untrusted API data; this isolation is the security boundary.
+- `coco-agent` and `coco-spring` accept only the exact `main` branch, and administrator bypass is disabled on both. `coco-spring` additionally requires maintainer deployment approval before release secrets become available.
+- The active `Protect release tags` ruleset applies to `refs/tags/v*` and blocks tag updates and deletion after creation.
+- Releases are manual dispatches from the latest protected `main` commit. The workflow waits for Maven Central state `PUBLISHED` and then tags the exact validated dispatch SHA, even if `main` advances while Central processes the deployment.
+- Dependabot alerts, Dependabot security updates, secret scanning, push protection, and private vulnerability reporting are enabled. CodeQL remains workflow-managed rather than using default setup.
+
 ## Protected Merge Path
 
 `main` accepts changes through pull requests. The repository requires the stable
 `CI gate`, `Agent jury gate`, and `Agent issue gate` contexts, requires branches
 to be current with `main`, requires one current approval, resolves review
 conversations before merge, and rejects force pushes or branch deletion. The
-repository currently has one human collaborator, so the owner retains the
-administrator emergency bypass; the documented PR path remains the normal
-development flow.
+repository currently has one human collaborator, but administrators are still
+subject to branch protection. The documented PR path is the normal development
+flow.
 
 Trusted Agent-review runtime changes are the narrow bootstrap exception. Because
 `pull_request_target` deliberately executes the protected base version, a PR
-cannot safely self-host new reviewer code with repository secrets. The owner may
-use the emergency bypass only when a protected-base reviewer defect prevents the
-`Agent jury gate` from succeeding and the failure is confirmed not to be a valid
-P0/P1 finding. The `CI gate`, exact-head protocol tests, independent review, and
-conversation resolution must also succeed. The merged base must then pass
-same-repository and no-secret canaries before other normal merges. PR-head
-reviewer code must never receive repository secrets.
+cannot safely self-host new reviewer code with repository secrets. Only when a
+confirmed protected-base defect prevents one required Agent context from
+succeeding may the owner use the emergency protocol: record an Issue, require
+`CI gate`, exact-head protocol tests, current approval on the App-authored PR,
+independent review, and resolved conversations, then temporarily remove only
+the broken required context. The exact reviewed head must still merge through
+the PR as a merge commit. Restore the same App-bound context immediately and run
+same-repository and no-secret canaries before other merges. Never disable other
+protections, push directly to `main`, or execute PR-head reviewer code with
+repository secrets.
 
 The repository keeps merge commits enabled and disables squash and rebase
 merges. Head branches are deleted automatically after merge.
@@ -192,8 +206,10 @@ the ten-minute protected-`main` scan because pull-request review events use an
 unprotected merge ref and therefore cannot enter the secret-bearing
 `coco-agent` environment.
 
-External Actions are pinned to immutable commit SHAs. Dependabot groups weekly
-GitHub Actions updates and separately tracks the pinned Python CI dependency.
+Only GitHub-owned Actions are allowed, and every Action is pinned to an
+immutable commit SHA. Dependabot groups weekly GitHub Actions updates, tracks
+the pinned Python CI dependency, and monitors Maven dependencies for the full
+reactor.
 
 ## Local Validation
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and integration guidance / 问题与接入指导
+    url: https://github.com/patton174/coco-framework/discussions/new/choose
+    about: Use Discussions for questions, ideas, and design exploration. / 普通问题、想法和方案讨论请使用 Discussions。
+  - name: Private security report / 私密安全报告
+    url: https://github.com/patton174/coco-framework/security/advisories/new
+    about: Report undisclosed vulnerabilities privately. / 未公开漏洞必须私密报告。

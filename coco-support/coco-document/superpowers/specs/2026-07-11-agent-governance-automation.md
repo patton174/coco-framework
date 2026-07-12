@@ -41,6 +41,11 @@ App 最小权限为：
 私钥只进入受保护 `main` 版本的计划任务、publisher 或合并任务，不进入 specialist、verifier、
 chair、fork/bot no-secret reviewer，也不进入任何 PR-head 代码。
 
+维护者自己的改动必须推送到同仓库 `codex/*` 分支，并从受保护的最新 `main` 手动运行
+`Open Agent Pull Request` workflow。该 workflow 绑定精确 branch SHA，并由专用 App 创建或
+复用 PR，使 App 成为作者、维护者可以提供 required current-head approval。维护者不得直接
+创建自己无法审批的 PR，也不得直接推送 `main`。
+
 ## README 源模型
 
 ### 可维护源
@@ -162,6 +167,13 @@ review threads、开放 Issue 和仓库合并设置，而不只是二次读取 h
 5. 创建 bot/fork 等价 canary，验证没有 Anthropic/App 私钥、模型 job 跳过且已有 Issue 仍能阻断。
 6. 创建自动合并 canary，确认缺批准/检查/Issue/对话时不合并，全部满足后由 App 生成 merge commit。
 7. Canary 全部通过后，把 `Agent issue gate` 加入 `main` required checks。
+
+受保护 base reviewer 自身故障时，紧急自举也不得执行 PR-head 密钥代码或关闭整套保护。
+必须先创建公开 Issue，确认失败来自治理运行时而不是有效 P0/P1 finding，并让 `CI gate`、
+精确 head 协议测试、App-authored PR 的当前人工批准、独立复核和全部会话解决。之后只临时
+移除故障的单个 required context，通过 PR merge commit 合并精确已评审 head，立即恢复原
+App ID 绑定 context，并完成同仓库与无密钥 canary。其他 required checks、审批、管理员保护、
+禁止 force push/删除分支等设置保持不变，任何情况下都不得直接 push `main`。
 
 ## 验收
 

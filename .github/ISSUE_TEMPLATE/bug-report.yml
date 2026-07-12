@@ -1,0 +1,82 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible Coco Framework defect / 报告可复现的框架缺陷
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a defect. Do not include credentials, private keys, or production data.
+        感谢反馈。请勿提交凭据、私钥或生产数据。
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area / 影响模块
+      options:
+        - Build, BOM, parent, or Maven plugin
+        - Foundation API, context, exception, i18n, logging, or feature model
+        - Spring Boot autoconfiguration or starter
+        - Web request processing
+        - Security, signature, encryption, or replay protection
+        - MyBatis-Plus, tenant, or data permission
+        - Audit or OpenAPI
+        - Code generation or development tooling
+        - Documentation, samples, or repository governance
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Coco version / Coco 版本
+      placeholder: 2.0.1
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Runtime environment / 运行环境
+      placeholder: JDK 21, Spring Boot 4.1.0, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem description / 问题描述
+      description: Explain the observable behavior and business or operational impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction / 最小复现
+      description: Provide a minimal repository, test, configuration, or deterministic steps.
+      placeholder: |
+        1. Configure ...
+        2. Call ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or stack trace / 相关日志或堆栈
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist / 检查项
+      options:
+        - label: I reproduced this with the latest published version. / 已在最新发布版本复现。
+          required: true
+        - label: I removed secrets and private data. / 已移除敏感信息和私有数据。
+          required: true
+        - label: This is not an undisclosed security vulnerability. / 这不是未公开安全漏洞。
+          required: true

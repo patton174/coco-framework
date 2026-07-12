@@ -8,6 +8,10 @@ updates:
       time: "03:00"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github_actions
+      - "area: governance"
     commit-message:
       prefix: ci
     groups:
@@ -23,5 +27,36 @@ updates:
       time: "03:15"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - "area: governance"
     commit-message:
       prefix: ci
+
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - "area: build"
+    commit-message:
+      prefix: build
+    groups:
+      spring:
+        patterns:
+          - "org.springframework:*"
+          - "org.springframework.boot:*"
+      mybatis-plus:
+        patterns:
+          - "com.baomidou:*"
+      build-plugins:
+        patterns:
+          - "org.apache.maven.plugins:*"
+          - "org.codehaus.mojo:*"
+          - "org.sonatype.central:*"
+          - "com.github.spotbugs:*"

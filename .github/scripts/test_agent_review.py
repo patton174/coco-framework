@@ -227,11 +227,26 @@ class AgentReviewTests(unittest.TestCase):
             ".github/scripts/auto_merge.py",
             ".github/workflows/auto-merge.yml",
             ".github/workflows/agent-open-pr.yml",
+            ".github/workflows/release.yml",
+            ".github/workflows/pr-labeler.yml",
+            ".github/dependabot.yml",
+            ".github/CODEOWNERS",
+            ".github/ISSUE_TEMPLATE/bug-report.yml",
+            ".github/PULL_REQUEST_TEMPLATE.md",
             ".github/readme/fragments/en/overview.md",
             ".github/workflows/readme-maintenance.yml",
             ".github/workflow-governance.md",
+            "AGENTS.md",
+            "CODE_OF_CONDUCT.md",
+            "CONTRIBUTING.md",
+            "GOVERNANCE.md",
+            "LICENSE",
             "README.md",
             "README_CN.md",
+            "SECURITY.md",
+            "SUPPORT.md",
+            "coco-support/coco-document/release.md",
+            governance_spec,
         ):
             with self.subTest(path=path):
                 self.assertIn(governance_spec, mapped_specs(path))
@@ -2279,6 +2294,31 @@ class AgentReviewTests(unittest.TestCase):
             "update-readme-insights.yml",
         ):
             self.assertFalse((workflow_root / legacy_name).exists(), legacy_name)
+
+    def test_release_workflow_is_latest_main_only_and_least_privilege(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/release.yml"
+        ).read_text(encoding="utf-8")
+        publish, tag = workflow.split("\n  publish:\n", 1)[1].split("\n  tag:\n", 1)
+
+        self.assertIn("  workflow_dispatch:\n", workflow)
+        self.assertNotRegex(workflow, r"(?m)^  push:\s*$")
+        self.assertIn("permissions:\n  contents: read\n", workflow)
+        self.assertIn('"${GITHUB_REF}" != "refs/heads/main"', workflow)
+        self.assertGreaterEqual(workflow.count("git/ref/heads/main"), 2)
+        self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', workflow)
+        self.assertIn("needs: guard", workflow)
+        self.assertIn("needs: test", publish)
+        self.assertNotIn("contents: write", publish)
+        self.assertIn("environment: coco-spring", publish)
+        self.assertIn('central_wait_until="PUBLISHED"', publish)
+        self.assertNotIn('central_wait_until="VALIDATED"', publish)
+        self.assertIn("persist-credentials: false", publish)
+        self.assertIn("needs: publish", tag)
+        self.assertIn("permissions:\n      contents: write\n", tag)
+        self.assertIn('ref="refs/tags/${RELEASE_TAG}"', tag)
+        self.assertEqual(1, workflow.count("contents: write"))
+        self.assertNotIn("git push origin", workflow)
 
     def test_agent_issue_gate_workflow_has_no_secret_path_and_shared_lock(self) -> None:
         workflow_root = Path(__file__).resolve().parents[1] / "workflows"

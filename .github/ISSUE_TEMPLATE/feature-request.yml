@@ -1,0 +1,66 @@
+name: Feature request / 功能建议
+description: Propose a reusable framework capability / 提议可复用的框架能力
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Coco reduces repeated infrastructure code without hiding domain ownership. Explain why the proposal belongs in the framework rather than a business application.
+        Coco 负责减少重复基础设施代码，不隐藏业务所有权。请说明该能力为何属于框架而不是业务项目。
+  - type: dropdown
+    id: area
+    attributes:
+      label: Target area / 目标模块
+      options:
+        - Build, BOM, parent, or Maven plugin
+        - Foundation API, context, exception, i18n, logging, or feature model
+        - Spring Boot autoconfiguration or starter
+        - Web request processing
+        - Security, signature, encryption, or replay protection
+        - MyBatis-Plus, tenant, or data permission
+        - Audit or OpenAPI
+        - Code generation or development tooling
+        - Documentation, samples, or repository governance
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Repeated problem / 重复问题
+      description: Describe the repeated infrastructure burden and affected users.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed contract / 建议契约
+      description: Describe configuration, annotations, beans, SPI, generated source, and defaults.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries and alternatives / 边界与替代方案
+      description: Explain what remains business-owned and which alternatives were considered.
+    validations:
+      required: true
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Compatibility impact / 兼容性影响
+      options:
+        - Backward compatible / 向后兼容
+        - Opt-in behavior / 显式启用
+        - Breaking change / 破坏性变更
+        - Unsure / 不确定
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution / 贡献意愿
+      options:
+        - label: I can help implement or verify this proposal. / 我可以协助实现或验证。

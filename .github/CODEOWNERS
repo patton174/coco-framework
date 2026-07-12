@@ -1,12 +1,34 @@
-# Governance-sensitive automation remains visible to the repository owner.
+# The repository owner is the default code owner for every contribution.
+* @patton174
+
+# Module ownership remains explicit so future maintainer teams can be split
+# without changing the protected review contract.
+/coco-build/ @patton174
+/coco-foundation/ @patton174
+/coco-spring/ @patton174
+/coco-features/ @patton174
+/coco-support/ @patton174
+/coco-samples/ @patton174
+/pom.xml @patton174
+
+# Governance-sensitive automation and community policy.
 /.github/workflows/ @patton174
 /.github/scripts/ @patton174
 /.github/agent-review/ @patton174
 /.github/readme/ @patton174
 /.github/requirements/ @patton174
+/.github/ISSUE_TEMPLATE/ @patton174
+/.github/PULL_REQUEST_TEMPLATE.md @patton174
+/.github/labeler.yml @patton174
 /.github/workflow-governance.md @patton174
 /.github/dependabot.yml @patton174
 /AGENTS.md @patton174
+/CODE_OF_CONDUCT.md @patton174
+/CONTRIBUTING.md @patton174
+/GOVERNANCE.md @patton174
+/SECURITY.md @patton174
+/SUPPORT.md @patton174
+/LICENSE @patton174
 /README.md @patton174
 /README_CN.md @patton174
 /coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md @patton174
