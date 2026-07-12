@@ -293,7 +293,7 @@ jobs:
         if: steps.release-target.outputs.validated == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.release-app-token.outputs.token }}
           ACTUAL_APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
           ACTUAL_INSTALLATION_ID: ${{ steps.release-app-token.outputs.installation-id }}
           EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}
@@ -317,7 +317,7 @@ jobs:
           fi
 
           derived_login="${ACTUAL_APP_SLUG}[bot]"
-          user_json="$(gh api "users/${derived_login}")"
+          user_json="$(GH_TOKEN="${APP_TOKEN}" gh api "users/${derived_login}")"
           actual_login="$(jq -r '.login' <<< "${user_json}")"
           actual_type="$(jq -r '.type' <<< "${user_json}")"
           actual_bot_id="$(jq -r '.id' <<< "${user_json}")"
@@ -330,7 +330,8 @@ jobs:
             exit 1
           fi
 
-          repository_json="$(gh api "repos/${GITHUB_REPOSITORY}")"
+          repository_json="$(GH_TOKEN="${APP_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}")"
           if [[ "$(jq -r '.id' <<< "${repository_json}")" != "${GITHUB_REPOSITORY_ID}" \
              || "$(jq -r '.full_name' <<< "${repository_json}")" != "${GITHUB_REPOSITORY}" \
              || "$(jq -r '.default_branch' <<< "${repository_json}")" != "main" ]]; then
@@ -354,7 +355,7 @@ jobs:
           steps.release-app-identity.outputs.authorized == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.release-app-token.outputs.token }}
           READ_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.publish.outputs.tag }}
           RELEASE_VERSION: ${{ needs.publish.outputs.version }}
@@ -381,7 +382,8 @@ jobs:
           fi
 
           require_current_main
-          tag_object_sha="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+          tag_object_sha="$(GH_TOKEN="${APP_TOKEN}" gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/tags" \
             -f tag="${RELEASE_TAG}" \
             -f message="Release ${RELEASE_VERSION}" \
             -f object="${GITHUB_SHA}" \
@@ -391,7 +393,8 @@ jobs:
           # An annotated tag object is harmless until a ref points to it. Rebind
           # main immediately before the only operation that makes the tag visible.
           require_current_main
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+          GH_TOKEN="${APP_TOKEN}" gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f ref="refs/tags/${RELEASE_TAG}" \
             -f sha="${tag_object_sha}" > /dev/null
 

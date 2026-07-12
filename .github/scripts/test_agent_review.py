@@ -2688,17 +2688,27 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn('"${actual_bot_id}" != "${EXPECTED_APP_BOT_ID}"', tag)
         self.assertIn('echo "authorized=true" >> "${GITHUB_OUTPUT}"', tag)
 
+        identity_step = tag.split(
+            "\n      - name: Bind Release App identity and repository\n", 1
+        )[1].split("\n      - name: Tag the successful release\n", 1)[0]
+        self.assertIn(
+            "APP_TOKEN: ${{ steps.release-app-token.outputs.token }}", identity_step
+        )
+        self.assertEqual(2, identity_step.count('GH_TOKEN="${APP_TOKEN}" gh api'))
+
         write_step = tag.split("\n      - name: Tag the successful release\n", 1)[1]
         self.assertIn(
             "steps.release-app-identity.outputs.authorized == 'true'", write_step
         )
         self.assertIn(
-            "GH_TOKEN: ${{ steps.release-app-token.outputs.token }}", write_step
+            "APP_TOKEN: ${{ steps.release-app-token.outputs.token }}", write_step
         )
         self.assertIn("READ_TOKEN: ${{ github.token }}", write_step)
         self.assertEqual(4, write_step.count("require_current_main"))
         self.assertIn('GH_TOKEN="${READ_TOKEN}" gh api', write_step)
-        self.assertEqual(2, write_step.count("gh api --method POST"))
+        self.assertEqual(
+            2, write_step.count('GH_TOKEN="${APP_TOKEN}" gh api --method POST')
+        )
         self.assertIn('ref="refs/tags/${RELEASE_TAG}"', write_step)
         self.assertNotIn("COCO_RELEASE_APP_PRIVATE_KEY", write_step)
         self.assertEqual(1, workflow.count("secrets.COCO_RELEASE_APP_PRIVATE_KEY"))
