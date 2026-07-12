@@ -1251,8 +1251,8 @@ def command_prepare(args: argparse.Namespace) -> int:
     if args.expected_head_sha and args.expected_head_sha != head_sha:
         raise ReviewError("The event head SHA does not match the pull request.")
 
-    trusted_app_login = str(getattr(args, "trusted_app_login", "") or "")
-    trusted_app_bot_id = getattr(args, "trusted_app_bot_id", 0)
+    trusted_app_login = os.environ.get("COCO_AGENT_APP_LOGIN", "")
+    trusted_app_bot_id: Any = os.environ.get("COCO_AGENT_APP_BOT_ID", "")
     if trusted_app_login or trusted_app_bot_id:
         trusted_app_login = require_app_bot_login(trusted_app_login)
         trusted_app_bot_id = require_app_bot_id(trusted_app_bot_id)
@@ -3541,8 +3541,6 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--pr-number", required=True, type=int)
     prepare.add_argument("--event-name", required=True)
     prepare.add_argument("--expected-head-sha", default="")
-    prepare.add_argument("--trusted-app-login", default="")
-    prepare.add_argument("--trusted-app-bot-id", default=0, type=int)
     prepare.add_argument("--base-root", required=True, type=Path)
     prepare.add_argument("--config", required=True, type=Path)
     prepare.add_argument("--context-output", required=True, type=Path)

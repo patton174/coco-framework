@@ -97,8 +97,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.binding.outputs.pr-number }}
           REPOSITORY: ${{ github.repository }}
-          TRUSTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
-          TRUSTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
         run: |
           set -euo pipefail
           output_dir="${RUNNER_TEMP}/agent-review-input"
@@ -108,8 +108,6 @@ jobs:
             --pr-number "${PR_NUMBER}" \
             --event-name "${EVENT_NAME}" \
             --expected-head-sha "${EXPECTED_HEAD_SHA}" \
-            --trusted-app-login "${TRUSTED_APP_LOGIN}" \
-            --trusted-app-bot-id "${TRUSTED_APP_BOT_ID}" \
             --base-root .agent-review-base \
             --config .agent-review-base/.github/agent-review/config.json \
             --context-output "${output_dir}/context.json" \
