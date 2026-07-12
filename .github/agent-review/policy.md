@@ -30,14 +30,21 @@ business application's control.
   require compatibility analysis and a real replacement point.
 - `coco-context`, `coco-exception`, `coco-i18n`, and `coco-logging` own reusable
   foundation infrastructure and must not depend on concrete feature modules.
-- `coco-config` binds `coco.*` configuration and computes the final runtime
-  feature plan.
-- `coco-feature-model` owns standard feature metadata and dependency
-  resolution; `coco-feature-runtime` enforces resolved feature state at runtime.
-- Each `coco-feature-*` module owns its stated behavior. Feature implementation
-  must not be moved into the starter or an unrelated common module.
-- `coco-support` owns test support, repository documentation, and development-only
-  tools. Runtime modules must not depend on its documentation or tool directories.
+- `coco-spring-boot-autoconfigure` owns `coco.*` configuration binding, the
+  resolved runtime feature plan, runtime feature conditions, and shared Spring
+  Boot integration. `coco-config` and `coco-feature-runtime` are source-free
+  2.x compatibility coordinates and must not regain implementation ownership.
+- `coco-feature-model` owns standard feature metadata and dependency resolution.
+- Canonical `coco-audit`, `coco-data-permission`, `coco-mybatis-plus`,
+  `coco-openapi`, `coco-security`, `coco-tenant`, and `coco-web` artifacts each
+  own their stated behavior. Their published `coco-feature-*` predecessors are
+  source-free 2.x compatibility coordinates. Feature implementation must not be
+  duplicated in a compatibility artifact, moved into the starter, or moved into
+  an unrelated common module.
+- `coco-support` owns `coco-test-support`, repository documentation, and
+  development-only tools. The old `coco-test` coordinate is a source-free 2.x
+  compatibility entry. Runtime modules must not depend on support documentation,
+  test support, or tool directories.
 - `coco-maven-plugin` owns generated feature manifests, enabled dependency
   application, package pruning, and the explicit code-generation goal.
 

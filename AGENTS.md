@@ -29,18 +29,19 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-spring-boot-starter` is the single normal starter dependency for applications. It brings common infrastructure and standard feature modules.
 - `coco-api` contains stable public contracts such as `CocoConfigurer`, `CocoFeature`, `CocoFeatureRegistry`, and `@CocoFeatures`.
 - `coco-context`, `coco-exception`, `coco-i18n`, and `coco-logging` contain reusable foundation infrastructure.
-- `coco-config` binds `coco.*` configuration and computes the final runtime feature plan.
+- `coco-spring-boot-autoconfigure` binds `coco.*` configuration, computes the final runtime feature plan, applies feature conditions, and owns shared Spring Boot integration.
 - `coco-feature-model` owns standard feature metadata, dependencies, manifest model, and feature resolution.
-- `coco-feature-runtime` filters auto-configuration by feature state.
-- `coco-feature-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
-- `coco-feature-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
-- `coco-feature-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
-- `coco-feature-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
-- `coco-feature-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
+- `coco-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
+- `coco-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
+- `coco-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
+- `coco-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
+- `coco-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-openapi` adapts Coco metadata to SpringDoc when present; `coco-security` provides security context and Web request adaptation without imposing an authentication product.
+- Published 2.x coordinates `coco-config`, `coco-feature-runtime`, the seven former runtime `coco-feature-*` artifacts, and `coco-test` remain source-free compatibility entries under `coco-build/coco-compatibility`; they must not become implementation owners or internal dependencies again.
+- `coco-test-support` is the canonical shared test-support artifact. Runtime modules must not depend on it.
 - `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe generated-file writing; `coco-maven-plugin` exposes this through the opt-in `coco:generate` goal.
 - `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
-- `coco-support/coco-document` contains repository architecture, release, audit, plan, and specification documents; `coco-support/coco-tools` contains development-only repository tools; `coco-support/coco-test` contains reusable test support.
-- During the staged 2.0 migration, I18n, Logging, and Feature Model retain their existing auto-configuration FQCNs. Their Spring bindings move to `coco-spring-boot-autoconfigure` in the separately reviewed Spring composition batch.
+- `coco-support/coco-document` contains repository architecture, release, audit, plan, and specification documents; `coco-support/coco-tools` contains development-only repository tools.
+- Public Java packages, FQCNs, configuration keys, feature IDs, auto-configuration class names, message basenames, and Maven plugin goals remain unchanged during the Maven ownership migration.
 
 ## Development Rules
 
