@@ -319,7 +319,6 @@ class AgentReviewTests(unittest.TestCase):
         jury_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
         governance_spec = "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
         module_layout_spec = "coco-support/coco-document/architecture/module-layout.md"
-        spring_composition_spec = "coco-support/coco-document/superpowers/specs/2026-07-12-coco-spring-composition.md"
 
         def mapped_specs(path: str) -> set[str]:
             return {
@@ -386,25 +385,38 @@ class AgentReviewTests(unittest.TestCase):
             {module_layout_spec},
             mapped_specs("coco-support/coco-test/pom.xml"),
         )
-        self.assertEqual(
-            {module_layout_spec, spring_composition_spec},
-            mapped_specs("coco-spring/coco-config/pom.xml"),
+        module_roots = (
+            "coco-foundation/coco-api",
+            "coco-foundation/coco-i18n",
+            "coco-foundation/coco-feature-model",
+            "coco-foundation/coco-logging",
+            "coco-spring/coco-config",
+            "coco-spring/coco-spring-boot-autoconfigure",
+            "coco-features/coco-feature-web",
+            "coco-features/coco-web",
+            "coco-features/coco-feature-audit",
+            "coco-features/coco-audit",
+            "coco-features/coco-feature-codegen",
+            "coco-build/coco-maven-plugin",
         )
-        for path in (
-            "coco-features/coco-feature-web/pom.xml",
-            "coco-features/coco-feature-audit/pom.xml",
-            "coco-features/coco-feature-codegen/pom.xml",
-        ):
-            with self.subTest(pom_only_path=path):
-                self.assertEqual({module_layout_spec}, mapped_specs(path))
-        self.assertGreater(
-            len(
-                mapped_specs(
-                    "coco-features/coco-feature-web/src/main/java/Example.java"
-                )
-            ),
-            1,
-        )
+        for module_root in module_roots:
+            expected_specs = mapped_specs(f"{module_root}/src/main/java/Example.java")
+            self.assertIn(module_layout_spec, expected_specs)
+            self.assertGreater(len(expected_specs), 1)
+            for relative_path in (
+                "pom.xml",
+                "README.md",
+                "src/main/java/Example.java",
+                "src/main/resources/example.properties",
+            ):
+                with self.subTest(
+                    module_root=module_root,
+                    relative_path=relative_path,
+                ):
+                    self.assertEqual(
+                        expected_specs,
+                        mapped_specs(f"{module_root}/{relative_path}"),
+                    )
         self.assertEqual(
             {governance_spec},
             mapped_specs("coco-support/coco-document/release.md"),
@@ -538,13 +550,22 @@ class AgentReviewTests(unittest.TestCase):
                     {source["source"] for source in sources},
                 )
 
-        spring_cutover_paths = [
-            "pom.xml",
-            "coco-build/coco-dependencies/pom.xml",
-            "coco-features/pom.xml",
+        spring_cutover_batches = {
+            "starter-and-core-features": [
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
+                "coco-features/coco-feature-data-permission/pom.xml",
+                "coco-features/coco-feature-mybatis-plus/pom.xml",
+                "coco-features/coco-feature-openapi/pom.xml",
+                "coco-features/coco-feature-security/pom.xml",
+                "coco-features/coco-feature-tenant/pom.xml",
+            ],
+            "web": ["coco-features/coco-feature-web/pom.xml"],
+            "audit": ["coco-features/coco-feature-audit/pom.xml"],
+            "codegen": ["coco-features/coco-feature-codegen/pom.xml"],
+        }
+        expected_consumer_poms = {
             "coco-spring/coco-spring-boot-starter/pom.xml",
-            "coco-spring/coco-config/pom.xml",
-            "coco-features/coco-feature-runtime/pom.xml",
             "coco-features/coco-feature-audit/pom.xml",
             "coco-features/coco-feature-codegen/pom.xml",
             "coco-features/coco-feature-data-permission/pom.xml",
@@ -553,28 +574,34 @@ class AgentReviewTests(unittest.TestCase):
             "coco-features/coco-feature-security/pom.xml",
             "coco-features/coco-feature-tenant/pom.xml",
             "coco-features/coco-feature-web/pom.xml",
-        ]
-        omissions = []
-        sources = review.collect_policy(
-            repository_root,
-            value,
-            spring_cutover_paths,
-            omissions,
-        )
-        self.assertEqual([], omissions)
+        }
         self.assertEqual(
+            expected_consumer_poms,
             {
-                "AGENTS.md",
-                ".github/agent-review/policy.md",
-                "coco-support/coco-document/architecture/module-layout.md",
-                "coco-support/coco-document/superpowers/specs/2026-07-12-coco-spring-composition.md",
+                path
+                for paths in spring_cutover_batches.values()
+                for path in paths
+                if path.endswith("pom.xml")
             },
-            {source["source"] for source in sources},
         )
-        self.assertLessEqual(
-            sum(len(source["content"]) for source in sources),
-            review.normalized_limits(value)["policy_chars"],
-        )
+        for name, changed_paths in spring_cutover_batches.items():
+            with self.subTest(spring_cutover_batch=name):
+                omissions = []
+                sources = review.collect_policy(
+                    repository_root,
+                    value,
+                    changed_paths,
+                    omissions,
+                )
+                self.assertEqual([], omissions)
+                self.assertIn(
+                    "coco-support/coco-document/architecture/module-layout.md",
+                    {source["source"] for source in sources},
+                )
+                self.assertLessEqual(
+                    sum(len(source["content"]) for source in sources),
+                    review.normalized_limits(value)["policy_chars"],
+                )
 
     def test_repository_governance_policy_does_not_pull_module_layout(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]

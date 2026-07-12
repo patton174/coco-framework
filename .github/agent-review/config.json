@@ -204,16 +204,16 @@
     },
     {
       "path_globs": [
-        "coco-api/src/**",
-        "coco-foundation/coco-api/src/**",
-        "coco-common/coco-common-i18n/src/**",
-        "coco-foundation/coco-common/coco-common-i18n/src/**",
-        "coco-foundation/coco-i18n/src/**",
-        "coco-config/src/**",
-        "coco-spring/coco-config/src/**",
-        "coco-spring/coco-spring-boot-autoconfigure/src/**",
-        "coco-features/coco-feature-registry/src/**",
-        "coco-foundation/coco-feature-model/src/**"
+        "coco-api/**",
+        "coco-foundation/coco-api/**",
+        "coco-common/coco-common-i18n/**",
+        "coco-foundation/coco-common/coco-common-i18n/**",
+        "coco-foundation/coco-i18n/**",
+        "coco-config/**",
+        "coco-spring/coco-config/**",
+        "coco-spring/coco-spring-boot-autoconfigure/**",
+        "coco-features/coco-feature-registry/**",
+        "coco-foundation/coco-feature-model/**"
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-04-coco-api-core-i18n-design.md",
@@ -222,20 +222,8 @@
     },
     {
       "path_globs": [
-        "coco-config/**",
-        "coco-spring/coco-config/**",
-        "coco-feature-runtime/**",
-        "coco-features/coco-feature-runtime/**",
-        "coco-spring/coco-spring-boot-starter/pom.xml"
-      ],
-      "spec_paths": [
-        "coco-support/coco-document/superpowers/specs/2026-07-12-coco-spring-composition.md"
-      ]
-    },
-    {
-      "path_globs": [
-        "coco-features/coco-feature-web/src/**",
-        "coco-features/coco-web/src/**"
+        "coco-features/coco-feature-web/**",
+        "coco-features/coco-web/**"
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-05-coco-web-response-wrap-design.md",
@@ -245,8 +233,8 @@
     },
     {
       "path_globs": [
-        "coco-features/coco-feature-audit/src/**",
-        "coco-features/coco-audit/src/**"
+        "coco-features/coco-feature-audit/**",
+        "coco-features/coco-audit/**"
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-audit-logging.md",
@@ -255,9 +243,9 @@
     },
     {
       "path_globs": [
-        "coco-common/coco-common-logging/src/**",
-        "coco-foundation/coco-common/coco-common-logging/src/**",
-        "coco-foundation/coco-logging/src/**"
+        "coco-common/coco-common-logging/**",
+        "coco-foundation/coco-common/coco-common-logging/**",
+        "coco-foundation/coco-logging/**"
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-10-coco-async-log-overflow-observability.md"
@@ -265,9 +253,9 @@
     },
     {
       "path_globs": [
-        "coco-features/coco-feature-codegen/src/**",
-        "coco-maven-plugin/src/**",
-        "coco-build/coco-maven-plugin/src/**"
+        "coco-features/coco-feature-codegen/**",
+        "coco-maven-plugin/**",
+        "coco-build/coco-maven-plugin/**"
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
