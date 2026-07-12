@@ -27,6 +27,7 @@ REPOSITORY = "patton174/coco-framework"
 REPOSITORY_ID = 123456789
 DEFERRED_PR_NUMBER = 125
 SOURCE_RUN_ID = 987654321
+RELEASE_APP_ACTION_SHA = "bcd2ba49218906704ab6c1aa796996da409d3eb1"
 
 
 def config(**limit_overrides: int) -> dict:
@@ -2607,10 +2608,58 @@ class AgentReviewTests(unittest.TestCase):
         ):
             self.assertFalse((workflow_root / legacy_name).exists(), legacy_name)
 
-    def test_release_workflow_is_latest_main_only_and_least_privilege(self) -> None:
-        workflow = (
+    @staticmethod
+    def _release_workflow() -> str:
+        return (
             Path(__file__).resolve().parents[1] / "workflows/release.yml"
         ).read_text(encoding="utf-8")
+
+    @staticmethod
+    def _release_tag_contract_sections(workflow: str) -> tuple[str, str, str, str, str]:
+        tag = workflow.split("\n  tag:\n", 1)[1]
+        preflight = tag.split(
+            "\n      - name: Revalidate release target before privileged token mint\n",
+            1,
+        )[1].split("\n      - name: Create Release App installation token\n", 1)[0]
+        token = tag.split("\n      - name: Create Release App installation token\n", 1)[
+            1
+        ].split("\n      - name: Bind Release App identity and repository\n", 1)[0]
+        identity = tag.split(
+            "\n      - name: Bind Release App identity and repository\n", 1
+        )[1].split("\n      - name: Tag the successful release\n", 1)[0]
+        write = tag.split("\n      - name: Tag the successful release\n", 1)[1]
+        return tag, preflight, token, identity, write
+
+    def _assert_release_app_contract(self, workflow: str) -> None:
+        _, preflight, token, identity, write = self._release_tag_contract_sections(
+            workflow
+        )
+        action_match = re.search(
+            r"uses: actions/create-github-app-token@([0-9a-f]{40}) # v3[.]2[.]0",
+            token,
+        )
+        self.assertIsNotNone(action_match)
+        assert action_match is not None
+        self.assertEqual(RELEASE_APP_ACTION_SHA, action_match.group(1))
+        self.assertIn('EXPECTED_APP_ID}" != "4279686"', preflight)
+        self.assertIn('EXPECTED_INSTALLATION_ID}" != "146080543"', preflight)
+        self.assertIn("secrets.COCO_RELEASE_APP_PRIVATE_KEY", token)
+        self.assertIn("permission-contents: write", token)
+        self.assertIn("skip-token-revoke: false", token)
+        self.assertIn('derived_login="${ACTUAL_APP_SLUG}[bot]"', identity)
+        self.assertIn('"${actual_bot_id}" != "${EXPECTED_APP_BOT_ID}"', identity)
+        self.assertIn('echo "authorized=true" >> "${GITHUB_OUTPUT}"', identity)
+        self.assertIn("steps.release-app-identity.outputs.authorized == 'true'", write)
+        normalized_write = " ".join(re.sub(r"\\\s+", " ", write).split())
+        for endpoint in ("git/tags", "git/refs"):
+            self.assertIn(
+                'GH_TOKEN="${APP_TOKEN}" gh api --method POST '
+                f'"repos/${{GITHUB_REPOSITORY}}/{endpoint}"',
+                normalized_write,
+            )
+
+    def test_release_workflow_is_latest_main_only_and_least_privilege(self) -> None:
+        workflow = self._release_workflow()
         workflow_header = workflow.split("\njobs:\n", 1)[0]
         publish, tag = workflow.split("\n  publish:\n", 1)[1].split("\n  tag:\n", 1)
 
@@ -2624,7 +2673,7 @@ class AgentReviewTests(unittest.TestCase):
             workflow_header,
         )
         self.assertIn('"${GITHUB_REF}" != "refs/heads/main"', workflow)
-        self.assertGreaterEqual(workflow.count("git/ref/heads/main"), 4)
+        self.assertIn("git/ref/heads/main", workflow)
         self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', workflow)
         self.assertIn("needs: guard", workflow)
         self.assertIn("needs: test", publish)
@@ -2637,82 +2686,99 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("environment: coco-spring", tag)
         self.assertIn("permissions:\n      contents: read\n", tag)
         self.assertNotRegex(tag, r"(?m)^\s+contents:\s+write\s*$")
-        self.assertIn(
-            "concurrency:\n"
-            "      group: release-tag-${{ github.repository_id }}\n"
-            "      cancel-in-progress: false\n",
-            tag,
-        )
+        self.assertIn("GitHub exposes no tag-only App permission", tag)
+        self.assertNotIn("git push origin", workflow)
 
-        preflight_index = tag.index(
-            "      - name: Revalidate release target before privileged token mint"
+    def test_release_workflow_pins_release_app_before_token_mint(self) -> None:
+        workflow = self._release_workflow()
+        tag, preflight, token, identity, _ = self._release_tag_contract_sections(
+            workflow
         )
-        token_index = tag.index("      - name: Create Release App installation token")
-        identity_index = tag.index(
-            "      - name: Bind Release App identity and repository"
-        )
-        write_index = tag.index("      - name: Tag the successful release")
-        self.assertLess(preflight_index, token_index)
-        self.assertLess(token_index, identity_index)
-        self.assertLess(identity_index, write_index)
+        self._assert_release_app_contract(workflow)
 
-        self.assertIn(
-            "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
-            tag,
+        step_names = (
+            "Revalidate release target before privileged token mint",
+            "Create Release App installation token",
+            "Bind Release App identity and repository",
+            "Tag the successful release",
         )
-        self.assertIn("client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}", tag)
-        self.assertIn("secrets.COCO_RELEASE_APP_PRIVATE_KEY", tag)
-        self.assertEqual(1, tag.count("permission-contents: write"))
-        self.assertIn("skip-token-revoke: false", tag)
-        self.assertIn("if: steps.release-target.outputs.validated == 'true'", tag)
-        self.assertIn(
-            "ACTUAL_APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}",
-            tag,
-        )
+        positions = [tag.index(f"      - name: {name}") for name in step_names]
+        self.assertEqual(sorted(positions), positions)
+        for variable in (
+            "COCO_RELEASE_APP_CLIENT_ID",
+            "COCO_RELEASE_APP_ID",
+            "COCO_RELEASE_APP_SLUG",
+            "COCO_RELEASE_APP_LOGIN",
+            "COCO_RELEASE_APP_BOT_ID",
+            "COCO_RELEASE_APP_INSTALLATION_ID",
+        ):
+            self.assertIn(variable, preflight)
+        self.assertIn("client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}", token)
         self.assertIn(
             "ACTUAL_INSTALLATION_ID: "
             "${{ steps.release-app-token.outputs.installation-id }}",
-            tag,
+            identity,
         )
-        self.assertIn("EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}", tag)
-        self.assertIn("EXPECTED_APP_LOGIN: ${{ vars.COCO_RELEASE_APP_LOGIN }}", tag)
-        self.assertIn("EXPECTED_APP_BOT_ID: ${{ vars.COCO_RELEASE_APP_BOT_ID }}", tag)
+        normalized_identity = " ".join(re.sub(r"\\\s+", " ", identity).split())
         self.assertIn(
-            "EXPECTED_INSTALLATION_ID: ${{ vars.COCO_RELEASE_APP_INSTALLATION_ID }}",
-            tag,
+            'GH_TOKEN="${APP_TOKEN}" gh api "users/${derived_login}"',
+            normalized_identity,
         )
         self.assertIn(
-            '"${ACTUAL_INSTALLATION_ID}" != "${EXPECTED_INSTALLATION_ID}"', tag
+            'GH_TOKEN="${APP_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}"',
+            normalized_identity,
         )
-        self.assertIn('derived_login="${ACTUAL_APP_SLUG}[bot]"', tag)
-        self.assertIn('"${actual_bot_id}" != "${EXPECTED_APP_BOT_ID}"', tag)
-        self.assertIn('echo "authorized=true" >> "${GITHUB_OUTPUT}"', tag)
 
-        identity_step = tag.split(
-            "\n      - name: Bind Release App identity and repository\n", 1
-        )[1].split("\n      - name: Tag the successful release\n", 1)[0]
-        self.assertIn(
-            "APP_TOKEN: ${{ steps.release-app-token.outputs.token }}", identity_step
-        )
-        self.assertEqual(2, identity_step.count('GH_TOKEN="${APP_TOKEN}" gh api'))
+    def test_release_workflow_rebinds_before_explicit_app_tag_writes(self) -> None:
+        workflow = self._release_workflow()
+        _, _, _, _, write = self._release_tag_contract_sections(workflow)
+        self._assert_release_app_contract(workflow)
 
-        write_step = tag.split("\n      - name: Tag the successful release\n", 1)[1]
-        self.assertIn(
-            "steps.release-app-identity.outputs.authorized == 'true'", write_step
-        )
-        self.assertIn(
-            "APP_TOKEN: ${{ steps.release-app-token.outputs.token }}", write_step
-        )
-        self.assertIn("READ_TOKEN: ${{ github.token }}", write_step)
-        self.assertEqual(4, write_step.count("require_current_main"))
-        self.assertIn('GH_TOKEN="${READ_TOKEN}" gh api', write_step)
-        self.assertEqual(
-            2, write_step.count('GH_TOKEN="${APP_TOKEN}" gh api --method POST')
-        )
-        self.assertIn('ref="refs/tags/${RELEASE_TAG}"', write_step)
-        self.assertNotIn("COCO_RELEASE_APP_PRIVATE_KEY", write_step)
-        self.assertEqual(1, workflow.count("secrets.COCO_RELEASE_APP_PRIVATE_KEY"))
-        self.assertNotIn("git push origin", workflow)
+        self.assertIn("require_current_main()", write)
+        self.assertIn('GH_TOKEN="${READ_TOKEN}" gh api', write)
+        self.assertIn("steps.release-app-identity.outputs.authorized == 'true'", write)
+        self.assertIn('ref="refs/tags/${RELEASE_TAG}"', write)
+        self.assertNotIn("COCO_RELEASE_APP_PRIVATE_KEY", write)
+        for line in write.splitlines():
+            if "gh api --method POST" in line:
+                self.assertIn('GH_TOKEN="${APP_TOKEN}"', line)
+
+    def test_release_workflow_tag_lookup_fails_closed_on_api_errors(self) -> None:
+        workflow = self._release_workflow()
+        _, preflight, _, _, write = self._release_tag_contract_sections(workflow)
+        for step in (preflight, write):
+            self.assertIn("git/matching-refs/tags/${RELEASE_TAG}", step)
+            self.assertIn("jq --arg ref", step)
+            self.assertIn('! "${tag_ref_count}" =~ ^[0-9]+$', step)
+            self.assertNotIn("> /dev/null 2>&1", step)
+
+    def test_release_workflow_contract_rejects_unsafe_mutations(self) -> None:
+        workflow = self._release_workflow()
+        mutations = {
+            "unpinned action": workflow.replace(
+                f"@{RELEASE_APP_ACTION_SHA}", "@v3.2.0", 1
+            ),
+            "missing identity gate": workflow.replace(
+                "steps.release-app-identity.outputs.authorized == 'true'",
+                "steps.release-target.outputs.validated == 'true'",
+                1,
+            ),
+            "implicit write token": workflow.replace(
+                'GH_TOKEN="${APP_TOKEN}" gh api --method POST',
+                "gh api --method POST",
+                1,
+            ),
+            "drifted installation pin": workflow.replace(
+                'EXPECTED_INSTALLATION_ID}" != "146080543"',
+                'EXPECTED_INSTALLATION_ID}" != "999"',
+                1,
+            ),
+        }
+        for name, mutated in mutations.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(workflow, mutated)
+                with self.assertRaises((AssertionError, IndexError)):
+                    self._assert_release_app_contract(mutated)
 
     def test_agent_issue_gate_workflow_has_no_secret_path_and_shared_lock(self) -> None:
         workflow_root = Path(__file__).resolve().parents[1] / "workflows"

@@ -17,8 +17,6 @@ on:
 permissions:
   contents: read
 
-# This workflow-level mutex covers the complete guard -> test -> publish -> tag
-# chain. The tag job also has its own mutation lock for explicit defense in depth.
 concurrency:
   group: release-${{ github.repository_id }}
   cancel-in-progress: false
@@ -228,9 +226,6 @@ jobs:
     environment: coco-spring
     permissions:
       contents: read
-    concurrency:
-      group: release-tag-${{ github.repository_id }}
-      cancel-in-progress: false
     steps:
       - name: Revalidate release target before privileged token mint
         id: release-target
@@ -239,15 +234,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.publish.outputs.tag }}
           RELEASE_VERSION: ${{ needs.publish.outputs.version }}
+          EXPECTED_APP_CLIENT_ID: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}
+          EXPECTED_APP_ID: ${{ vars.COCO_RELEASE_APP_ID }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_RELEASE_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_RELEASE_APP_BOT_ID }}
+          EXPECTED_INSTALLATION_ID: ${{ vars.COCO_RELEASE_APP_INSTALLATION_ID }}
         run: |
           set -euo pipefail
 
-          for variable in RELEASE_TAG RELEASE_VERSION; do
+          for variable in RELEASE_TAG RELEASE_VERSION EXPECTED_APP_CLIENT_ID \
+            EXPECTED_APP_ID EXPECTED_APP_SLUG EXPECTED_APP_LOGIN \
+            EXPECTED_APP_BOT_ID EXPECTED_INSTALLATION_ID; do
             if [[ -z "${!variable:-}" ]]; then
               echo "::error::${variable} must be configured."
               exit 1
             fi
           done
+          if [[ "${EXPECTED_APP_CLIENT_ID}" != "Iv23lidonlM70wdbJF3Y" \
+             || "${EXPECTED_APP_ID}" != "4279686" \
+             || "${EXPECTED_APP_SLUG}" != "coco-framework-release" \
+             || "${EXPECTED_APP_LOGIN}" != "coco-framework-release[bot]" \
+             || "${EXPECTED_APP_BOT_ID}" != "304043332" \
+             || "${EXPECTED_INSTALLATION_ID}" != "146080543" ]]; then
+            echo "::error::Protected Release App identity pins have drifted."
+            exit 1
+          fi
           if [[ "${RELEASE_TAG}" != "v${RELEASE_VERSION}" ]]; then
             echo "::error::Release tag and release version are not bound."
             exit 1
@@ -269,8 +281,15 @@ jobs:
             exit 1
           fi
 
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
-            > /dev/null 2>&1; then
+          matching_refs="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${RELEASE_TAG}")"
+          tag_ref_count="$(jq --arg ref "refs/tags/${RELEASE_TAG}" \
+            '[.[] | select(.ref == $ref)] | length' <<< "${matching_refs}")"
+          if [[ ! "${tag_ref_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::GitHub returned an invalid release tag lookup result."
+            exit 1
+          fi
+          if (( tag_ref_count != 0 )); then
             echo "::error::Release tag ${RELEASE_TAG} already exists."
             exit 1
           fi
@@ -279,6 +298,9 @@ jobs:
       - name: Create Release App installation token
         id: release-app-token
         if: steps.release-target.outputs.validated == 'true'
+        # GitHub exposes no tag-only App permission. The dedicated App is
+        # installed on this repository alone and bypasses only the v* creation
+        # ruleset; branch rules and tag update/deletion rules have no App bypass.
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}
@@ -374,9 +396,15 @@ jobs:
           }
 
           require_current_main
-          if GH_TOKEN="${READ_TOKEN}" gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
-            > /dev/null 2>&1; then
+          matching_refs="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${RELEASE_TAG}")"
+          tag_ref_count="$(jq --arg ref "refs/tags/${RELEASE_TAG}" \
+            '[.[] | select(.ref == $ref)] | length' <<< "${matching_refs}")"
+          if [[ ! "${tag_ref_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::GitHub returned an invalid release tag lookup result."
+            exit 1
+          fi
+          if (( tag_ref_count != 0 )); then
             echo "::error::Release tag ${RELEASE_TAG} already exists."
             exit 1
           fi
