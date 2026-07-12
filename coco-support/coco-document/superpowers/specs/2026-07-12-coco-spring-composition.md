@@ -84,7 +84,7 @@ coco-spring-boot-autoconfigure -> foundation
 
 The 2.x target keeps the two old Maven artifacts as deprecated, source-free compatibility facades. A new direct dependency on either old artifact should be replaced with `coco-spring-boot-autoconfigure` or, for applications, the normal `coco-spring-boot-starter` dependency. Their final removal is a next-major-version operation and is not part of batch 7b.
 
-The compatibility artifacts retain normal JAR packaging in this batch because that is the already tested 7a behavior. Converting them to Maven relocation POMs is a separate decision: it must prove Maven Resolver dependency mediation, plugin behavior, IDE import, and a real external consumer before changing artifact type.
+The compatibility artifacts retain normal JAR packaging. A real Maven consumer experiment rejected relocation POMs because relocation bypassed BOM mediation for the target version and the current plugin's direct old-coordinate JAR resolution could not resolve an artifact. Source-free compatibility JARs preserved both behaviors.
 
 Within the replacement artifact, the following remain compatible:
 

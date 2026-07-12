@@ -62,7 +62,7 @@ coco-samples/
 
 `coco-spring-boot-starter` 保留标准 Spring Boot starter 制品名，但只负责组合依赖，不承载具体 feature 行为。
 
-`coco-build/coco-compatibility` 不是普通业务依赖入口。它只容纳已经公开发布、在 2.x 兼容窗口内必须继续可解析的旧 Maven 坐标；这些模块只能是 relocation POM 或无源码兼容门面，不得重新拥有实现、自动配置注册或资源。兼容模块可以在迁移批次中逐步归入该目录，目录中的旧坐标在下一主版本才可删除。
+`coco-build/coco-compatibility` 不是普通业务依赖入口。它只容纳已经公开发布、在 2.x 兼容窗口内必须继续可解析的旧 Maven 坐标；这些模块使用无源码兼容 JAR，不得重新拥有实现、自动配置注册或资源。兼容模块可以在迁移批次中逐步归入该目录，目录中的旧坐标在下一主版本才可删除。
 
 `coco-feature-codegen` 和 `coco-samples` 是 2.x 的受控过渡模块：前者在 `coco-generate` 完成带版本的跨仓迁移前继续支持现有 API 与 `coco:generate`，后者在 `coco-admin` 提供等价业务流 CI 前继续承担框架黑盒验证。它们不是新增业务运行时边界。
 
@@ -71,7 +71,7 @@ coco-samples/
 `v2.0.1` 已经向 Maven Central 发布 `coco-config`、`coco-feature-runtime`、`coco-feature-*`、`coco-test`、`coco-feature-codegen` 和 `coco-maven-plugin`。因此早期“在公开 2.0 前直接删除旧坐标”的假设已经失效，后续 2.x 迁移必须遵守以下规则：
 
 1. 新名称对应的制品成为框架内部和新业务项目的主路径；框架内部不得继续依赖仅为兼容保留的旧坐标。
-2. 每个已发布旧坐标在 2.x 内必须继续可解析，并提供与其原有公开类型、配置和运行行为兼容的传递表面。优先使用无源码兼容 JAR；只有经过 Maven Resolver、插件和真实消费项目验证后才可改为 relocation POM。
+2. 每个已发布旧坐标在 2.x 内必须继续可解析，并通过无源码兼容 JAR 提供与原有公开类型、配置和运行行为兼容的传递表面。真实 Maven 消费验证已证明 relocation POM 会破坏 BOM 版本管理和插件按 JAR 解析，因此 2.x 不使用 relocation。
 3. 兼容制品不得复制实现类、自动配置导入、`spring.factories`、消息资源或模板。实现只能有一个物理所有者。
 4. Java 包名、公开 FQCN、配置前缀、feature id、自动配置类名、消息 basename 和插件 goal 不因目录或 artifactId 重命名而改变；任何此类变更需要单独的主版本兼容评审。
 5. BOM 必须同时管理 2.x 主坐标和仍受支持的旧坐标。starter 只组合主坐标，不通过旧兼容坐标间接获得能力。
