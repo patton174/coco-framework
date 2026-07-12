@@ -552,6 +552,10 @@ class AgentReviewTests(unittest.TestCase):
 
         spring_cutover_batches = {
             "starter-and-core-features": [
+                "coco-spring/coco-config/pom.xml",
+                "coco-spring/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
+                "coco-features/coco-feature-runtime/pom.xml",
+                "coco-features/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
                 "coco-spring/coco-spring-boot-starter/pom.xml",
                 "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
                 "coco-features/coco-feature-data-permission/pom.xml",
@@ -575,15 +579,14 @@ class AgentReviewTests(unittest.TestCase):
             "coco-features/coco-feature-tenant/pom.xml",
             "coco-features/coco-feature-web/pom.xml",
         }
-        self.assertEqual(
-            expected_consumer_poms,
-            {
-                path
-                for paths in spring_cutover_batches.values()
-                for path in paths
-                if path.endswith("pom.xml")
-            },
-        )
+        scheduled_consumer_poms = [
+            path
+            for paths in spring_cutover_batches.values()
+            for path in paths
+            if path in expected_consumer_poms
+        ]
+        self.assertEqual(expected_consumer_poms, set(scheduled_consumer_poms))
+        self.assertEqual(len(expected_consumer_poms), len(scheduled_consumer_poms))
         for name, changed_paths in spring_cutover_batches.items():
             with self.subTest(spring_cutover_batch=name):
                 omissions = []
