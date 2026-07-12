@@ -2,6 +2,12 @@
   "version": 1,
   "gate_name": "Agent jury gate",
   "managed_comment_marker": "<!-- agent-jury:v1 -->",
+  "deferred_bot_authors": [
+    {
+      "login": "dependabot[bot]",
+      "id": 49699333
+    }
+  ],
   "protected_policy_paths": [
     "AGENTS.md",
     ".github/agent-review/policy.md"

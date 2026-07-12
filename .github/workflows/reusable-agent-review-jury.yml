@@ -1,0 +1,751 @@
+name: Reusable Agent Review Jury
+
+# All executable Agent review policy comes from the protected base commit. Pull
+# request head content is fetched only as untrusted text by agent_review.py.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: number
+      expected_base_sha:
+        required: true
+        type: string
+      expected_head_sha:
+        required: true
+        type: string
+      event_name:
+        required: true
+        type: string
+      repository_id:
+        required: true
+        type: number
+      allow_deferred:
+        required: false
+        type: boolean
+        default: false
+      source_run_id:
+        required: false
+        type: number
+        default: 0
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+      ANTHROPIC_BASE_URL:
+        required: false
+      COCO_AGENT_APP_PRIVATE_KEY:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: >-
+    agent-review-${{ inputs.repository_id }}-${{ inputs.pr_number }}-${{
+      inputs.allow_deferred && format('deferred-{0}', inputs.expected_head_sha) ||
+      inputs.event_name == 'pull_request_review' && 'approval' || 'head'
+    }}
+  # A newer direct head supersedes stale work. Deferred runs are isolated by
+  # immutable head SHA so out-of-order workflow_run delivery cannot drop a head.
+  cancel-in-progress: ${{ ! inputs.allow_deferred }}
+
+jobs:
+  prepare:
+    name: Prepare bound review context
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    outputs:
+      base-sha: ${{ steps.binding.outputs.base-sha }}
+      head-sha: ${{ steps.binding.outputs.head-sha }}
+      trusted: ${{ steps.metadata.outputs.trusted }}
+      deferred: ${{ steps.metadata.outputs.deferred }}
+      ignored: ${{ steps.metadata.outputs.ignored }}
+      context-sha256: ${{ steps.metadata.outputs.context-sha256 }}
+      specialist-matrix: ${{ steps.roles.outputs.specialists }}
+      verifier-matrix: ${{ steps.roles.outputs.verifiers }}
+    steps:
+      - name: Checkout protected binding helper
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.expected_base_sha }}
+          path: .agent-review-bootstrap
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Resolve pull request binding
+        id: binding
+        shell: bash
+        env:
+          EXPECTED_BASE_SHA: ${{ inputs.expected_base_sha }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ inputs.repository_id }}
+        run: |
+          set -euo pipefail
+          output="${RUNNER_TEMP}/agent-review-pr-binding.json"
+          python3 .agent-review-bootstrap/.github/scripts/agent_review.py resolve-pr \
+            --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" \
+            --pr-number "${PR_NUMBER}" \
+            --expected-base-sha "${EXPECTED_BASE_SHA}" \
+            --expected-head-sha "${EXPECTED_HEAD_SHA}" \
+            --output "${output}"
+          python3 - "${output}" "${GITHUB_OUTPUT}" "${PR_NUMBER}" \
+            "${EXPECTED_BASE_SHA}" "${EXPECTED_HEAD_SHA}" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+
+          binding = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not sys.argv[3].isdecimal():
+              raise SystemExit("Expected pull request number is invalid.")
+          expected_pr_number = int(sys.argv[3])
+          expected_base_sha = sys.argv[4]
+          expected_head_sha = sys.argv[5]
+          pr_number = binding.get("pr_number")
+          base_sha = binding.get("base_sha")
+          head_sha = binding.get("head_sha")
+          if type(pr_number) is not int or pr_number != expected_pr_number:
+              raise SystemExit("Protected binding returned an invalid PR number.")
+          if not isinstance(base_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", base_sha):
+              raise SystemExit("Protected binding returned an invalid base SHA.")
+          if base_sha != expected_base_sha:
+              raise SystemExit("Protected binding returned a stale base SHA.")
+          if not isinstance(head_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+              raise SystemExit("Protected binding returned an invalid head SHA.")
+          if head_sha != expected_head_sha:
+              raise SystemExit("Protected binding returned a stale head SHA.")
+          with pathlib.Path(sys.argv[2]).open("a", encoding="utf-8") as target:
+              target.write(f"pr-number={pr_number}\n")
+              target.write(f"base-sha={base_sha}\n")
+              target.write(f"head-sha={head_sha}\n")
+          PY
+
+      - name: Checkout trusted base
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ steps.binding.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+
+      - name: Build canonical review context
+        id: context
+        shell: bash
+        env:
+          ALLOW_DEFERRED: ${{ inputs.allow_deferred }}
+          EVENT_NAME: ${{ inputs.event_name }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.binding.outputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ inputs.repository_id }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+        run: |
+          set -euo pipefail
+          output_dir="${RUNNER_TEMP}/agent-review-input"
+          mkdir -p "${output_dir}"
+          review_script='.agent-review-base/.github/scripts/agent_review.py'
+          prepare_help="$(python3 "${review_script}" prepare --help)"
+          if ! grep -q -- '--repository-id' <<< "${prepare_help}"; then
+            echo "::error::Agent review requires the current protected-base prepare protocol."
+            exit 1
+          fi
+          deferred_args=()
+          if [[ "${ALLOW_DEFERRED}" == 'true' ]]; then
+            deferred_args+=(--allow-deferred)
+          fi
+          python3 "${review_script}" prepare \
+            --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" \
+            --pr-number "${PR_NUMBER}" \
+            --event-name "${EVENT_NAME}" \
+            --expected-head-sha "${EXPECTED_HEAD_SHA}" \
+            --source-run-id "${SOURCE_RUN_ID}" \
+            --base-root .agent-review-base \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --context-output "${output_dir}/context.json" \
+            --metadata-output "${output_dir}/metadata.json" \
+            "${deferred_args[@]}"
+
+      - name: Export metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${RUNNER_TEMP}/agent-review-input/metadata.json" "${GITHUB_OUTPUT}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          metadata = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          with pathlib.Path(sys.argv[2]).open("a", encoding="utf-8") as output:
+              output.write(f"trusted={str(bool(metadata.get('trusted'))).lower()}\n")
+              output.write(f"deferred={str(bool(metadata.get('deferred'))).lower()}\n")
+              output.write(f"ignored={str(bool(metadata.get('ignored'))).lower()}\n")
+              output.write(f"context-sha256={metadata.get('context_sha256', '')}\n")
+          PY
+
+      - name: Export configured role matrices
+        id: roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          config='.agent-review-base/.github/agent-review/config.json'
+          specialists="$(python3 .agent-review-base/.github/scripts/agent_review.py roles \
+            --config "${config}" --kind specialist)"
+          verifiers="$(python3 .agent-review-base/.github/scripts/agent_review.py roles \
+            --config "${config}" --kind verifier)"
+          {
+            echo "specialists=${specialists}"
+            echo "verifiers=${verifiers}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Mark Agent jury pending
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-base/.github/scripts/agent_review.py mark-pending \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --run-url "${run_url}"
+
+      - name: Upload bound review input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+      - name: Fail closed when preparation cannot finish
+        if: failure() && steps.context.outcome == 'success'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-base/.github/scripts/agent_review.py mark-failed \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --run-url "${run_url}"
+
+  specialists:
+    name: Specialist / ${{ matrix.id }}
+    needs: prepare
+    if: needs.prepare.outputs.trusted == 'true' && needs.prepare.outputs.ignored == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.specialist-matrix) }}
+    steps:
+      - name: Checkout trusted reviewer
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: |
+            .github/agent-review
+            .github/scripts
+
+      - name: Download bound review input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Run isolated specialist model
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          ROLE: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          for variable in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured for Agent review."
+              exit 1
+            fi
+          done
+          output_dir="${RUNNER_TEMP}/agent-review-specialist"
+          mkdir -p "${output_dir}"
+          python3 .agent-review-base/.github/scripts/agent_review.py specialist \
+            --role "${ROLE}" \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --prompt-root .agent-review-base/.github/agent-review \
+            --context "${RUNNER_TEMP}/agent-review-input/context.json" \
+            --output "${output_dir}/${ROLE}.json"
+
+      - name: Upload specialist report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-review-specialist-${{ matrix.id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-specialist/${{ matrix.id }}.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  verifiers:
+    name: Verifier / ${{ matrix.id }}
+    needs: [prepare, specialists]
+    if: >-
+      needs.prepare.outputs.trusted == 'true' &&
+      needs.prepare.outputs.ignored == 'false' &&
+      needs.specialists.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.verifier-matrix) }}
+    steps:
+      - name: Checkout trusted verifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: |
+            .github/agent-review
+            .github/scripts
+
+      - name: Download bound review input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Download all specialist reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agent-review-specialist-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-specialists
+          merge-multiple: true
+
+      - name: Run isolated cross-review model
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          ROLE: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          for variable in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured for Agent review."
+              exit 1
+            fi
+          done
+          output_dir="${RUNNER_TEMP}/agent-review-verifier"
+          mkdir -p "${output_dir}"
+          python3 .agent-review-base/.github/scripts/agent_review.py cross-review \
+            --role "${ROLE}" \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --prompt-root .agent-review-base/.github/agent-review \
+            --context "${RUNNER_TEMP}/agent-review-input/context.json" \
+            --reports "${RUNNER_TEMP}/agent-review-specialists" \
+            --output "${output_dir}/${ROLE}.json"
+
+      - name: Upload verifier report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-review-verifier-${{ matrix.id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-verifier/${{ matrix.id }}.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  chair:
+    name: Chair / deterministic synthesis
+    needs: [prepare, specialists, verifiers]
+    if: >-
+      needs.prepare.outputs.trusted == 'true' &&
+      needs.prepare.outputs.ignored == 'false' &&
+      needs.specialists.result == 'success' &&
+      needs.verifiers.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout trusted chair
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: |
+            .github/agent-review
+            .github/scripts
+
+      - name: Download bound review input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Download specialist reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agent-review-specialist-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-specialists
+          merge-multiple: true
+
+      - name: Download verifier reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agent-review-verifier-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-verifiers
+          merge-multiple: true
+
+      - name: Run chair model and deterministic validator
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+        run: |
+          set -euo pipefail
+          for variable in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured for Agent review."
+              exit 1
+            fi
+          done
+          output_dir="${RUNNER_TEMP}/agent-review-final"
+          mkdir -p "${output_dir}"
+          python3 .agent-review-base/.github/scripts/agent_review.py chair \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --prompt-root .agent-review-base/.github/agent-review \
+            --context "${RUNNER_TEMP}/agent-review-input/context.json" \
+            --specialists "${RUNNER_TEMP}/agent-review-specialists" \
+            --verifiers "${RUNNER_TEMP}/agent-review-verifiers" \
+            --output-json "${output_dir}/final.json" \
+            --output-markdown "${output_dir}/review.md"
+
+      - name: Upload final jury report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-review-final-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-final/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  publisher-admission:
+    name: Admit current Agent jury publisher
+    needs: [prepare, specialists, verifiers, chair]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.ignored == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      admitted: ${{ steps.export-admission.outputs.admitted }}
+      reason: ${{ steps.export-admission.outputs.reason }}
+    steps:
+      - name: Checkout protected publisher admission helper
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-admission
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Download bound publisher metadata
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Revalidate publisher admission
+        id: admission-check
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .agent-review-admission/.github/scripts/agent_review.py admit-publisher \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --output "${RUNNER_TEMP}/agent-review-admission.json"
+
+      - name: Export publisher admission
+        id: export-admission
+        if: steps.admission-check.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${RUNNER_TEMP}/agent-review-admission.json" "${GITHUB_OUTPUT}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          admission = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          admitted = admission.get("admitted")
+          reason = admission.get("reason")
+          if type(admitted) is not bool or not isinstance(reason, str) or not reason:
+              raise SystemExit("Protected publisher admission output is invalid.")
+          with pathlib.Path(sys.argv[2]).open("a", encoding="utf-8") as output:
+              output.write(f"admitted={str(admitted).lower()}\n")
+              output.write(f"reason={reason}\n")
+          PY
+
+      - name: Fail closed when publisher admission cannot finish
+        if: >-
+          always() &&
+          (steps.admission-check.outcome != 'success' ||
+          steps.export-admission.outcome != 'success')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-admission/.github/scripts/agent_review.py mark-failed \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --run-url "${run_url}" \
+            --require-run-ownership
+
+  trusted-publisher:
+    name: Publish trusted Agent jury result
+    needs: [prepare, specialists, verifiers, chair, publisher-admission]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.trusted == 'true' &&
+      needs.prepare.outputs.ignored == 'false' &&
+      needs.publisher-admission.result == 'success' &&
+      needs.publisher-admission.outputs.admitted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: coco-agent
+    concurrency:
+      group: >-
+        agent-review-publisher-${{ inputs.repository_id }}-${{ inputs.pr_number }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout trusted publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: |
+            .github/agent-review
+            .github/scripts
+
+      - name: Download bound review metadata
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Download final jury report
+        if: needs.chair.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-final-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-final
+
+      - name: Download specialist reports for deterministic revalidation
+        if: needs.specialists.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agent-review-specialist-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-specialists
+          merge-multiple: true
+
+      - name: Download verifier reports for deterministic revalidation
+        if: needs.verifiers.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agent-review-verifier-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-verifiers
+          merge-multiple: true
+
+      - name: Create Agent GitHub App token
+        id: agent-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COCO_AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: write
+          # PR comments use Pull requests permission even through the issue-comments endpoint.
+          permission-pull-requests: write
+
+      - name: Resolve immutable Agent App bot identity
+        id: app-identity
+        shell: bash
+        env:
+          TOKEN_APP_SLUG: ${{ steps.agent-app-token.outputs.app-slug }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_AGENT_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TOKEN_APP_SLUG}" || -z "${EXPECTED_APP_SLUG}" || -z "${EXPECTED_APP_LOGIN}" || -z "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::Agent App identity pins must all be configured."
+            exit 1
+          fi
+          if [[ "${TOKEN_APP_SLUG}" != "${EXPECTED_APP_SLUG}" ]]; then
+            echo "::error::Agent App token slug does not match the protected identity pin."
+            exit 1
+          fi
+          derived_login="${TOKEN_APP_SLUG}[bot]"
+          if [[ "${derived_login}" != "${EXPECTED_APP_LOGIN}" ]]; then
+            echo "::error::Agent App login does not match the protected slug and login pins."
+            exit 1
+          fi
+          user_json="$(gh api "users/${derived_login}")"
+          actual_login="$(jq -r '.login' <<< "${user_json}")"
+          actual_type="$(jq -r '.type' <<< "${user_json}")"
+          bot_id="$(jq -r '.id' <<< "${user_json}")"
+          if [[ ! "${EXPECTED_APP_BOT_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Agent App bot ID pin must be a positive integer."
+            exit 1
+          fi
+          if [[ "${actual_login}" != "${EXPECTED_APP_LOGIN}" \
+             || "${actual_type}" != 'Bot' \
+             || "${bot_id}" != "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::GitHub App bot identity could not be bound."
+            exit 1
+          fi
+          {
+            echo "login=${actual_login}"
+            echo "bot-id=${bot_id}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Recheck current PR head and publish
+        id: trusted-publish
+        if: steps.agent-app-token.outcome == 'success' && steps.app-identity.outcome == 'success'
+        shell: bash
+        env:
+          AGENT_GH_TOKEN: ${{ steps.agent-app-token.outputs.token }}
+          COCO_AGENT_APP_BOT_ID: ${{ steps.app-identity.outputs.bot-id }}
+          COCO_AGENT_APP_LOGIN: ${{ steps.app-identity.outputs.login }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-base/.github/scripts/agent_review.py publish \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --context "${RUNNER_TEMP}/agent-review-input/context.json" \
+            --specialists "${RUNNER_TEMP}/agent-review-specialists" \
+            --verifiers "${RUNNER_TEMP}/agent-review-verifiers" \
+            --final-json "${RUNNER_TEMP}/agent-review-final/final.json" \
+            --final-markdown "${RUNNER_TEMP}/agent-review-final/review.md" \
+            --run-url "${run_url}"
+
+      - name: Fail closed when Agent App identity is unavailable
+        if: >-
+          always() &&
+          (steps.agent-app-token.outcome != 'success' || steps.app-identity.outcome != 'success')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-base/.github/scripts/agent_review.py mark-failed \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --run-url "${run_url}"
+
+  no-secret-publisher:
+    name: Publish no-secret maintainer gate
+    needs: [prepare, publisher-admission]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.trusted != 'true' &&
+      needs.prepare.outputs.deferred == 'false' &&
+      needs.prepare.outputs.ignored == 'false' &&
+      needs.publisher-admission.result == 'success' &&
+      needs.publisher-admission.outputs.admitted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: >-
+        agent-review-publisher-${{ inputs.repository_id }}-${{ inputs.pr_number }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout trusted no-secret publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Download bound review metadata
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Recheck current approval and publish status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .agent-review-base/.github/scripts/agent_review.py publish \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --context "${RUNNER_TEMP}/agent-review-input/context.json" \
+            --specialists "${RUNNER_TEMP}/agent-review-specialists" \
+            --verifiers "${RUNNER_TEMP}/agent-review-verifiers" \
+            --final-json "${RUNNER_TEMP}/agent-review-final/final.json" \
+            --final-markdown "${RUNNER_TEMP}/agent-review-final/review.md" \
+            --run-url "${run_url}"

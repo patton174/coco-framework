@@ -17,6 +17,12 @@ import agent_review as review
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
 APP_BOT_ID = 424242
+DEPENDABOT_BOT_ID = 49_699_333
+REPOSITORY = "patton174/coco-framework"
+REPOSITORY_ID = 123456789
+DEFERRED_PR_NUMBER = 125
+SOURCE_RUN_ID = 987654321
+HEAD_REF = "dependabot/maven/example-1.0.1"
 
 
 def config(**limit_overrides: int) -> dict:
@@ -140,6 +146,72 @@ def verifier_report(
             }
         ],
         "context_gaps": [],
+    }
+
+
+def deferred_config() -> dict:
+    value = config()
+    value["deferred_bot_authors"] = [
+        {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID}
+    ]
+    return value
+
+
+def deferred_pull_request() -> dict:
+    return {
+        "number": DEFERRED_PR_NUMBER,
+        "state": "open",
+        "changed_files": 1,
+        "base": {
+            "ref": "main",
+            "sha": BASE_SHA,
+            "repo": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        },
+        "head": {
+            "ref": HEAD_REF,
+            "sha": HEAD_SHA,
+            "repo": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        },
+        "user": {
+            "id": DEPENDABOT_BOT_ID,
+            "login": "dependabot[bot]",
+            "type": "Bot",
+        },
+    }
+
+
+def deferred_workflow_run() -> dict:
+    return {
+        "id": SOURCE_RUN_ID,
+        "name": review.DEFERRED_WORKFLOW_NAME,
+        "path": review.DEFERRED_WORKFLOW_PATH,
+        "event": review.DEFERRED_WORKFLOW_EVENT,
+        "status": "completed",
+        "conclusion": "success",
+        "display_title": f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {HEAD_SHA}",
+        "repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        "head_sha": HEAD_SHA,
+        "head_branch": HEAD_REF,
+        "pull_requests": [{"number": DEFERRED_PR_NUMBER}],
+    }
+
+
+def trusted_metadata(run_id: int = 42, run_attempt: int = 1) -> dict:
+    return {
+        "schema_version": 1,
+        "repository": REPOSITORY,
+        "repository_id": REPOSITORY_ID,
+        "pr_number": 1,
+        "base_sha": BASE_SHA,
+        "head_sha": HEAD_SHA,
+        "review_route": review.PR_ROUTE_DIRECT,
+        "trusted": True,
+        "deferred": False,
+        "ignored": False,
+        "source_run_id": 0,
+        "run_id": str(run_id),
+        "run_attempt": str(run_attempt),
     }
 
 
@@ -468,6 +540,40 @@ class AgentReviewTests(unittest.TestCase):
         ):
             with self.assertRaises(review.ReviewError):
                 client.file_text("owner/repo", "file.txt", HEAD_SHA, 100)
+
+    def test_github_transport_retries_only_transient_url_errors(self) -> None:
+        transient = review.urllib.error.URLError(TimeoutError("timeout"))
+        permanent = (
+            review.urllib.error.URLError("invalid URL"),
+            review.urllib.error.URLError(
+                OSError(review.errno.EMFILE, "too many open files")
+            ),
+            review.urllib.error.URLError(
+                review.ssl.SSLCertVerificationError("certificate verify failed")
+            ),
+        )
+        self.assertTrue(review.retryable_url_error(transient))
+        self.assertTrue(
+            review.retryable_github_lookup_error(transient, retry_not_found=False)
+        )
+        for error in permanent:
+            with self.subTest(reason=repr(error.reason)):
+                self.assertFalse(review.retryable_url_error(error))
+                self.assertFalse(
+                    review.retryable_github_lookup_error(error, retry_not_found=False)
+                )
+
+        client = review.GitHubClient("test")
+        with patch("urllib.request.urlopen", side_effect=permanent[0]):
+            with self.assertRaises(review.ReviewError) as raised:
+                client.get_json("repos/owner/repo")
+        self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=review.urllib.error.URLError(TimeoutError("timeout")),
+        ):
+            with self.assertRaises(review.GitHubTransientError):
+                client.get_json("repos/owner/repo")
 
     def test_build_context_adds_related_test_and_module_pom(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -918,12 +1024,16 @@ class AgentReviewTests(unittest.TestCase):
             "title": "large layout",
             "body": "",
             "changed_files": 501,
-            "base": {"sha": BASE_SHA, "ref": "main"},
+            "base": {
+                "sha": BASE_SHA,
+                "ref": "main",
+                "repo": {"full_name": "patton174/coco-framework"},
+            },
             "head": {
                 "sha": HEAD_SHA,
                 "repo": {"full_name": "patton174/coco-framework"},
             },
-            "user": {"login": "patton174", "type": "User"},
+            "user": {"id": 1, "login": "patton174", "type": "User"},
         }
 
         class FakeClient:
@@ -2322,11 +2432,17 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_agent_issue_gate_workflow_has_no_secret_path_and_shared_lock(self) -> None:
         workflow_root = Path(__file__).resolve().parents[1] / "workflows"
-        review_workflow = (workflow_root / "agent-review.yml").read_text(
+        router_workflow = (workflow_root / "agent-review.yml").read_text(
+            encoding="utf-8"
+        )
+        review_workflow = (workflow_root / "reusable-agent-review-jury.yml").read_text(
             encoding="utf-8"
         )
         self.assertFalse((workflow_root / "claude-review.yml").exists())
-        self.assertTrue(review_workflow.startswith("name: Agent Review Jury\n"))
+        self.assertTrue(router_workflow.startswith("name: Agent Review Jury\n"))
+        self.assertTrue(
+            review_workflow.startswith("name: Reusable Agent Review Jury\n")
+        )
         trusted = review_workflow.split("\n  trusted-publisher:\n", 1)[1].split(
             "\n  no-secret-publisher:\n", 1
         )[0]
@@ -2368,9 +2484,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("private-key", no_secret)
         self.assertNotIn("ANTHROPIC", no_secret)
         self.assertIn("GH_TOKEN: ${{ github.token }}", no_secret)
-        self.assertNotIn("repository_dispatch", review_workflow)
-        self.assertNotIn("client_payload", review_workflow)
-        self.assertNotIn("workflow_dispatch", review_workflow)
+        self.assertNotIn("repository_dispatch", router_workflow)
+        self.assertNotIn("client_payload", router_workflow)
+        self.assertNotIn("workflow_dispatch", router_workflow)
 
         gate_workflow = (workflow_root / "agent-issue-gate.yml").read_text(
             encoding="utf-8"
@@ -2549,7 +2665,7 @@ class AgentReviewTests(unittest.TestCase):
     def test_classification_accepts_only_humans_and_the_pinned_app(self) -> None:
         base = {
             "head": {"repo": {"full_name": "patton174/coco-framework"}},
-            "user": {"login": "patton174", "type": "User"},
+            "user": {"id": 1, "login": "patton174", "type": "User"},
         }
         self.assertTrue(review.classify_pr(base, "patton174/coco-framework"))
         fork = json.loads(json.dumps(base))
@@ -2599,7 +2715,11 @@ class AgentReviewTests(unittest.TestCase):
     def test_prepare_reads_the_trusted_app_identity_from_environment(self) -> None:
         pull_request = {
             "state": "open",
-            "base": {"ref": "main", "sha": BASE_SHA},
+            "base": {
+                "ref": "main",
+                "sha": BASE_SHA,
+                "repo": {"full_name": "patton174/coco-framework"},
+            },
             "head": {
                 "sha": HEAD_SHA,
                 "repo": {"full_name": "patton174/coco-framework"},
@@ -2623,7 +2743,11 @@ class AgentReviewTests(unittest.TestCase):
             with (
                 patch.object(review, "GitHubClient", return_value=FakeClient()),
                 patch.object(review, "load_config", return_value=config()),
-                patch.object(review, "classify_pr", return_value=False) as classifier,
+                patch.object(
+                    review,
+                    "classify_pr_route",
+                    return_value=review.PR_ROUTE_NO_SECRET,
+                ) as classifier,
                 patch.object(
                     review,
                     "current_maintainer_approval",
@@ -2659,6 +2783,7 @@ class AgentReviewTests(unittest.TestCase):
             "patton174/coco-framework",
             "coco-agent[bot]",
             APP_BOT_ID,
+            (),
         )
 
     def test_maintainer_approval_must_bind_current_head(self) -> None:
@@ -2871,7 +2996,8 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_publisher_jobs_are_serialized_across_event_groups(self) -> None:
         workflow = (
-            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
+            Path(__file__).resolve().parents[1]
+            / "workflows/reusable-agent-review-jury.yml"
         ).read_text(encoding="utf-8")
         trusted = workflow.split("\n  trusted-publisher:\n", 1)[1].split(
             "\n  no-secret-publisher:\n", 1
@@ -2880,6 +3006,451 @@ class AgentReviewTests(unittest.TestCase):
         for publisher in (trusted, no_secret):
             self.assertIn("agent-review-publisher-", publisher)
             self.assertIn("cancel-in-progress: false", publisher)
+
+    def test_route_decision_explains_direct_deferred_and_no_secret(self) -> None:
+        human = deferred_pull_request()
+        human["user"] = {"id": 1, "login": "patton174", "type": "User"}
+        fork = json.loads(json.dumps(human))
+        fork["head"]["repo"]["full_name"] = "someone/fork"
+        cases = (
+            (human, (), review.PR_ROUTE_DIRECT, "same-repository-human"),
+            (fork, (), review.PR_ROUTE_NO_SECRET, "head-repository-mismatch"),
+            (
+                deferred_pull_request(),
+                (("dependabot[bot]", DEPENDABOT_BOT_ID),),
+                review.PR_ROUTE_DEFERRED,
+                "same-repository-deferred-bot",
+            ),
+        )
+        for pull_request, deferred_authors, route, reason in cases:
+            with self.subTest(route=route):
+                decision = review.classify_pr_route_decision(
+                    pull_request,
+                    REPOSITORY,
+                    deferred_bot_authors=deferred_authors,
+                )
+                self.assertEqual(route, decision["review_route"])
+                self.assertEqual(reason, decision["route_reason"])
+                self.assertEqual(
+                    pull_request["user"]["login"], decision["author_login"]
+                )
+
+        trusted_app = deferred_pull_request()
+        trusted_app["user"] = {
+            "id": str(APP_BOT_ID),
+            "login": "coco-agent[bot]",
+            "type": "Bot",
+        }
+        self.assertEqual(
+            review.PR_ROUTE_DIRECT,
+            review.classify_pr_route_decision(
+                trusted_app, REPOSITORY, "coco-agent[bot]", APP_BOT_ID
+            )["review_route"],
+        )
+        dependabot = deferred_pull_request()
+        dependabot["user"]["id"] = str(DEPENDABOT_BOT_ID)
+        self.assertEqual(
+            review.PR_ROUTE_DEFERRED,
+            review.classify_pr_route_decision(
+                dependabot,
+                REPOSITORY,
+                deferred_bot_authors=(("dependabot[bot]", DEPENDABOT_BOT_ID),),
+            )["review_route"],
+        )
+        for invalid in (True, 0, -1, "0", "01", "+1", " 1", 1.0, None):
+            self.assertIsNone(review.normalize_actor_id(invalid))
+
+    def test_prepare_rejects_incompatible_event_modes_before_api_calls(self) -> None:
+        cases = (
+            (True, "pull_request_review", SOURCE_RUN_ID, "workflow_run binding"),
+            (False, "workflow_run", 0, "Direct Agent review event"),
+            (False, "pull_request_target", SOURCE_RUN_ID, "explicit deferred mode"),
+        )
+        for allow_deferred, event_name, source_run_id, message in cases:
+            with self.subTest(event_name=event_name, allow_deferred=allow_deferred):
+                with patch.object(
+                    review,
+                    "GitHubClient",
+                    side_effect=AssertionError("invalid modes must not call GitHub"),
+                ):
+                    with self.assertRaisesRegex(review.ReviewError, message):
+                        review.command_prepare(
+                            SimpleNamespace(
+                                repository=REPOSITORY,
+                                repository_id=REPOSITORY_ID,
+                                pr_number=1,
+                                event_name=event_name,
+                                expected_head_sha=HEAD_SHA,
+                                allow_deferred=allow_deferred,
+                                source_run_id=source_run_id,
+                                base_root=Path("."),
+                                config=Path("config.json"),
+                                context_output=Path("context.json"),
+                                metadata_output=Path("metadata.json"),
+                            )
+                        )
+
+    def test_deferred_binding_retries_transient_run_and_pull_lookups(self) -> None:
+        class RecoveringClient:
+            def __init__(self) -> None:
+                self.attempts = {"run": 0, "pull": 0}
+
+            def get_json(self, path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
+                    key, value = "run", deferred_workflow_run()
+                elif path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    key, value = "pull", deferred_pull_request()
+                else:
+                    raise AssertionError(f"Unexpected GET path: {path}")
+                self.attempts[key] += 1
+                if self.attempts[key] == 1:
+                    raise review.GitHubTransientError("temporary")
+                return value
+
+        client = RecoveringClient()
+        with (
+            patch.object(review.time, "sleep") as sleeper,
+            patch("builtins.print"),
+            patch.dict("os.environ", {}, clear=True),
+        ):
+            binding = review.deferred_review_candidate(
+                client,
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                deferred_config(),
+            )
+
+        self.assertTrue(binding["eligible"])
+        self.assertEqual({"run": 2, "pull": 2}, client.attempts)
+        self.assertEqual(2, sleeper.call_count)
+
+    def test_deferred_binding_fails_closed_after_retry_exhaustion(self) -> None:
+        class FailingClient:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def get_json(self, path: str) -> dict:
+                self.attempts += 1
+                raise review.GitHubTransientError(f"temporary: {path}")
+
+        client = FailingClient()
+        with (
+            patch.object(review.time, "sleep") as sleeper,
+            patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(review.ReviewError, "failed after"):
+                review.deferred_review_candidate(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    SOURCE_RUN_ID,
+                    deferred_config(),
+                )
+        self.assertEqual(4, client.attempts)
+        self.assertEqual(3, sleeper.call_count)
+
+    def test_dependabot_review_event_is_ignored_without_gate_writes(self) -> None:
+        route = review.prepare_direct_route_state(
+            "pull_request_review", 0, review.PR_ROUTE_DEFERRED
+        )
+        self.assertEqual(
+            {"trusted": False, "deferred": True, "ignored": True, "source_run_id": 0},
+            route,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(
+                metadata_path,
+                {
+                    "repository": REPOSITORY,
+                    "pr_number": DEFERRED_PR_NUMBER,
+                    "base_sha": BASE_SHA,
+                    "head_sha": HEAD_SHA,
+                    "review_route": review.PR_ROUTE_DEFERRED,
+                    **route,
+                },
+            )
+            args = SimpleNamespace(
+                metadata=metadata_path,
+                run_url="https://github.example/runs/1",
+            )
+            with (
+                patch.object(
+                    review,
+                    "GitHubClient",
+                    side_effect=AssertionError("ignored events must not call GitHub"),
+                ),
+                patch("builtins.print"),
+            ):
+                self.assertEqual(0, review.command_mark_pending(args))
+                self.assertEqual(0, review.command_mark_failed(args))
+                self.assertEqual(0, review.command_publish(args))
+
+    def test_workflows_preserve_deferred_and_publisher_security_boundaries(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1] / "workflows"
+        router = (root / "agent-review.yml").read_text(encoding="utf-8")
+        deferred = (root / "agent-review-deferred.yml").read_text(encoding="utf-8")
+        reusable = (root / "reusable-agent-review-jury.yml").read_text(encoding="utf-8")
+        no_secret_call = router.split("\n  no-secret-review:\n", 1)[1]
+        self.assertIn("agent-review-route", router)
+        self.assertIn('"route_reason"', router)
+        self.assertNotIn("secrets: inherit", no_secret_call)
+        self.assertIn("allow_deferred: true", deferred)
+        self.assertIn("source_run_id: ${{ github.event.workflow_run.id }}", deferred)
+        self.assertIn("base_sha: ${{ steps.binding.outputs.base_sha }}", deferred)
+        self.assertIn("expected_base_sha: ${{ needs.bind.outputs.base_sha }}", deferred)
+        self.assertEqual(
+            2,
+            router.count(
+                "expected_base_sha: ${{ github.event.pull_request.base.sha }}"
+            ),
+        )
+        header = reusable.split("\njobs:\n", 1)[0]
+        self.assertIn("expected_base_sha:", header)
+        self.assertIn("format('deferred-{0}', inputs.expected_head_sha)", header)
+        self.assertIn("cancel-in-progress: ${{ ! inputs.allow_deferred }}", header)
+        self.assertIn("ref: ${{ inputs.expected_base_sha }}", reusable)
+        self.assertIn("--expected-base-sha", reusable)
+        self.assertIn("base_sha != expected_base_sha", reusable)
+        no_secret_publisher = reusable.split("\n  no-secret-publisher:\n", 1)[1]
+        self.assertIn("needs.prepare.outputs.deferred == 'false'", no_secret_publisher)
+
+        admission = reusable.split("\n  publisher-admission:\n", 1)[1].split(
+            "\n  trusted-publisher:\n", 1
+        )[0]
+        self.assertIn("ref: ${{ needs.prepare.outputs.base-sha }}", admission)
+        self.assertIn("agent_review.py admit-publisher", admission)
+        self.assertIn("statuses: read", admission)
+        self.assertNotIn("${{ secrets.", admission)
+        for publisher in (
+            reusable.split("\n  trusted-publisher:\n", 1)[1].split(
+                "\n  no-secret-publisher:\n", 1
+            )[0],
+            no_secret_publisher,
+        ):
+            concurrency = publisher.split("\n    concurrency:\n", 1)[1].split(
+                "\n    permissions:\n", 1
+            )[0]
+            self.assertIn(
+                "agent-review-publisher-${{ inputs.repository_id }}-${{ inputs.pr_number }}",
+                concurrency,
+            )
+            self.assertNotIn("needs.prepare.outputs.head-sha", concurrency)
+
+    def test_mark_pending_and_admission_bind_the_current_run(self) -> None:
+        class PendingClient:
+            def __init__(self) -> None:
+                self.sent: list[dict] = []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                del method, path
+                self.sent.append(payload)
+                return {}
+
+        metadata = trusted_metadata(run_id=42, run_attempt=2)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            pending = PendingClient()
+            with patch.object(review, "GitHubClient", return_value=pending):
+                review.command_mark_pending(
+                    SimpleNamespace(metadata=metadata_path, run_url="run")
+                )
+            self.assertEqual(
+                "Agent jury run 42:2 in progress", pending.sent[0]["description"]
+            )
+            self.assertEqual(
+                [review.OWNERSHIP_STATUS_CONTEXT, review.STATUS_CONTEXT],
+                [status["context"] for status in pending.sent],
+            )
+
+            for owner, admitted in ((42, True), (43, False)):
+
+                class AdmissionClient:
+                    @staticmethod
+                    def get_json(path: str) -> object:
+                        if path == f"repos/{REPOSITORY}/pulls/1":
+                            return {
+                                "state": "open",
+                                "head": {"sha": HEAD_SHA},
+                                "base": {"sha": BASE_SHA, "ref": "main"},
+                            }
+                        return {
+                            "statuses": [
+                                {
+                                    "context": review.OWNERSHIP_STATUS_CONTEXT,
+                                    "description": review.run_ownership_description(
+                                        (owner, 1 if owner == 43 else 2)
+                                    ),
+                                }
+                            ]
+                        }
+
+                output_path = root / f"admission-{owner}.json"
+                with (
+                    patch.object(
+                        review, "GitHubClient", return_value=AdmissionClient()
+                    ),
+                    patch("builtins.print"),
+                ):
+                    review.command_admit_publisher(
+                        SimpleNamespace(metadata=metadata_path, output=output_path)
+                    )
+                self.assertEqual(admitted, review.read_json(output_path)["admitted"])
+
+    def test_publisher_admission_retries_and_exhausts_api_failures(self) -> None:
+        class AdmissionClient:
+            def __init__(self, recover: bool) -> None:
+                self.recover = recover
+                self.attempts = 0
+
+            def get_json(self, path: str) -> object:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    self.attempts += 1
+                    if not self.recover or self.attempts == 1:
+                        raise review.GitHubTransientError("temporary")
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                return {
+                    "statuses": [
+                        {
+                            "context": review.OWNERSHIP_STATUS_CONTEXT,
+                            "description": review.run_ownership_description((42, 1)),
+                        }
+                    ]
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            review.write_json(metadata_path, trusted_metadata())
+            recovering = AdmissionClient(True)
+            with (
+                patch.object(review, "GitHubClient", return_value=recovering),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                review.command_admit_publisher(
+                    SimpleNamespace(
+                        metadata=metadata_path, output=root / "admitted.json"
+                    )
+                )
+            self.assertEqual(2, recovering.attempts)
+            sleeper.assert_called_once()
+
+            failing = AdmissionClient(False)
+            with (
+                patch.object(review, "GitHubClient", return_value=failing),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "failed after"):
+                    review.command_admit_publisher(
+                        SimpleNamespace(
+                            metadata=metadata_path, output=root / "failed.json"
+                        )
+                    )
+            self.assertEqual(4, failing.attempts)
+            self.assertEqual(3, sleeper.call_count)
+
+    def test_stale_trusted_run_cannot_publish_any_side_effect(self) -> None:
+        class StatusClient:
+            def __init__(self) -> None:
+                self.sent: list[dict] = []
+
+            @staticmethod
+            def get_json(path: str) -> object:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                return {
+                    "statuses": [
+                        {
+                            "context": review.OWNERSHIP_STATUS_CONTEXT,
+                            "description": review.run_ownership_description((43, 1)),
+                        }
+                    ]
+                }
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                del method, path
+                self.sent.append(payload)
+                return {}
+
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, trusted_metadata())
+            client = StatusClient()
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch("builtins.print") as output,
+            ):
+                result = review.command_publish(
+                    SimpleNamespace(metadata=metadata_path, run_url="run")
+                )
+        self.assertEqual(0, result)
+        self.assertEqual([], client.sent)
+        self.assertEqual("stale", json.loads(output.call_args.args[0])["state"])
+
+    def test_resolve_pr_retries_and_writes_exact_binding(self) -> None:
+        pull_request = deferred_pull_request()
+        pull_request["number"] = 1
+
+        class Client:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def get_json(self, path: str) -> dict:
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise review.GitHubTransientError("temporary")
+                if path != f"repos/{REPOSITORY}/pulls/1":
+                    raise AssertionError(f"Unexpected GET path: {path}")
+                return pull_request
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "binding.json"
+            client = Client()
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                review.command_resolve_pr(
+                    SimpleNamespace(
+                        repository=REPOSITORY,
+                        repository_id=REPOSITORY_ID,
+                        pr_number=1,
+                        expected_base_sha=BASE_SHA,
+                        expected_head_sha=HEAD_SHA,
+                        output=output_path,
+                    )
+                )
+            binding = review.read_json(output_path)
+        self.assertEqual(2, client.attempts)
+        sleeper.assert_called_once()
+        self.assertEqual(HEAD_SHA, binding["head_sha"])
+        self.assertEqual(BASE_SHA, binding["base_sha"])
+        with self.assertRaisesRegex(review.ReviewError, "binding is invalid"):
+            review.resolve_current_pull_request(
+                SimpleNamespace(get_json=lambda _path: pull_request),
+                REPOSITORY,
+                REPOSITORY_ID,
+                1,
+                HEAD_SHA,
+                "test-base-binding",
+                "c" * 40,
+            )
 
     def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:
         class FakeResponse:
