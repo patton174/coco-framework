@@ -45,6 +45,7 @@ public final class StandardCocoFeatures {
                             "mybatis-plus-jsqlparser-common",
                             "mybatis-plus-spring",
                             "mybatis-plus-spring-boot-autoconfigure",
+                            "mybatis-plus-spring-boot-native-image",
                             "mybatis-plus-spring-boot4-starter",
                             "mybatis-spring")),
             feature(CocoFeature.AUDIT, "coco-feature-audit",
