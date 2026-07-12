@@ -59,6 +59,7 @@ class CocoSpringDependencyCutoverTest {
 
     private static final List<Path> AUTOCONFIGURE_CONSUMERS = List.of(
             Path.of("coco-spring", "coco-spring-boot-starter", "pom.xml"),
+            Path.of("coco-features", "coco-feature-audit", "pom.xml"),
             Path.of("coco-features", "coco-feature-data-permission", "pom.xml"),
             Path.of("coco-features", "coco-feature-mybatis-plus", "pom.xml"),
             Path.of("coco-features", "coco-feature-openapi", "pom.xml"),
