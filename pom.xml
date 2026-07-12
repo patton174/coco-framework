@@ -57,7 +57,7 @@
         <revision>1.0.0-SNAPSHOT</revision>
         <java.version>17</java.version>
         <spring-boot.version>4.1.0</spring-boot.version>
-        <mybatis-plus.version>3.5.16</mybatis-plus.version>
+        <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <maven.version>3.8.9</maven.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
