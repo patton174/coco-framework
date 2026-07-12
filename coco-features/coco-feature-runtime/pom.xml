@@ -13,7 +13,8 @@
 
     <artifactId>coco-feature-runtime</artifactId>
     <name>Coco Feature Runtime</name>
-    <description>Compatibility facade for feature runtime APIs moved to Coco Spring Boot Autoconfigure.</description>
+    <!-- 7a compatibility only; direct consumers must use coco-spring-boot-autoconfigure. -->
+    <description>Deprecated compatibility facade retained only for migration batch 7a. Direct consumers must migrate to coco-spring-boot-autoconfigure, which now consolidates the APIs, implementations, and dependencies previously exposed through this artifact. This facade will be removed in batch 7b before the public 2.0 release.</description>
 
     <dependencies>
         <dependency>

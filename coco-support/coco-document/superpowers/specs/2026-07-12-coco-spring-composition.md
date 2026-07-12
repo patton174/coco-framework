@@ -20,6 +20,23 @@ coco-spring/
 
 This removes the artificial runtime split between `coco-config`, `coco-feature-runtime`, and the existing auto-configuration module without moving business or concrete feature behavior into the starter.
 
+## Facade Migration Contract
+
+`coco-config` and `coco-feature-runtime` are deprecated, batch-7a-only migration coordinates. Direct consumers must migrate to `coco-spring-boot-autoconfigure`; normal applications continue to depend on `coco-spring-boot-starter`. Both facade artifacts are removed in batch 7b before the public 2.0 release.
+
+During 7a, each facade has a single dependency on `coco-spring-boot-autoconfigure`. That replacement keeps the previous compile-scope surface available transitively, including `coco-api`, `coco-i18n`, `coco-feature-model`, `spring-boot`, and `spring-boot-autoconfigure`; `coco-feature-model` continues to provide Jackson transitively. This temporary bridge does not make those transitive types part of the facade contract. A module that imports one of them after 7b must declare the owning foundation or Spring artifact directly.
+
+The complete in-repository batch 7b migration inventory is:
+
+- `pom.xml`: remove the `coco-spring/coco-config` reactor module and the managed `coco-config` and `coco-feature-runtime` coordinates;
+- `coco-features/pom.xml`: remove the `coco-feature-runtime` reactor module;
+- `coco-build/coco-dependencies/pom.xml`: remove both coordinates from the published BOM;
+- `coco-spring/coco-spring-boot-starter/pom.xml`: remove both facade dependencies while retaining its direct `coco-spring-boot-autoconfigure` dependency;
+- `coco-features/coco-feature-audit/pom.xml`, `coco-features/coco-feature-codegen/pom.xml`, `coco-features/coco-feature-data-permission/pom.xml`, `coco-features/coco-feature-mybatis-plus/pom.xml`, `coco-features/coco-feature-openapi/pom.xml`, `coco-features/coco-feature-security/pom.xml`, `coco-features/coco-feature-tenant/pom.xml`, and `coco-features/coco-feature-web/pom.xml`: replace `coco-feature-runtime` with a direct `coco-spring-boot-autoconfigure` dependency;
+- `coco-spring/coco-config/pom.xml` and `coco-features/coco-feature-runtime/pom.xml`: remove the facade modules and stop publishing their coordinates.
+
+No other tracked POM contains either facade coordinate or reactor module path in batch 7a. Batch 7b must repeat both repository-wide scans before removal so a newly added consumer cannot be missed. External feature authors that use `@ConditionalOnCocoFeature` must depend on `coco-spring-boot-autoconfigure` directly after the cutover.
+
 ## Module Changes
 
 The following implementation moves into `coco-spring-boot-autoconfigure`:
