@@ -37,6 +37,12 @@ The complete in-repository batch 7b migration inventory is:
 
 No other tracked POM contains either facade coordinate or reactor module path in batch 7a. Batch 7b must repeat both repository-wide scans before removal so a newly added consumer cannot be missed. External feature authors that use `@ConditionalOnCocoFeature` must depend on `coco-spring-boot-autoconfigure` directly after the cutover.
 
+## Foundation Test Ownership
+
+Moving the three foundation auto-configuration classes also moves their Spring Boot test ownership. `coco-feature-model`, `coco-i18n`, and `coco-logging` retain local tests for their plain contracts, properties, message handling, feature model, and logging implementation. They intentionally do not declare `spring-boot-autoconfigure` or `spring-boot-test` merely to support hypothetical framework-integration tests.
+
+Tests that need `ApplicationContextRunner`, Spring Boot auto-configuration loading, configuration metadata, registration resources, or classpath composition belong in `coco-spring-boot-autoconfigure` or `coco-spring-boot-starter`, alongside the integration they exercise. A future foundation test that exposes a real runtime dependency requires a separate module-boundary review; test convenience alone must not introduce a reverse dependency from foundation to the Spring composition layer.
+
 ## Module Changes
 
 The following implementation moves into `coco-spring-boot-autoconfigure`:
