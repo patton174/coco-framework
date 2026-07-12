@@ -196,14 +196,15 @@ def deferred_pull_request() -> dict:
 
 
 def deferred_workflow_run() -> dict:
+    run_title = f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {HEAD_SHA}"
     return {
         "id": SOURCE_RUN_ID,
-        "name": review.DEFERRED_WORKFLOW_NAME,
+        "name": run_title,
         "path": review.DEFERRED_WORKFLOW_PATH,
         "event": review.DEFERRED_WORKFLOW_EVENT,
         "status": "completed",
         "conclusion": "success",
-        "display_title": f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {HEAD_SHA}",
+        "display_title": run_title,
         "repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
         "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
         "head_sha": HEAD_SHA,
@@ -2645,7 +2646,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertFalse((workflow_root / "claude-review.yml").exists())
         self.assertTrue(direct_workflow.startswith("name: Agent Review Jury\n"))
         self.assertIn(
-            "run-name: Agent Review Jury / PR #${{ github.event.pull_request.number }} / ${{ github.event.pull_request.head.sha }}",
+            'run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / ${{ github.event.pull_request.head.sha }}"',
             direct_workflow,
         )
         self.assertIn('"${review_script}" route', direct_workflow)
@@ -2715,6 +2716,10 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("workflow_dispatch", review_workflow)
 
         self.assertIn("name: Deferred Agent Review Jury", deferred_workflow)
+        self.assertIn(
+            'run-name: "Deferred Agent Review Jury / source run #${{ github.event.workflow_run.id }}"',
+            deferred_workflow,
+        )
         self.assertIn("  workflow_run:\n", deferred_workflow)
         self.assertIn("workflows: [Agent Review Jury]", deferred_workflow)
         self.assertIn(

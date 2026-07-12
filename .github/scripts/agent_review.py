@@ -36,7 +36,6 @@ PR_ROUTE_DEFERRED = "deferred-pinned-bot"
 PR_ROUTE_NO_SECRET = "no-secret"
 DIRECT_REVIEW_EVENTS = frozenset({"pull_request_target", "pull_request_review"})
 DEFERRED_REVIEW_EVENT = "workflow_run"
-DEFERRED_WORKFLOW_NAME = "Agent Review Jury"
 DEFERRED_WORKFLOW_PATH = ".github/workflows/agent-review.yml"
 DEFERRED_WORKFLOW_EVENT = "pull_request_target"
 FINDING_ISSUE_LABEL = "agent-review"
@@ -1633,9 +1632,12 @@ def deferred_review_candidate(
     run_head_repository = run.get("head_repository") or {}
     run_head_sha = str(run.get("head_sha") or "")
     run_head_branch = str(run.get("head_branch") or "")
+    # GitHub REST exposes the evaluated run-name through both fields when set.
+    run_name = str(run.get("name") or "")
+    run_display_title = str(run.get("display_title") or "")
     if (
         run.get("id") != run_id
-        or run.get("name") != DEFERRED_WORKFLOW_NAME
+        or run_name != run_display_title
         or run.get("path") != DEFERRED_WORKFLOW_PATH
         or run.get("event") != DEFERRED_WORKFLOW_EVENT
         or run.get("status") != "completed"
@@ -1647,7 +1649,7 @@ def deferred_review_candidate(
     ):
         raise ReviewError("Deferred Agent review workflow run binding is invalid.")
 
-    title_match = DEFERRED_RUN_TITLE_RE.fullmatch(str(run.get("display_title") or ""))
+    title_match = DEFERRED_RUN_TITLE_RE.fullmatch(run_display_title)
     if title_match is None:
         raise ReviewError("Deferred Agent review workflow run title is invalid.")
     title_pr_number = int(title_match.group(1))

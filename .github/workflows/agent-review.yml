@@ -1,5 +1,5 @@
 name: Agent Review Jury
-run-name: Agent Review Jury / PR #${{ github.event.pull_request.number }} / ${{ github.event.pull_request.head.sha }}
+run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / ${{ github.event.pull_request.head.sha }}"
 
 # This entrypoint performs only protected-base routing. Secret-backed jobs are
 # called only for same-repository humans or the exact pinned Coco App identity.
