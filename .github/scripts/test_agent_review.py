@@ -2634,24 +2634,16 @@ class AgentReviewTests(unittest.TestCase):
             "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
             tag,
         )
-        self.assertIn(
-            "client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}", tag
-        )
+        self.assertIn("client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}", tag)
         self.assertIn("secrets.COCO_RELEASE_APP_PRIVATE_KEY", tag)
         self.assertIn("permission-contents: write", tag)
         self.assertIn(
             "ACTUAL_APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}",
             tag,
         )
-        self.assertIn(
-            "EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}", tag
-        )
-        self.assertIn(
-            '"${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}"', tag
-        )
-        self.assertIn(
-            "GH_TOKEN: ${{ steps.release-app-token.outputs.token }}", tag
-        )
+        self.assertIn("EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}", tag)
+        self.assertIn('"${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}"', tag)
+        self.assertIn("GH_TOKEN: ${{ steps.release-app-token.outputs.token }}", tag)
         self.assertIn("READ_TOKEN: ${{ github.token }}", tag)
         self.assertIn('GH_TOKEN="${READ_TOKEN}" gh api', tag)
         self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', tag)
