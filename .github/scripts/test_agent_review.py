@@ -2611,13 +2611,20 @@ class AgentReviewTests(unittest.TestCase):
         workflow = (
             Path(__file__).resolve().parents[1] / "workflows/release.yml"
         ).read_text(encoding="utf-8")
+        workflow_header = workflow.split("\njobs:\n", 1)[0]
         publish, tag = workflow.split("\n  publish:\n", 1)[1].split("\n  tag:\n", 1)
 
         self.assertIn("  workflow_dispatch:\n", workflow)
         self.assertNotRegex(workflow, r"(?m)^  push:\s*$")
         self.assertIn("permissions:\n  contents: read\n", workflow)
+        self.assertIn(
+            "concurrency:\n"
+            "  group: release-${{ github.repository_id }}\n"
+            "  cancel-in-progress: false\n",
+            workflow_header,
+        )
         self.assertIn('"${GITHUB_REF}" != "refs/heads/main"', workflow)
-        self.assertGreaterEqual(workflow.count("git/ref/heads/main"), 2)
+        self.assertGreaterEqual(workflow.count("git/ref/heads/main"), 4)
         self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', workflow)
         self.assertIn("needs: guard", workflow)
         self.assertIn("needs: test", publish)
@@ -2626,29 +2633,75 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn('central_wait_until="PUBLISHED"', publish)
         self.assertNotIn('central_wait_until="VALIDATED"', publish)
         self.assertIn("persist-credentials: false", publish)
-        self.assertIn("needs: publish", tag)
+        self.assertIn("needs:\n      - test\n      - publish\n", tag)
         self.assertIn("environment: coco-spring", tag)
         self.assertIn("permissions:\n      contents: read\n", tag)
-        self.assertNotIn("permissions:\n      contents: write\n", tag)
+        self.assertNotRegex(tag, r"(?m)^\s+contents:\s+write\s*$")
+        self.assertIn(
+            "concurrency:\n"
+            "      group: release-tag-${{ github.repository_id }}\n"
+            "      cancel-in-progress: false\n",
+            tag,
+        )
+
+        preflight_index = tag.index(
+            "      - name: Revalidate release target before privileged token mint"
+        )
+        token_index = tag.index("      - name: Create Release App installation token")
+        identity_index = tag.index(
+            "      - name: Bind Release App identity and repository"
+        )
+        write_index = tag.index("      - name: Tag the successful release")
+        self.assertLess(preflight_index, token_index)
+        self.assertLess(token_index, identity_index)
+        self.assertLess(identity_index, write_index)
+
         self.assertIn(
             "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
             tag,
         )
         self.assertIn("client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}", tag)
         self.assertIn("secrets.COCO_RELEASE_APP_PRIVATE_KEY", tag)
-        self.assertIn("permission-contents: write", tag)
+        self.assertEqual(1, tag.count("permission-contents: write"))
+        self.assertIn("skip-token-revoke: false", tag)
+        self.assertIn("if: steps.release-target.outputs.validated == 'true'", tag)
         self.assertIn(
             "ACTUAL_APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}",
             tag,
         )
+        self.assertIn(
+            "ACTUAL_INSTALLATION_ID: "
+            "${{ steps.release-app-token.outputs.installation-id }}",
+            tag,
+        )
         self.assertIn("EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}", tag)
-        self.assertIn('"${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}"', tag)
-        self.assertIn("GH_TOKEN: ${{ steps.release-app-token.outputs.token }}", tag)
-        self.assertIn("READ_TOKEN: ${{ github.token }}", tag)
-        self.assertIn('GH_TOKEN="${READ_TOKEN}" gh api', tag)
-        self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', tag)
-        self.assertIn('ref="refs/tags/${RELEASE_TAG}"', tag)
-        self.assertEqual(0, workflow.count("\n      contents: write\n"))
+        self.assertIn("EXPECTED_APP_LOGIN: ${{ vars.COCO_RELEASE_APP_LOGIN }}", tag)
+        self.assertIn("EXPECTED_APP_BOT_ID: ${{ vars.COCO_RELEASE_APP_BOT_ID }}", tag)
+        self.assertIn(
+            "EXPECTED_INSTALLATION_ID: ${{ vars.COCO_RELEASE_APP_INSTALLATION_ID }}",
+            tag,
+        )
+        self.assertIn(
+            '"${ACTUAL_INSTALLATION_ID}" != "${EXPECTED_INSTALLATION_ID}"', tag
+        )
+        self.assertIn('derived_login="${ACTUAL_APP_SLUG}[bot]"', tag)
+        self.assertIn('"${actual_bot_id}" != "${EXPECTED_APP_BOT_ID}"', tag)
+        self.assertIn('echo "authorized=true" >> "${GITHUB_OUTPUT}"', tag)
+
+        write_step = tag.split("\n      - name: Tag the successful release\n", 1)[1]
+        self.assertIn(
+            "steps.release-app-identity.outputs.authorized == 'true'", write_step
+        )
+        self.assertIn(
+            "GH_TOKEN: ${{ steps.release-app-token.outputs.token }}", write_step
+        )
+        self.assertIn("READ_TOKEN: ${{ github.token }}", write_step)
+        self.assertEqual(4, write_step.count("require_current_main"))
+        self.assertIn('GH_TOKEN="${READ_TOKEN}" gh api', write_step)
+        self.assertEqual(2, write_step.count("gh api --method POST"))
+        self.assertIn('ref="refs/tags/${RELEASE_TAG}"', write_step)
+        self.assertNotIn("COCO_RELEASE_APP_PRIVATE_KEY", write_step)
+        self.assertEqual(1, workflow.count("secrets.COCO_RELEASE_APP_PRIVATE_KEY"))
         self.assertNotIn("git push origin", workflow)
 
     def test_agent_issue_gate_workflow_has_no_secret_path_and_shared_lock(self) -> None:

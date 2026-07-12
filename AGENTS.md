@@ -117,6 +117,7 @@ mvn -B -Prelease -Drevision=1.0.0 -Dgpg.skip=true -DskipTests verify
 - Use SemVer release tags such as `v1.0.2`.
 - Release tags matching `v*` are immutable after creation: the active repository ruleset blocks tag updates and deletion.
 - Releases must be manually dispatched from the latest protected `main` commit. The Release workflow waits for Maven Central state `PUBLISHED`, then tags the exact validated dispatch SHA; do not push release tags manually.
+- Release tag creation belongs only to the dedicated Coco Framework Release App. Keep the default workflow token read-only, pin the App slug, installation ID, bot login, and Bot ID in the protected `coco-spring` environment, and grant the App token only `Contents: write` for the single selected repository. The `v*` creation ruleset bypasses only this App; tag update and deletion have no bypass.
 - The `coco-agent` and `coco-spring` environments accept only the exact `main` branch. Administrator environment bypass is disabled for both, and `coco-spring` requires maintainer deployment approval before release secrets become available.
 - GitHub native auto-merge is disabled. The dedicated Coco App workflow is the only automated merge path and must re-check every protected condition against the exact PR head before merging.
 - Fetch and push use the HTTPS remote through the GitHub CLI credential helper so proxy-enabled environments do not depend on SSH transport.
