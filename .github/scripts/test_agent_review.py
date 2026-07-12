@@ -383,7 +383,36 @@ class AgentReviewTests(unittest.TestCase):
             {module_layout_spec},
             mapped_specs("coco-support/coco-test/pom.xml"),
         )
+        self.assertEqual(
+            {governance_spec},
+            mapped_specs("coco-support/coco-document/release.md"),
+        )
+        self.assertEqual({governance_spec}, mapped_specs(governance_spec))
+        self.assertEqual({module_layout_spec}, mapped_specs(module_layout_spec))
+        support_directory_layout_policy = {
+            "coco-document": False,
+            "coco-test": True,
+            "coco-tools": True,
+        }
+        support_directories = {
+            path.name
+            for path in (repository_root / "coco-support").iterdir()
+            if path.is_dir() and not path.name.startswith(".")
+        }
+        self.assertEqual(
+            set(support_directory_layout_policy),
+            support_directories,
+            "Every coco-support directory must explicitly declare whether it needs module-layout policy.",
+        )
+        for directory, expects_module_layout in support_directory_layout_policy.items():
+            with self.subTest(support_directory=directory):
+                self.assertEqual(
+                    expects_module_layout,
+                    module_layout_spec
+                    in mapped_specs(f"coco-support/{directory}/__mapping_probe__"),
+                )
         serialized_mappings = json.dumps(value["spec_path_mappings"])
+        self.assertNotIn("coco-support/**", serialized_mappings)
         self.assertNotIn("update-readme-insights.yml", serialized_mappings)
         self.assertNotIn(".github/README.md", serialized_mappings)
 
@@ -486,6 +515,30 @@ class AgentReviewTests(unittest.TestCase):
                     "coco-support/coco-document/architecture/module-layout.md",
                     {source["source"] for source in sources},
                 )
+
+    def test_repository_governance_policy_does_not_pull_module_layout(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        config_path = repository_root / ".github/agent-review/config.json"
+        value = review.load_config(config_path)
+        governance_spec = "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
+        omissions: list[str] = []
+
+        sources = review.collect_policy(
+            repository_root,
+            value,
+            ["AGENTS.md", governance_spec],
+            omissions,
+        )
+
+        self.assertEqual([], omissions)
+        self.assertEqual(
+            {
+                "AGENTS.md",
+                ".github/agent-review/policy.md",
+                governance_spec,
+            },
+            {source["source"] for source in sources},
+        )
 
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
