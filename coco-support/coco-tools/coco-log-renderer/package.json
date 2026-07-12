@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "coco-log-renderer": "./bin/coco-log-renderer.mjs"
+    "coco-log-renderer": "bin/coco-log-renderer.mjs"
   },
   "scripts": {
     "test": "node --test"

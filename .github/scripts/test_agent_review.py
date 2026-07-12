@@ -197,11 +197,11 @@ class AgentReviewTests(unittest.TestCase):
             3, len([item for item in protocol["files"] if "prompts/" in item["path"]])
         )
 
-        jury_spec = "docs/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
+        jury_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
         governance_spec = (
-            "docs/superpowers/specs/2026-07-11-agent-governance-automation.md"
+            "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
         )
-        module_layout_spec = "docs/architecture/module-layout.md"
+        module_layout_spec = "coco-support/coco-document/architecture/module-layout.md"
 
         def mapped_specs(path: str) -> set[str]:
             return {
@@ -353,7 +353,7 @@ class AgentReviewTests(unittest.TestCase):
                 )
                 self.assertEqual([], omissions)
                 self.assertIn(
-                    "docs/architecture/module-layout.md",
+                    "coco-support/coco-document/architecture/module-layout.md",
                     {source["source"] for source in sources},
                 )
 
@@ -645,7 +645,7 @@ class AgentReviewTests(unittest.TestCase):
                     "patch": "@@ -1 +1 @@\n-old-web\n+new-web",
                 },
                 {
-                    "filename": "docs/architecture/module-layout.md",
+                    "filename": "coco-support/coco-document/architecture/module-layout.md",
                     "status": "modified",
                     "additions": 1,
                     "deletions": 1,
@@ -682,7 +682,7 @@ class AgentReviewTests(unittest.TestCase):
             )
             self.assertIn(".github/scripts/agent_review.py", diff)
             self.assertIn("coco-features/coco-web/src/main/java/Foo.java", diff)
-            self.assertIn("docs/architecture/module-layout.md", diff)
+            self.assertIn("coco-support/coco-document/architecture/module-layout.md", diff)
             self.assertLess(
                 diff.index("coco-features/coco-web/src/main/java/Foo.java"),
                 diff.index(".github/scripts/test_agent_review.py"),

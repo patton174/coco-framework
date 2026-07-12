@@ -38,7 +38,8 @@ public final class CocoNodeLogRendererBootstrap {
 
     private static final String SOURCE_RESOURCE_PATH = "src/main/resources/META-INF/coco/coco-log-renderer.mjs";
 
-    private static final String WORKSPACE_TOOL_PATH = "tools/coco-log-renderer/bin/coco-log-renderer.mjs";
+    private static final String WORKSPACE_TOOL_PATH =
+            "coco-support/coco-tools/coco-log-renderer/bin/coco-log-renderer.mjs";
 
     private static final String WORKSPACE_RESOURCE_PATH =
             "coco-spring/coco-spring-boot-autoconfigure/src/main/resources/META-INF/coco/coco-log-renderer.mjs";
