@@ -1,0 +1,66 @@
+"area: build":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "pom.xml"
+          - "coco-build/**"
+
+"area: foundation":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "coco-foundation/**"
+
+"area: spring":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "coco-spring/**"
+
+"area: web":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "coco-features/coco-feature-web/**"
+
+"area: persistence":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "coco-features/coco-feature-mybatis-plus/**"
+          - "coco-features/coco-feature-tenant/**"
+          - "coco-features/coco-feature-data-permission/**"
+
+"area: observability":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "coco-foundation/coco-logging/**"
+          - "coco-features/coco-feature-audit/**"
+
+"area: tooling":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "coco-features/coco-feature-codegen/**"
+          - "coco-support/**"
+
+"area: governance":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "AGENTS.md"
+          - "CODE_OF_CONDUCT.md"
+          - "CONTRIBUTING.md"
+          - "GOVERNANCE.md"
+          - "SECURITY.md"
+          - "SUPPORT.md"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "README.md"
+          - "README_CN.md"
+          - "coco-support/coco-document/**"
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "SECURITY.md"
+          - "coco-features/coco-feature-security/**"
+          - "coco-features/coco-feature-web/src/main/java/**/security/**"
+          - "coco-features/coco-feature-web/src/main/java/**/signature/**"
+          - "coco-features/coco-feature-web/src/main/java/**/encryption/**"

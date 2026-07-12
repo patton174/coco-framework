@@ -153,22 +153,18 @@
     },
     {
       "path_globs": [
-        ".github/agent-review/**",
-        ".github/workflows/*agent-review*.yml",
-        ".github/workflows/agent-review.yml",
-        ".github/workflows/agent-issue-gate.yml",
-        ".github/scripts/agent_review.py",
-        ".github/scripts/agent_issue_gate.py",
-        ".github/scripts/test_agent_review.py",
-        ".github/scripts/auto_merge.py",
-        ".github/scripts/test_auto_merge.py",
-        ".github/workflows/auto-merge.yml",
-        ".github/workflows/agent-open-pr.yml",
-        ".github/readme/**",
-        ".github/workflows/readme-maintenance.yml",
-        ".github/workflow-governance.md",
+        ".github/**",
+        "AGENTS.md",
+        "CODE_OF_CONDUCT.md",
+        "CONTRIBUTING.md",
+        "GOVERNANCE.md",
+        "LICENSE",
         "README.md",
-        "README_CN.md"
+        "README_CN.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "coco-support/coco-document/release.md",
+        "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"

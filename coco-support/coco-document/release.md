@@ -10,7 +10,7 @@ Coco Framework 使用 Maven Central Portal 发布正式版本。发布链路由 
 
 ## 必需配置
 
-发布前需要在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中配置以下 Secrets：
+发布前需要在 GitHub 仓库的 `coco-spring` Environment 中配置以下 Secrets：
 
 - `CENTRAL_USERNAME`：Central Portal User Token 的用户名。
 - `CENTRAL_PASSWORD`：Central Portal User Token 的密码。
@@ -50,18 +50,21 @@ mvn -B -Prelease -Drevision=1.0.0 -Dgpg.skip=true -DskipTests verify
 
 ## GitHub Actions 发布
 
-手动发布时进入 GitHub Actions 的 `Release` 工作流，填写版本号，例如 `1.0.0`。
+发布只能从受保护分支的最新 `main` 提交手动执行。进入 GitHub Actions 的 `Release`
+工作流，选择 `main`，填写版本号（例如 `2.0.1`）；版本号留空时，工作流会根据现有
+正式标签生成下一个 patch 版本。
 
-默认 `autoPublish=false`，表示上传到 Central Portal 并通过校验后，需要在 Portal 页面人工确认发布。确认链路稳定后，可以在手动触发时选择自动发布。
+默认 `autoPublish=false`。工作流上传并等待 Central 校验后，维护者需要在本次工作流仍
+处于运行状态时进入 Portal 确认发布；工作流会继续等待到状态变为 `PUBLISHED`。选择
+`autoPublish=true` 时，Central 校验通过后自动发布。两种模式都只有在制品已公开发布
+后才会进入标签 job。
 
-也可以推送 tag 触发：
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-tag 触发默认不会自动发布，仍会停留在 Central Portal 等待人工确认。
+Release 工作流会在跨平台测试通过后再次确认提交仍是最新 `main`，然后才进入
+`coco-spring` 环境。该环境只接受 `main`，禁用管理员绕过，并要求维护者批准后才提供
+Central 与 GPG 密钥。Maven Central 发布成功后，工作流会为已验证的 dispatch SHA
+创建对应的 `v*` 标签；即使 Central 处理期间 `main` 又有新提交，标签也必须指向实际
+发布的精确提交。不要手工创建或推送发布标签；仓库规则集禁止已有发布标签被更新或
+删除。
 
 ## 样例模块
 

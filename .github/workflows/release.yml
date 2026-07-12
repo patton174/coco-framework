@@ -9,47 +9,85 @@ on:
         default: ''
         type: string
       autoPublish:
-        description: 'Publish automatically after Central validation'
+        description: 'Publish automatically after Central validation; otherwise approve in Central while the run waits'
         required: false
         default: false
         type: boolean
-  push:
-    tags:
-      - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.repository_id }}
   cancel-in-progress: false
 
 jobs:
+  guard:
+    name: Verify protected main release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the latest protected main commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "::error::Release must be dispatched from the protected main branch."
+            exit 1
+          fi
+
+          latest_main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ -z "${latest_main_sha}" || "${GITHUB_SHA}" != "${latest_main_sha}" ]]; then
+            echo "::error::Release commit ${GITHUB_SHA} is not the latest main commit ${latest_main_sha}."
+            exit 1
+          fi
+
   # Reuse the release-critical cross-platform build and sample verification as
   # a hard prerequisite. Static analysis and CodeQL remain merge-time CI gates.
   test:
     name: Test
+    needs: guard
     uses: ./.github/workflows/reusable-tests.yml
 
   publish:
     name: Publish to Maven Central
     runs-on: ubuntu-latest
-    # The environment scopes Central and signing secrets and restricts the
-    # accepted deployment branches/tags.
+    timeout-minutes: 60
     needs: test
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+    # The environment scopes Central and signing secrets and accepts only main.
     environment: coco-spring
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reconfirm the release commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          latest_main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "${GITHUB_REF}" != "refs/heads/main" || "${GITHUB_SHA}" != "${latest_main_sha}" ]]; then
+            echo "::error::Protected main changed after release validation. Dispatch a new release run."
+            exit 1
+          fi
 
       - name: Resolve release inputs
         id: release
         shell: bash
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-          INPUT_AUTO_PUBLISH: ${{ github.event.inputs.autoPublish }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_AUTO_PUBLISH: ${{ inputs.autoPublish }}
         run: |
           set -euo pipefail
 
@@ -82,10 +120,7 @@ jobs:
             printf '%s.%s.%s' "${major}" "${minor}" "$((patch + 1))"
           }
 
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            release_version="$(normalize_version "${GITHUB_REF_NAME}")"
-            central_auto_publish="false"
-          elif [[ -n "${INPUT_VERSION}" ]]; then
+          if [[ -n "${INPUT_VERSION}" ]]; then
             release_version="$(normalize_version "${INPUT_VERSION}")"
             central_auto_publish="${INPUT_AUTO_PUBLISH:-false}"
           else
@@ -97,18 +132,10 @@ jobs:
             central_auto_publish="false"
           fi
 
-          if [[ "${central_auto_publish}" == "true" ]]; then
-            central_wait_until="PUBLISHED"
-          else
-            central_wait_until="VALIDATED"
-          fi
+          central_wait_until="PUBLISHED"
 
           {
-            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-              echo "RELEASE_TAG=v${release_version}"
-            else
-              echo "RELEASE_TAG=${GITHUB_REF_NAME}"
-            fi
+            echo "RELEASE_TAG=v${release_version}"
             echo "RELEASE_VERSION=${release_version}"
             echo "CENTRAL_AUTO_PUBLISH=${central_auto_publish}"
             echo "CENTRAL_WAIT_UNTIL=${central_wait_until}"
@@ -119,8 +146,7 @@ jobs:
             echo "central-wait-until=${central_wait_until}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Guard duplicate workflow-dispatch release
-        if: github.event_name == 'workflow_dispatch'
+      - name: Guard duplicate release
         shell: bash
         run: |
           set -euo pipefail
@@ -190,19 +216,34 @@ jobs:
           -DskipTests
           deploy
 
-      - name: Tag successful workflow-dispatch release
-        if: github.event_name == 'workflow_dispatch'
+  tag:
+    name: Create immutable release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: publish
+    permissions:
+      contents: write
+    steps:
+      - name: Tag the successful release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.publish.outputs.version }}
         run: |
           set -euo pipefail
 
-          git fetch --tags --force
-          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" > /dev/null; then
-            echo "Release tag ${RELEASE_TAG} already exists."
-            exit 0
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "::error::Release tags may be created only for the protected main branch."
+            exit 1
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_VERSION}"
-          git push origin "${RELEASE_TAG}"
+          tag_object_sha="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+            -f tag="${RELEASE_TAG}" \
+            -f message="Release ${RELEASE_VERSION}" \
+            -f object="${GITHUB_SHA}" \
+            -f type='commit' \
+            --jq '.sha')"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="${tag_object_sha}" > /dev/null
