@@ -198,9 +198,7 @@ class AgentReviewTests(unittest.TestCase):
         )
 
         jury_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
-        governance_spec = (
-            "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
-        )
+        governance_spec = "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
         module_layout_spec = "coco-support/coco-document/architecture/module-layout.md"
 
         def mapped_specs(path: str) -> set[str]:
@@ -682,7 +680,9 @@ class AgentReviewTests(unittest.TestCase):
             )
             self.assertIn(".github/scripts/agent_review.py", diff)
             self.assertIn("coco-features/coco-web/src/main/java/Foo.java", diff)
-            self.assertIn("coco-support/coco-document/architecture/module-layout.md", diff)
+            self.assertIn(
+                "coco-support/coco-document/architecture/module-layout.md", diff
+            )
             self.assertLess(
                 diff.index("coco-features/coco-web/src/main/java/Foo.java"),
                 diff.index(".github/scripts/test_agent_review.py"),
