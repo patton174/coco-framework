@@ -60,6 +60,7 @@ class CocoSpringDependencyCutoverTest {
     private static final List<Path> AUTOCONFIGURE_CONSUMERS = List.of(
             Path.of("coco-spring", "coco-spring-boot-starter", "pom.xml"),
             Path.of("coco-features", "coco-feature-audit", "pom.xml"),
+            Path.of("coco-features", "coco-feature-codegen", "pom.xml"),
             Path.of("coco-features", "coco-feature-data-permission", "pom.xml"),
             Path.of("coco-features", "coco-feature-mybatis-plus", "pom.xml"),
             Path.of("coco-features", "coco-feature-openapi", "pom.xml"),
@@ -113,6 +114,19 @@ class CocoSpringDependencyCutoverTest {
                     .doesNotContainAnyElementsOf(FACADE_ARTIFACTS);
         }
 
+        Set<Path> facadePoms = FACADES.stream()
+                .map(Facade::modulePath)
+                .map(projectRoot::resolve)
+                .map(path -> path.resolve("pom.xml").normalize())
+                .collect(Collectors.toUnmodifiableSet());
+        for (Path pom : sourcePoms(projectRoot)) {
+            if (!facadePoms.contains(pom)) {
+                assertThat(directDependencyArtifactIds(readPom(pom)))
+                        .as("direct dependencies in %s", projectRoot.relativize(pom))
+                        .doesNotContainAnyElementsOf(FACADE_ARTIFACTS);
+            }
+        }
+
     }
 
     private static Path projectRoot() {
@@ -139,6 +153,27 @@ class CocoSpringDependencyCutoverTest {
                 .map(pom.getParent()::resolve)
                 .map(Path::normalize)
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static List<Path> sourcePoms(Path projectRoot) throws IOException {
+        try (Stream<Path> paths = Files.walk(projectRoot)) {
+            return paths.filter(Files::isRegularFile)
+                    .filter(path -> "pom.xml".equals(path.getFileName().toString()))
+                    .filter(path -> isSourcePath(projectRoot.relativize(path)))
+                    .map(Path::normalize)
+                    .sorted()
+                    .toList();
+        }
+    }
+
+    private static boolean isSourcePath(Path relativePath) {
+        for (Path segment : relativePath) {
+            String name = segment.toString();
+            if ("target".equals(name) || name.startsWith(".")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static List<Path> regularFiles(Path root) throws IOException {
