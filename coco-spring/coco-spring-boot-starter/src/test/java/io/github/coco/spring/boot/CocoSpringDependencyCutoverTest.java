@@ -63,7 +63,8 @@ class CocoSpringDependencyCutoverTest {
             Path.of("coco-features", "coco-feature-mybatis-plus", "pom.xml"),
             Path.of("coco-features", "coco-feature-openapi", "pom.xml"),
             Path.of("coco-features", "coco-feature-security", "pom.xml"),
-            Path.of("coco-features", "coco-feature-tenant", "pom.xml"));
+            Path.of("coco-features", "coco-feature-tenant", "pom.xml"),
+            Path.of("coco-features", "coco-feature-web", "pom.xml"));
 
     @Test
     void keepsPublishedFacadesInReactorsAndDependencyManagement() throws Exception {
