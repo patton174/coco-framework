@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import subprocess
@@ -586,6 +587,70 @@ class AgentReviewTests(unittest.TestCase):
             with self.assertRaises(review.ReviewError):
                 client.file_text("owner/repo", "file.txt", HEAD_SHA, 100)
 
+    def test_github_client_classifies_retryable_lookup_failures(self) -> None:
+        client = review.GitHubClient("test", "https://api.example.invalid")
+
+        for status in (408, 429, 500, 502, 503):
+            with self.subTest(status=status):
+                error = review.urllib.error.HTTPError(
+                    "https://api.example.invalid/repos/owner/repo",
+                    status,
+                    "temporary",
+                    None,
+                    io.BytesIO(b'{"message":"temporary"}'),
+                )
+                try:
+                    with patch.object(
+                        review.urllib.request, "urlopen", side_effect=error
+                    ):
+                        with self.assertRaises(review.GitHubTransientError):
+                            client.get_json("repos/owner/repo")
+                finally:
+                    error.close()
+
+        with patch.object(
+            review.urllib.request,
+            "urlopen",
+            side_effect=review.urllib.error.URLError("connection reset"),
+        ):
+            with self.assertRaises(review.GitHubTransientError):
+                client.get_json("repos/owner/repo")
+
+        limited = review.urllib.error.HTTPError(
+            "https://api.example.invalid/repos/owner/repo",
+            403,
+            "rate limited",
+            {"Retry-After": "1"},
+            io.BytesIO(b'{"message":"rate limited"}'),
+        )
+        try:
+            with patch.object(review.urllib.request, "urlopen", side_effect=limited):
+                with self.assertRaises(review.GitHubTransientError):
+                    client.get_json("repos/owner/repo")
+        finally:
+            limited.close()
+
+        for status in (401, 403):
+            with self.subTest(status=status):
+                error = review.urllib.error.HTTPError(
+                    "https://api.example.invalid/repos/owner/repo",
+                    status,
+                    "denied",
+                    None,
+                    io.BytesIO(b'{"message":"denied"}'),
+                )
+                try:
+                    with patch.object(
+                        review.urllib.request, "urlopen", side_effect=error
+                    ):
+                        with self.assertRaises(review.ReviewError) as raised:
+                            client.get_json("repos/owner/repo")
+                    self.assertNotIsInstance(
+                        raised.exception, review.GitHubTransientError
+                    )
+                finally:
+                    error.close()
+
     def test_build_context_adds_related_test_and_module_pom(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1035,7 +1100,11 @@ class AgentReviewTests(unittest.TestCase):
             "title": "large layout",
             "body": "",
             "changed_files": 501,
-            "base": {"sha": BASE_SHA, "ref": "main"},
+            "base": {
+                "sha": BASE_SHA,
+                "ref": "main",
+                "repo": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+            },
             "head": {
                 "sha": HEAD_SHA,
                 "repo": {"full_name": "patton174/coco-framework"},
@@ -1046,9 +1115,13 @@ class AgentReviewTests(unittest.TestCase):
         class FakeClient:
             def __init__(self) -> None:
                 self.paginated: list[tuple[str, int]] = []
+                self.pull_reads = 0
 
             def get_json(self, path: str) -> dict:
                 if path == "repos/patton174/coco-framework/pulls/1":
+                    self.pull_reads += 1
+                    if self.pull_reads == 2:
+                        raise review.GitHubTransientError("HTTP 502")
                     return pull_request
                 raise AssertionError(f"Unexpected GET path: {path}")
 
@@ -1078,6 +1151,7 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review, "GitHubClient", return_value=client),
                 patch.object(review, "load_config", return_value=config()),
                 patch.object(review, "build_context", return_value=context) as builder,
+                patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
                 patch.dict("os.environ", {"GH_TOKEN": "token"}),
             ):
@@ -1095,6 +1169,8 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
         self.assertEqual(0, result)
+        self.assertEqual(3, client.pull_reads)
+        sleeper.assert_called_once()
         self.assertIn(
             (
                 "repos/patton174/coco-framework/pulls/1/files",
@@ -2912,6 +2988,95 @@ class AgentReviewTests(unittest.TestCase):
             )
         )
 
+    def test_resolve_pr_retries_and_writes_exact_protected_binding(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def get_json(self, path: str) -> dict:
+                if path != f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    raise AssertionError(f"Unexpected GET path: {path}")
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise review.GitHubTransientError("HTTP 502")
+                return deferred_pull_request()
+
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "binding.json"
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                result = review.command_resolve_pr(
+                    SimpleNamespace(
+                        repository=REPOSITORY,
+                        repository_id=REPOSITORY_ID,
+                        pr_number=DEFERRED_PR_NUMBER,
+                        expected_head_sha=HEAD_SHA,
+                        output=output_path,
+                    )
+                )
+            binding = review.read_json(output_path)
+
+        self.assertEqual(0, result)
+        self.assertEqual(2, client.attempts)
+        sleeper.assert_called_once()
+        self.assertEqual(DEFERRED_PR_NUMBER, binding["pr_number"])
+        self.assertEqual(BASE_SHA, binding["base_sha"])
+        self.assertEqual(HEAD_SHA, binding["head_sha"])
+        self.assertEqual(REPOSITORY_ID, binding["repository_id"])
+
+    def test_route_command_emits_structured_classification_context(self) -> None:
+        pull_request = deferred_pull_request()
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def get_json(self, path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    self.attempts += 1
+                    if self.attempts == 1:
+                        raise review.urllib.error.URLError("connection reset")
+                    return pull_request
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "route.json"
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(review, "load_config", return_value=deferred_config()),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                result = review.command_route(
+                    SimpleNamespace(
+                        repository=REPOSITORY,
+                        repository_id=REPOSITORY_ID,
+                        pr_number=DEFERRED_PR_NUMBER,
+                        event_name="pull_request_target",
+                        expected_head_sha=HEAD_SHA,
+                        config=Path(directory) / "config.json",
+                        output=output_path,
+                    )
+                )
+            decision = review.read_json(output_path)
+
+        self.assertEqual(0, result)
+        self.assertEqual(2, client.attempts)
+        sleeper.assert_called_once()
+        self.assertEqual(review.PR_ROUTE_DEFERRED, decision["review_route"])
+        self.assertEqual("same-repository-deferred-bot", decision["route_reason"])
+        self.assertEqual("dependabot[bot]", decision["author_login"])
+        self.assertEqual("Bot", decision["author_type"])
+        self.assertEqual(DEPENDABOT_BOT_ID, decision["author_id"])
+        self.assertEqual(REPOSITORY, decision["head_repository"])
+
     def test_classify_pr_compatibility_shim_matches_direct_route(self) -> None:
         cases = (
             (
@@ -2990,6 +3155,70 @@ class AgentReviewTests(unittest.TestCase):
         self.assertFalse(args.allow_deferred)
         self.assertEqual(0, args.source_run_id)
 
+    def test_prepare_rejects_incompatible_event_modes_before_api_calls(self) -> None:
+        cases = (
+            (
+                "deferred review event",
+                "pull_request_review",
+                True,
+                SOURCE_RUN_ID,
+                "Deferred Agent review mode requires a workflow_run binding.",
+            ),
+            (
+                "deferred run without source",
+                "workflow_run",
+                True,
+                0,
+                "Deferred Agent review mode requires a workflow_run binding.",
+            ),
+            (
+                "direct workflow run",
+                "workflow_run",
+                False,
+                0,
+                "Direct Agent review event is invalid.",
+            ),
+            (
+                "unknown direct event",
+                "push",
+                False,
+                0,
+                "Direct Agent review event is invalid.",
+            ),
+            (
+                "direct event with source run",
+                "pull_request_target",
+                False,
+                SOURCE_RUN_ID,
+                "workflow_run review requires explicit deferred mode.",
+            ),
+        )
+
+        for name, event_name, allow_deferred, source_run_id, message in cases:
+            with self.subTest(name=name):
+                with (
+                    patch.object(review, "load_config") as config_loader,
+                    patch.object(review, "GitHubClient") as client_constructor,
+                ):
+                    with self.assertRaisesRegex(review.ReviewError, message):
+                        review.command_prepare(
+                            SimpleNamespace(
+                                repository=REPOSITORY,
+                                repository_id=REPOSITORY_ID,
+                                pr_number=DEFERRED_PR_NUMBER,
+                                event_name=event_name,
+                                expected_head_sha=HEAD_SHA,
+                                allow_deferred=allow_deferred,
+                                source_run_id=source_run_id,
+                                base_root=Path("."),
+                                config=Path("config.json"),
+                                context_output=Path("context.json"),
+                                metadata_output=Path("metadata.json"),
+                            )
+                        )
+                config_loader.assert_not_called()
+                client_constructor.assert_not_called()
+
     def test_deferred_workflow_binding_revalidates_exact_run_and_pull_request(
         self,
     ) -> None:
@@ -3018,6 +3247,120 @@ class AgentReviewTests(unittest.TestCase):
             ],
             client.get_paths,
         )
+
+    def test_deferred_binding_retries_transient_run_and_pull_lookups(self) -> None:
+        class FlakyDeferredClient(FakeDeferredClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.run_attempts = 0
+                self.pull_attempts = 0
+                self.errors: list[review.urllib.error.HTTPError] = []
+
+            def http_error(self, path: str, status: int, reason: str):
+                error = review.urllib.error.HTTPError(
+                    path,
+                    status,
+                    reason,
+                    None,
+                    io.BytesIO(b'{"message":"temporary"}'),
+                )
+                self.errors.append(error)
+                return error
+
+            def get_json(self, path: str) -> dict:
+                self.get_paths.append(path)
+                if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
+                    self.run_attempts += 1
+                    if self.run_attempts == 1:
+                        raise review.urllib.error.URLError("connection reset")
+                    if self.run_attempts == 2:
+                        raise self.http_error(
+                            "https://api.example.invalid/actions/runs/1",
+                            502,
+                            "temporary",
+                        )
+                    return self.run
+                if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    self.pull_attempts += 1
+                    if self.pull_attempts == 1:
+                        raise self.http_error(
+                            "https://api.example.invalid/pulls/1",
+                            404,
+                            "not found",
+                        )
+                    return self.pull_request
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        client = FlakyDeferredClient()
+        try:
+            with (
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                binding = review.deferred_review_binding(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    SOURCE_RUN_ID,
+                    deferred_config(),
+                    DEFERRED_PR_NUMBER,
+                    HEAD_SHA,
+                )
+        finally:
+            for error in client.errors:
+                error.close()
+
+        self.assertTrue(binding["eligible"])
+        self.assertEqual(3, client.run_attempts)
+        self.assertEqual(2, client.pull_attempts)
+        self.assertEqual(3, sleeper.call_count)
+
+    def test_deferred_binding_fails_closed_after_bounded_retries(self) -> None:
+        class AlwaysTransientClient:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def get_json(self, path: str) -> dict:
+                del path
+                self.attempts += 1
+                raise review.GitHubTransientError("HTTP 502")
+
+        client = AlwaysTransientClient()
+        with (
+            patch.object(review.time, "sleep") as sleeper,
+            patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(review.ReviewError, "failed after 4 attempts"):
+                review.deferred_review_candidate(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    SOURCE_RUN_ID,
+                    deferred_config(),
+                )
+
+        self.assertEqual(4, client.attempts)
+        self.assertEqual(3, sleeper.call_count)
+
+    def test_deferred_binding_does_not_retry_invalid_payloads(self) -> None:
+        run = deferred_workflow_run()
+        run["name"] = "Other Workflow"
+        client = FakeDeferredClient(run=run)
+
+        with patch.object(review.time, "sleep") as sleeper:
+            with self.assertRaisesRegex(review.ReviewError, "binding is invalid"):
+                review.deferred_review_candidate(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    SOURCE_RUN_ID,
+                    deferred_config(),
+                )
+
+        self.assertEqual(
+            [f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}"], client.get_paths
+        )
+        sleeper.assert_not_called()
 
     def test_deferred_workflow_binding_rejects_forged_or_stale_inputs(self) -> None:
         cases: list[tuple[str, dict, dict, list[dict]]] = []
@@ -3344,7 +3687,11 @@ class AgentReviewTests(unittest.TestCase):
             "title": "build(deps): update dependency",
             "body": "",
             "changed_files": 1,
-            "base": {"ref": "main", "sha": BASE_SHA},
+            "base": {
+                "ref": "main",
+                "sha": BASE_SHA,
+                "repo": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+            },
             "head": {
                 "sha": HEAD_SHA,
                 "repo": {"full_name": "patton174/coco-framework"},
@@ -3357,9 +3704,14 @@ class AgentReviewTests(unittest.TestCase):
         }
 
         class FakeClient:
-            @staticmethod
-            def get_json(path: str) -> dict:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def get_json(self, path: str) -> dict:
                 if path == "repos/patton174/coco-framework/pulls/1":
+                    self.attempts += 1
+                    if self.attempts == 1:
+                        raise review.GitHubTransientError("HTTP 502")
                     return pull_request
                 raise AssertionError(f"Unexpected GET path: {path}")
 
@@ -3382,12 +3734,13 @@ class AgentReviewTests(unittest.TestCase):
                 raise AssertionError(f"Unexpected paginated path: {path}")
 
         context = bound_context()
+        client = FakeClient()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             context_output = root / "context.json"
             metadata_output = root / "metadata.json"
             with (
-                patch.object(review, "GitHubClient", return_value=FakeClient()),
+                patch.object(review, "GitHubClient", return_value=client),
                 patch.object(review, "load_config", return_value=configured),
                 patch.object(review, "pull_request_diff", return_value="+change"),
                 patch.object(review, "build_context", return_value=context) as builder,
@@ -3396,6 +3749,7 @@ class AgentReviewTests(unittest.TestCase):
                     "current_maintainer_approval",
                     return_value=(False, []),
                 ) as approval,
+                patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
                 patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
             ):
@@ -3415,6 +3769,8 @@ class AgentReviewTests(unittest.TestCase):
             metadata = review.read_json(metadata_output)
 
         self.assertEqual(0, result)
+        self.assertEqual(2, client.attempts)
+        sleeper.assert_called_once()
         self.assertEqual(review.PR_ROUTE_DEFERRED, metadata["review_route"])
         self.assertFalse(metadata["trusted"])
         self.assertTrue(metadata["deferred"])
@@ -3502,6 +3858,378 @@ class AgentReviewTests(unittest.TestCase):
                     ),
                 )
 
+    def test_deferred_no_secret_route_is_ignored_and_cannot_publish_success(
+        self,
+    ) -> None:
+        workflow_root = Path(__file__).resolve().parents[1] / "workflows"
+        router = (workflow_root / "agent-review.yml").read_text(encoding="utf-8")
+        reusable = (workflow_root / "reusable-agent-review-jury.yml").read_text(
+            encoding="utf-8"
+        )
+        no_secret_call = router.split("\n  no-secret-review:\n", 1)[1]
+        self.assertIn(
+            "needs.route.outputs.review-route == 'deferred-pinned-bot'",
+            no_secret_call,
+        )
+        self.assertNotIn("secrets: inherit", no_secret_call)
+        self.assertIn("deferred: ${{ steps.metadata.outputs.deferred }}", reusable)
+        self.assertIn(
+            "output.write(f\"deferred={str(bool(metadata.get('deferred'))).lower()}\\n\")",
+            reusable,
+        )
+        no_secret_publisher = reusable.split("\n  no-secret-publisher:\n", 1)[1]
+        self.assertIn("needs.prepare.outputs.deferred == 'false'", no_secret_publisher)
+        self.assertIn("needs.prepare.outputs.ignored == 'false'", no_secret_publisher)
+
+        for event_name in ("pull_request_target", "pull_request_review"):
+            with self.subTest(event_name=event_name):
+                route_state = review.prepare_direct_route_state(
+                    event_name, 0, review.PR_ROUTE_DEFERRED
+                )
+                self.assertTrue(route_state["deferred"])
+                self.assertTrue(route_state["ignored"])
+                with tempfile.TemporaryDirectory() as directory:
+                    metadata_path = Path(directory) / "metadata.json"
+                    review.write_json(
+                        metadata_path,
+                        {
+                            "repository": REPOSITORY,
+                            "pr_number": DEFERRED_PR_NUMBER,
+                            "base_sha": BASE_SHA,
+                            "head_sha": HEAD_SHA,
+                            "review_route": review.PR_ROUTE_DEFERRED,
+                            **route_state,
+                        },
+                    )
+                    with (
+                        patch.object(
+                            review,
+                            "GitHubClient",
+                            side_effect=AssertionError(
+                                "ignored metadata must not publish"
+                            ),
+                        ),
+                        patch("builtins.print") as output,
+                    ):
+                        result = review.command_publish(
+                            SimpleNamespace(
+                                metadata=metadata_path,
+                                run_url="https://github.example/runs/review",
+                            )
+                        )
+
+                self.assertEqual(0, result)
+                output.assert_called_once()
+                publication = json.loads(output.call_args.args[0])
+                self.assertEqual({"state": "ignored"}, publication)
+                self.assertNotEqual("success", publication["state"])
+
+    def test_mark_pending_records_the_current_run_owner(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        metadata = {
+            "repository": REPOSITORY,
+            "head_sha": HEAD_SHA,
+            "ignored": False,
+            "run_id": "42",
+            "run_attempt": "3",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            client = FakeClient()
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                result = review.command_mark_pending(
+                    SimpleNamespace(
+                        metadata=metadata_path,
+                        run_url="https://github.example/runs/42",
+                    )
+                )
+
+        self.assertEqual(0, result)
+        self.assertEqual(1, len(client.sent))
+        method, path, payload = client.sent[0]
+        self.assertEqual("POST", method)
+        self.assertEqual(f"repos/{REPOSITORY}/statuses/{HEAD_SHA}", path)
+        self.assertEqual("pending", payload["state"])
+        self.assertEqual("Agent jury run 42:3 in progress", payload["description"])
+
+    def test_owned_mark_failed_does_not_overwrite_a_newer_run(self) -> None:
+        class FakeClient:
+            @staticmethod
+            def get_json(path: str) -> object:
+                if path == (
+                    f"repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+                    "?per_page=100&page=1"
+                ):
+                    return [
+                        {
+                            "context": review.STATUS_CONTEXT,
+                            "description": review.run_ownership_description((43, 1)),
+                        }
+                    ]
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            @staticmethod
+            def send_json(method: str, path: str, payload: dict) -> dict:
+                del method, path, payload
+                raise AssertionError("A stale run must not publish a failure status")
+
+        metadata = {
+            "repository": REPOSITORY,
+            "head_sha": HEAD_SHA,
+            "ignored": False,
+            "run_id": "42",
+            "run_attempt": "1",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            with (
+                patch.object(review, "GitHubClient", return_value=FakeClient()),
+                patch("builtins.print") as output,
+            ):
+                result = review.command_mark_failed(
+                    SimpleNamespace(
+                        metadata=metadata_path,
+                        run_url="https://github.example/runs/42",
+                        require_run_ownership=True,
+                    )
+                )
+
+        self.assertEqual(0, result)
+        self.assertEqual({"state": "stale"}, json.loads(output.call_args.args[0]))
+
+    def test_publisher_admission_accepts_exact_current_trusted_run(self) -> None:
+        class FakeClient:
+            @staticmethod
+            def get_json(path: str) -> object:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                if path == (
+                    f"repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+                    "?per_page=100&page=1"
+                ):
+                    return [
+                        {
+                            "context": review.STATUS_CONTEXT,
+                            "description": review.run_ownership_description((42, 2)),
+                        }
+                    ]
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        metadata = {
+            "repository": REPOSITORY,
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "trusted": True,
+            "ignored": False,
+            "run_id": "42",
+            "run_attempt": "2",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            output_path = root / "admission.json"
+            review.write_json(metadata_path, metadata)
+            with (
+                patch.object(review, "GitHubClient", return_value=FakeClient()),
+                patch("builtins.print"),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                result = review.command_admit_publisher(
+                    SimpleNamespace(metadata=metadata_path, output=output_path)
+                )
+            admission = review.read_json(output_path)
+
+        self.assertEqual(0, result)
+        self.assertTrue(admission["admitted"])
+        self.assertEqual("current-run-admitted", admission["reason"])
+
+    def test_publisher_admission_rejects_stale_head_and_newer_run(self) -> None:
+        metadata = {
+            "repository": REPOSITORY,
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "trusted": True,
+            "ignored": False,
+            "run_id": "42",
+            "run_attempt": "1",
+        }
+
+        for case, current_head, statuses, expected_reason in (
+            (
+                "head-changed",
+                "c" * 40,
+                None,
+                "pull-request-binding-changed",
+            ),
+            (
+                "newer-run",
+                HEAD_SHA,
+                [
+                    {
+                        "context": review.STATUS_CONTEXT,
+                        "description": review.run_ownership_description((43, 1)),
+                    }
+                ],
+                "newer-run-owns-publication",
+            ),
+        ):
+            with self.subTest(case=case):
+
+                class FakeClient:
+                    @staticmethod
+                    def get_json(path: str) -> object:
+                        if path == f"repos/{REPOSITORY}/pulls/1":
+                            return {
+                                "state": "open",
+                                "head": {"sha": current_head},
+                                "base": {"sha": BASE_SHA, "ref": "main"},
+                            }
+                        if (
+                            path
+                            == (
+                                f"repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+                                "?per_page=100&page=1"
+                            )
+                            and statuses is not None
+                        ):
+                            return statuses
+                        raise AssertionError(f"Unexpected GET path: {path}")
+
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    metadata_path = root / "metadata.json"
+                    output_path = root / "admission.json"
+                    review.write_json(metadata_path, metadata)
+                    with (
+                        patch.object(review, "GitHubClient", return_value=FakeClient()),
+                        patch("builtins.print"),
+                    ):
+                        result = review.command_admit_publisher(
+                            SimpleNamespace(metadata=metadata_path, output=output_path)
+                        )
+                    admission = review.read_json(output_path)
+
+                self.assertEqual(0, result)
+                self.assertFalse(admission["admitted"])
+                self.assertEqual(expected_reason, admission["reason"])
+
+    def test_publisher_admission_retries_transient_api_failures(self) -> None:
+        class RecoveringClient:
+            def __init__(self) -> None:
+                self.pull_attempts = 0
+
+            def get_json(self, path: str) -> object:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    self.pull_attempts += 1
+                    if self.pull_attempts == 1:
+                        raise review.GitHubTransientError("temporary")
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                if path == (
+                    f"repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+                    "?per_page=100&page=1"
+                ):
+                    return [
+                        {
+                            "context": review.STATUS_CONTEXT,
+                            "description": review.run_ownership_description((42, 1)),
+                        }
+                    ]
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        metadata = {
+            "repository": REPOSITORY,
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "trusted": True,
+            "ignored": False,
+            "run_id": "42",
+            "run_attempt": "1",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            output_path = root / "admission.json"
+            review.write_json(metadata_path, metadata)
+            client = RecoveringClient()
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                result = review.command_admit_publisher(
+                    SimpleNamespace(metadata=metadata_path, output=output_path)
+                )
+            admission = review.read_json(output_path)
+
+        self.assertEqual(0, result)
+        self.assertEqual(2, client.pull_attempts)
+        sleeper.assert_called_once()
+        self.assertTrue(admission["admitted"])
+
+    def test_publisher_admission_fails_closed_after_retry_exhaustion(self) -> None:
+        class FailingClient:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def get_json(self, path: str) -> object:
+                if path != f"repos/{REPOSITORY}/pulls/1":
+                    raise AssertionError(f"Unexpected GET path: {path}")
+                self.attempts += 1
+                raise review.GitHubTransientError("temporary")
+
+        metadata = {
+            "repository": REPOSITORY,
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "trusted": True,
+            "ignored": False,
+            "run_id": "42",
+            "run_attempt": "1",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            output_path = root / "admission.json"
+            review.write_json(metadata_path, metadata)
+            client = FailingClient()
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "failed after"):
+                    review.command_admit_publisher(
+                        SimpleNamespace(metadata=metadata_path, output=output_path)
+                    )
+
+        self.assertEqual(4, client.attempts)
+        self.assertEqual(3, sleeper.call_count)
+        self.assertFalse(output_path.exists())
+
     def test_deferred_publish_revalidates_source_run_before_app_publication(
         self,
     ) -> None:
@@ -3513,6 +4241,16 @@ class AgentReviewTests(unittest.TestCase):
             def get_json(path: str) -> dict:
                 if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
                     return deferred_pull_request()
+                if path == (
+                    f"repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+                    "?per_page=100&page=1"
+                ):
+                    return [
+                        {
+                            "context": review.STATUS_CONTEXT,
+                            "description": review.run_ownership_description((22, 1)),
+                        }
+                    ]
                 raise AssertionError(f"Unexpected GET path: {path}")
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
@@ -3583,6 +4321,16 @@ class AgentReviewTests(unittest.TestCase):
             def get_json(path: str) -> dict:
                 if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
                     return deferred_pull_request()
+                if path == (
+                    f"repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+                    "?per_page=100&page=1"
+                ):
+                    return [
+                        {
+                            "context": review.STATUS_CONTEXT,
+                            "description": review.run_ownership_description((22, 1)),
+                        }
+                    ]
                 raise AssertionError(f"Unexpected GET path: {path}")
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
@@ -3685,11 +4433,12 @@ class AgentReviewTests(unittest.TestCase):
 
         for value in (
             "\nconcurrency:\n",
-            "inputs.allow_deferred && 'deferred' ||",
+            "inputs.allow_deferred && format('deferred-{0}', inputs.expected_head_sha) ||",
             "inputs.event_name == 'pull_request_review' && 'approval' || 'head'",
-            "cancel-in-progress: true",
+            "cancel-in-progress: ${{ ! inputs.allow_deferred }}",
         ):
             self.assertIn(value, workflow_header)
+        self.assertNotIn("cancel-in-progress: true", workflow_header)
 
     def test_agent_review_workflows_bootstrap_legacy_protected_base(self) -> None:
         workflow_root = Path(__file__).resolve().parents[1] / "workflows"
@@ -3763,6 +4512,92 @@ class AgentReviewTests(unittest.TestCase):
             '"${deferred_args[@]}"',
         ):
             self.assertIn(value, modern_call)
+
+    def test_router_emits_structured_route_log_for_each_modern_route(self) -> None:
+        router = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
+        ).read_text(encoding="utf-8")
+        route_step = router.split("\n      - name: Classify bound pull request\n", 1)[
+            1
+        ].split("\n  direct-secret-review:\n", 1)[0]
+        decision_script = textwrap.dedent(
+            route_step.split("<<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+        )
+        cases = (
+            (
+                review.PR_ROUTE_DIRECT,
+                "same-repository-human",
+                "maintainer",
+                "User",
+                42,
+                REPOSITORY,
+            ),
+            (
+                review.PR_ROUTE_DEFERRED,
+                "same-repository-deferred-bot",
+                "dependabot[bot]",
+                "Bot",
+                DEPENDABOT_BOT_ID,
+                REPOSITORY,
+            ),
+            (
+                review.PR_ROUTE_NO_SECRET,
+                "head-repository-mismatch",
+                "contributor",
+                "User",
+                84,
+                "someone/coco-framework",
+            ),
+        )
+
+        for route, reason, login, author_type, author_id, head_repo in cases:
+            with self.subTest(route=route):
+                payload = {
+                    "review_route": route,
+                    "route_reason": reason,
+                    "author_login": login,
+                    "author_type": author_type,
+                    "author_id": author_id,
+                    "head_repository": head_repo,
+                }
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    payload_path = root / "payload.json"
+                    output_path = root / "github-output.txt"
+                    review.write_json(payload_path, payload)
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-",
+                            str(payload_path),
+                            str(output_path),
+                            "route",
+                            "pull_request_target",
+                            REPOSITORY,
+                            str(DEFERRED_PR_NUMBER),
+                            HEAD_SHA,
+                            BASE_SHA,
+                        ],
+                        input=decision_script,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    output_text = output_path.read_text(encoding="utf-8")
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(f"review-route={route}\n", output_text)
+                prefix = "agent-review-route "
+                self.assertTrue(result.stdout.startswith(prefix), result.stdout)
+                route_log = json.loads(result.stdout.removeprefix(prefix))
+                self.assertEqual("agent-review-route", route_log["event"])
+                self.assertEqual("route", route_log["route_mode"])
+                self.assertEqual(route, route_log["review_route"])
+                self.assertEqual(reason, route_log["route_reason"])
+                self.assertEqual(login, route_log["author_login"])
+                self.assertEqual(author_type, route_log["author_type"])
+                self.assertEqual(author_id, route_log["author_id"])
+                self.assertEqual(head_repo, route_log["head_repository"])
 
     def test_legacy_router_compat_skip_requires_exact_metadata_binding(self) -> None:
         router = (
@@ -3869,7 +4704,11 @@ class AgentReviewTests(unittest.TestCase):
         ]
         pull_request = {
             "state": "open",
-            "base": {"ref": "main", "sha": BASE_SHA},
+            "base": {
+                "ref": "main",
+                "sha": BASE_SHA,
+                "repo": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+            },
             "head": {
                 "sha": HEAD_SHA,
                 "repo": {"full_name": "patton174/coco-framework"},
@@ -3971,9 +4810,13 @@ class AgentReviewTests(unittest.TestCase):
         class FakeClient:
             def __init__(self) -> None:
                 self.sent: list[tuple[str, str, dict]] = []
+                self.pull_reads = 0
 
             def get_json(self, path: str) -> dict:
                 if path == "repos/patton174/coco-framework/pulls/1":
+                    self.pull_reads += 1
+                    if self.pull_reads == 1:
+                        raise review.GitHubTransientError("HTTP 502")
                     return {
                         "state": "open",
                         "head": {"sha": HEAD_SHA},
@@ -4016,17 +4859,23 @@ class AgentReviewTests(unittest.TestCase):
             metadata_path = Path(directory) / "metadata.json"
             review.write_json(metadata_path, metadata)
             client = FakeClient()
-            with patch.object(review, "GitHubClient", return_value=client):
-                with patch("builtins.print") as output:
-                    result = review.command_publish(
-                        SimpleNamespace(
-                            metadata=metadata_path,
-                            run_url="https://github.example/runs/1",
-                        )
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print") as output,
+            ):
+                result = review.command_publish(
+                    SimpleNamespace(
+                        metadata=metadata_path,
+                        run_url="https://github.example/runs/1",
                     )
+                )
 
         self.assertEqual(0, result)
-        output.assert_called_once()
+        self.assertEqual(3, client.pull_reads)
+        sleeper.assert_called_once()
+        publication = json.loads(output.call_args_list[-1].args[0])
+        self.assertEqual("success", publication["state"])
         self.assertEqual(1, len(client.sent))
         method, path, payload = client.sent[0]
         self.assertEqual("POST", method)
@@ -4075,14 +4924,16 @@ class AgentReviewTests(unittest.TestCase):
             metadata_path = Path(directory) / "metadata.json"
             review.write_json(metadata_path, metadata)
             client = FakeClient()
-            with patch.object(review, "GitHubClient", return_value=client):
-                with patch("builtins.print"):
-                    result = review.command_publish(
-                        SimpleNamespace(
-                            metadata=metadata_path,
-                            run_url="https://github.example/runs/1",
-                        )
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch("builtins.print"),
+            ):
+                result = review.command_publish(
+                    SimpleNamespace(
+                        metadata=metadata_path,
+                        run_url="https://github.example/runs/1",
                     )
+                )
 
         self.assertEqual(0, result)
         self.assertEqual(1, len(client.sent))
@@ -4145,7 +4996,341 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(2, client.pull_reads)
         self.assertEqual([], client.sent)
 
-    def test_publisher_jobs_are_serialized_across_event_groups(self) -> None:
+    def test_stale_same_head_run_cannot_overwrite_newer_gate_statuses(self) -> None:
+        class FakeStatusClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == "repos/patton174/coco-framework/pulls/1":
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                if path == (
+                    "repos/patton174/coco-framework/commits/"
+                    f"{HEAD_SHA}/statuses?per_page=100&page=1"
+                ):
+                    return [
+                        {
+                            "context": review.STATUS_CONTEXT,
+                            "description": review.run_ownership_description((20, 1)),
+                        }
+                    ]
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        class FakeAgentClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            @staticmethod
+            def paginate(path: str, limit: int = 1000) -> list[dict]:
+                if path != "repos/patton174/coco-framework/issues/1/comments":
+                    raise AssertionError(f"Unexpected paginated path: {path}")
+                if limit != 500:
+                    raise AssertionError(f"Unexpected comment limit: {limit}")
+                return [
+                    {
+                        "id": 99,
+                        "body": (
+                            f"{review.COMMENT_MARKER}\n<!-- agent-jury-run:20:1 -->\n"
+                        ),
+                        "user": {
+                            "login": "coco-agent[bot]",
+                            "id": APP_BOT_ID,
+                            "type": "Bot",
+                        },
+                    }
+                ]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        metadata = {
+            "schema_version": 1,
+            "repository": "patton174/coco-framework",
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "review_route": review.PR_ROUTE_DIRECT,
+            "trusted": True,
+            "deferred": False,
+            "ignored": False,
+            "source_run_id": 0,
+            "run_id": "10",
+            "run_attempt": "1",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            status_client = FakeStatusClient()
+            agent_client = FakeAgentClient()
+            with (
+                patch.object(
+                    review,
+                    "GitHubClient",
+                    side_effect=[status_client, agent_client],
+                ),
+                patch("builtins.print") as output,
+                patch.dict(
+                    "os.environ",
+                    {
+                        "GH_TOKEN": "token",
+                        "AGENT_GH_TOKEN": "agent-token",
+                        "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
+                        "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                    },
+                    clear=True,
+                ),
+            ):
+                result = review.command_publish(
+                    SimpleNamespace(
+                        metadata=metadata_path,
+                        config=root / "missing-config.json",
+                        context=root / "missing-context.json",
+                        specialists=root / "missing-specialists",
+                        verifiers=root / "missing-verifiers",
+                        final_json=root / "missing-final.json",
+                        final_markdown=root / "missing-final.md",
+                        run_url="https://github.example/runs/10",
+                    )
+                )
+
+        self.assertEqual(0, result)
+        self.assertEqual([], status_client.sent)
+        self.assertEqual([], agent_client.sent)
+        publication = json.loads(output.call_args.args[0])
+        self.assertEqual("stale", publication["state"])
+        self.assertEqual(10, publication["run_id"])
+
+    def test_run_becoming_stale_before_comment_has_zero_side_effects(self) -> None:
+        class FakeStatusClient:
+            def __init__(self) -> None:
+                self.ownership_reads = 0
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> object:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                if path == (
+                    f"repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+                    "?per_page=100&page=1"
+                ):
+                    self.ownership_reads += 1
+                    owner = 10 if self.ownership_reads < 3 else 20
+                    return [
+                        {
+                            "context": review.STATUS_CONTEXT,
+                            "description": review.run_ownership_description((owner, 1)),
+                        }
+                    ]
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        class FakeAgentClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        metadata = {
+            "schema_version": 1,
+            "repository": REPOSITORY,
+            "pr_number": 1,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "review_route": review.PR_ROUTE_DIRECT,
+            "trusted": True,
+            "deferred": False,
+            "ignored": False,
+            "source_run_id": 0,
+            "run_id": "10",
+            "run_attempt": "1",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            status_client = FakeStatusClient()
+            agent_client = FakeAgentClient()
+            with (
+                patch.object(
+                    review,
+                    "GitHubClient",
+                    side_effect=[status_client, agent_client],
+                ),
+                patch.object(review, "managed_comment", return_value=None),
+                patch.object(review, "app_finding_issues", return_value={}),
+                patch("builtins.print") as output,
+                patch.dict(
+                    "os.environ",
+                    {
+                        "GH_TOKEN": "token",
+                        "AGENT_GH_TOKEN": "agent-token",
+                        "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
+                        "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                    },
+                    clear=True,
+                ),
+            ):
+                result = review.command_publish(
+                    SimpleNamespace(
+                        metadata=metadata_path,
+                        config=root / "missing-config.json",
+                        context=root / "missing-context.json",
+                        specialists=root / "missing-specialists",
+                        verifiers=root / "missing-verifiers",
+                        final_json=root / "missing-final.json",
+                        final_markdown=root / "missing-final.md",
+                        run_url="https://github.example/runs/10",
+                    )
+                )
+
+        self.assertEqual(0, result)
+        self.assertEqual(3, status_client.ownership_reads)
+        self.assertEqual([], status_client.sent)
+        self.assertEqual([], agent_client.sent)
+        publication = json.loads(output.call_args.args[0])
+        self.assertEqual("stale", publication["state"])
+
+    def test_reusable_binding_uses_protected_retrying_resolver(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / "workflows/reusable-agent-review-jury.yml"
+        ).read_text(encoding="utf-8")
+        binding = workflow.split(
+            "\n      - name: Checkout protected binding helper\n", 1
+        )[1].split("\n      - name: Checkout trusted base\n", 1)[0]
+
+        for value in (
+            "ref: main",
+            "path: .agent-review-bootstrap",
+            ".agent-review-bootstrap/.github/scripts/agent_review.py resolve-pr",
+            '--repository-id "${REPOSITORY_ID}"',
+            '--expected-head-sha "${EXPECTED_HEAD_SHA}"',
+        ):
+            self.assertIn(value, binding)
+        self.assertNotIn('gh api "repos/${REPOSITORY}/pulls/', binding)
+
+    def test_reusable_binding_output_parser_enforces_exact_pr_and_head(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / "workflows/reusable-agent-review-jury.yml"
+        ).read_text(encoding="utf-8")
+        binding_step = workflow.split(
+            "\n      - name: Resolve pull request binding\n", 1
+        )[1].split("\n      - name: Checkout trusted base\n", 1)[0]
+        parser_script = textwrap.dedent(
+            binding_step.split("<<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+        )
+        payload = {
+            "pr_number": DEFERRED_PR_NUMBER,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload_path = root / "binding.json"
+            output_path = root / "github-output.txt"
+            review.write_json(payload_path, payload)
+            valid = subprocess.run(
+                [
+                    sys.executable,
+                    "-",
+                    str(payload_path),
+                    str(output_path),
+                    str(DEFERRED_PR_NUMBER),
+                    HEAD_SHA,
+                ],
+                input=parser_script,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            output = output_path.read_text(encoding="utf-8")
+            stale = subprocess.run(
+                [
+                    sys.executable,
+                    "-",
+                    str(payload_path),
+                    str(root / "stale-output.txt"),
+                    str(DEFERRED_PR_NUMBER),
+                    "c" * 40,
+                ],
+                input=parser_script,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertEqual(0, valid.returncode, valid.stderr)
+        self.assertEqual(
+            (
+                f"pr-number={DEFERRED_PR_NUMBER}\n"
+                f"base-sha={BASE_SHA}\n"
+                f"head-sha={HEAD_SHA}\n"
+            ),
+            output,
+        )
+        self.assertNotEqual(0, stale.returncode)
+        self.assertIn("stale head SHA", stale.stderr)
+
+    def test_publisher_admission_is_protected_and_has_no_repository_secrets(
+        self,
+    ) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / "workflows/reusable-agent-review-jury.yml"
+        ).read_text(encoding="utf-8")
+        admission = workflow.split("\n  publisher-admission:\n", 1)[1].split(
+            "\n  trusted-publisher:\n", 1
+        )[0]
+        trusted = workflow.split("\n  trusted-publisher:\n", 1)[1].split(
+            "\n  no-secret-publisher:\n", 1
+        )[0]
+        no_secret = workflow.split("\n  no-secret-publisher:\n", 1)[1]
+
+        for value in (
+            "needs: [prepare, specialists, verifiers, chair]",
+            "always() &&",
+            "ref: ${{ needs.prepare.outputs.base-sha }}",
+            ".agent-review-admission/.github/scripts/agent_review.py admit-publisher",
+            "--require-run-ownership",
+            "statuses: read",
+        ):
+            self.assertIn(value, admission)
+        for forbidden in (
+            "${{ secrets.",
+            "ANTHROPIC_API_KEY",
+            "COCO_AGENT_APP_PRIVATE_KEY",
+            "environment: coco-agent",
+        ):
+            self.assertNotIn(forbidden, admission)
+        for publisher in (trusted, no_secret):
+            self.assertIn("publisher-admission", publisher)
+            self.assertIn(
+                "needs.publisher-admission.outputs.admitted == 'true'", publisher
+            )
+
+    def test_publisher_jobs_are_serialized_per_pull_request(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1]
             / "workflows/reusable-agent-review-jury.yml"
@@ -4155,7 +5340,14 @@ class AgentReviewTests(unittest.TestCase):
         )[0]
         no_secret = workflow.split("\n  no-secret-publisher:\n", 1)[1]
         for publisher in (trusted, no_secret):
-            self.assertIn("agent-review-publisher-", publisher)
+            concurrency = publisher.split("\n    concurrency:\n", 1)[1].split(
+                "\n    permissions:\n", 1
+            )[0]
+            self.assertIn(
+                "agent-review-publisher-${{ inputs.repository_id }}-${{ inputs.pr_number }}",
+                concurrency,
+            )
+            self.assertNotIn("needs.prepare.outputs.head-sha", concurrency)
             self.assertIn("cancel-in-progress: false", publisher)
 
     def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:

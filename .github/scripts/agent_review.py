@@ -30,12 +30,16 @@ ISSUE_STATUS_CONTEXT = "Agent issue gate"
 PR_ROUTE_DIRECT = "direct-secret"
 PR_ROUTE_DEFERRED = "deferred-pinned-bot"
 PR_ROUTE_NO_SECRET = "no-secret"
+DIRECT_REVIEW_EVENTS = frozenset({"pull_request_target", "pull_request_review"})
+DEFERRED_REVIEW_EVENT = "workflow_run"
 DEFERRED_WORKFLOW_NAME = "Agent Review Jury"
 DEFERRED_WORKFLOW_PATH = ".github/workflows/agent-review.yml"
 DEFERRED_WORKFLOW_EVENT = "pull_request_target"
 FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
+GITHUB_LOOKUP_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
+GITHUB_LOOKUP_JITTER_RATIO = 0.25
 MODEL_COMPLETION_MAX_ATTEMPTS = 3
 MAX_REVIEW_BODY_BYTES = 40_000
 MAX_GITHUB_COMMENT_BODY_BYTES = 64_000
@@ -58,6 +62,9 @@ REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 APP_BOT_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?\[bot\]$")
 DEFERRED_RUN_TITLE_RE = re.compile(
     r"^Agent Review Jury / PR #([1-9][0-9]*) / ([0-9a-f]{40})$"
+)
+RUN_OWNERSHIP_RE = re.compile(
+    r"^Agent jury run ([1-9][0-9]*):([1-9][0-9]*) in progress$"
 )
 STABLE_FINDING_ID_RE = re.compile(r"^v1-[0-9a-f]{64}$")
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
@@ -110,8 +117,42 @@ class GitHubNotFoundError(ReviewError):
     """A GitHub resource does not exist at the requested revision."""
 
 
+class GitHubTransientError(ReviewError):
+    """A GitHub API or transport failure that may succeed on retry."""
+
+
+class StaleAgentReviewRun(ReviewError):
+    """A newer run already owns publication for the same pull request head."""
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def retryable_github_http_status(status: int, headers: Any = None) -> bool:
+    if status in {408, 429} or 500 <= status <= 599:
+        return True
+    if status != 403 or headers is None:
+        return False
+    normalized = {str(key).lower(): str(value) for key, value in headers.items()}
+    return (
+        bool(normalized.get("retry-after"))
+        or normalized.get("x-ratelimit-remaining") == "0"
+    )
+
+
+def retryable_github_lookup_error(
+    error: BaseException, *, retry_not_found: bool
+) -> bool:
+    if isinstance(error, GitHubNotFoundError):
+        return retry_not_found
+    if isinstance(error, GitHubTransientError):
+        return True
+    if isinstance(error, urllib.error.HTTPError):
+        return (retry_not_found and error.code == 404) or retryable_github_http_status(
+            error.code, error.headers
+        )
+    return isinstance(error, urllib.error.URLError)
 
 
 def finding_issue_marker(pr_number: int, first_head_sha: str, finding_id: str) -> str:
@@ -502,11 +543,15 @@ class GitHubClient:
                 raise GitHubNotFoundError(
                     f"GitHub API returned HTTP 404 for {method} {path}.{detail}"
                 ) from exc
+            if retryable_github_http_status(exc.code, exc.headers):
+                raise GitHubTransientError(
+                    f"GitHub API returned HTTP {exc.code} for {method} {path}.{detail}"
+                ) from exc
             raise ReviewError(
                 f"GitHub API returned HTTP {exc.code} for {method} {path}.{detail}"
             ) from exc
         except urllib.error.URLError as exc:
-            raise ReviewError(
+            raise GitHubTransientError(
                 f"GitHub API request failed for {method} {path}."
             ) from exc
 
@@ -1255,19 +1300,20 @@ def build_context(
     return context
 
 
-def classify_pr_route(
+def classify_pr_route_decision(
     pr: dict[str, Any],
     repository: str,
     trusted_app_login: str = "",
     trusted_app_bot_id: int = 0,
     deferred_bot_authors: tuple[tuple[str, int], ...] = (),
-) -> str:
+) -> dict[str, Any]:
     head_repo = str(((pr.get("head") or {}).get("repo") or {}).get("full_name") or "")
     user = pr.get("user") or {}
     login = str(user.get("login") or "")
+    author_type = str(user.get("type") or "")
     user_id = user.get("id")
     human_author = (
-        user.get("type") == "User"
+        author_type == "User"
         and bool(login)
         and not login.endswith("[bot]")
         and type(user_id) is int
@@ -1277,23 +1323,57 @@ def classify_pr_route(
         bool(trusted_app_login)
         and type(trusted_app_bot_id) is int
         and trusted_app_bot_id > 0
-        and user.get("type") == "Bot"
+        and author_type == "Bot"
         and login == trusted_app_login
         and type(user_id) is int
         and user_id == trusted_app_bot_id
     )
     deferred_bot_author = (
-        user.get("type") == "Bot"
+        author_type == "Bot"
         and type(user_id) is int
         and (login, user_id) in set(deferred_bot_authors)
     )
     if head_repo != repository:
-        return PR_ROUTE_NO_SECRET
-    if human_author or trusted_app_author:
-        return PR_ROUTE_DIRECT
-    if deferred_bot_author:
-        return PR_ROUTE_DEFERRED
-    return PR_ROUTE_NO_SECRET
+        route = PR_ROUTE_NO_SECRET
+        reason = "head-repository-mismatch"
+    elif human_author:
+        route = PR_ROUTE_DIRECT
+        reason = "same-repository-human"
+    elif trusted_app_author:
+        route = PR_ROUTE_DIRECT
+        reason = "same-repository-trusted-app"
+    elif deferred_bot_author:
+        route = PR_ROUTE_DEFERRED
+        reason = "same-repository-deferred-bot"
+    else:
+        route = PR_ROUTE_NO_SECRET
+        reason = "author-not-eligible"
+    return {
+        "review_route": route,
+        "route_reason": reason,
+        "author_login": login,
+        "author_type": author_type,
+        "author_id": user_id,
+        "head_repository": head_repo,
+    }
+
+
+def classify_pr_route(
+    pr: dict[str, Any],
+    repository: str,
+    trusted_app_login: str = "",
+    trusted_app_bot_id: int = 0,
+    deferred_bot_authors: tuple[tuple[str, int], ...] = (),
+) -> str:
+    return str(
+        classify_pr_route_decision(
+            pr,
+            repository,
+            trusted_app_login,
+            trusted_app_bot_id,
+            deferred_bot_authors,
+        )["review_route"]
+    )
 
 
 def classify_pr(
@@ -1327,6 +1407,186 @@ def trusted_app_identity_from_environment() -> tuple[str, int]:
     return require_app_bot_login(login), require_app_bot_id(bot_id)
 
 
+def resolve_current_pull_request(
+    client: GitHubClient,
+    repository: str,
+    repository_id: int,
+    pr_number: int,
+    expected_head_sha: str,
+    operation: str,
+) -> tuple[dict[str, Any], str, str]:
+    checked_repository = require_repository(repository)
+    if type(repository_id) is not int or repository_id < 0:
+        raise ReviewError("Agent review repository ID is invalid.")
+    if type(pr_number) is not int or pr_number < 1:
+        raise ReviewError("Agent review pull request number is invalid.")
+    if expected_head_sha and not SHA_RE.fullmatch(expected_head_sha):
+        raise ReviewError("Agent review head SHA is invalid.")
+    pr = github_get_json_with_retry(
+        client,
+        f"repos/{checked_repository}/pulls/{pr_number}",
+        operation,
+        retry_not_found=True,
+    )
+    if not isinstance(pr, dict):
+        raise ReviewError("GitHub returned an invalid pull request.")
+    base = pr.get("base") or {}
+    head = pr.get("head") or {}
+    base_repository = base.get("repo") or {}
+    base_sha = str(base.get("sha") or "")
+    head_sha = str(head.get("sha") or "")
+    if (
+        pr.get("state") != "open"
+        or (pr.get("number") is not None and pr.get("number") != pr_number)
+        or base.get("ref") != "main"
+        or base_repository.get("full_name") != checked_repository
+        or (repository_id and base_repository.get("id") != repository_id)
+        or not SHA_RE.fullmatch(base_sha)
+        or not SHA_RE.fullmatch(head_sha)
+        or (expected_head_sha and head_sha != expected_head_sha)
+    ):
+        raise ReviewError("Agent review pull request binding is invalid.")
+    return pr, base_sha, head_sha
+
+
+def github_lookup_retry_delay(operation: str, path: str, retry_index: int) -> float:
+    base = GITHUB_LOOKUP_BACKOFF_SECONDS[retry_index]
+    digest = hashlib.sha256(
+        f"{operation}:{path}:{retry_index}".encode("utf-8")
+    ).digest()
+    jitter = int.from_bytes(digest[:2], "big") / 65535
+    return base * (1.0 + (GITHUB_LOOKUP_JITTER_RATIO * jitter))
+
+
+def github_get_json_with_retry(
+    client: GitHubClient,
+    path: str,
+    operation: str,
+    *,
+    retry_not_found: bool,
+) -> Any:
+    attempts = len(GITHUB_LOOKUP_BACKOFF_SECONDS) + 1
+    for attempt in range(attempts):
+        try:
+            return client.get_json(path)
+        except (ReviewError, urllib.error.URLError) as exc:
+            if not retryable_github_lookup_error(exc, retry_not_found=retry_not_found):
+                raise
+            if attempt >= len(GITHUB_LOOKUP_BACKOFF_SECONDS):
+                print(
+                    "github-lookup-retry-exhausted "
+                    + canonical_json(
+                        {
+                            "attempts": attempts,
+                            "error_type": type(exc).__name__,
+                            "event": "github-lookup-retry-exhausted",
+                            "operation": operation,
+                            "path": path,
+                        }
+                    ),
+                    file=sys.stderr,
+                )
+                raise ReviewError(
+                    "Agent review GitHub lookup failed after "
+                    f"{attempts} attempts for {path}."
+                ) from exc
+            delay = github_lookup_retry_delay(operation, path, attempt)
+            print(
+                "github-lookup-retry "
+                + canonical_json(
+                    {
+                        "delay_seconds": round(delay, 3),
+                        "error_type": type(exc).__name__,
+                        "event": "github-lookup-retry",
+                        "operation": operation,
+                        "path": path,
+                        "retry": attempt + 1,
+                        "retry_limit": len(GITHUB_LOOKUP_BACKOFF_SECONDS),
+                    }
+                ),
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    raise AssertionError("GitHub lookup retry loop terminated unexpectedly.")
+
+
+def github_paginate_with_retry(
+    client: GitHubClient,
+    path: str,
+    operation: str,
+    *,
+    limit: int,
+) -> list[Any]:
+    separator = "&" if "?" in path else "?"
+    page = 1
+    values: list[Any] = []
+    while True:
+        batch = github_get_json_with_retry(
+            client,
+            f"{path}{separator}per_page=100&page={page}",
+            operation,
+            retry_not_found=False,
+        )
+        if not isinstance(batch, list):
+            raise ReviewError("GitHub paginated endpoint did not return an array.")
+        values.extend(batch)
+        if len(values) > limit:
+            raise ReviewError("GitHub paginated response exceeded the item limit.")
+        if len(batch) < 100:
+            return values
+        page += 1
+
+
+def metadata_run_order(metadata: dict[str, Any]) -> tuple[int, int]:
+    try:
+        run_order = (
+            int(str(metadata.get("run_id", "0"))),
+            int(str(metadata.get("run_attempt", "0"))),
+        )
+    except ValueError as exc:
+        raise ReviewError("Agent jury run identity is invalid.") from exc
+    if run_order[0] < 1 or run_order[1] < 1:
+        raise ReviewError("Agent jury run identity is invalid.")
+    return run_order
+
+
+def run_ownership_description(run_order: tuple[int, int]) -> str:
+    return f"Agent jury run {run_order[0]}:{run_order[1]} in progress"
+
+
+def status_run_order(status: Any) -> tuple[int, int] | None:
+    if not isinstance(status, dict) or status.get("context") != STATUS_CONTEXT:
+        return None
+    match = RUN_OWNERSHIP_RE.fullmatch(str(status.get("description") or ""))
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def require_current_run_ownership(
+    client: GitHubClient,
+    repository: str,
+    head_sha: str,
+    run_order: tuple[int, int],
+) -> None:
+    statuses = github_paginate_with_retry(
+        client,
+        f"repos/{repository}/commits/{head_sha}/statuses",
+        "review-run-ownership",
+        limit=500,
+    )
+    ownership = [
+        value for status in statuses if (value := status_run_order(status)) is not None
+    ]
+    if not ownership:
+        raise ReviewError("Agent jury run ownership status is missing.")
+    latest = max(ownership)
+    if latest > run_order:
+        raise StaleAgentReviewRun("A newer Agent jury run owns publication.")
+    if latest != run_order:
+        raise ReviewError("Current Agent jury run ownership status is missing.")
+
+
 def deferred_review_candidate(
     client: GitHubClient,
     repository: str,
@@ -1342,7 +1602,12 @@ def deferred_review_candidate(
     if type(run_id) is not int or run_id < 1:
         raise ReviewError("Deferred Agent review workflow run ID is invalid.")
 
-    run = client.get_json(f"repos/{checked_repository}/actions/runs/{run_id}")
+    run = github_get_json_with_retry(
+        client,
+        f"repos/{checked_repository}/actions/runs/{run_id}",
+        "deferred-source-run-binding",
+        retry_not_found=True,
+    )
     if not isinstance(run, dict):
         raise ReviewError("Deferred Agent review workflow run is invalid.")
     run_repository = run.get("repository") or {}
@@ -1383,7 +1648,12 @@ def deferred_review_candidate(
     if associated[0].get("number") != title_pr_number:
         raise ReviewError("Deferred Agent review pull request association is invalid.")
 
-    pr = client.get_json(f"repos/{checked_repository}/pulls/{title_pr_number}")
+    pr = github_get_json_with_retry(
+        client,
+        f"repos/{checked_repository}/pulls/{title_pr_number}",
+        "deferred-pull-request-binding",
+        retry_not_found=True,
+    )
     if not isinstance(pr, dict):
         raise ReviewError("Deferred Agent review pull request is invalid.")
     base = pr.get("base") or {}
@@ -1408,27 +1678,23 @@ def deferred_review_candidate(
     ):
         raise ReviewError("Deferred Agent review pull request binding is invalid.")
     trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
-    route = classify_pr_route(
+    decision = classify_pr_route_decision(
         pr,
         checked_repository,
         trusted_app_login,
         trusted_app_bot_id,
         configured_deferred_bot_authors(config),
     )
-    user = pr.get("user") or {}
     return {
         "schema_version": SCHEMA_VERSION,
-        "eligible": route == PR_ROUTE_DEFERRED,
-        "review_route": route,
+        "eligible": decision["review_route"] == PR_ROUTE_DEFERRED,
         "repository": checked_repository,
         "repository_id": repository_id,
         "run_id": run_id,
         "pr_number": title_pr_number,
         "base_sha": base_sha,
         "head_sha": head_sha,
-        "author_login": str(user.get("login") or ""),
-        "author_type": str(user.get("type") or ""),
-        "author_id": user.get("id"),
+        **decision,
     }
 
 
@@ -1455,12 +1721,40 @@ def deferred_review_binding(
     return binding
 
 
+def command_resolve_pr(args: argparse.Namespace) -> int:
+    if type(args.repository_id) is not int or args.repository_id < 1:
+        raise ReviewError("Protected binding repository ID is invalid.")
+    client = GitHubClient(
+        os.environ.get("GH_TOKEN", ""),
+        os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+    )
+    _pr, base_sha, head_sha = resolve_current_pull_request(
+        client,
+        args.repository,
+        args.repository_id,
+        args.pr_number,
+        args.expected_head_sha,
+        "reusable-pull-request-binding",
+    )
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "repository": require_repository(args.repository),
+        "repository_id": args.repository_id,
+        "pr_number": args.pr_number,
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+    }
+    write_json(args.output, result)
+    print(canonical_json(result))
+    return 0
+
+
 def command_route(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     repository = require_repository(args.repository)
     if type(args.repository_id) is not int or args.repository_id < 1:
         raise ReviewError("Agent review repository ID is invalid.")
-    if args.event_name not in {"pull_request_target", "pull_request_review"}:
+    if args.event_name not in DIRECT_REVIEW_EVENTS:
         raise ReviewError("Direct Agent review event is invalid.")
     if not SHA_RE.fullmatch(args.expected_head_sha):
         raise ReviewError("Direct Agent review head SHA is invalid.")
@@ -1469,27 +1763,17 @@ def command_route(args: argparse.Namespace) -> int:
         os.environ.get("GH_TOKEN", ""),
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
     )
-    pr = client.get_json(f"repos/{repository}/pulls/{args.pr_number}")
-    if not isinstance(pr, dict):
-        raise ReviewError("Direct Agent review pull request is invalid.")
-    base = pr.get("base") or {}
-    head = pr.get("head") or {}
-    base_repository = base.get("repo") or {}
-    base_sha = str(base.get("sha") or "")
-    head_sha = str(head.get("sha") or "")
-    if (
-        pr.get("state") != "open"
-        or (pr.get("number") is not None and pr.get("number") != args.pr_number)
-        or base.get("ref") != "main"
-        or base_repository.get("id") != args.repository_id
-        or base_repository.get("full_name") != repository
-        or not SHA_RE.fullmatch(base_sha)
-        or head_sha != args.expected_head_sha
-    ):
-        raise ReviewError("Direct Agent review pull request binding is invalid.")
+    pr, base_sha, head_sha = resolve_current_pull_request(
+        client,
+        repository,
+        args.repository_id,
+        args.pr_number,
+        args.expected_head_sha,
+        "direct-route-binding",
+    )
 
     trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
-    route = classify_pr_route(
+    decision = classify_pr_route_decision(
         pr,
         repository,
         trusted_app_login,
@@ -1503,7 +1787,7 @@ def command_route(args: argparse.Namespace) -> int:
         "pr_number": args.pr_number,
         "base_sha": base_sha,
         "head_sha": head_sha,
-        "review_route": route,
+        **decision,
     }
     write_json(args.output, result)
     print(canonical_json(result))
@@ -1535,7 +1819,7 @@ def prepare_direct_route_state(
     source_run_id: int,
     route: str,
 ) -> dict[str, Any]:
-    if event_name == "workflow_run" or source_run_id:
+    if event_name == DEFERRED_REVIEW_EVENT or source_run_id:
         raise ReviewError("workflow_run review requires explicit deferred mode.")
     deferred = route == PR_ROUTE_DEFERRED
     return {
@@ -1559,7 +1843,7 @@ def prepare_deferred_route_state(
     route: str,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    if event_name != "workflow_run" or source_run_id < 1:
+    if event_name != DEFERRED_REVIEW_EVENT or source_run_id < 1:
         raise ReviewError("Deferred Agent review mode requires a workflow_run binding.")
     if route != PR_ROUTE_DEFERRED:
         raise ReviewError("Deferred Agent review mode accepts only pinned bots.")
@@ -1589,12 +1873,17 @@ def command_prepare(args: argparse.Namespace) -> int:
         raise ReviewError("Agent review repository ID is invalid.")
     if type(args.pr_number) is not int or args.pr_number < 1:
         raise ReviewError("Agent review pull request number is invalid.")
-    if args.event_name not in {
-        "pull_request_target",
-        "pull_request_review",
-        "workflow_run",
-    }:
-        raise ReviewError("Agent review event is invalid.")
+    allow_deferred = bool(getattr(args, "allow_deferred", False))
+    source_run_id = int(getattr(args, "source_run_id", 0) or 0)
+    if allow_deferred:
+        if args.event_name != DEFERRED_REVIEW_EVENT or source_run_id < 1:
+            raise ReviewError(
+                "Deferred Agent review mode requires a workflow_run binding."
+            )
+    elif args.event_name not in DIRECT_REVIEW_EVENTS:
+        raise ReviewError("Direct Agent review event is invalid.")
+    elif source_run_id:
+        raise ReviewError("workflow_run review requires explicit deferred mode.")
     expected_head_sha = getattr(args, "expected_head_sha", "")
     if not isinstance(expected_head_sha, str) or (
         expected_head_sha and not SHA_RE.fullmatch(expected_head_sha)
@@ -1606,17 +1895,14 @@ def command_prepare(args: argparse.Namespace) -> int:
         os.environ.get("GH_TOKEN", ""),
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
     )
-    pr = client.get_json(f"repos/{repository}/pulls/{args.pr_number}")
-    if pr.get("state") != "open" or (pr.get("base") or {}).get("ref") != "main":
-        raise ReviewError(
-            "Agent review accepts only open pull requests targeting main."
-        )
-    base_sha = str((pr.get("base") or {}).get("sha") or "")
-    head_sha = str((pr.get("head") or {}).get("sha") or "")
-    if not SHA_RE.fullmatch(base_sha) or not SHA_RE.fullmatch(head_sha):
-        raise ReviewError("GitHub returned invalid PR commit SHAs.")
-    if expected_head_sha and expected_head_sha != head_sha:
-        raise ReviewError("The event head SHA does not match the pull request.")
+    pr, base_sha, head_sha = resolve_current_pull_request(
+        client,
+        repository,
+        repository_id,
+        args.pr_number,
+        expected_head_sha,
+        "review-prepare-binding",
+    )
 
     trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
     deferred_bot_authors = configured_deferred_bot_authors(config)
@@ -1627,8 +1913,6 @@ def command_prepare(args: argparse.Namespace) -> int:
         trusted_app_bot_id,
         deferred_bot_authors,
     )
-    allow_deferred = bool(getattr(args, "allow_deferred", False))
-    source_run_id = int(getattr(args, "source_run_id", 0) or 0)
     if allow_deferred:
         route_state = prepare_deferred_route_state(
             client,
@@ -1682,7 +1966,12 @@ def command_prepare(args: argparse.Namespace) -> int:
             args.base_root,
             config,
         )
-        latest = client.get_json(f"repos/{args.repository}/pulls/{args.pr_number}")
+        latest = github_get_json_with_retry(
+            client,
+            f"repos/{args.repository}/pulls/{args.pr_number}",
+            "review-context-final-binding",
+            retry_not_found=True,
+        )
         if (latest.get("base") or {}).get("sha") != base_sha or (
             latest.get("head") or {}
         ).get("sha") != head_sha:
@@ -3526,7 +3815,9 @@ def require_managed_comment_order(
     previous: dict[str, Any] | None, run_order: tuple[int, int]
 ) -> None:
     if previous and managed_comment_order(str(previous.get("body") or "")) > run_order:
-        raise ReviewError("A newer Agent jury run already owns the managed comment.")
+        raise StaleAgentReviewRun(
+            "A newer Agent jury run already owns the managed comment."
+        )
 
 
 def upsert_comment(
@@ -3586,6 +3877,7 @@ def command_mark_pending(args: argparse.Namespace) -> int:
     metadata = read_json(args.metadata)
     if metadata.get("ignored"):
         return 0
+    run_order = metadata_run_order(metadata)
     client = GitHubClient(
         os.environ.get("GH_TOKEN", ""),
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
@@ -3595,7 +3887,7 @@ def command_mark_pending(args: argparse.Namespace) -> int:
         str(metadata["repository"]),
         str(metadata["head_sha"]),
         "pending",
-        "Agent jury review in progress",
+        run_ownership_description(run_order),
         args.run_url,
     )
     return 0
@@ -3609,6 +3901,18 @@ def command_mark_failed(args: argparse.Namespace) -> int:
         os.environ.get("GH_TOKEN", ""),
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
     )
+    if getattr(args, "require_run_ownership", False):
+        repository = require_repository(metadata.get("repository"))
+        head_sha = str(metadata.get("head_sha") or "")
+        if not SHA_RE.fullmatch(head_sha):
+            raise ReviewError("Agent jury failure commit binding is invalid.")
+        try:
+            require_current_run_ownership(
+                client, repository, head_sha, metadata_run_order(metadata)
+            )
+        except StaleAgentReviewRun:
+            print(canonical_json({"state": "stale"}))
+            return 0
     publish_status(
         client,
         str(metadata["repository"]),
@@ -3617,6 +3921,62 @@ def command_mark_failed(args: argparse.Namespace) -> int:
         "Agent jury preparation failed",
         args.run_url,
     )
+    return 0
+
+
+def command_admit_publisher(args: argparse.Namespace) -> int:
+    metadata = read_json(args.metadata)
+    result: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "admitted": False,
+        "reason": "ignored",
+    }
+    if not metadata.get("ignored"):
+        repository = require_repository(metadata.get("repository"))
+        pr_number = metadata.get("pr_number")
+        if type(pr_number) is not int or pr_number < 1:
+            raise ReviewError("Agent jury admission PR number is invalid.")
+        head_sha = str(metadata.get("head_sha") or "")
+        base_sha = str(metadata.get("base_sha") or "")
+        if not SHA_RE.fullmatch(head_sha) or not SHA_RE.fullmatch(base_sha):
+            raise ReviewError("Agent jury admission commit binding is invalid.")
+
+        client = GitHubClient(
+            os.environ.get("GH_TOKEN", ""),
+            os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+        )
+        current = github_get_json_with_retry(
+            client,
+            f"repos/{repository}/pulls/{pr_number}",
+            "review-publisher-admission",
+            retry_not_found=True,
+        )
+        if (
+            current.get("state") != "open"
+            or (current.get("base") or {}).get("ref") != "main"
+            or (current.get("head") or {}).get("sha") != head_sha
+            or (current.get("base") or {}).get("sha") != base_sha
+        ):
+            result["reason"] = "pull-request-binding-changed"
+        else:
+            trusted = metadata.get("trusted") is True
+            if trusted:
+                try:
+                    require_current_run_ownership(
+                        client,
+                        repository,
+                        head_sha,
+                        metadata_run_order(metadata),
+                    )
+                except StaleAgentReviewRun:
+                    result["reason"] = "newer-run-owns-publication"
+                else:
+                    result.update(admitted=True, reason="current-run-admitted")
+            else:
+                result.update(admitted=True, reason="current-binding-admitted")
+
+    write_json(args.output, result)
+    print(canonical_json(result))
     return 0
 
 
@@ -3665,8 +4025,30 @@ def command_publish(args: argparse.Namespace) -> int:
     elif trusted or deferred or source_run_id not in {0, "0", None}:
         raise ReviewError("No-secret Agent jury publication metadata is invalid.")
 
+    run_order = metadata_run_order(metadata) if trusted else None
+
+    def stale_run_result() -> int:
+        if run_order is None:
+            raise AssertionError("Only trusted Agent jury runs own publication.")
+        print(
+            canonical_json(
+                {
+                    "state": "stale",
+                    "description": "A newer Agent jury run owns publication",
+                    "run_id": run_order[0],
+                    "run_attempt": run_order[1],
+                }
+            )
+        )
+        return 0
+
     def require_current_pr() -> dict[str, Any]:
-        value = status_client.get_json(f"repos/{repository}/pulls/{pr_number}")
+        value = github_get_json_with_retry(
+            status_client,
+            f"repos/{repository}/pulls/{pr_number}",
+            "review-publish-binding",
+            retry_not_found=True,
+        )
         if (
             value.get("state") != "open"
             or (value.get("base") or {}).get("ref") != "main"
@@ -3680,6 +4062,10 @@ def command_publish(args: argparse.Namespace) -> int:
 
     def publish_binding_failure() -> None:
         require_current_pr()
+        if run_order is not None:
+            require_current_run_ownership(
+                status_client, repository, head_sha, run_order
+            )
         failures = (
             (ISSUE_STATUS_CONTEXT, "Agent issue binding revalidation failed"),
             (STATUS_CONTEXT, "Agent jury binding revalidation failed"),
@@ -3700,6 +4086,10 @@ def command_publish(args: argparse.Namespace) -> int:
 
     def require_publishable_binding() -> dict[str, Any]:
         value = require_current_pr()
+        if run_order is not None:
+            require_current_run_ownership(
+                status_client, repository, head_sha, run_order
+            )
         if route == PR_ROUTE_DEFERRED:
             try:
                 binding = deferred_review_binding(
@@ -3720,7 +4110,10 @@ def command_publish(args: argparse.Namespace) -> int:
                 raise
         return value
 
-    require_publishable_binding()
+    try:
+        require_publishable_binding()
+    except StaleAgentReviewRun:
+        return stale_run_result()
 
     if trusted:
         agent_client = GitHubClient(
@@ -3844,13 +4237,8 @@ def command_publish(args: argparse.Namespace) -> int:
         )
         return 0
 
-    try:
-        run_order = (
-            int(str(metadata.get("run_id", "0"))),
-            int(str(metadata.get("run_attempt", "0"))),
-        )
-    except ValueError as exc:
-        raise ReviewError("Agent jury run identity is invalid.") from exc
+    if run_order is None:
+        raise AssertionError("Trusted Agent jury publication requires a run identity.")
     timestamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
     run_marker = f"<!-- agent-jury-run:{run_order[0]}:{run_order[1]} -->"
     review_body = review_body.replace(
@@ -3896,8 +4284,13 @@ def command_publish(args: argparse.Namespace) -> int:
             open_issue_count = sum(
                 1 for issue in existing_issues.values() if issue.get("state") == "open"
             )
+    except StaleAgentReviewRun:
+        return stale_run_result()
     except ReviewError:
-        require_publishable_binding()
+        try:
+            require_publishable_binding()
+        except StaleAgentReviewRun:
+            return stale_run_result()
         publish_status(
             status_client,
             repository,
@@ -3921,8 +4314,8 @@ def command_publish(args: argparse.Namespace) -> int:
         review_body.rstrip()
         + f"\n\n<sub>Updated {timestamp} - [workflow run]({args.run_url})</sub>\n"
     )
-    require_publishable_binding()
     try:
+        require_publishable_binding()
         require_comment_size(body, MAX_GITHUB_COMMENT_BODY_BYTES, "Agent jury comment")
         upsert_comment(
             agent_client,
@@ -3934,8 +4327,13 @@ def command_publish(args: argparse.Namespace) -> int:
             expected_app_bot_id,
             previous_comment,
         )
+    except StaleAgentReviewRun:
+        return stale_run_result()
     except ReviewError:
-        require_publishable_binding()
+        try:
+            require_publishable_binding()
+        except StaleAgentReviewRun:
+            return stale_run_result()
         publish_status(
             status_client,
             repository,
@@ -3958,24 +4356,27 @@ def command_publish(args: argparse.Namespace) -> int:
             args.run_url,
         )
         raise
-    require_publishable_binding()
-    publish_status(
-        status_client,
-        repository,
-        head_sha,
-        "failure" if open_issue_count else "success",
-        (
-            f"{open_issue_count} open Agent review issue(s)"
-            if open_issue_count
-            else "No open Agent review issues"
-        ),
-        args.run_url,
-        ISSUE_STATUS_CONTEXT,
-    )
-    require_publishable_binding()
-    publish_status(
-        status_client, repository, head_sha, state, description, args.run_url
-    )
+    try:
+        require_publishable_binding()
+        publish_status(
+            status_client,
+            repository,
+            head_sha,
+            "failure" if open_issue_count else "success",
+            (
+                f"{open_issue_count} open Agent review issue(s)"
+                if open_issue_count
+                else "No open Agent review issues"
+            ),
+            args.run_url,
+            ISSUE_STATUS_CONTEXT,
+        )
+        require_publishable_binding()
+        publish_status(
+            status_client, repository, head_sha, state, description, args.run_url
+        )
+    except StaleAgentReviewRun:
+        return stale_run_result()
     print(
         canonical_json(
             {
@@ -4000,6 +4401,14 @@ def command_roles(args: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
+
+    resolve_pr = commands.add_parser("resolve-pr")
+    resolve_pr.add_argument("--repository", required=True)
+    resolve_pr.add_argument("--repository-id", required=True, type=int)
+    resolve_pr.add_argument("--pr-number", required=True, type=int)
+    resolve_pr.add_argument("--expected-head-sha", required=True)
+    resolve_pr.add_argument("--output", required=True, type=Path)
+    resolve_pr.set_defaults(handler=command_resolve_pr)
 
     route = commands.add_parser("route")
     route.add_argument("--repository", required=True)
@@ -4073,7 +4482,13 @@ def parser() -> argparse.ArgumentParser:
     failed = commands.add_parser("mark-failed")
     failed.add_argument("--metadata", required=True, type=Path)
     failed.add_argument("--run-url", required=True)
+    failed.add_argument("--require-run-ownership", action="store_true")
     failed.set_defaults(handler=command_mark_failed)
+
+    admission = commands.add_parser("admit-publisher")
+    admission.add_argument("--metadata", required=True, type=Path)
+    admission.add_argument("--output", required=True, type=Path)
+    admission.set_defaults(handler=command_admit_publisher)
 
     publish = commands.add_parser("publish")
     publish.add_argument("--metadata", required=True, type=Path)

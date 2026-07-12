@@ -126,6 +126,32 @@ jobs:
               review_route = "compat-skip"
           else:
               raise SystemExit("Protected-base router mode is invalid.")
+          default_reason = (
+              "legacy-exact-approval-skip"
+              if route_mode == "legacy-prepare"
+              else "route-reason-unavailable"
+          )
+          route_log = {
+              "event": "agent-review-route",
+              "route_mode": route_mode,
+              "event_name": event_name,
+              "repository": repository,
+              "pr_number": (
+                  int(pr_number_text) if pr_number_text.isdecimal() else pr_number_text
+              ),
+              "head_sha": expected_head_sha,
+              "base_sha": expected_base_sha,
+              "review_route": review_route,
+              "route_reason": payload.get("route_reason", default_reason),
+              "author_login": payload.get("author_login", ""),
+              "author_type": payload.get("author_type", ""),
+              "author_id": payload.get("author_id"),
+              "head_repository": payload.get("head_repository", ""),
+          }
+          print(
+              "agent-review-route "
+              + json.dumps(route_log, sort_keys=True, separators=(",", ":"))
+          )
           with pathlib.Path(sys.argv[2]).open("a", encoding="utf-8") as target:
               target.write(f"review-route={review_route}\n")
           PY
