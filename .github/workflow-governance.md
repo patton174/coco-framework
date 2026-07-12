@@ -72,9 +72,10 @@ review tooling, prompts, policy, and token permissions always come from the
 protected base branch. It fetches proposed files and diffs through GitHub APIs
 as untrusted text and never checks out or executes the PR head.
 
-Only same-repository, non-bot pull requests enter the secret-backed Agent path.
-Fork and bot pull requests never receive repository Agent secrets; they publish
-a no-secret policy status and remain pending until a maintainer with write,
+Same-repository pull requests authored by a human or by the exact configured
+Coco Agent App login and immutable Bot ID enter the secret-backed Agent path.
+Forks and all other bots never receive repository Agent secrets; they publish a
+no-secret policy status and remain pending until a maintainer with write,
 maintain, or admin permission approves the current head SHA. This path does not
 write a managed PR comment because GitHub may reject comment writes on
 Dependabot or fork-associated events; the approval and bound status remain the
@@ -182,8 +183,9 @@ The Agent contribution workflow opens pull requests for existing same-repository
 from current protected `main` must bind the exact head SHA; the workflow verifies
 repository identity, branch state, and the compare result before requesting an
 App token. Existing pull requests are reused only when their App author,
-repository, branch, SHA, and `main` base all match. The resulting bot pull request
-still requires a current human approval and all protected merge gates.
+repository, branch, SHA, and `main` base all match. The resulting pinned-App pull
+request enters the full jury path from the protected base, while still requiring
+a current human approval and all protected merge gates.
 
 README content is maintained as paired English and Chinese fragments under
 `.github/readme/`; root README files are deterministic generated outputs. A

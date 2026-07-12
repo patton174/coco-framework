@@ -1213,15 +1213,24 @@ def build_context(
     return context
 
 
-def classify_pr(pr: dict[str, Any], repository: str) -> bool:
+def classify_pr(
+    pr: dict[str, Any],
+    repository: str,
+    trusted_app_login: str = "",
+    trusted_app_bot_id: int = 0,
+) -> bool:
     head_repo = str(((pr.get("head") or {}).get("repo") or {}).get("full_name") or "")
     user = pr.get("user") or {}
     login = str(user.get("login") or "")
-    return (
-        head_repo == repository
-        and user.get("type") != "Bot"
-        and not login.endswith("[bot]")
+    human_author = user.get("type") != "Bot" and not login.endswith("[bot]")
+    trusted_app_author = (
+        bool(trusted_app_login)
+        and trusted_app_bot_id > 0
+        and user.get("type") == "Bot"
+        and login == trusted_app_login
+        and user.get("id") == trusted_app_bot_id
     )
+    return head_repo == repository and (human_author or trusted_app_author)
 
 
 def command_prepare(args: argparse.Namespace) -> int:
@@ -1242,7 +1251,17 @@ def command_prepare(args: argparse.Namespace) -> int:
     if args.expected_head_sha and args.expected_head_sha != head_sha:
         raise ReviewError("The event head SHA does not match the pull request.")
 
-    trusted = classify_pr(pr, args.repository)
+    trusted_app_login = str(getattr(args, "trusted_app_login", "") or "")
+    trusted_app_bot_id = getattr(args, "trusted_app_bot_id", 0)
+    if trusted_app_login or trusted_app_bot_id:
+        trusted_app_login = require_app_bot_login(trusted_app_login)
+        trusted_app_bot_id = require_app_bot_id(trusted_app_bot_id)
+    trusted = classify_pr(
+        pr,
+        args.repository,
+        trusted_app_login,
+        trusted_app_bot_id,
+    )
     ignored = args.event_name == "pull_request_review" and trusted
     approved = False
     approvers: list[str] = []
@@ -3522,6 +3541,8 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--pr-number", required=True, type=int)
     prepare.add_argument("--event-name", required=True)
     prepare.add_argument("--expected-head-sha", default="")
+    prepare.add_argument("--trusted-app-login", default="")
+    prepare.add_argument("--trusted-app-bot-id", default=0, type=int)
     prepare.add_argument("--base-root", required=True, type=Path)
     prepare.add_argument("--config", required=True, type=Path)
     prepare.add_argument("--context-output", required=True, type=Path)

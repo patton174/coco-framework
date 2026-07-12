@@ -2546,7 +2546,7 @@ class AgentReviewTests(unittest.TestCase):
                 "test comment",
             )
 
-    def test_classification_excludes_forks_and_bots(self) -> None:
+    def test_classification_accepts_only_humans_and_the_pinned_app(self) -> None:
         base = {
             "head": {"repo": {"full_name": "patton174/coco-framework"}},
             "user": {"login": "patton174", "type": "User"},
@@ -2556,8 +2556,45 @@ class AgentReviewTests(unittest.TestCase):
         fork["head"]["repo"]["full_name"] = "someone/fork"
         self.assertFalse(review.classify_pr(fork, "patton174/coco-framework"))
         bot = json.loads(json.dumps(base))
-        bot["user"] = {"login": "dependabot[bot]", "type": "Bot"}
+        bot["user"] = {"id": 1, "login": "dependabot[bot]", "type": "Bot"}
         self.assertFalse(review.classify_pr(bot, "patton174/coco-framework"))
+
+        app = json.loads(json.dumps(base))
+        app["user"] = {
+            "id": APP_BOT_ID,
+            "login": "coco-agent[bot]",
+            "type": "Bot",
+        }
+        self.assertFalse(review.classify_pr(app, "patton174/coco-framework"))
+        self.assertTrue(
+            review.classify_pr(
+                app,
+                "patton174/coco-framework",
+                "coco-agent[bot]",
+                APP_BOT_ID,
+            )
+        )
+        self.assertFalse(
+            review.classify_pr(
+                app,
+                "patton174/coco-framework",
+                "coco-agent[bot]",
+                APP_BOT_ID + 1,
+            )
+        )
+
+    def test_agent_review_workflow_binds_the_trusted_app_author(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
+        ).read_text(encoding="utf-8")
+
+        for value in (
+            "TRUSTED_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}",
+            "TRUSTED_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}",
+            '--trusted-app-login "${TRUSTED_APP_LOGIN}"',
+            '--trusted-app-bot-id "${TRUSTED_APP_BOT_ID}"',
+        ):
+            self.assertIn(value, workflow)
 
     def test_maintainer_approval_must_bind_current_head(self) -> None:
         class FakeClient:
