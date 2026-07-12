@@ -7,11 +7,14 @@ import argparse
 import base64
 import copy
 import datetime as dt
+import errno
 import fnmatch
 import hashlib
 import json
 import os
 import re
+import socket
+import ssl
 import sys
 import time
 import urllib.error
@@ -26,6 +29,7 @@ SCHEMA_VERSION = 1
 COMMENT_MARKER = "<!-- agent-jury:v1 -->"
 LEGACY_COMMENT_MARKER = "<!-- claude-review-marker: managed by workflow -->"
 STATUS_CONTEXT = "Agent jury gate"
+OWNERSHIP_STATUS_CONTEXT = "Agent jury ownership"
 ISSUE_STATUS_CONTEXT = "Agent issue gate"
 PR_ROUTE_DIRECT = "direct-secret"
 PR_ROUTE_DEFERRED = "deferred-pinned-bot"
@@ -141,6 +145,31 @@ def retryable_github_http_status(status: int, headers: Any = None) -> bool:
     )
 
 
+def retryable_url_error(error: urllib.error.URLError) -> bool:
+    reason = error.reason
+    if isinstance(reason, urllib.error.URLError):
+        return retryable_url_error(reason)
+    if isinstance(reason, ssl.SSLError):
+        return False
+    if isinstance(reason, socket.gaierror):
+        return reason.errno == socket.EAI_AGAIN
+    if isinstance(reason, (TimeoutError, ConnectionError)):
+        return True
+    if isinstance(reason, OSError):
+        return reason.errno in {
+            errno.ECONNABORTED,
+            errno.ECONNREFUSED,
+            errno.ECONNRESET,
+            errno.EHOSTDOWN,
+            errno.EHOSTUNREACH,
+            errno.ENETDOWN,
+            errno.ENETRESET,
+            errno.ENETUNREACH,
+            errno.ETIMEDOUT,
+        }
+    return False
+
+
 def retryable_github_lookup_error(
     error: BaseException, *, retry_not_found: bool
 ) -> bool:
@@ -152,7 +181,7 @@ def retryable_github_lookup_error(
         return (retry_not_found and error.code == 404) or retryable_github_http_status(
             error.code, error.headers
         )
-    return isinstance(error, urllib.error.URLError)
+    return isinstance(error, urllib.error.URLError) and retryable_url_error(error)
 
 
 def finding_issue_marker(pr_number: int, first_head_sha: str, finding_id: str) -> str:
@@ -551,9 +580,10 @@ class GitHubClient:
                 f"GitHub API returned HTTP {exc.code} for {method} {path}.{detail}"
             ) from exc
         except urllib.error.URLError as exc:
-            raise GitHubTransientError(
-                f"GitHub API request failed for {method} {path}."
-            ) from exc
+            message = f"GitHub API request failed for {method} {path}."
+            if retryable_url_error(exc):
+                raise GitHubTransientError(message) from exc
+            raise ReviewError(message) from exc
 
     def get_json(self, path: str) -> Any:
         body, _ = self.request("GET", path)
@@ -1300,6 +1330,14 @@ def build_context(
     return context
 
 
+def normalize_actor_id(value: Any) -> int | None:
+    if type(value) is int:
+        return value if value > 0 else None
+    if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]*", value):
+        return int(value)
+    return None
+
+
 def classify_pr_route_decision(
     pr: dict[str, Any],
     repository: str,
@@ -1311,26 +1349,24 @@ def classify_pr_route_decision(
     user = pr.get("user") or {}
     login = str(user.get("login") or "")
     author_type = str(user.get("type") or "")
-    user_id = user.get("id")
+    user_id = normalize_actor_id(user.get("id"))
+    app_bot_id = normalize_actor_id(trusted_app_bot_id)
     human_author = (
         author_type == "User"
         and bool(login)
         and not login.endswith("[bot]")
-        and type(user_id) is int
-        and user_id > 0
+        and user_id is not None
     )
     trusted_app_author = (
         bool(trusted_app_login)
-        and type(trusted_app_bot_id) is int
-        and trusted_app_bot_id > 0
+        and app_bot_id is not None
         and author_type == "Bot"
         and login == trusted_app_login
-        and type(user_id) is int
-        and user_id == trusted_app_bot_id
+        and user_id == app_bot_id
     )
     deferred_bot_author = (
         author_type == "Bot"
-        and type(user_id) is int
+        and user_id is not None
         and (login, user_id) in set(deferred_bot_authors)
     )
     if head_repo != repository:
@@ -1414,6 +1450,7 @@ def resolve_current_pull_request(
     pr_number: int,
     expected_head_sha: str,
     operation: str,
+    expected_base_sha: str = "",
 ) -> tuple[dict[str, Any], str, str]:
     checked_repository = require_repository(repository)
     if type(repository_id) is not int or repository_id < 0:
@@ -1422,6 +1459,8 @@ def resolve_current_pull_request(
         raise ReviewError("Agent review pull request number is invalid.")
     if expected_head_sha and not SHA_RE.fullmatch(expected_head_sha):
         raise ReviewError("Agent review head SHA is invalid.")
+    if expected_base_sha and not SHA_RE.fullmatch(expected_base_sha):
+        raise ReviewError("Agent review base SHA is invalid.")
     pr = github_get_json_with_retry(
         client,
         f"repos/{checked_repository}/pulls/{pr_number}",
@@ -1443,6 +1482,7 @@ def resolve_current_pull_request(
         or (repository_id and base_repository.get("id") != repository_id)
         or not SHA_RE.fullmatch(base_sha)
         or not SHA_RE.fullmatch(head_sha)
+        or (expected_base_sha and base_sha != expected_base_sha)
         or (expected_head_sha and head_sha != expected_head_sha)
     ):
         raise ReviewError("Agent review pull request binding is invalid.")
@@ -1510,33 +1550,6 @@ def github_get_json_with_retry(
     raise AssertionError("GitHub lookup retry loop terminated unexpectedly.")
 
 
-def github_paginate_with_retry(
-    client: GitHubClient,
-    path: str,
-    operation: str,
-    *,
-    limit: int,
-) -> list[Any]:
-    separator = "&" if "?" in path else "?"
-    page = 1
-    values: list[Any] = []
-    while True:
-        batch = github_get_json_with_retry(
-            client,
-            f"{path}{separator}per_page=100&page={page}",
-            operation,
-            retry_not_found=False,
-        )
-        if not isinstance(batch, list):
-            raise ReviewError("GitHub paginated endpoint did not return an array.")
-        values.extend(batch)
-        if len(values) > limit:
-            raise ReviewError("GitHub paginated response exceeded the item limit.")
-        if len(batch) < 100:
-            return values
-        page += 1
-
-
 def metadata_run_order(metadata: dict[str, Any]) -> tuple[int, int]:
     try:
         run_order = (
@@ -1555,7 +1568,10 @@ def run_ownership_description(run_order: tuple[int, int]) -> str:
 
 
 def status_run_order(status: Any) -> tuple[int, int] | None:
-    if not isinstance(status, dict) or status.get("context") != STATUS_CONTEXT:
+    if (
+        not isinstance(status, dict)
+        or status.get("context") != OWNERSHIP_STATUS_CONTEXT
+    ):
         return None
     match = RUN_OWNERSHIP_RE.fullmatch(str(status.get("description") or ""))
     if match is None:
@@ -1569,12 +1585,15 @@ def require_current_run_ownership(
     head_sha: str,
     run_order: tuple[int, int],
 ) -> None:
-    statuses = github_paginate_with_retry(
+    combined = github_get_json_with_retry(
         client,
-        f"repos/{repository}/commits/{head_sha}/statuses",
+        f"repos/{repository}/commits/{head_sha}/status",
         "review-run-ownership",
-        limit=500,
+        retry_not_found=False,
     )
+    if not isinstance(combined, dict) or not isinstance(combined.get("statuses"), list):
+        raise ReviewError("GitHub combined commit status is invalid.")
+    statuses = combined["statuses"]
     ownership = [
         value for status in statuses if (value := status_run_order(status)) is not None
     ]
@@ -1735,6 +1754,7 @@ def command_resolve_pr(args: argparse.Namespace) -> int:
         args.pr_number,
         args.expected_head_sha,
         "reusable-pull-request-binding",
+        args.expected_base_sha,
     )
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -3889,6 +3909,15 @@ def command_mark_pending(args: argparse.Namespace) -> int:
         "pending",
         run_ownership_description(run_order),
         args.run_url,
+        OWNERSHIP_STATUS_CONTEXT,
+    )
+    publish_status(
+        client,
+        str(metadata["repository"]),
+        str(metadata["head_sha"]),
+        "pending",
+        "Agent jury review in progress",
+        args.run_url,
     )
     return 0
 
@@ -4406,6 +4435,7 @@ def parser() -> argparse.ArgumentParser:
     resolve_pr.add_argument("--repository", required=True)
     resolve_pr.add_argument("--repository-id", required=True, type=int)
     resolve_pr.add_argument("--pr-number", required=True, type=int)
+    resolve_pr.add_argument("--expected-base-sha", required=True)
     resolve_pr.add_argument("--expected-head-sha", required=True)
     resolve_pr.add_argument("--output", required=True, type=Path)
     resolve_pr.set_defaults(handler=command_resolve_pr)

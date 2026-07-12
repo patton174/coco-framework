@@ -541,6 +541,40 @@ class AgentReviewTests(unittest.TestCase):
             with self.assertRaises(review.ReviewError):
                 client.file_text("owner/repo", "file.txt", HEAD_SHA, 100)
 
+    def test_github_transport_retries_only_transient_url_errors(self) -> None:
+        transient = review.urllib.error.URLError(TimeoutError("timeout"))
+        permanent = (
+            review.urllib.error.URLError("invalid URL"),
+            review.urllib.error.URLError(
+                OSError(review.errno.EMFILE, "too many open files")
+            ),
+            review.urllib.error.URLError(
+                review.ssl.SSLCertVerificationError("certificate verify failed")
+            ),
+        )
+        self.assertTrue(review.retryable_url_error(transient))
+        self.assertTrue(
+            review.retryable_github_lookup_error(transient, retry_not_found=False)
+        )
+        for error in permanent:
+            with self.subTest(reason=repr(error.reason)):
+                self.assertFalse(review.retryable_url_error(error))
+                self.assertFalse(
+                    review.retryable_github_lookup_error(error, retry_not_found=False)
+                )
+
+        client = review.GitHubClient("test")
+        with patch("urllib.request.urlopen", side_effect=permanent[0]):
+            with self.assertRaises(review.ReviewError) as raised:
+                client.get_json("repos/owner/repo")
+        self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=review.urllib.error.URLError(TimeoutError("timeout")),
+        ):
+            with self.assertRaises(review.GitHubTransientError):
+                client.get_json("repos/owner/repo")
+
     def test_build_context_adds_related_test_and_module_pom(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -3001,6 +3035,31 @@ class AgentReviewTests(unittest.TestCase):
                     pull_request["user"]["login"], decision["author_login"]
                 )
 
+        trusted_app = deferred_pull_request()
+        trusted_app["user"] = {
+            "id": str(APP_BOT_ID),
+            "login": "coco-agent[bot]",
+            "type": "Bot",
+        }
+        self.assertEqual(
+            review.PR_ROUTE_DIRECT,
+            review.classify_pr_route_decision(
+                trusted_app, REPOSITORY, "coco-agent[bot]", APP_BOT_ID
+            )["review_route"],
+        )
+        dependabot = deferred_pull_request()
+        dependabot["user"]["id"] = str(DEPENDABOT_BOT_ID)
+        self.assertEqual(
+            review.PR_ROUTE_DEFERRED,
+            review.classify_pr_route_decision(
+                dependabot,
+                REPOSITORY,
+                deferred_bot_authors=(("dependabot[bot]", DEPENDABOT_BOT_ID),),
+            )["review_route"],
+        )
+        for invalid in (True, 0, -1, "0", "01", "+1", " 1", 1.0, None):
+            self.assertIsNone(review.normalize_actor_id(invalid))
+
     def test_prepare_rejects_incompatible_event_modes_before_api_calls(self) -> None:
         cases = (
             (True, "pull_request_review", SOURCE_RUN_ID, "workflow_run binding"),
@@ -3141,9 +3200,21 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("secrets: inherit", no_secret_call)
         self.assertIn("allow_deferred: true", deferred)
         self.assertIn("source_run_id: ${{ github.event.workflow_run.id }}", deferred)
+        self.assertIn("base_sha: ${{ steps.binding.outputs.base_sha }}", deferred)
+        self.assertIn("expected_base_sha: ${{ needs.bind.outputs.base_sha }}", deferred)
+        self.assertEqual(
+            2,
+            router.count(
+                "expected_base_sha: ${{ github.event.pull_request.base.sha }}"
+            ),
+        )
         header = reusable.split("\njobs:\n", 1)[0]
+        self.assertIn("expected_base_sha:", header)
         self.assertIn("format('deferred-{0}', inputs.expected_head_sha)", header)
         self.assertIn("cancel-in-progress: ${{ ! inputs.allow_deferred }}", header)
+        self.assertIn("ref: ${{ inputs.expected_base_sha }}", reusable)
+        self.assertIn("--expected-base-sha", reusable)
+        self.assertIn("base_sha != expected_base_sha", reusable)
         no_secret_publisher = reusable.split("\n  no-secret-publisher:\n", 1)[1]
         self.assertIn("needs.prepare.outputs.deferred == 'false'", no_secret_publisher)
 
@@ -3192,6 +3263,10 @@ class AgentReviewTests(unittest.TestCase):
             self.assertEqual(
                 "Agent jury run 42:2 in progress", pending.sent[0]["description"]
             )
+            self.assertEqual(
+                [review.OWNERSHIP_STATUS_CONTEXT, review.STATUS_CONTEXT],
+                [status["context"] for status in pending.sent],
+            )
 
             for owner, admitted in ((42, True), (43, False)):
 
@@ -3204,14 +3279,16 @@ class AgentReviewTests(unittest.TestCase):
                                 "head": {"sha": HEAD_SHA},
                                 "base": {"sha": BASE_SHA, "ref": "main"},
                             }
-                        return [
-                            {
-                                "context": review.STATUS_CONTEXT,
-                                "description": review.run_ownership_description(
-                                    (owner, 1 if owner == 43 else 2)
-                                ),
-                            }
-                        ]
+                        return {
+                            "statuses": [
+                                {
+                                    "context": review.OWNERSHIP_STATUS_CONTEXT,
+                                    "description": review.run_ownership_description(
+                                        (owner, 1 if owner == 43 else 2)
+                                    ),
+                                }
+                            ]
+                        }
 
                 output_path = root / f"admission-{owner}.json"
                 with (
@@ -3241,12 +3318,14 @@ class AgentReviewTests(unittest.TestCase):
                         "head": {"sha": HEAD_SHA},
                         "base": {"sha": BASE_SHA, "ref": "main"},
                     }
-                return [
-                    {
-                        "context": review.STATUS_CONTEXT,
-                        "description": review.run_ownership_description((42, 1)),
-                    }
-                ]
+                return {
+                    "statuses": [
+                        {
+                            "context": review.OWNERSHIP_STATUS_CONTEXT,
+                            "description": review.run_ownership_description((42, 1)),
+                        }
+                    ]
+                }
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -3294,12 +3373,14 @@ class AgentReviewTests(unittest.TestCase):
                         "head": {"sha": HEAD_SHA},
                         "base": {"sha": BASE_SHA, "ref": "main"},
                     }
-                return [
-                    {
-                        "context": review.STATUS_CONTEXT,
-                        "description": review.run_ownership_description((43, 1)),
-                    }
-                ]
+                return {
+                    "statuses": [
+                        {
+                            "context": review.OWNERSHIP_STATUS_CONTEXT,
+                            "description": review.run_ownership_description((43, 1)),
+                        }
+                    ]
+                }
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 del method, path
@@ -3350,6 +3431,7 @@ class AgentReviewTests(unittest.TestCase):
                         repository=REPOSITORY,
                         repository_id=REPOSITORY_ID,
                         pr_number=1,
+                        expected_base_sha=BASE_SHA,
                         expected_head_sha=HEAD_SHA,
                         output=output_path,
                     )
@@ -3359,6 +3441,16 @@ class AgentReviewTests(unittest.TestCase):
         sleeper.assert_called_once()
         self.assertEqual(HEAD_SHA, binding["head_sha"])
         self.assertEqual(BASE_SHA, binding["base_sha"])
+        with self.assertRaisesRegex(review.ReviewError, "binding is invalid"):
+            review.resolve_current_pull_request(
+                SimpleNamespace(get_json=lambda _path: pull_request),
+                REPOSITORY,
+                REPOSITORY_ID,
+                1,
+                HEAD_SHA,
+                "test-base-binding",
+                "c" * 40,
+            )
 
     def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:
         class FakeResponse:

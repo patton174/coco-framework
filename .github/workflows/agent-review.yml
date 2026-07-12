@@ -168,6 +168,7 @@ jobs:
     uses: ./.github/workflows/reusable-agent-review-jury.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}
+      expected_base_sha: ${{ github.event.pull_request.base.sha }}
       expected_head_sha: ${{ github.event.pull_request.head.sha }}
       event_name: ${{ github.event_name }}
       repository_id: ${{ fromJSON(github.repository_id) }}
@@ -185,6 +186,7 @@ jobs:
     uses: ./.github/workflows/reusable-agent-review-jury.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}
+      expected_base_sha: ${{ github.event.pull_request.base.sha }}
       expected_head_sha: ${{ github.event.pull_request.head.sha }}
       event_name: ${{ github.event_name }}
       repository_id: ${{ fromJSON(github.repository_id) }}

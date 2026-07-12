@@ -26,6 +26,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      base_sha: ${{ steps.binding.outputs.base_sha }}
       eligible: ${{ steps.binding.outputs.eligible }}
       head_sha: ${{ steps.binding.outputs.head_sha }}
       pr_number: ${{ steps.binding.outputs.pr_number }}
@@ -67,6 +68,7 @@ jobs:
 
           binding = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
           with pathlib.Path(sys.argv[2]).open("a", encoding="utf-8") as target:
+              target.write(f"base_sha={binding['base_sha']}\n")
               target.write(f"eligible={str(bool(binding['eligible'])).lower()}\n")
               target.write(f"head_sha={binding['head_sha']}\n")
               target.write(f"pr_number={binding['pr_number']}\n")
@@ -85,6 +87,7 @@ jobs:
     uses: ./.github/workflows/reusable-agent-review-jury.yml
     with:
       pr_number: ${{ fromJSON(needs.bind.outputs.pr_number) }}
+      expected_base_sha: ${{ needs.bind.outputs.base_sha }}
       expected_head_sha: ${{ needs.bind.outputs.head_sha }}
       event_name: workflow_run
       repository_id: ${{ fromJSON(needs.bind.outputs.repository_id) }}

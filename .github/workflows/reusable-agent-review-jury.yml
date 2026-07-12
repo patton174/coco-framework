@@ -9,6 +9,9 @@ on:
       pr_number:
         required: true
         type: number
+      expected_base_sha:
+        required: true
+        type: string
       expected_head_sha:
         required: true
         type: string
@@ -68,7 +71,7 @@ jobs:
       - name: Checkout protected binding helper
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: main
+          ref: ${{ inputs.expected_base_sha }}
           path: .agent-review-bootstrap
           persist-credentials: false
           sparse-checkout: |
@@ -78,6 +81,7 @@ jobs:
         id: binding
         shell: bash
         env:
+          EXPECTED_BASE_SHA: ${{ inputs.expected_base_sha }}
           EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
@@ -90,9 +94,11 @@ jobs:
             --repository "${REPOSITORY}" \
             --repository-id "${REPOSITORY_ID}" \
             --pr-number "${PR_NUMBER}" \
+            --expected-base-sha "${EXPECTED_BASE_SHA}" \
             --expected-head-sha "${EXPECTED_HEAD_SHA}" \
             --output "${output}"
-          python3 - "${output}" "${GITHUB_OUTPUT}" "${PR_NUMBER}" "${EXPECTED_HEAD_SHA}" <<'PY'
+          python3 - "${output}" "${GITHUB_OUTPUT}" "${PR_NUMBER}" \
+            "${EXPECTED_BASE_SHA}" "${EXPECTED_HEAD_SHA}" <<'PY'
           import json
           import pathlib
           import re
@@ -102,7 +108,8 @@ jobs:
           if not sys.argv[3].isdecimal():
               raise SystemExit("Expected pull request number is invalid.")
           expected_pr_number = int(sys.argv[3])
-          expected_head_sha = sys.argv[4]
+          expected_base_sha = sys.argv[4]
+          expected_head_sha = sys.argv[5]
           pr_number = binding.get("pr_number")
           base_sha = binding.get("base_sha")
           head_sha = binding.get("head_sha")
@@ -110,6 +117,8 @@ jobs:
               raise SystemExit("Protected binding returned an invalid PR number.")
           if not isinstance(base_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", base_sha):
               raise SystemExit("Protected binding returned an invalid base SHA.")
+          if base_sha != expected_base_sha:
+              raise SystemExit("Protected binding returned a stale base SHA.")
           if not isinstance(head_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
               raise SystemExit("Protected binding returned an invalid head SHA.")
           if head_sha != expected_head_sha:
