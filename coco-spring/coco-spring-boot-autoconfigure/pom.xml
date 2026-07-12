@@ -13,9 +13,13 @@
 
     <artifactId>coco-spring-boot-autoconfigure</artifactId>
     <name>Coco Spring Boot Autoconfigure</name>
-    <description>Spring Boot auto-configuration and early startup integration for Coco Framework.</description>
+    <description>Spring Boot configuration binding, feature runtime, auto-configuration and early startup integration.</description>
 
     <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>coco-i18n</artifactId>
@@ -23,6 +27,10 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>coco-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-feature-model</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

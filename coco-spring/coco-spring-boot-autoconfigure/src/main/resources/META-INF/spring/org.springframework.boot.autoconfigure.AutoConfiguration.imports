@@ -1,1 +1,6 @@
+io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration
+io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration
+io.github.coco.feature.registry.CocoFeatureRegistryAutoConfiguration
+io.github.coco.config.CocoConfigAutoConfiguration
+io.github.coco.feature.runtime.autoconfigure.CocoFeatureRuntimeAutoConfiguration
 io.github.coco.spring.boot.CocoAutoConfiguration
