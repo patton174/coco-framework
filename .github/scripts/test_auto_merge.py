@@ -418,6 +418,30 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(2, client.repository_reads)
         self.assertEqual(0, client.merge_client.read_attempts)
 
+    def test_unstable_state_still_requires_and_can_pass_the_explicit_contract(
+        self,
+    ) -> None:
+        client = FakeClient()
+        client.pull_reads = [
+            pull_request(mergeable_state="unstable"),
+            pull_request(mergeable_state="unstable"),
+        ]
+
+        decision = self.evaluate(client)
+
+        self.assertEqual("merged", decision.state)
+        self.assertEqual(MERGE_SHA, decision.merge_sha)
+        self.assertEqual(
+            [
+                (
+                    "PUT",
+                    f"repos/{REPOSITORY}/pulls/17/merge",
+                    {"sha": HEAD_SHA, "merge_method": "merge"},
+                )
+            ],
+            client.sent,
+        )
+
     def test_dry_run_performs_full_check_without_merge(self) -> None:
         client = FakeClient()
         decision = self.evaluate(client, dry_run=True)
@@ -435,6 +459,9 @@ class AutoMergeTests(unittest.TestCase):
             ("not mergeable", {"mergeable": False}),
             ("unknown mergeable", {"mergeable": None}),
             ("dirty", {"mergeable_state": "dirty"}),
+            ("behind", {"mergeable_state": "behind"}),
+            ("blocked", {"mergeable_state": "blocked"}),
+            ("unknown state", {"mergeable_state": "unknown"}),
         ]
         for label, overrides in cases:
             with self.subTest(label=label):
