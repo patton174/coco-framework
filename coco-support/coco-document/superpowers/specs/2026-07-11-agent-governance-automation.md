@@ -155,19 +155,13 @@ PR merge ref，不能进入持有 App 私钥的 `coco-agent` environment。
 
 - state 为 open、base 为 `main`、非 draft；
 - head SHA 是 40 位小写十六进制且在整个检查过程中不变；
-- GitHub 报告 `mergeable=true`，且分支已与 `main` 同步；REST `mergeable_state` 只接受
-  `clean` 或 `unstable`，并拒绝 `behind`、`blocked`、`dirty`、`draft` 和 `unknown`；
+- GitHub 报告 mergeable，且分支已与 `main` 同步；
 - 当前 head 至少有一个有效的非 bot 维护者 `APPROVED` review；
 - `CI gate`、`Agent jury gate`、`Agent issue gate` 对当前 head 均为 success，且发布 provider
   分别是受保护配置允许的 GitHub Actions App/check actor；
 - 没有未解决 review thread；
 - 没有任何开放的严格绑定 Agent Issue；
 - 仓库仍只允许 merge commit。
-
-`unstable` 只表示 GitHub 仍观察到非必需状态的 pending/failure，例如用于串行化发布器的
-`Agent jury ownership` 诊断状态；它不能直接授权合并。自动合并器仍须独立验证由 GitHub Actions
-App `15368` 发布的三个 required gate，并完成审批、会话、Agent Issue、仓库合并设置和第二次
-精确 head 全量复核。任何 required gate 不是 success 时，即使 REST 返回 `unstable` 也必须阻断。
 
 执行 merge API 时必须携带期望 head SHA 和 `merge` 方法。调用前必须完整重跑 PR、批准、三个 gate、
 review threads、开放 Issue 和仓库合并设置，而不只是二次读取 head；SHA、状态或任一条件变化则退出，
