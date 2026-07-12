@@ -2546,7 +2546,7 @@ class AgentReviewTests(unittest.TestCase):
                 "test comment",
             )
 
-    def test_classification_excludes_forks_and_bots(self) -> None:
+    def test_classification_accepts_only_humans_and_the_pinned_app(self) -> None:
         base = {
             "head": {"repo": {"full_name": "patton174/coco-framework"}},
             "user": {"login": "patton174", "type": "User"},
@@ -2556,8 +2556,110 @@ class AgentReviewTests(unittest.TestCase):
         fork["head"]["repo"]["full_name"] = "someone/fork"
         self.assertFalse(review.classify_pr(fork, "patton174/coco-framework"))
         bot = json.loads(json.dumps(base))
-        bot["user"] = {"login": "dependabot[bot]", "type": "Bot"}
+        bot["user"] = {"id": 1, "login": "dependabot[bot]", "type": "Bot"}
         self.assertFalse(review.classify_pr(bot, "patton174/coco-framework"))
+
+        app = json.loads(json.dumps(base))
+        app["user"] = {
+            "id": APP_BOT_ID,
+            "login": "coco-agent[bot]",
+            "type": "Bot",
+        }
+        self.assertFalse(review.classify_pr(app, "patton174/coco-framework"))
+        self.assertTrue(
+            review.classify_pr(
+                app,
+                "patton174/coco-framework",
+                "coco-agent[bot]",
+                APP_BOT_ID,
+            )
+        )
+        self.assertFalse(
+            review.classify_pr(
+                app,
+                "patton174/coco-framework",
+                "coco-agent[bot]",
+                APP_BOT_ID + 1,
+            )
+        )
+
+    def test_agent_review_workflow_binds_the_trusted_app_author(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
+        ).read_text(encoding="utf-8")
+
+        for value in (
+            "COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}",
+            "COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}",
+        ):
+            self.assertIn(value, workflow)
+        self.assertNotIn("--trusted-app-login", workflow)
+        self.assertNotIn("--trusted-app-bot-id", workflow)
+
+    def test_prepare_reads_the_trusted_app_identity_from_environment(self) -> None:
+        pull_request = {
+            "state": "open",
+            "base": {"ref": "main", "sha": BASE_SHA},
+            "head": {
+                "sha": HEAD_SHA,
+                "repo": {"full_name": "patton174/coco-framework"},
+            },
+            "user": {
+                "id": APP_BOT_ID,
+                "login": "coco-agent[bot]",
+                "type": "Bot",
+            },
+        }
+
+        class FakeClient:
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == "repos/patton174/coco-framework/pulls/1":
+                    return pull_request
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                patch.object(review, "GitHubClient", return_value=FakeClient()),
+                patch.object(review, "load_config", return_value=config()),
+                patch.object(review, "classify_pr", return_value=False) as classifier,
+                patch.object(
+                    review,
+                    "current_maintainer_approval",
+                    return_value=(False, []),
+                ),
+                patch("builtins.print"),
+                patch.dict(
+                    "os.environ",
+                    {
+                        "GH_TOKEN": "token",
+                        "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
+                        "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                    },
+                    clear=True,
+                ),
+            ):
+                result = review.command_prepare(
+                    SimpleNamespace(
+                        repository="patton174/coco-framework",
+                        pr_number=1,
+                        event_name="pull_request_target",
+                        expected_head_sha=HEAD_SHA,
+                        base_root=root,
+                        config=root / "config.json",
+                        context_output=root / "context.json",
+                        metadata_output=root / "metadata.json",
+                    )
+                )
+
+        self.assertEqual(0, result)
+        classifier.assert_called_once_with(
+            pull_request,
+            "patton174/coco-framework",
+            "coco-agent[bot]",
+            APP_BOT_ID,
+        )
 
     def test_maintainer_approval_must_bind_current_head(self) -> None:
         class FakeClient:
