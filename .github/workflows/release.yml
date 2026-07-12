@@ -221,20 +221,56 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: publish
+    environment: coco-spring
     permissions:
-      contents: write
+      contents: read
     steps:
+      - name: Create Release App installation token
+        id: release-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COCO_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       - name: Tag the successful release
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          ACTUAL_APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}
           RELEASE_TAG: ${{ needs.publish.outputs.tag }}
           RELEASE_VERSION: ${{ needs.publish.outputs.version }}
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
-            echo "::error::Release tags may be created only for the protected main branch."
+          for variable in ACTUAL_APP_SLUG EXPECTED_APP_SLUG RELEASE_TAG RELEASE_VERSION; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured."
+              exit 1
+            fi
+          done
+          if [[ "${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}" ]]; then
+            echo "::error::Release App identity does not match repository policy."
+            exit 1
+          fi
+
+          repository_json="$(gh api "repos/${GITHUB_REPOSITORY}")"
+          if [[ "$(jq -r '.id' <<< "${repository_json}")" != "${GITHUB_REPOSITORY_ID}" \
+             || "$(jq -r '.full_name' <<< "${repository_json}")" != "${GITHUB_REPOSITORY}" \
+             || "$(jq -r '.default_branch' <<< "${repository_json}")" != "main" ]]; then
+            echo "::error::Release App installation is not bound to the expected repository."
+            exit 1
+          fi
+
+          latest_main_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "${GITHUB_REF}" != "refs/heads/main" \
+             || "${GITHUB_SHA}" != "${latest_main_sha}" ]]; then
+            echo "::error::Release tag target is not the latest protected main commit."
             exit 1
           fi
 

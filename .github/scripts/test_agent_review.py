@@ -2627,9 +2627,36 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn('central_wait_until="VALIDATED"', publish)
         self.assertIn("persist-credentials: false", publish)
         self.assertIn("needs: publish", tag)
-        self.assertIn("permissions:\n      contents: write\n", tag)
+        self.assertIn("environment: coco-spring", tag)
+        self.assertIn("permissions:\n      contents: read\n", tag)
+        self.assertNotIn("permissions:\n      contents: write\n", tag)
+        self.assertIn(
+            "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+            tag,
+        )
+        self.assertIn(
+            "client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}", tag
+        )
+        self.assertIn("secrets.COCO_RELEASE_APP_PRIVATE_KEY", tag)
+        self.assertIn("permission-contents: write", tag)
+        self.assertIn(
+            "ACTUAL_APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}",
+            tag,
+        )
+        self.assertIn(
+            "EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}", tag
+        )
+        self.assertIn(
+            '"${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}"', tag
+        )
+        self.assertIn(
+            "GH_TOKEN: ${{ steps.release-app-token.outputs.token }}", tag
+        )
+        self.assertIn("READ_TOKEN: ${{ github.token }}", tag)
+        self.assertIn('GH_TOKEN="${READ_TOKEN}" gh api', tag)
+        self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', tag)
         self.assertIn('ref="refs/tags/${RELEASE_TAG}"', tag)
-        self.assertEqual(1, workflow.count("contents: write"))
+        self.assertEqual(0, workflow.count("\n      contents: write\n"))
         self.assertNotIn("git push origin", workflow)
 
     def test_agent_issue_gate_workflow_has_no_secret_path_and_shared_lock(self) -> None:
