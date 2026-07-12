@@ -31,6 +31,7 @@ REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 REVIEWER_PERMISSIONS = {"write", "maintain", "admin"}
 MAX_EVENT_BYTES = 2 * 1024 * 1024
 MAX_OPEN_PULL_REQUESTS = 200
+ELIGIBLE_MERGEABLE_STATES = {"clean", "unstable"}
 
 
 class AutoMergeError(RuntimeError):
@@ -526,9 +527,12 @@ def snapshot_reasons(
         reasons.append("pull request head does not match the expected bound head")
     if snapshot.mergeable is not True:
         reasons.append("pull request is not currently mergeable")
-    if snapshot.mergeable_state != "clean":
+    # GitHub reports "unstable" when an optional status is pending or failing.
+    # The explicit protected gates are verified independently before merging.
+    if snapshot.mergeable_state not in ELIGIBLE_MERGEABLE_STATES:
         reasons.append(
-            f"pull request mergeable_state is {snapshot.mergeable_state!r}, not 'clean'"
+            "pull request mergeable_state is "
+            f"{snapshot.mergeable_state!r}, not an eligible conflict-free state"
         )
     return reasons
 
