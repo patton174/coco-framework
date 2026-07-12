@@ -2,6 +2,12 @@
   "version": 1,
   "gate_name": "Agent jury gate",
   "managed_comment_marker": "<!-- agent-jury:v1 -->",
+  "deferred_bot_authors": [
+    {
+      "login": "dependabot[bot]",
+      "id": 49699333
+    }
+  ],
   "protected_policy_paths": [
     "AGENTS.md",
     ".github/agent-review/policy.md"
@@ -186,7 +192,9 @@
         "coco-foundation/**",
         "coco-spring/**",
         "coco-features/**",
-        "coco-support/**",
+        "coco-support/pom.xml",
+        "coco-support/coco-test/**",
+        "coco-support/coco-tools/**",
         "docs/architecture/module-layout.md",
         "coco-support/coco-document/architecture/module-layout.md"
       ],
