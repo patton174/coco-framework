@@ -1,5 +1,5 @@
 name: Deferred Agent Review Jury
-run-name: Deferred Agent Review Jury / source run #${{ github.event.workflow_run.id }}
+run-name: "Deferred Agent Review Jury / source run #${{ github.event.workflow_run.id }}"
 
 # workflow_run executes only from the protected default branch. It never
 # consumes source-run artifacts, caches, or pull request executable content.
