@@ -319,6 +319,15 @@ class AgentReviewTests(unittest.TestCase):
         jury_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
         governance_spec = "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
         module_layout_spec = "coco-support/coco-document/architecture/module-layout.md"
+        api_i18n_spec = "coco-support/coco-document/superpowers/specs/2026-07-04-coco-api-core-i18n-design.md"
+        common_i18n_spec = "coco-support/coco-document/superpowers/specs/2026-07-04-coco-common-i18n-design.md"
+        web_response_spec = "coco-support/coco-document/superpowers/specs/2026-07-05-coco-web-response-wrap-design.md"
+        jdbc_replay_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-jdbc-replay-store.md"
+        framework_boundary_spec = "coco-support/coco-document/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md"
+        audit_logging_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-audit-logging.md"
+        audit_independence_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-audit-feature-independence.md"
+        logging_overflow_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-async-log-overflow-observability.md"
+        codegen_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
 
         def mapped_specs(path: str) -> set[str]:
             return {
@@ -385,6 +394,74 @@ class AgentReviewTests(unittest.TestCase):
             {module_layout_spec},
             mapped_specs("coco-support/coco-test/pom.xml"),
         )
+        i18n_specs = {module_layout_spec, api_i18n_spec, common_i18n_spec}
+        web_specs = {
+            module_layout_spec,
+            web_response_spec,
+            jdbc_replay_spec,
+            framework_boundary_spec,
+        }
+        audit_specs = {
+            module_layout_spec,
+            audit_logging_spec,
+            audit_independence_spec,
+        }
+        module_policy_contracts = {
+            ("coco-api", "coco-foundation/coco-api"): i18n_specs,
+            (
+                "coco-common/coco-common-i18n",
+                "coco-foundation/coco-i18n",
+            ): i18n_specs,
+            (
+                "coco-features/coco-feature-registry",
+                "coco-foundation/coco-feature-model",
+            ): i18n_specs,
+            ("coco-config", "coco-spring/coco-config"): i18n_specs,
+            (
+                "coco-spring-boot-autoconfigure",
+                "coco-spring/coco-spring-boot-autoconfigure",
+            ): i18n_specs,
+            (
+                "coco-common/coco-common-logging",
+                "coco-foundation/coco-logging",
+            ): {module_layout_spec, logging_overflow_spec},
+            (
+                "coco-features/coco-feature-web",
+                "coco-features/coco-web",
+            ): web_specs,
+            (
+                "coco-features/coco-feature-audit",
+                "coco-features/coco-audit",
+            ): audit_specs,
+            ("coco-features/coco-feature-codegen",): {
+                module_layout_spec,
+                codegen_spec,
+            },
+            ("coco-maven-plugin", "coco-build/coco-maven-plugin"): {
+                module_layout_spec,
+                codegen_spec,
+            },
+        }
+        for migration_paths, expected_specs in module_policy_contracts.items():
+            self.assertTrue(
+                any((repository_root / path).is_dir() for path in migration_paths),
+                f"No active module path exists for {migration_paths}",
+            )
+            for module_root in migration_paths:
+                for relative_path in (
+                    "pom.xml",
+                    "README.md",
+                    "src/main/java/Example.java",
+                    "src/main/resources/example.properties",
+                ):
+                    with self.subTest(
+                        module_root=module_root,
+                        relative_path=relative_path,
+                    ):
+                        self.assertEqual(
+                            expected_specs,
+                            mapped_specs(f"{module_root}/{relative_path}"),
+                        )
         self.assertEqual(
             {governance_spec},
             mapped_specs("coco-support/coco-document/release.md"),
@@ -472,6 +549,26 @@ class AgentReviewTests(unittest.TestCase):
         repository_root = Path(__file__).resolve().parents[2]
         config_path = repository_root / ".github/agent-review/config.json"
         value = review.load_config(config_path)
+        module_layout_spec = "coco-support/coco-document/architecture/module-layout.md"
+        base_policy = {
+            "AGENTS.md",
+            ".github/agent-review/policy.md",
+            module_layout_spec,
+        }
+        i18n_specs = {
+            "coco-support/coco-document/superpowers/specs/2026-07-04-coco-api-core-i18n-design.md",
+            "coco-support/coco-document/superpowers/specs/2026-07-04-coco-common-i18n-design.md",
+        }
+        web_specs = {
+            "coco-support/coco-document/superpowers/specs/2026-07-05-coco-web-response-wrap-design.md",
+            "coco-support/coco-document/superpowers/specs/2026-07-10-coco-jdbc-replay-store.md",
+            "coco-support/coco-document/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md",
+        }
+        audit_specs = {
+            "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-audit-logging.md",
+            "coco-support/coco-document/superpowers/specs/2026-07-10-coco-audit-feature-independence.md",
+        }
+        codegen_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
         batches = {
             "build": [
                 "pom.xml",
@@ -516,6 +613,78 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertIn(
                     "coco-support/coco-document/architecture/module-layout.md",
                     {source["source"] for source in sources},
+                )
+
+        spring_cutover_batches = {
+            "starter-and-core-features": [
+                "coco-spring/coco-config/pom.xml",
+                "coco-spring/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
+                "coco-features/coco-feature-runtime/pom.xml",
+                "coco-features/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
+                "coco-features/coco-feature-data-permission/pom.xml",
+                "coco-features/coco-feature-mybatis-plus/pom.xml",
+                "coco-features/coco-feature-openapi/pom.xml",
+                "coco-features/coco-feature-security/pom.xml",
+                "coco-features/coco-feature-tenant/pom.xml",
+            ],
+            "web": ["coco-features/coco-feature-web/pom.xml"],
+            "audit": ["coco-features/coco-feature-audit/pom.xml"],
+            "codegen": ["coco-features/coco-feature-codegen/pom.xml"],
+        }
+        module_entries = review.module_map(repository_root)
+        modules_by_artifact = {
+            entry["artifact_id"]: entry
+            for entry in module_entries
+            if entry["artifact_id"]
+        }
+        starter = modules_by_artifact["coco-spring-boot-starter"]
+        concrete_feature_artifacts = {
+            artifact_id
+            for artifact_id in starter["coco_dependencies"]
+            if artifact_id in modules_by_artifact
+            and modules_by_artifact[artifact_id]["path"].startswith("coco-features/")
+            and artifact_id != "coco-feature-runtime"
+        }
+        expected_consumer_poms = {
+            starter["path"],
+            *(
+                modules_by_artifact[artifact_id]["path"]
+                for artifact_id in concrete_feature_artifacts
+            ),
+        }
+        scheduled_consumer_poms = [
+            path
+            for paths in spring_cutover_batches.values()
+            for path in paths
+            if path in expected_consumer_poms
+        ]
+        self.assertEqual(expected_consumer_poms, set(scheduled_consumer_poms))
+        self.assertEqual(len(expected_consumer_poms), len(scheduled_consumer_poms))
+        expected_policy_sources = {
+            "starter-and-core-features": base_policy | i18n_specs,
+            "web": base_policy | web_specs,
+            "audit": base_policy | audit_specs,
+            "codegen": base_policy | {codegen_spec},
+        }
+        for name, changed_paths in spring_cutover_batches.items():
+            with self.subTest(spring_cutover_batch=name):
+                omissions = []
+                sources = review.collect_policy(
+                    repository_root,
+                    value,
+                    changed_paths,
+                    omissions,
+                )
+                self.assertEqual([], omissions)
+                self.assertEqual(
+                    expected_policy_sources[name],
+                    {source["source"] for source in sources},
+                )
+                self.assertLessEqual(
+                    sum(len(source["content"]) for source in sources),
+                    review.normalized_limits(value)["policy_chars"],
                 )
 
     def test_repository_governance_policy_does_not_pull_module_layout(self) -> None:
