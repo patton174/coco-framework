@@ -203,7 +203,7 @@ def deferred_workflow_run() -> dict:
         "event": review.DEFERRED_WORKFLOW_EVENT,
         "status": "completed",
         "conclusion": "success",
-        "display_title": (f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {HEAD_SHA}"),
+        "display_title": f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {HEAD_SHA}",
         "repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
         "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
         "head_sha": HEAD_SHA,
@@ -4837,6 +4837,7 @@ class AgentReviewTests(unittest.TestCase):
         class FakeClient:
             def __init__(self) -> None:
                 self.sent: list[tuple[str, str, dict]] = []
+                self.send_pull_reads: list[int] = []
                 self.pull_reads = 0
 
             def get_json(self, path: str) -> dict:
@@ -4864,6 +4865,7 @@ class AgentReviewTests(unittest.TestCase):
                 ]
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.send_pull_reads.append(self.pull_reads)
                 self.sent.append((method, path, payload))
                 return {}
 
@@ -4904,6 +4906,7 @@ class AgentReviewTests(unittest.TestCase):
         publication = json.loads(output.call_args_list[-1].args[0])
         self.assertEqual("success", publication["state"])
         self.assertEqual(1, len(client.sent))
+        self.assertEqual([3], client.send_pull_reads)
         method, path, payload = client.sent[0]
         self.assertEqual("POST", method)
         self.assertEqual(f"repos/patton174/coco-framework/statuses/{HEAD_SHA}", path)
