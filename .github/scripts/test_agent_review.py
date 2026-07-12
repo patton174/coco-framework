@@ -398,7 +398,11 @@ class AgentReviewTests(unittest.TestCase):
             with self.subTest(pom_only_path=path):
                 self.assertEqual({module_layout_spec}, mapped_specs(path))
         self.assertGreater(
-            len(mapped_specs("coco-features/coco-feature-web/src/main/java/Example.java")),
+            len(
+                mapped_specs(
+                    "coco-features/coco-feature-web/src/main/java/Example.java"
+                )
+            ),
             1,
         )
         self.assertEqual(
