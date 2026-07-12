@@ -220,30 +220,216 @@ jobs:
     name: Create immutable release tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: publish
+    needs:
+      - test
+      - publish
+    environment: coco-spring
     permissions:
-      contents: write
+      contents: read
     steps:
-      - name: Tag the successful release
+      - name: Revalidate release target before privileged token mint
+        id: release-target
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.publish.outputs.tag }}
           RELEASE_VERSION: ${{ needs.publish.outputs.version }}
+          EXPECTED_APP_CLIENT_ID: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}
+          EXPECTED_APP_ID: ${{ vars.COCO_RELEASE_APP_ID }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_RELEASE_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_RELEASE_APP_BOT_ID }}
+          EXPECTED_INSTALLATION_ID: ${{ vars.COCO_RELEASE_APP_INSTALLATION_ID }}
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
-            echo "::error::Release tags may be created only for the protected main branch."
+          for variable in RELEASE_TAG RELEASE_VERSION EXPECTED_APP_CLIENT_ID \
+            EXPECTED_APP_ID EXPECTED_APP_SLUG EXPECTED_APP_LOGIN \
+            EXPECTED_APP_BOT_ID EXPECTED_INSTALLATION_ID; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured."
+              exit 1
+            fi
+          done
+          if [[ "${EXPECTED_APP_CLIENT_ID}" != "Iv23lidonlM70wdbJF3Y" \
+             || "${EXPECTED_APP_ID}" != "4279686" \
+             || "${EXPECTED_APP_SLUG}" != "coco-framework-release" \
+             || "${EXPECTED_APP_LOGIN}" != "coco-framework-release[bot]" \
+             || "${EXPECTED_APP_BOT_ID}" != "304043332" \
+             || "${EXPECTED_INSTALLATION_ID}" != "146080543" ]]; then
+            echo "::error::Protected Release App identity pins have drifted."
+            exit 1
+          fi
+          if [[ "${RELEASE_TAG}" != "v${RELEASE_VERSION}" ]]; then
+            echo "::error::Release tag and release version are not bound."
             exit 1
           fi
 
-          tag_object_sha="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+          repository_json="$(gh api "repos/${GITHUB_REPOSITORY}")"
+          if [[ "$(jq -r '.id' <<< "${repository_json}")" != "${GITHUB_REPOSITORY_ID}" \
+             || "$(jq -r '.full_name' <<< "${repository_json}")" != "${GITHUB_REPOSITORY}" \
+             || "$(jq -r '.default_branch' <<< "${repository_json}")" != "main" ]]; then
+            echo "::error::Release target repository does not match the workflow identity."
+            exit 1
+          fi
+
+          latest_main_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "${GITHUB_REF}" != "refs/heads/main" \
+             || "${GITHUB_SHA}" != "${latest_main_sha}" ]]; then
+            echo "::error::Release tag target is not the latest protected main commit."
+            exit 1
+          fi
+
+          matching_refs="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${RELEASE_TAG}")"
+          tag_ref_count="$(jq --arg ref "refs/tags/${RELEASE_TAG}" \
+            '[.[] | select(.ref == $ref)] | length' <<< "${matching_refs}")"
+          if [[ ! "${tag_ref_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::GitHub returned an invalid release tag lookup result."
+            exit 1
+          fi
+          if (( tag_ref_count != 0 )); then
+            echo "::error::Release tag ${RELEASE_TAG} already exists."
+            exit 1
+          fi
+          echo "validated=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Create Release App installation token
+        id: release-app-token
+        if: steps.release-target.outputs.validated == 'true'
+        # GitHub exposes no tag-only App permission. The dedicated App is
+        # installed on this repository alone and bypasses only the v* creation
+        # ruleset; branch rules and tag update/deletion rules have no App bypass.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COCO_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          skip-token-revoke: false
+
+      - name: Bind Release App identity and repository
+        id: release-app-identity
+        if: steps.release-target.outputs.validated == 'true'
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          ACTUAL_APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
+          ACTUAL_INSTALLATION_ID: ${{ steps.release-app-token.outputs.installation-id }}
+          EXPECTED_APP_SLUG: ${{ vars.COCO_RELEASE_APP_SLUG }}
+          EXPECTED_APP_LOGIN: ${{ vars.COCO_RELEASE_APP_LOGIN }}
+          EXPECTED_APP_BOT_ID: ${{ vars.COCO_RELEASE_APP_BOT_ID }}
+          EXPECTED_INSTALLATION_ID: ${{ vars.COCO_RELEASE_APP_INSTALLATION_ID }}
+        run: |
+          set -euo pipefail
+
+          for variable in ACTUAL_APP_SLUG ACTUAL_INSTALLATION_ID EXPECTED_APP_SLUG \
+            EXPECTED_APP_LOGIN EXPECTED_APP_BOT_ID EXPECTED_INSTALLATION_ID; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} must be configured."
+              exit 1
+            fi
+          done
+          if [[ "${ACTUAL_APP_SLUG}" != "${EXPECTED_APP_SLUG}" \
+             || "${ACTUAL_INSTALLATION_ID}" != "${EXPECTED_INSTALLATION_ID}" ]]; then
+            echo "::error::Release App slug or installation ID does not match repository policy."
+            exit 1
+          fi
+
+          derived_login="${ACTUAL_APP_SLUG}[bot]"
+          user_json="$(GH_TOKEN="${APP_TOKEN}" gh api "users/${derived_login}")"
+          actual_login="$(jq -r '.login' <<< "${user_json}")"
+          actual_type="$(jq -r '.type' <<< "${user_json}")"
+          actual_bot_id="$(jq -r '.id' <<< "${user_json}")"
+          if [[ "${derived_login}" != "${EXPECTED_APP_LOGIN}" \
+             || "${actual_login}" != "${EXPECTED_APP_LOGIN}" \
+             || "${actual_type}" != "Bot" \
+             || ! "${EXPECTED_APP_BOT_ID}" =~ ^[1-9][0-9]*$ \
+             || "${actual_bot_id}" != "${EXPECTED_APP_BOT_ID}" ]]; then
+            echo "::error::Release App bot identity does not match repository policy."
+            exit 1
+          fi
+
+          repository_json="$(GH_TOKEN="${APP_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}")"
+          if [[ "$(jq -r '.id' <<< "${repository_json}")" != "${GITHUB_REPOSITORY_ID}" \
+             || "$(jq -r '.full_name' <<< "${repository_json}")" != "${GITHUB_REPOSITORY}" \
+             || "$(jq -r '.default_branch' <<< "${repository_json}")" != "main" ]]; then
+            echo "::error::Release App installation is not bound to the expected repository."
+            exit 1
+          fi
+
+          echo "authorized=true" >> "${GITHUB_OUTPUT}"
+          echo "::notice::Bound ${actual_login} (${actual_bot_id}), installation ${ACTUAL_INSTALLATION_ID}, to repository ${GITHUB_REPOSITORY_ID}."
+          {
+            echo "### Release App binding"
+            echo "- App: \`${actual_login}\`"
+            echo "- Bot ID: \`${actual_bot_id}\`"
+            echo "- Installation ID: \`${ACTUAL_INSTALLATION_ID}\`"
+            echo "- Repository ID: \`${GITHUB_REPOSITORY_ID}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Tag the successful release
+        if: >-
+          steps.release-target.outputs.validated == 'true' &&
+          steps.release-app-identity.outputs.authorized == 'true'
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          require_current_main() {
+            local latest_main_sha
+            latest_main_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+            if [[ "${GITHUB_REF}" != "refs/heads/main" \
+               || "${GITHUB_SHA}" != "${latest_main_sha}" ]]; then
+              echo "::error::Release tag target is no longer the latest protected main commit."
+              exit 1
+            fi
+          }
+
+          require_current_main
+          matching_refs="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${RELEASE_TAG}")"
+          tag_ref_count="$(jq --arg ref "refs/tags/${RELEASE_TAG}" \
+            '[.[] | select(.ref == $ref)] | length' <<< "${matching_refs}")"
+          if [[ ! "${tag_ref_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::GitHub returned an invalid release tag lookup result."
+            exit 1
+          fi
+          if (( tag_ref_count != 0 )); then
+            echo "::error::Release tag ${RELEASE_TAG} already exists."
+            exit 1
+          fi
+
+          require_current_main
+          tag_object_sha="$(GH_TOKEN="${APP_TOKEN}" gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/tags" \
             -f tag="${RELEASE_TAG}" \
             -f message="Release ${RELEASE_VERSION}" \
             -f object="${GITHUB_SHA}" \
             -f type='commit' \
             --jq '.sha')"
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+
+          # An annotated tag object is harmless until a ref points to it. Rebind
+          # main immediately before the only operation that makes the tag visible.
+          require_current_main
+          GH_TOKEN="${APP_TOKEN}" gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f ref="refs/tags/${RELEASE_TAG}" \
             -f sha="${tag_object_sha}" > /dev/null
+
+          created_tag_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object.sha')"
+          if [[ "${created_tag_sha}" != "${tag_object_sha}" ]]; then
+            echo "::error::Created release tag does not reference the expected annotated tag object."
+            exit 1
+          fi
+          echo "::notice::Created immutable ${RELEASE_TAG} for ${GITHUB_SHA} with the bound Release App."
