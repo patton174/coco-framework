@@ -389,6 +389,28 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertEqual({governance_spec}, mapped_specs(governance_spec))
         self.assertEqual({module_layout_spec}, mapped_specs(module_layout_spec))
+        support_directory_layout_policy = {
+            "coco-document": False,
+            "coco-test": True,
+            "coco-tools": True,
+        }
+        support_directories = {
+            path.name
+            for path in (repository_root / "coco-support").iterdir()
+            if path.is_dir() and not path.name.startswith(".")
+        }
+        self.assertEqual(
+            set(support_directory_layout_policy),
+            support_directories,
+            "Every coco-support directory must explicitly declare whether it needs module-layout policy.",
+        )
+        for directory, expects_module_layout in support_directory_layout_policy.items():
+            with self.subTest(support_directory=directory):
+                self.assertEqual(
+                    expects_module_layout,
+                    module_layout_spec
+                    in mapped_specs(f"coco-support/{directory}/__mapping_probe__"),
+                )
         serialized_mappings = json.dumps(value["spec_path_mappings"])
         self.assertNotIn("coco-support/**", serialized_mappings)
         self.assertNotIn("update-readme-insights.yml", serialized_mappings)
