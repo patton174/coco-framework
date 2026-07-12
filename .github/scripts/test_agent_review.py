@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,7 +19,13 @@ import agent_review as review
 
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
+HEAD_REF = "dependabot/maven/example-1.0.1"
 APP_BOT_ID = 424242
+DEPENDABOT_BOT_ID = 49_699_333
+REPOSITORY = "patton174/coco-framework"
+REPOSITORY_ID = 123456789
+DEFERRED_PR_NUMBER = 125
+SOURCE_RUN_ID = 987654321
 
 
 def config(**limit_overrides: int) -> dict:
@@ -154,6 +163,80 @@ class FakeContextClient:
         return self.head_files.get(path)
 
 
+def deferred_config() -> dict:
+    value = config()
+    value["deferred_bot_authors"] = [
+        {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID}
+    ]
+    return value
+
+
+def deferred_pull_request() -> dict:
+    return {
+        "number": DEFERRED_PR_NUMBER,
+        "state": "open",
+        "changed_files": 1,
+        "base": {
+            "ref": "main",
+            "sha": BASE_SHA,
+            "repo": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        },
+        "head": {
+            "ref": HEAD_REF,
+            "sha": HEAD_SHA,
+            "repo": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        },
+        "user": {
+            "id": DEPENDABOT_BOT_ID,
+            "login": "dependabot[bot]",
+            "type": "Bot",
+        },
+    }
+
+
+def deferred_workflow_run() -> dict:
+    return {
+        "id": SOURCE_RUN_ID,
+        "name": review.DEFERRED_WORKFLOW_NAME,
+        "path": review.DEFERRED_WORKFLOW_PATH,
+        "event": review.DEFERRED_WORKFLOW_EVENT,
+        "status": "completed",
+        "conclusion": "success",
+        "display_title": (f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {HEAD_SHA}"),
+        "repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+        "head_sha": HEAD_SHA,
+        "head_branch": HEAD_REF,
+        "pull_requests": [{"number": DEFERRED_PR_NUMBER}],
+    }
+
+
+class FakeDeferredClient:
+    def __init__(
+        self,
+        *,
+        run: dict | None = None,
+        pull_request: dict | None = None,
+        associated: list[dict] | None = None,
+    ) -> None:
+        self.run = json.loads(json.dumps(run or deferred_workflow_run()))
+        if associated is not None:
+            self.run["pull_requests"] = associated
+        self.pull_request = pull_request or deferred_pull_request()
+        self.get_paths: list[str] = []
+
+    def get_json(self, path: str) -> dict:
+        self.get_paths.append(path)
+        if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
+            return self.run
+        if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+            return self.pull_request
+        raise AssertionError(f"Unexpected GET path: {path}")
+
+    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+        raise AssertionError(f"Unexpected paginated path: {path} ({limit})")
+
+
 class AgentReviewTests(unittest.TestCase):
     def test_repository_config_resolves_complete_jury(self) -> None:
         path = Path(__file__).resolve().parents[1] / "agent-review/config.json"
@@ -184,6 +267,10 @@ class AgentReviewTests(unittest.TestCase):
                 value["output_limits"][key]
                 for key in ("specialist_tokens", "verifier_tokens", "chair_tokens")
             },
+        )
+        self.assertEqual(
+            (("dependabot[bot]", DEPENDABOT_BOT_ID),),
+            review.configured_deferred_bot_authors(value),
         )
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
@@ -387,6 +474,36 @@ class AgentReviewTests(unittest.TestCase):
                     review.bind_context(context)
                     with self.assertRaises(review.ReviewError):
                         review.validate_context(context)
+
+    def test_deferred_bot_config_requires_exact_login_and_numeric_id(self) -> None:
+        invalid_values = (
+            {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID},
+            [{"login": "dependabot[bot]"}],
+            [{"login": "dependabot", "id": DEPENDABOT_BOT_ID}],
+            [{"login": "dependabot[bot]", "id": str(DEPENDABOT_BOT_ID)}],
+            [{"login": "dependabot[bot]", "id": True}],
+            [
+                {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID},
+                {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID},
+            ],
+            [
+                {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID},
+                {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID + 1},
+            ],
+            [
+                {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID},
+                {"login": "dependabot-preview[bot]", "id": DEPENDABOT_BOT_ID},
+            ],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.json"
+            for deferred_bot_authors in invalid_values:
+                with self.subTest(deferred_bot_authors=deferred_bot_authors):
+                    value = config()
+                    value["deferred_bot_authors"] = deferred_bot_authors
+                    review.write_json(config_path, value)
+                    with self.assertRaises(review.ReviewError):
+                        review.load_config(config_path)
 
     def test_normalized_limits_reads_output_tokens_with_legacy_priority(self) -> None:
         defaults = review.normalized_limits({})
@@ -923,7 +1040,7 @@ class AgentReviewTests(unittest.TestCase):
                 "sha": HEAD_SHA,
                 "repo": {"full_name": "patton174/coco-framework"},
             },
-            "user": {"login": "patton174", "type": "User"},
+            "user": {"id": 42, "login": "patton174", "type": "User"},
         }
 
         class FakeClient:
@@ -969,7 +1086,7 @@ class AgentReviewTests(unittest.TestCase):
                         repository="patton174/coco-framework",
                         pr_number=1,
                         event_name="pull_request_target",
-                        expected_head_sha=HEAD_SHA,
+                        expected_head_sha="",
                         base_root=root,
                         config=root / "config.json",
                         context_output=root / "context.json",
@@ -2322,11 +2439,42 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_agent_issue_gate_workflow_has_no_secret_path_and_shared_lock(self) -> None:
         workflow_root = Path(__file__).resolve().parents[1] / "workflows"
-        review_workflow = (workflow_root / "agent-review.yml").read_text(
+        direct_workflow = (workflow_root / "agent-review.yml").read_text(
+            encoding="utf-8"
+        )
+        review_workflow = (workflow_root / "reusable-agent-review-jury.yml").read_text(
+            encoding="utf-8"
+        )
+        deferred_workflow = (workflow_root / "agent-review-deferred.yml").read_text(
             encoding="utf-8"
         )
         self.assertFalse((workflow_root / "claude-review.yml").exists())
-        self.assertTrue(review_workflow.startswith("name: Agent Review Jury\n"))
+        self.assertTrue(direct_workflow.startswith("name: Agent Review Jury\n"))
+        self.assertIn(
+            "run-name: Agent Review Jury / PR #${{ github.event.pull_request.number }} / ${{ github.event.pull_request.head.sha }}",
+            direct_workflow,
+        )
+        self.assertIn('"${review_script}" route', direct_workflow)
+        self.assertEqual(
+            2,
+            direct_workflow.count(
+                "uses: ./.github/workflows/reusable-agent-review-jury.yml"
+            ),
+        )
+        direct_secret = direct_workflow.split("\n  direct-secret-review:\n", 1)[
+            1
+        ].split("\n  no-secret-review:\n", 1)[0]
+        direct_no_secret = direct_workflow.split("\n  no-secret-review:\n", 1)[1]
+        self.assertIn("secrets: inherit", direct_secret)
+        self.assertNotIn("secrets: inherit", direct_no_secret)
+        self.assertNotIn("${{ secrets.", direct_workflow)
+        self.assertNotIn("COCO_AGENT_APP_PRIVATE_KEY", direct_workflow)
+        self.assertNotIn("ANTHROPIC", direct_workflow)
+
+        self.assertTrue(
+            review_workflow.startswith("name: Reusable Agent Review Jury\n")
+        )
+        self.assertIn("  workflow_call:\n", review_workflow)
         trusted = review_workflow.split("\n  trusted-publisher:\n", 1)[1].split(
             "\n  no-secret-publisher:\n", 1
         )[0]
@@ -2372,6 +2520,38 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("client_payload", review_workflow)
         self.assertNotIn("workflow_dispatch", review_workflow)
 
+        self.assertIn("name: Deferred Agent Review Jury", deferred_workflow)
+        self.assertIn("  workflow_run:\n", deferred_workflow)
+        self.assertIn("workflows: [Agent Review Jury]", deferred_workflow)
+        self.assertIn(
+            "github.event.workflow_run.head_repository.id == fromJSON(github.repository_id)",
+            deferred_workflow,
+        )
+        self.assertIn(
+            "github.event.workflow_run.head_repository.full_name == github.repository",
+            deferred_workflow,
+        )
+        self.assertIn("agent_review.py bind-deferred", deferred_workflow)
+        self.assertIn(
+            "COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}",
+            deferred_workflow,
+        )
+        self.assertIn(
+            "COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}",
+            deferred_workflow,
+        )
+        self.assertIn("allow_deferred: true", deferred_workflow)
+        self.assertIn(
+            "source_run_id: ${{ github.event.workflow_run.id }}", deferred_workflow
+        )
+        self.assertIn("ref: ${{ github.sha }}", deferred_workflow)
+        self.assertIn("secrets: inherit", deferred_workflow)
+        self.assertNotIn("github.event.workflow_run.head_sha", deferred_workflow)
+        self.assertNotIn("actions/download-artifact", deferred_workflow)
+        self.assertNotIn("actions/cache", deferred_workflow)
+        self.assertNotIn("refs/pull/", deferred_workflow)
+        self.assertNotIn("/merge", deferred_workflow)
+
         gate_workflow = (workflow_root / "agent-issue-gate.yml").read_text(
             encoding="utf-8"
         )
@@ -2391,6 +2571,56 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("agent-review-publisher-", gate_workflow)
         self.assertNotIn("ANTHROPIC", gate_workflow)
         self.assertNotIn("COCO_AGENT_APP_PRIVATE_KEY", gate_workflow)
+
+    def test_reusable_jury_keeps_all_model_jobs_and_least_privilege(self) -> None:
+        workflow_root = Path(__file__).resolve().parents[1] / "workflows"
+        core = (workflow_root / "reusable-agent-review-jury.yml").read_text(
+            encoding="utf-8"
+        )
+        direct = (workflow_root / "agent-review.yml").read_text(encoding="utf-8")
+        deferred = (workflow_root / "agent-review-deferred.yml").read_text(
+            encoding="utf-8"
+        )
+
+        for job in (
+            "  specialists:\n",
+            "  verifiers:\n",
+            "  chair:\n",
+            "  trusted-publisher:\n",
+            "  no-secret-publisher:\n",
+        ):
+            self.assertEqual(1, core.count(job), job)
+        self.assertIn(
+            "matrix:\n        include: ${{ fromJSON(needs.prepare.outputs.specialist-matrix) }}",
+            core,
+        )
+        self.assertIn(
+            "matrix:\n        include: ${{ fromJSON(needs.prepare.outputs.verifier-matrix) }}",
+            core,
+        )
+        self.assertGreaterEqual(
+            core.count("needs.prepare.outputs.trusted == 'true'"), 4
+        )
+        self.assertGreaterEqual(
+            core.count("needs.prepare.outputs.ignored == 'false'"), 4
+        )
+
+        specialists = core.split("\n  specialists:\n", 1)[1].split(
+            "\n  verifiers:\n", 1
+        )[0]
+        verifiers = core.split("\n  verifiers:\n", 1)[1].split("\n  chair:\n", 1)[0]
+        chair = core.split("\n  chair:\n", 1)[1].split("\n  trusted-publisher:\n", 1)[0]
+        for model_job in (specialists, verifiers, chair):
+            self.assertNotIn("statuses: write", model_job)
+        self.assertEqual(3, core.count("statuses: write"))
+
+        reusable_call = "uses: ./.github/workflows/reusable-agent-review-jury.yml"
+        self.assertEqual(2, direct.count(reusable_call))
+        self.assertEqual(1, deferred.count(reusable_call))
+        self.assertIn("allow_deferred: true", deferred)
+        self.assertIn("event_name: workflow_run", deferred)
+        self.assertNotIn("\n  specialists:\n", direct)
+        self.assertNotIn("\n  specialists:\n", deferred)
 
     def test_rendered_comment_exposes_panel_and_dissent(self) -> None:
         context = bound_context()
@@ -2546,18 +2776,91 @@ class AgentReviewTests(unittest.TestCase):
                 "test comment",
             )
 
-    def test_classification_accepts_only_humans_and_the_pinned_app(self) -> None:
+    def test_classification_has_direct_deferred_and_no_secret_routes(self) -> None:
         base = {
             "head": {"repo": {"full_name": "patton174/coco-framework"}},
-            "user": {"login": "patton174", "type": "User"},
+            "user": {"id": 42, "login": "patton174", "type": "User"},
         }
-        self.assertTrue(review.classify_pr(base, "patton174/coco-framework"))
+        self.assertEqual(
+            review.PR_ROUTE_DIRECT,
+            review.classify_pr_route(base, "patton174/coco-framework"),
+        )
         fork = json.loads(json.dumps(base))
         fork["head"]["repo"]["full_name"] = "someone/fork"
-        self.assertFalse(review.classify_pr(fork, "patton174/coco-framework"))
-        bot = json.loads(json.dumps(base))
-        bot["user"] = {"id": 1, "login": "dependabot[bot]", "type": "Bot"}
-        self.assertFalse(review.classify_pr(bot, "patton174/coco-framework"))
+        self.assertEqual(
+            review.PR_ROUTE_NO_SECRET,
+            review.classify_pr_route(fork, "patton174/coco-framework"),
+        )
+        for actor in (
+            {"id": 42, "login": "patton174", "type": "Organization"},
+            {"id": 42, "login": "patton174[bot]", "type": "User"},
+            {"id": 42, "login": "patton174"},
+            {"login": "patton174", "type": "User"},
+            {"id": 42, "login": "", "type": "User"},
+            {"id": -1, "login": "patton174", "type": "User"},
+            {"id": 0, "login": "patton174", "type": "User"},
+        ):
+            with self.subTest(actor=actor):
+                unknown = json.loads(json.dumps(base))
+                unknown["user"] = actor
+                self.assertEqual(
+                    review.PR_ROUTE_NO_SECRET,
+                    review.classify_pr_route(unknown, "patton174/coco-framework"),
+                )
+        deferred_bot_authors = (("dependabot[bot]", DEPENDABOT_BOT_ID),)
+        dependabot = json.loads(json.dumps(base))
+        dependabot["user"] = {
+            "id": DEPENDABOT_BOT_ID,
+            "login": "dependabot[bot]",
+            "type": "Bot",
+        }
+        self.assertEqual(
+            review.PR_ROUTE_NO_SECRET,
+            review.classify_pr_route(dependabot, "patton174/coco-framework"),
+        )
+        self.assertEqual(
+            review.PR_ROUTE_DEFERRED,
+            review.classify_pr_route(
+                dependabot,
+                "patton174/coco-framework",
+                deferred_bot_authors=deferred_bot_authors,
+            ),
+        )
+
+        for actor in (
+            {
+                "id": DEPENDABOT_BOT_ID,
+                "login": "dependabot-preview[bot]",
+                "type": "Bot",
+            },
+            {
+                "id": DEPENDABOT_BOT_ID + 1,
+                "login": "dependabot[bot]",
+                "type": "Bot",
+            },
+            {"id": 1, "login": "github-actions[bot]", "type": "Bot"},
+        ):
+            bot = json.loads(json.dumps(base))
+            bot["user"] = actor
+            self.assertEqual(
+                review.PR_ROUTE_NO_SECRET,
+                review.classify_pr_route(
+                    bot,
+                    "patton174/coco-framework",
+                    deferred_bot_authors=deferred_bot_authors,
+                ),
+            )
+
+        external_dependabot = json.loads(json.dumps(dependabot))
+        external_dependabot["head"]["repo"]["full_name"] = "someone/fork"
+        self.assertEqual(
+            review.PR_ROUTE_NO_SECRET,
+            review.classify_pr_route(
+                external_dependabot,
+                "patton174/coco-framework",
+                deferred_bot_authors=deferred_bot_authors,
+            ),
+        )
 
         app = json.loads(json.dumps(base))
         app["user"] = {
@@ -2565,7 +2868,41 @@ class AgentReviewTests(unittest.TestCase):
             "login": "coco-agent[bot]",
             "type": "Bot",
         }
-        self.assertFalse(review.classify_pr(app, "patton174/coco-framework"))
+        self.assertEqual(
+            review.PR_ROUTE_NO_SECRET,
+            review.classify_pr_route(app, "patton174/coco-framework"),
+        )
+        self.assertEqual(
+            review.PR_ROUTE_DIRECT,
+            review.classify_pr_route(
+                app,
+                "patton174/coco-framework",
+                "coco-agent[bot]",
+                APP_BOT_ID,
+            ),
+        )
+        self.assertEqual(
+            review.PR_ROUTE_DIRECT,
+            review.classify_pr_route(
+                app,
+                "patton174/coco-framework",
+                "coco-agent[bot]",
+                APP_BOT_ID,
+                deferred_bot_authors=(("coco-agent[bot]", APP_BOT_ID),),
+            ),
+        )
+        self.assertEqual(
+            review.PR_ROUTE_NO_SECRET,
+            review.classify_pr_route(
+                app,
+                "patton174/coco-framework",
+                "coco-agent[bot]",
+                APP_BOT_ID + 1,
+            ),
+        )
+        self.assertTrue(review.classify_pr(base, "patton174/coco-framework"))
+        self.assertFalse(review.classify_pr(fork, "patton174/coco-framework"))
+        self.assertFalse(review.classify_pr(dependabot, "patton174/coco-framework"))
         self.assertTrue(
             review.classify_pr(
                 app,
@@ -2574,14 +2911,943 @@ class AgentReviewTests(unittest.TestCase):
                 APP_BOT_ID,
             )
         )
-        self.assertFalse(
-            review.classify_pr(
-                app,
-                "patton174/coco-framework",
+
+    def test_classify_pr_compatibility_shim_matches_direct_route(self) -> None:
+        cases = (
+            (
+                {
+                    "head": {"repo": {"full_name": REPOSITORY}},
+                    "user": {"id": 42, "login": "maintainer", "type": "User"},
+                },
+                "",
+                0,
+            ),
+            (
+                {
+                    "head": {"repo": {"full_name": "someone/fork"}},
+                    "user": {"id": 42, "login": "maintainer", "type": "User"},
+                },
+                "",
+                0,
+            ),
+            (deferred_pull_request(), "", 0),
+            (
+                {
+                    "head": {"repo": {"full_name": REPOSITORY}},
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": "coco-agent[bot]",
+                        "type": "Bot",
+                    },
+                },
                 "coco-agent[bot]",
-                APP_BOT_ID + 1,
-            )
+                APP_BOT_ID,
+            ),
         )
+
+        for pull_request, trusted_app_login, trusted_app_bot_id in cases:
+            with self.subTest(user=pull_request["user"]):
+                self.assertEqual(
+                    review.classify_pr_route(
+                        pull_request,
+                        REPOSITORY,
+                        trusted_app_login,
+                        trusted_app_bot_id,
+                        deferred_bot_authors=(),
+                    )
+                    == review.PR_ROUTE_DIRECT,
+                    review.classify_pr(
+                        pull_request,
+                        REPOSITORY,
+                        trusted_app_login,
+                        trusted_app_bot_id,
+                    ),
+                )
+
+    def test_prepare_cli_preserves_legacy_optional_binding_arguments(self) -> None:
+        args = review.parser().parse_args(
+            [
+                "prepare",
+                "--repository",
+                REPOSITORY,
+                "--pr-number",
+                "1",
+                "--event-name",
+                "pull_request_target",
+                "--base-root",
+                ".",
+                "--config",
+                "config.json",
+                "--context-output",
+                "context.json",
+                "--metadata-output",
+                "metadata.json",
+            ]
+        )
+
+        self.assertEqual(0, args.repository_id)
+        self.assertEqual("", args.expected_head_sha)
+        self.assertFalse(args.allow_deferred)
+        self.assertEqual(0, args.source_run_id)
+
+    def test_deferred_workflow_binding_revalidates_exact_run_and_pull_request(
+        self,
+    ) -> None:
+        client = FakeDeferredClient()
+        binding = review.deferred_review_binding(
+            client,
+            REPOSITORY,
+            REPOSITORY_ID,
+            SOURCE_RUN_ID,
+            deferred_config(),
+            DEFERRED_PR_NUMBER,
+            HEAD_SHA,
+        )
+
+        self.assertTrue(binding["eligible"])
+        self.assertEqual(review.PR_ROUTE_DEFERRED, binding["review_route"])
+        self.assertEqual(DEFERRED_PR_NUMBER, binding["pr_number"])
+        self.assertEqual(HEAD_SHA, binding["head_sha"])
+        self.assertEqual("dependabot[bot]", binding["author_login"])
+        self.assertEqual("Bot", binding["author_type"])
+        self.assertEqual(DEPENDABOT_BOT_ID, binding["author_id"])
+        self.assertEqual(
+            [
+                f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}",
+                f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}",
+            ],
+            client.get_paths,
+        )
+
+    def test_deferred_workflow_binding_rejects_forged_or_stale_inputs(self) -> None:
+        cases: list[tuple[str, dict, dict, list[dict]]] = []
+
+        def add_case(
+            name: str,
+            *,
+            run_change: tuple[str, object] | None = None,
+            pr_path: tuple[str, str, object] | None = None,
+            associated: list[dict] | None = None,
+        ) -> None:
+            run = json.loads(json.dumps(deferred_workflow_run()))
+            pull_request = json.loads(json.dumps(deferred_pull_request()))
+            if run_change is not None:
+                run[run_change[0]] = run_change[1]
+            if pr_path is not None:
+                parent, key, value = pr_path
+                pull_request[parent][key] = value
+            cases.append(
+                (
+                    name,
+                    run,
+                    pull_request,
+                    associated
+                    if associated is not None
+                    else [{"number": DEFERRED_PR_NUMBER}],
+                )
+            )
+
+        add_case("wrong run id", run_change=("id", SOURCE_RUN_ID + 1))
+        add_case("wrong workflow", run_change=("name", "Other Workflow"))
+        add_case(
+            "wrong workflow path",
+            run_change=("path", ".github/workflows/reusable-agent-review-jury.yml"),
+        )
+        add_case("wrong event", run_change=("event", "pull_request_review"))
+        add_case("failed run", run_change=("conclusion", "failure"))
+        add_case(
+            "wrong run repository id",
+            run_change=(
+                "repository",
+                {"id": REPOSITORY_ID + 1, "full_name": REPOSITORY},
+            ),
+        )
+        add_case(
+            "wrong run repository name",
+            run_change=(
+                "repository",
+                {"id": REPOSITORY_ID, "full_name": "someone/coco-framework"},
+            ),
+        )
+        add_case(
+            "wrong source head repository id",
+            run_change=(
+                "head_repository",
+                {"id": REPOSITORY_ID + 1, "full_name": REPOSITORY},
+            ),
+        )
+        add_case(
+            "wrong source head repository name",
+            run_change=(
+                "head_repository",
+                {"id": REPOSITORY_ID, "full_name": "someone/coco-framework"},
+            ),
+        )
+        add_case(
+            "stale title head",
+            run_change=(
+                "display_title",
+                f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {'c' * 40}",
+            ),
+        )
+        add_case("run head SHA drift", run_change=("head_sha", "c" * 40))
+        add_case(
+            "run head branch drift",
+            run_change=("head_branch", "dependabot/maven/example-1.0.2"),
+        )
+        add_case("missing association", associated=[])
+        add_case(
+            "multiple associations",
+            associated=[
+                {"number": DEFERRED_PR_NUMBER},
+                {"number": DEFERRED_PR_NUMBER + 1},
+            ],
+        )
+        add_case(
+            "wrong association",
+            associated=[{"number": DEFERRED_PR_NUMBER + 1}],
+        )
+        add_case("stale current head", pr_path=("head", "sha", "c" * 40))
+        add_case("wrong base", pr_path=("base", "ref", "release"))
+        add_case(
+            "wrong pull request head repository id",
+            pr_path=(
+                "head",
+                "repo",
+                {"id": REPOSITORY_ID + 1, "full_name": REPOSITORY},
+            ),
+        )
+        add_case(
+            "wrong pull request head repository name",
+            pr_path=(
+                "head",
+                "repo",
+                {"id": REPOSITORY_ID, "full_name": "someone/coco-framework"},
+            ),
+        )
+
+        for field, value in (
+            ("login", "dependabot-preview[bot]"),
+            ("id", DEPENDABOT_BOT_ID + 1),
+            ("type", "User"),
+        ):
+            run = json.loads(json.dumps(deferred_workflow_run()))
+            pull_request = json.loads(json.dumps(deferred_pull_request()))
+            pull_request["user"][field] = value
+            cases.append(
+                (
+                    f"wrong author {field}",
+                    run,
+                    pull_request,
+                    [{"number": DEFERRED_PR_NUMBER}],
+                )
+            )
+
+        for name, run, pull_request, associated in cases:
+            with self.subTest(name=name):
+                client = FakeDeferredClient(
+                    run=run,
+                    pull_request=pull_request,
+                    associated=associated,
+                )
+                with self.assertRaises(review.ReviewError):
+                    review.deferred_review_binding(
+                        client,
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        SOURCE_RUN_ID,
+                        deferred_config(),
+                        DEFERRED_PR_NUMBER,
+                        HEAD_SHA,
+                    )
+
+    def test_deferred_candidate_skips_non_pinned_authors(self) -> None:
+        for user, expected_route in (
+            (
+                {"id": 12, "login": "maintainer", "type": "User"},
+                review.PR_ROUTE_DIRECT,
+            ),
+            (
+                {"id": 13, "login": "renovate[bot]", "type": "Bot"},
+                review.PR_ROUTE_NO_SECRET,
+            ),
+        ):
+            with self.subTest(user=user):
+                pull_request = deferred_pull_request()
+                pull_request["user"] = user
+                candidate = review.deferred_review_candidate(
+                    FakeDeferredClient(pull_request=pull_request),
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    SOURCE_RUN_ID,
+                    deferred_config(),
+                )
+                self.assertFalse(candidate["eligible"])
+                self.assertEqual(expected_route, candidate["review_route"])
+
+        fork = deferred_pull_request()
+        fork["head"]["repo"] = {"id": 7, "full_name": "someone/coco-framework"}
+        with self.assertRaises(review.ReviewError):
+            review.deferred_review_candidate(
+                FakeDeferredClient(pull_request=fork),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                deferred_config(),
+            )
+
+    def test_deferred_candidate_prioritizes_trusted_app_identity(self) -> None:
+        configured = deferred_config()
+        configured["deferred_bot_authors"].append(
+            {"login": "coco-agent[bot]", "id": APP_BOT_ID}
+        )
+        app_pull_request = deferred_pull_request()
+        app_pull_request["user"] = {
+            "id": APP_BOT_ID,
+            "login": "coco-agent[bot]",
+            "type": "Bot",
+        }
+
+        with patch.dict(
+            "os.environ",
+            {
+                "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
+                "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+            },
+            clear=True,
+        ):
+            app_candidate = review.deferred_review_candidate(
+                FakeDeferredClient(pull_request=app_pull_request),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                configured,
+            )
+            dependabot_candidate = review.deferred_review_candidate(
+                FakeDeferredClient(),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                configured,
+            )
+
+        self.assertFalse(app_candidate["eligible"])
+        self.assertEqual(review.PR_ROUTE_DIRECT, app_candidate["review_route"])
+        self.assertTrue(dependabot_candidate["eligible"])
+        self.assertEqual(review.PR_ROUTE_DEFERRED, dependabot_candidate["review_route"])
+
+    def test_bind_deferred_emits_ineligible_result_for_clean_skip(self) -> None:
+        pull_request = deferred_pull_request()
+        pull_request["user"] = {
+            "id": 42,
+            "login": "patton174",
+            "type": "User",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "binding.json"
+            with (
+                patch.object(
+                    review,
+                    "GitHubClient",
+                    return_value=FakeDeferredClient(pull_request=pull_request),
+                ),
+                patch.object(review, "load_config", return_value=deferred_config()),
+                patch("builtins.print"),
+            ):
+                result = review.command_bind_deferred(
+                    SimpleNamespace(
+                        repository=REPOSITORY,
+                        repository_id=REPOSITORY_ID,
+                        run_id=SOURCE_RUN_ID,
+                        config=Path(directory) / "config.json",
+                        output=output,
+                    )
+                )
+
+            binding = review.read_json(output)
+
+        self.assertEqual(0, result)
+        self.assertFalse(binding["eligible"])
+        self.assertEqual(review.PR_ROUTE_DIRECT, binding["review_route"])
+
+    def test_prepare_enables_full_jury_only_for_bound_deferred_run(self) -> None:
+        class FakeClient(FakeDeferredClient):
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if path.endswith("/files"):
+                    return [
+                        {
+                            "filename": "pom.xml",
+                            "status": "modified",
+                            "additions": 1,
+                            "deletions": 1,
+                            "changes": 2,
+                            "patch": "@@ -1 +1 @@\n-old\n+new",
+                        }
+                    ]
+                if path.endswith("/commits"):
+                    return []
+                return super().paginate(path, limit)
+
+        context = bound_context()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context_output = root / "context.json"
+            metadata_output = root / "metadata.json"
+            with (
+                patch.object(review, "GitHubClient", return_value=FakeClient()),
+                patch.object(review, "load_config", return_value=deferred_config()),
+                patch.object(review, "pull_request_diff", return_value="+change"),
+                patch.object(review, "build_context", return_value=context) as builder,
+                patch.object(
+                    review,
+                    "current_maintainer_approval",
+                    return_value=(False, []),
+                ) as approval,
+                patch("builtins.print"),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                result = review.command_prepare(
+                    SimpleNamespace(
+                        repository=REPOSITORY,
+                        repository_id=REPOSITORY_ID,
+                        pr_number=DEFERRED_PR_NUMBER,
+                        event_name="workflow_run",
+                        expected_head_sha=HEAD_SHA,
+                        allow_deferred=True,
+                        source_run_id=SOURCE_RUN_ID,
+                        base_root=root,
+                        config=root / "config.json",
+                        context_output=context_output,
+                        metadata_output=metadata_output,
+                    )
+                )
+            metadata = review.read_json(metadata_output)
+
+        self.assertEqual(0, result)
+        self.assertEqual(review.PR_ROUTE_DEFERRED, metadata["review_route"])
+        self.assertTrue(metadata["trusted"])
+        self.assertTrue(metadata["deferred"])
+        self.assertFalse(metadata["ignored"])
+        self.assertEqual(SOURCE_RUN_ID, metadata["source_run_id"])
+        self.assertEqual(REPOSITORY_ID, metadata["repository_id"])
+        builder.assert_called_once()
+        approval.assert_not_called()
+
+    def test_prepare_defers_dependabot_without_context_or_approval(self) -> None:
+        configured = config()
+        configured["deferred_bot_authors"] = [
+            {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID}
+        ]
+        pull_request = {
+            "number": 1,
+            "state": "open",
+            "title": "build(deps): update dependency",
+            "body": "",
+            "changed_files": 1,
+            "base": {"ref": "main", "sha": BASE_SHA},
+            "head": {
+                "sha": HEAD_SHA,
+                "repo": {"full_name": "patton174/coco-framework"},
+            },
+            "user": {
+                "id": DEPENDABOT_BOT_ID,
+                "login": "dependabot[bot]",
+                "type": "Bot",
+            },
+        }
+
+        class FakeClient:
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == "repos/patton174/coco-framework/pulls/1":
+                    return pull_request
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            @staticmethod
+            def paginate(path: str, limit: int = 1000) -> list[dict]:
+                del limit
+                if path.endswith("/files"):
+                    return [
+                        {
+                            "filename": "pom.xml",
+                            "status": "modified",
+                            "additions": 1,
+                            "deletions": 1,
+                            "changes": 2,
+                            "patch": "@@ -1 +1 @@\n-old\n+new",
+                        }
+                    ]
+                if path.endswith("/commits"):
+                    return []
+                raise AssertionError(f"Unexpected paginated path: {path}")
+
+        context = bound_context()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context_output = root / "context.json"
+            metadata_output = root / "metadata.json"
+            with (
+                patch.object(review, "GitHubClient", return_value=FakeClient()),
+                patch.object(review, "load_config", return_value=configured),
+                patch.object(review, "pull_request_diff", return_value="+change"),
+                patch.object(review, "build_context", return_value=context) as builder,
+                patch.object(
+                    review,
+                    "current_maintainer_approval",
+                    return_value=(False, []),
+                ) as approval,
+                patch("builtins.print"),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                result = review.command_prepare(
+                    SimpleNamespace(
+                        repository="patton174/coco-framework",
+                        repository_id=REPOSITORY_ID,
+                        pr_number=1,
+                        event_name="pull_request_target",
+                        expected_head_sha=HEAD_SHA,
+                        base_root=root,
+                        config=root / "config.json",
+                        context_output=context_output,
+                        metadata_output=metadata_output,
+                    )
+                )
+            metadata = review.read_json(metadata_output)
+
+        self.assertEqual(0, result)
+        self.assertEqual(review.PR_ROUTE_DEFERRED, metadata["review_route"])
+        self.assertFalse(metadata["trusted"])
+        self.assertTrue(metadata["deferred"])
+        self.assertTrue(metadata["ignored"])
+        self.assertFalse(metadata["maintainer_approved"])
+        builder.assert_not_called()
+        approval.assert_not_called()
+
+    def test_dependabot_review_event_cannot_overwrite_deferred_gate(self) -> None:
+        pull_request = deferred_pull_request()
+
+        class FakeClient:
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    return pull_request
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_output = root / "metadata.json"
+            with (
+                patch.object(review, "GitHubClient", return_value=FakeClient()),
+                patch.object(review, "load_config", return_value=deferred_config()),
+                patch.object(
+                    review,
+                    "current_maintainer_approval",
+                    side_effect=AssertionError("approval must not be read"),
+                ),
+                patch("builtins.print"),
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                review.command_prepare(
+                    SimpleNamespace(
+                        repository=REPOSITORY,
+                        repository_id=REPOSITORY_ID,
+                        pr_number=DEFERRED_PR_NUMBER,
+                        event_name="pull_request_review",
+                        expected_head_sha=HEAD_SHA,
+                        allow_deferred=False,
+                        source_run_id=0,
+                        base_root=root,
+                        config=root / "config.json",
+                        context_output=root / "context.json",
+                        metadata_output=metadata_output,
+                    )
+                )
+            metadata = review.read_json(metadata_output)
+            self.assertTrue(metadata["deferred"])
+            self.assertTrue(metadata["ignored"])
+
+            with (
+                patch.object(
+                    review,
+                    "GitHubClient",
+                    side_effect=AssertionError("ignored events must not publish"),
+                ),
+                patch("builtins.print"),
+            ):
+                self.assertEqual(
+                    0,
+                    review.command_mark_pending(
+                        SimpleNamespace(
+                            metadata=metadata_output,
+                            run_url="https://github.example/runs/review",
+                        )
+                    ),
+                )
+                self.assertEqual(
+                    0,
+                    review.command_mark_failed(
+                        SimpleNamespace(
+                            metadata=metadata_output,
+                            run_url="https://github.example/runs/review",
+                        )
+                    ),
+                )
+                self.assertEqual(
+                    0,
+                    review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_output,
+                            run_url="https://github.example/runs/review",
+                        )
+                    ),
+                )
+
+    def test_deferred_publish_revalidates_source_run_before_app_publication(
+        self,
+    ) -> None:
+        class FakeStatusClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    return deferred_pull_request()
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        metadata = {
+            "schema_version": 1,
+            "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
+            "pr_number": DEFERRED_PR_NUMBER,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "review_route": review.PR_ROUTE_DEFERRED,
+            "trusted": True,
+            "deferred": True,
+            "ignored": False,
+            "source_run_id": SOURCE_RUN_ID,
+            "run_id": "22",
+            "run_attempt": "1",
+        }
+        config_path = Path(__file__).resolve().parents[1] / "agent-review/config.json"
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            client = FakeStatusClient()
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(
+                    review,
+                    "deferred_review_binding",
+                    side_effect=review.ReviewError("source run changed"),
+                ) as binding,
+                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "source run changed"):
+                    review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            config=config_path,
+                            run_url="https://github.example/runs/22",
+                        )
+                    )
+
+        binding.assert_called_once()
+        status_path = f"repos/{REPOSITORY}/statuses/{HEAD_SHA}"
+        self.assertEqual(
+            [("POST", status_path), ("POST", status_path)],
+            [(method, path) for method, path, _payload in client.sent],
+        )
+        self.assertEqual(
+            ["failure", "failure"],
+            [payload["state"] for _method, _path, payload in client.sent],
+        )
+        self.assertEqual(
+            ["Agent issue gate", "Agent jury gate"],
+            [payload["context"] for _method, _path, payload in client.sent],
+        )
+
+    def test_deferred_publish_emits_binding_failures_once_when_rechecked(
+        self,
+    ) -> None:
+        class FakeStatusClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    return deferred_pull_request()
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {}
+
+        metadata = {
+            "schema_version": 1,
+            "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
+            "pr_number": DEFERRED_PR_NUMBER,
+            "base_sha": BASE_SHA,
+            "head_sha": HEAD_SHA,
+            "review_route": review.PR_ROUTE_DEFERRED,
+            "trusted": True,
+            "deferred": True,
+            "ignored": False,
+            "source_run_id": SOURCE_RUN_ID,
+            "run_id": "22",
+            "run_attempt": "1",
+        }
+        config_path = Path(__file__).resolve().parents[1] / "agent-review/config.json"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            client = FakeStatusClient()
+            binding_error = review.ReviewError("source run changed")
+            with (
+                patch.object(review, "GitHubClient", return_value=client),
+                patch.object(
+                    review,
+                    "deferred_review_binding",
+                    side_effect=[
+                        {"base_sha": BASE_SHA},
+                        binding_error,
+                        binding_error,
+                    ],
+                ) as binding,
+                patch.dict(
+                    "os.environ",
+                    {
+                        "GH_TOKEN": "token",
+                        "AGENT_GH_TOKEN": "agent-token",
+                        "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
+                        "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                    },
+                    clear=True,
+                ),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "source run changed"):
+                    review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            config=config_path,
+                            context=root / "missing-context.json",
+                            specialists=root / "missing-specialists",
+                            verifiers=root / "missing-verifiers",
+                            final_json=root / "missing-final.json",
+                            final_markdown=root / "missing-final.md",
+                            run_url="https://github.example/runs/22",
+                        )
+                    )
+
+        self.assertEqual(3, binding.call_count)
+        self.assertEqual(
+            ["Agent issue gate", "Agent jury gate"],
+            [payload["context"] for _method, _path, payload in client.sent],
+        )
+        self.assertEqual(
+            ["failure", "failure"],
+            [payload["state"] for _method, _path, payload in client.sent],
+        )
+
+    def test_agent_review_workflow_concurrency_is_scoped_to_pr_and_event_group(
+        self,
+    ) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
+        ).read_text(encoding="utf-8")
+        workflow_header = workflow.split("\njobs:\n", 1)[0]
+
+        for value in (
+            "\nconcurrency:\n",
+            "agent-review-router-${{ github.repository_id }}",
+            "${{ github.event.pull_request.number }}",
+            "github.event_name == 'pull_request_review' && 'approval' || 'head'",
+            "cancel-in-progress: true",
+        ):
+            self.assertIn(value, workflow_header)
+
+    def test_reusable_jury_top_level_concurrency_separates_route_groups(
+        self,
+    ) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / "workflows/reusable-agent-review-jury.yml"
+        ).read_text(encoding="utf-8")
+        workflow_header = workflow.split("\njobs:\n", 1)[0]
+
+        for value in (
+            "\nconcurrency:\n",
+            "inputs.allow_deferred && 'deferred' ||",
+            "inputs.event_name == 'pull_request_review' && 'approval' || 'head'",
+            "cancel-in-progress: true",
+        ):
+            self.assertIn(value, workflow_header)
+
+    def test_agent_review_workflows_bootstrap_legacy_protected_base(self) -> None:
+        workflow_root = Path(__file__).resolve().parents[1] / "workflows"
+        router = (workflow_root / "agent-review.yml").read_text(encoding="utf-8")
+        reusable = (workflow_root / "reusable-agent-review-jury.yml").read_text(
+            encoding="utf-8"
+        )
+
+        route_step = router.split("\n      - name: Classify bound pull request\n", 1)[
+            1
+        ].split("\n  direct-secret-review:\n", 1)[0]
+        for value in (
+            'if python3 "${review_script}" route --help >/dev/null 2>&1; then',
+            "route_mode='legacy-prepare'",
+            'python3 "${review_script}" prepare \\',
+            "EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            '--context-output "${RUNNER_TEMP}/agent-review-route-context.json"',
+            '--metadata-output "${output}"',
+            'route_mode == "legacy-prepare"',
+            'event_name == "pull_request_review"',
+            'payload.get("trusted") is True',
+            'payload.get("ignored") is True',
+            'payload.get("repository") == repository',
+            'type(payload.get("pr_number")) is int',
+            'payload.get("pr_number") == expected_pr_number',
+            'payload.get("head_sha") == expected_head_sha',
+            'payload.get("base_sha") == expected_base_sha',
+            'review_route = "compat-skip"',
+        ):
+            self.assertIn(value, route_step)
+        legacy_route_call = route_step.rsplit(
+            'python3 "${review_script}" prepare \\', 1
+        )[1]
+        self.assertNotIn("--repository-id", legacy_route_call)
+        decision_script = textwrap.dedent(
+            route_step.split("<<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+        )
+        legacy_decision = decision_script.split(
+            'elif route_mode == "legacy-prepare":\n', 1
+        )[1].split("\nelse:\n", 1)[0]
+        self.assertNotIn('"direct-secret"', legacy_decision)
+        self.assertNotIn('"no-secret"', legacy_decision)
+
+        no_secret = router.split("\n  no-secret-review:\n", 1)[1]
+        self.assertIn(
+            "if: needs.route.outputs.review-route == 'no-secret' || needs.route.outputs.review-route == 'deferred-pinned-bot'",
+            no_secret,
+        )
+        self.assertNotIn("!= 'direct-secret'", no_secret)
+        self.assertNotIn("compat-skip", no_secret)
+
+        context_step = reusable.split(
+            "\n      - name: Build canonical review context\n", 1
+        )[1].split("\n      - name: Export metadata\n", 1)[0]
+        for value in (
+            'prepare_help="$(python3 "${review_script}" prepare --help)"',
+            "if ! grep -q -- '--repository-id' <<< \"${prepare_help}\"; then",
+            "Agent review requires the current protected-base prepare protocol.",
+            "exit 1",
+        ):
+            self.assertIn(value, context_step)
+        self.assertEqual(1, context_step.count('python3 "${review_script}" prepare \\'))
+        self.assertLess(
+            context_step.index("if ! grep -q -- '--repository-id'"),
+            context_step.index('python3 "${review_script}" prepare \\'),
+        )
+        modern_call = context_step.split('python3 "${review_script}" prepare \\', 1)[1]
+        for value in (
+            '--repository-id "${REPOSITORY_ID}"',
+            '--source-run-id "${SOURCE_RUN_ID}"',
+            '"${deferred_args[@]}"',
+        ):
+            self.assertIn(value, modern_call)
+
+    def test_legacy_router_compat_skip_requires_exact_metadata_binding(self) -> None:
+        router = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
+        ).read_text(encoding="utf-8")
+        route_step = router.split("\n      - name: Classify bound pull request\n", 1)[
+            1
+        ].split("\n  direct-secret-review:\n", 1)[0]
+        decision_script = textwrap.dedent(
+            route_step.split("<<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+        )
+
+        exact_payload = {
+            "trusted": True,
+            "ignored": True,
+            "repository": REPOSITORY,
+            "pr_number": DEFERRED_PR_NUMBER,
+            "head_sha": HEAD_SHA,
+            "base_sha": BASE_SHA,
+        }
+
+        def execute(
+            payload: dict,
+            *,
+            event_name: str = "pull_request_review",
+            repository: str = REPOSITORY,
+            pr_number: str = str(DEFERRED_PR_NUMBER),
+            head_sha: str = HEAD_SHA,
+            base_sha: str = BASE_SHA,
+        ) -> tuple[subprocess.CompletedProcess[str], str]:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                payload_path = root / "payload.json"
+                output_path = root / "github-output.txt"
+                review.write_json(payload_path, payload)
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-",
+                        str(payload_path),
+                        str(output_path),
+                        "legacy-prepare",
+                        event_name,
+                        repository,
+                        pr_number,
+                        head_sha,
+                        base_sha,
+                    ],
+                    input=decision_script,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                output = (
+                    output_path.read_text(encoding="utf-8")
+                    if output_path.exists()
+                    else ""
+                )
+                return result, output
+
+        result, output = execute(exact_payload)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("review-route=compat-skip\n", output)
+
+        failure_cases = (
+            ("untrusted", {"trusted": False}, {}),
+            ("not ignored", {"ignored": False}, {}),
+            ("repository mismatch", {"repository": "someone/fork"}, {}),
+            ("PR mismatch", {"pr_number": DEFERRED_PR_NUMBER + 1}, {}),
+            ("head mismatch", {"head_sha": "c" * 40}, {}),
+            ("base mismatch", {"base_sha": "d" * 40}, {}),
+            ("event mismatch", {}, {"event_name": "pull_request_target"}),
+            ("non-numeric PR", {}, {"pr_number": "not-a-number"}),
+        )
+        for name, payload_changes, argument_changes in failure_cases:
+            with self.subTest(name=name):
+                result, output = execute(
+                    {**exact_payload, **payload_changes}, **argument_changes
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "Legacy protected-base metadata is not an exact trusted approval skip.",
+                    result.stderr,
+                )
+                self.assertEqual("", output)
 
     def test_agent_review_workflow_binds_the_trusted_app_author(self) -> None:
         workflow = (
@@ -2597,6 +3863,10 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("--trusted-app-bot-id", workflow)
 
     def test_prepare_reads_the_trusted_app_identity_from_environment(self) -> None:
+        configured = config()
+        configured["deferred_bot_authors"] = [
+            {"login": "dependabot[bot]", "id": DEPENDABOT_BOT_ID}
+        ]
         pull_request = {
             "state": "open",
             "base": {"ref": "main", "sha": BASE_SHA},
@@ -2622,8 +3892,12 @@ class AgentReviewTests(unittest.TestCase):
             root = Path(directory)
             with (
                 patch.object(review, "GitHubClient", return_value=FakeClient()),
-                patch.object(review, "load_config", return_value=config()),
-                patch.object(review, "classify_pr", return_value=False) as classifier,
+                patch.object(review, "load_config", return_value=configured),
+                patch.object(
+                    review,
+                    "classify_pr_route",
+                    return_value=review.PR_ROUTE_NO_SECRET,
+                ) as classifier,
                 patch.object(
                     review,
                     "current_maintainer_approval",
@@ -2643,6 +3917,7 @@ class AgentReviewTests(unittest.TestCase):
                 result = review.command_prepare(
                     SimpleNamespace(
                         repository="patton174/coco-framework",
+                        repository_id=REPOSITORY_ID,
                         pr_number=1,
                         event_name="pull_request_target",
                         expected_head_sha=HEAD_SHA,
@@ -2659,6 +3934,7 @@ class AgentReviewTests(unittest.TestCase):
             "patton174/coco-framework",
             "coco-agent[bot]",
             APP_BOT_ID,
+            (("dependabot[bot]", DEPENDABOT_BOT_ID),),
         )
 
     def test_maintainer_approval_must_bind_current_head(self) -> None:
@@ -2871,7 +4147,8 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_publisher_jobs_are_serialized_across_event_groups(self) -> None:
         workflow = (
-            Path(__file__).resolve().parents[1] / "workflows/agent-review.yml"
+            Path(__file__).resolve().parents[1]
+            / "workflows/reusable-agent-review-jury.yml"
         ).read_text(encoding="utf-8")
         trusted = workflow.split("\n  trusted-publisher:\n", 1)[1].split(
             "\n  no-secret-publisher:\n", 1

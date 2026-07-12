@@ -27,6 +27,12 @@ COMMENT_MARKER = "<!-- agent-jury:v1 -->"
 LEGACY_COMMENT_MARKER = "<!-- claude-review-marker: managed by workflow -->"
 STATUS_CONTEXT = "Agent jury gate"
 ISSUE_STATUS_CONTEXT = "Agent issue gate"
+PR_ROUTE_DIRECT = "direct-secret"
+PR_ROUTE_DEFERRED = "deferred-pinned-bot"
+PR_ROUTE_NO_SECRET = "no-secret"
+DEFERRED_WORKFLOW_NAME = "Agent Review Jury"
+DEFERRED_WORKFLOW_PATH = ".github/workflows/agent-review.yml"
+DEFERRED_WORKFLOW_EVENT = "pull_request_target"
 FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
@@ -50,6 +56,9 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 APP_BOT_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?\[bot\]$")
+DEFERRED_RUN_TITLE_RE = re.compile(
+    r"^Agent Review Jury / PR #([1-9][0-9]*) / ([0-9a-f]{40})$"
+)
 STABLE_FINDING_ID_RE = re.compile(r"^v1-[0-9a-f]{64}$")
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -185,6 +194,38 @@ def valid_schema_version(value: Any) -> bool:
     return type(value) is int and value == SCHEMA_VERSION
 
 
+def configured_deferred_bot_authors(
+    config: dict[str, Any],
+) -> tuple[tuple[str, int], ...]:
+    values = config.get("deferred_bot_authors", [])
+    if not isinstance(values, list):
+        raise ReviewError("deferred_bot_authors must be a JSON array.")
+
+    identities: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    seen_logins: set[str] = set()
+    seen_ids: set[int] = set()
+    for value in values:
+        if not isinstance(value, dict) or set(value) != {"login", "id"}:
+            raise ReviewError(
+                "Each deferred_bot_authors entry must contain only login and id."
+            )
+        login = value.get("login")
+        bot_id = value.get("id")
+        if not isinstance(login, str) or not APP_BOT_LOGIN_RE.fullmatch(login):
+            raise ReviewError("Deferred bot login is invalid.")
+        if type(bot_id) is not int or bot_id < 1:
+            raise ReviewError("Deferred bot user ID must be a positive integer.")
+        identity = (login, bot_id)
+        if identity in seen or login in seen_logins or bot_id in seen_ids:
+            raise ReviewError("Deferred bot logins and user IDs must be unique.")
+        seen.add(identity)
+        seen_logins.add(login)
+        seen_ids.add(bot_id)
+        identities.append(identity)
+    return tuple(identities)
+
+
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(canonical_json(value) + "\n", encoding="utf-8")
@@ -202,6 +243,7 @@ def load_config(path: Path) -> dict[str, Any]:
         raise ReviewError(
             "Agent review managed_comment_marker does not match the publisher contract."
         )
+    configured_deferred_bot_authors(config)
     return config
 
 
@@ -1213,33 +1255,358 @@ def build_context(
     return context
 
 
+def classify_pr_route(
+    pr: dict[str, Any],
+    repository: str,
+    trusted_app_login: str = "",
+    trusted_app_bot_id: int = 0,
+    deferred_bot_authors: tuple[tuple[str, int], ...] = (),
+) -> str:
+    head_repo = str(((pr.get("head") or {}).get("repo") or {}).get("full_name") or "")
+    user = pr.get("user") or {}
+    login = str(user.get("login") or "")
+    user_id = user.get("id")
+    human_author = (
+        user.get("type") == "User"
+        and bool(login)
+        and not login.endswith("[bot]")
+        and type(user_id) is int
+        and user_id > 0
+    )
+    trusted_app_author = (
+        bool(trusted_app_login)
+        and type(trusted_app_bot_id) is int
+        and trusted_app_bot_id > 0
+        and user.get("type") == "Bot"
+        and login == trusted_app_login
+        and type(user_id) is int
+        and user_id == trusted_app_bot_id
+    )
+    deferred_bot_author = (
+        user.get("type") == "Bot"
+        and type(user_id) is int
+        and (login, user_id) in set(deferred_bot_authors)
+    )
+    if head_repo != repository:
+        return PR_ROUTE_NO_SECRET
+    if human_author or trusted_app_author:
+        return PR_ROUTE_DIRECT
+    if deferred_bot_author:
+        return PR_ROUTE_DEFERRED
+    return PR_ROUTE_NO_SECRET
+
+
 def classify_pr(
     pr: dict[str, Any],
     repository: str,
     trusted_app_login: str = "",
     trusted_app_bot_id: int = 0,
 ) -> bool:
-    head_repo = str(((pr.get("head") or {}).get("repo") or {}).get("full_name") or "")
-    user = pr.get("user") or {}
-    login = str(user.get("login") or "")
-    human_author = user.get("type") != "Bot" and not login.endswith("[bot]")
-    trusted_app_author = (
-        bool(trusted_app_login)
-        and trusted_app_bot_id > 0
-        and user.get("type") == "Bot"
-        and login == trusted_app_login
-        and user.get("id") == trusted_app_bot_id
+    """Preserve the legacy direct-secret eligibility helper contract.
+
+    This compatibility shim is equivalent to
+    ``classify_pr_route(..., deferred_bot_authors=()) == PR_ROUTE_DIRECT``.
+    """
+    return (
+        classify_pr_route(
+            pr,
+            repository,
+            trusted_app_login,
+            trusted_app_bot_id,
+            deferred_bot_authors=(),
+        )
+        == PR_ROUTE_DIRECT
     )
-    return head_repo == repository and (human_author or trusted_app_author)
 
 
-def command_prepare(args: argparse.Namespace) -> int:
+def trusted_app_identity_from_environment() -> tuple[str, int]:
+    login = os.environ.get("COCO_AGENT_APP_LOGIN", "")
+    bot_id: Any = os.environ.get("COCO_AGENT_APP_BOT_ID", "")
+    if not login and not bot_id:
+        return "", 0
+    return require_app_bot_login(login), require_app_bot_id(bot_id)
+
+
+def deferred_review_candidate(
+    client: GitHubClient,
+    repository: str,
+    repository_id: int,
+    run_id: int,
+    config: dict[str, Any],
+    expected_pr_number: int = 0,
+    expected_head_sha: str = "",
+) -> dict[str, Any]:
+    checked_repository = require_repository(repository)
+    if type(repository_id) is not int or repository_id < 1:
+        raise ReviewError("Deferred Agent review repository ID is invalid.")
+    if type(run_id) is not int or run_id < 1:
+        raise ReviewError("Deferred Agent review workflow run ID is invalid.")
+
+    run = client.get_json(f"repos/{checked_repository}/actions/runs/{run_id}")
+    if not isinstance(run, dict):
+        raise ReviewError("Deferred Agent review workflow run is invalid.")
+    run_repository = run.get("repository") or {}
+    run_head_repository = run.get("head_repository") or {}
+    run_head_sha = str(run.get("head_sha") or "")
+    run_head_branch = str(run.get("head_branch") or "")
+    if (
+        run.get("id") != run_id
+        or run.get("name") != DEFERRED_WORKFLOW_NAME
+        or run.get("path") != DEFERRED_WORKFLOW_PATH
+        or run.get("event") != DEFERRED_WORKFLOW_EVENT
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or run_repository.get("id") != repository_id
+        or run_repository.get("full_name") != checked_repository
+        or run_head_repository.get("id") != repository_id
+        or run_head_repository.get("full_name") != checked_repository
+    ):
+        raise ReviewError("Deferred Agent review workflow run binding is invalid.")
+
+    title_match = DEFERRED_RUN_TITLE_RE.fullmatch(str(run.get("display_title") or ""))
+    if title_match is None:
+        raise ReviewError("Deferred Agent review workflow run title is invalid.")
+    title_pr_number = int(title_match.group(1))
+    title_head_sha = title_match.group(2)
+    if run_head_sha != title_head_sha:
+        raise ReviewError("Deferred Agent review workflow run head SHA is invalid.")
+    if expected_pr_number and title_pr_number != expected_pr_number:
+        raise ReviewError("Deferred Agent review pull request number changed.")
+    if expected_head_sha and title_head_sha != expected_head_sha:
+        raise ReviewError("Deferred Agent review head SHA changed.")
+
+    associated = run.get("pull_requests")
+    if not isinstance(associated, list):
+        raise ReviewError("Deferred Agent review pull request association is invalid.")
+    if len(associated) != 1 or not isinstance(associated[0], dict):
+        raise ReviewError("Deferred Agent review requires one associated pull request.")
+    if associated[0].get("number") != title_pr_number:
+        raise ReviewError("Deferred Agent review pull request association is invalid.")
+
+    pr = client.get_json(f"repos/{checked_repository}/pulls/{title_pr_number}")
+    if not isinstance(pr, dict):
+        raise ReviewError("Deferred Agent review pull request is invalid.")
+    base = pr.get("base") or {}
+    head = pr.get("head") or {}
+    base_repository = base.get("repo") or {}
+    head_repository = head.get("repo") or {}
+    base_sha = str(base.get("sha") or "")
+    head_sha = str(head.get("sha") or "")
+    head_ref = str(head.get("ref") or "")
+    if (
+        pr.get("state") != "open"
+        or (pr.get("number") is not None and pr.get("number") != title_pr_number)
+        or base.get("ref") != "main"
+        or base_repository.get("id") != repository_id
+        or base_repository.get("full_name") != checked_repository
+        or head_repository.get("id") != repository_id
+        or head_repository.get("full_name") != checked_repository
+        or not SHA_RE.fullmatch(base_sha)
+        or head_sha != run_head_sha
+        or not head_ref
+        or run_head_branch != head_ref
+    ):
+        raise ReviewError("Deferred Agent review pull request binding is invalid.")
+    trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
+    route = classify_pr_route(
+        pr,
+        checked_repository,
+        trusted_app_login,
+        trusted_app_bot_id,
+        configured_deferred_bot_authors(config),
+    )
+    user = pr.get("user") or {}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "eligible": route == PR_ROUTE_DEFERRED,
+        "review_route": route,
+        "repository": checked_repository,
+        "repository_id": repository_id,
+        "run_id": run_id,
+        "pr_number": title_pr_number,
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+        "author_login": str(user.get("login") or ""),
+        "author_type": str(user.get("type") or ""),
+        "author_id": user.get("id"),
+    }
+
+
+def deferred_review_binding(
+    client: GitHubClient,
+    repository: str,
+    repository_id: int,
+    run_id: int,
+    config: dict[str, Any],
+    expected_pr_number: int = 0,
+    expected_head_sha: str = "",
+) -> dict[str, Any]:
+    binding = deferred_review_candidate(
+        client,
+        repository,
+        repository_id,
+        run_id,
+        config,
+        expected_pr_number,
+        expected_head_sha,
+    )
+    if not binding["eligible"]:
+        raise ReviewError("Deferred Agent review author identity is invalid.")
+    return binding
+
+
+def command_route(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    repository = require_repository(args.repository)
+    if type(args.repository_id) is not int or args.repository_id < 1:
+        raise ReviewError("Agent review repository ID is invalid.")
+    if args.event_name not in {"pull_request_target", "pull_request_review"}:
+        raise ReviewError("Direct Agent review event is invalid.")
+    if not SHA_RE.fullmatch(args.expected_head_sha):
+        raise ReviewError("Direct Agent review head SHA is invalid.")
+
+    client = GitHubClient(
+        os.environ.get("GH_TOKEN", ""),
+        os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+    )
+    pr = client.get_json(f"repos/{repository}/pulls/{args.pr_number}")
+    if not isinstance(pr, dict):
+        raise ReviewError("Direct Agent review pull request is invalid.")
+    base = pr.get("base") or {}
+    head = pr.get("head") or {}
+    base_repository = base.get("repo") or {}
+    base_sha = str(base.get("sha") or "")
+    head_sha = str(head.get("sha") or "")
+    if (
+        pr.get("state") != "open"
+        or (pr.get("number") is not None and pr.get("number") != args.pr_number)
+        or base.get("ref") != "main"
+        or base_repository.get("id") != args.repository_id
+        or base_repository.get("full_name") != repository
+        or not SHA_RE.fullmatch(base_sha)
+        or head_sha != args.expected_head_sha
+    ):
+        raise ReviewError("Direct Agent review pull request binding is invalid.")
+
+    trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
+    route = classify_pr_route(
+        pr,
+        repository,
+        trusted_app_login,
+        trusted_app_bot_id,
+        configured_deferred_bot_authors(config),
+    )
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "repository": repository,
+        "repository_id": args.repository_id,
+        "pr_number": args.pr_number,
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+        "review_route": route,
+    }
+    write_json(args.output, result)
+    print(canonical_json(result))
+    return 0
+
+
+def command_bind_deferred(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     client = GitHubClient(
         os.environ.get("GH_TOKEN", ""),
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
     )
-    pr = client.get_json(f"repos/{args.repository}/pulls/{args.pr_number}")
+    binding = deferred_review_candidate(
+        client,
+        args.repository,
+        args.repository_id,
+        args.run_id,
+        config,
+    )
+    # workflow_run observes every successful source review. Ineligible same-repo
+    # runs are expected routing results, so emit eligible=false for a clean skip.
+    write_json(args.output, binding)
+    print(canonical_json(binding))
+    return 0
+
+
+def prepare_direct_route_state(
+    event_name: str,
+    source_run_id: int,
+    route: str,
+) -> dict[str, Any]:
+    if event_name == "workflow_run" or source_run_id:
+        raise ReviewError("workflow_run review requires explicit deferred mode.")
+    deferred = route == PR_ROUTE_DEFERRED
+    return {
+        "trusted": route == PR_ROUTE_DIRECT,
+        "deferred": deferred,
+        "ignored": deferred
+        or (event_name == "pull_request_review" and route == PR_ROUTE_DIRECT),
+        "source_run_id": 0,
+    }
+
+
+def prepare_deferred_route_state(
+    client: GitHubClient,
+    repository: str,
+    repository_id: int,
+    pr_number: int,
+    event_name: str,
+    source_run_id: int,
+    base_sha: str,
+    head_sha: str,
+    route: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    if event_name != "workflow_run" or source_run_id < 1:
+        raise ReviewError("Deferred Agent review mode requires a workflow_run binding.")
+    if route != PR_ROUTE_DEFERRED:
+        raise ReviewError("Deferred Agent review mode accepts only pinned bots.")
+    binding = deferred_review_binding(
+        client,
+        repository,
+        repository_id,
+        source_run_id,
+        config,
+        pr_number,
+        head_sha,
+    )
+    if binding["base_sha"] != base_sha:
+        raise ReviewError("Deferred Agent review base SHA changed.")
+    return {
+        "trusted": True,
+        "deferred": True,
+        "ignored": False,
+        "source_run_id": source_run_id,
+    }
+
+
+def command_prepare(args: argparse.Namespace) -> int:
+    repository = require_repository(args.repository)
+    repository_id = getattr(args, "repository_id", 0)
+    if type(repository_id) is not int or repository_id < 0:
+        raise ReviewError("Agent review repository ID is invalid.")
+    if type(args.pr_number) is not int or args.pr_number < 1:
+        raise ReviewError("Agent review pull request number is invalid.")
+    if args.event_name not in {
+        "pull_request_target",
+        "pull_request_review",
+        "workflow_run",
+    }:
+        raise ReviewError("Agent review event is invalid.")
+    expected_head_sha = getattr(args, "expected_head_sha", "")
+    if not isinstance(expected_head_sha, str) or (
+        expected_head_sha and not SHA_RE.fullmatch(expected_head_sha)
+    ):
+        raise ReviewError("Agent review head SHA is invalid.")
+
+    config = load_config(args.config)
+    client = GitHubClient(
+        os.environ.get("GH_TOKEN", ""),
+        os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+    )
+    pr = client.get_json(f"repos/{repository}/pulls/{args.pr_number}")
     if pr.get("state") != "open" or (pr.get("base") or {}).get("ref") != "main":
         raise ReviewError(
             "Agent review accepts only open pull requests targeting main."
@@ -1248,21 +1615,44 @@ def command_prepare(args: argparse.Namespace) -> int:
     head_sha = str((pr.get("head") or {}).get("sha") or "")
     if not SHA_RE.fullmatch(base_sha) or not SHA_RE.fullmatch(head_sha):
         raise ReviewError("GitHub returned invalid PR commit SHAs.")
-    if args.expected_head_sha and args.expected_head_sha != head_sha:
+    if expected_head_sha and expected_head_sha != head_sha:
         raise ReviewError("The event head SHA does not match the pull request.")
 
-    trusted_app_login = os.environ.get("COCO_AGENT_APP_LOGIN", "")
-    trusted_app_bot_id: Any = os.environ.get("COCO_AGENT_APP_BOT_ID", "")
-    if trusted_app_login or trusted_app_bot_id:
-        trusted_app_login = require_app_bot_login(trusted_app_login)
-        trusted_app_bot_id = require_app_bot_id(trusted_app_bot_id)
-    trusted = classify_pr(
+    trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
+    deferred_bot_authors = configured_deferred_bot_authors(config)
+    route = classify_pr_route(
         pr,
-        args.repository,
+        repository,
         trusted_app_login,
         trusted_app_bot_id,
+        deferred_bot_authors,
     )
-    ignored = args.event_name == "pull_request_review" and trusted
+    allow_deferred = bool(getattr(args, "allow_deferred", False))
+    source_run_id = int(getattr(args, "source_run_id", 0) or 0)
+    if allow_deferred:
+        route_state = prepare_deferred_route_state(
+            client,
+            repository,
+            repository_id,
+            args.pr_number,
+            args.event_name,
+            source_run_id,
+            base_sha,
+            head_sha,
+            route,
+            config,
+        )
+    else:
+        route_state = prepare_direct_route_state(
+            args.event_name,
+            source_run_id,
+            route,
+        )
+
+    trusted = bool(route_state["trusted"])
+    deferred = bool(route_state["deferred"])
+    ignored = bool(route_state["ignored"])
+    source_run_id = int(route_state["source_run_id"])
     approved = False
     approvers: list[str] = []
     context_sha = ""
@@ -1301,18 +1691,21 @@ def command_prepare(args: argparse.Namespace) -> int:
             )
         write_json(args.context_output, context)
         context_sha = str(context["binding"]["context_sha256"])
-    elif not trusted:
+    elif not trusted and not ignored:
         approved, approvers = current_maintainer_approval(
-            client, args.repository, args.pr_number, head_sha
+            client, repository, args.pr_number, head_sha
         )
 
     metadata = {
         "schema_version": SCHEMA_VERSION,
-        "repository": args.repository,
+        "repository": repository,
+        "repository_id": repository_id,
         "pr_number": args.pr_number,
         "base_sha": base_sha,
         "head_sha": head_sha,
+        "review_route": route,
         "trusted": trusted,
+        "deferred": deferred,
         "ignored": ignored,
         "maintainer_approved": approved,
         "maintainer_approvers": approvers,
@@ -1324,6 +1717,7 @@ def command_prepare(args: argparse.Namespace) -> int:
         ),
         "run_id": os.environ.get("GITHUB_RUN_ID", "0"),
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "0"),
+        "source_run_id": source_run_id,
     }
     write_json(args.metadata_output, metadata)
     print(canonical_json(metadata))
@@ -3244,6 +3638,33 @@ def command_publish(args: argparse.Namespace) -> int:
     if not SHA_RE.fullmatch(head_sha) or not SHA_RE.fullmatch(base_sha):
         raise ReviewError("Agent jury publication commit binding is invalid.")
 
+    trusted = metadata.get("trusted") is True
+    route = metadata.get("review_route")
+    if route is None:
+        route = PR_ROUTE_DIRECT if trusted else PR_ROUTE_NO_SECRET
+    if route not in {PR_ROUTE_DIRECT, PR_ROUTE_DEFERRED, PR_ROUTE_NO_SECRET}:
+        raise ReviewError("Agent jury publication route is invalid.")
+    deferred = metadata.get("deferred") is True
+    source_run_id = metadata.get("source_run_id", 0)
+    repository_id = metadata.get("repository_id", 0)
+    deferred_config: dict[str, Any] | None = None
+    if route == PR_ROUTE_DIRECT:
+        if not trusted or deferred or source_run_id not in {0, "0", None}:
+            raise ReviewError("Direct Agent jury publication metadata is invalid.")
+    elif route == PR_ROUTE_DEFERRED:
+        if (
+            not trusted
+            or not deferred
+            or type(source_run_id) is not int
+            or source_run_id < 1
+            or type(repository_id) is not int
+            or repository_id < 1
+        ):
+            raise ReviewError("Deferred Agent jury publication metadata is invalid.")
+        deferred_config = load_config(args.config)
+    elif trusted or deferred or source_run_id not in {0, "0", None}:
+        raise ReviewError("No-secret Agent jury publication metadata is invalid.")
+
     def require_current_pr() -> dict[str, Any]:
         value = status_client.get_json(f"repos/{repository}/pulls/{pr_number}")
         if (
@@ -3255,9 +3676,53 @@ def command_publish(args: argparse.Namespace) -> int:
             raise ReviewError("Pull request changed before Agent jury publication.")
         return value
 
-    require_current_pr()
+    published_binding_failure_contexts: set[str] = set()
 
-    if metadata.get("trusted"):
+    def publish_binding_failure() -> None:
+        require_current_pr()
+        failures = (
+            (ISSUE_STATUS_CONTEXT, "Agent issue binding revalidation failed"),
+            (STATUS_CONTEXT, "Agent jury binding revalidation failed"),
+        )
+        for context, description in failures:
+            if context in published_binding_failure_contexts:
+                continue
+            publish_status(
+                status_client,
+                repository,
+                head_sha,
+                "failure",
+                description,
+                args.run_url,
+                context,
+            )
+            published_binding_failure_contexts.add(context)
+
+    def require_publishable_binding() -> dict[str, Any]:
+        value = require_current_pr()
+        if route == PR_ROUTE_DEFERRED:
+            try:
+                binding = deferred_review_binding(
+                    status_client,
+                    repository,
+                    repository_id,
+                    source_run_id,
+                    deferred_config or {},
+                    pr_number,
+                    head_sha,
+                )
+                if binding["base_sha"] != base_sha:
+                    raise ReviewError(
+                        "Deferred Agent review binding changed before publication."
+                    )
+            except ReviewError:
+                publish_binding_failure()
+                raise
+        return value
+
+    require_publishable_binding()
+
+    if trusted:
         agent_client = GitHubClient(
             os.environ.get("AGENT_GH_TOKEN", ""),
             os.environ.get("GITHUB_API_URL", "https://api.github.com"),
@@ -3280,7 +3745,7 @@ def command_publish(args: argparse.Namespace) -> int:
         )
         if all(path.exists() for path in required_paths):
             try:
-                config = load_config(args.config)
+                config = deferred_config or load_config(args.config)
                 context = read_json(args.context)
                 validate_context(context)
                 binding = context["binding"]
@@ -3364,7 +3829,7 @@ def command_publish(args: argparse.Namespace) -> int:
             if approved
             else "Jury skipped; maintainer approval required"
         )
-        require_current_pr()
+        require_publishable_binding()
         publish_status(
             status_client, repository, head_sha, state, description, args.run_url
         )
@@ -3394,7 +3859,7 @@ def command_publish(args: argparse.Namespace) -> int:
     server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
 
     try:
-        require_current_pr()
+        require_publishable_binding()
         previous_comment = managed_comment(
             agent_client,
             repository,
@@ -3414,7 +3879,7 @@ def command_publish(args: argparse.Namespace) -> int:
                 expected_app_bot_id,
                 args.run_url,
                 server_url,
-                require_current_pr,
+                require_publishable_binding,
             )
             review_body = append_finding_issue_summary(
                 review_body, synchronized, repository, server_url
@@ -3432,7 +3897,7 @@ def command_publish(args: argparse.Namespace) -> int:
                 1 for issue in existing_issues.values() if issue.get("state") == "open"
             )
     except ReviewError:
-        require_current_pr()
+        require_publishable_binding()
         publish_status(
             status_client,
             repository,
@@ -3456,7 +3921,7 @@ def command_publish(args: argparse.Namespace) -> int:
         review_body.rstrip()
         + f"\n\n<sub>Updated {timestamp} - [workflow run]({args.run_url})</sub>\n"
     )
-    require_current_pr()
+    require_publishable_binding()
     try:
         require_comment_size(body, MAX_GITHUB_COMMENT_BODY_BYTES, "Agent jury comment")
         upsert_comment(
@@ -3470,7 +3935,7 @@ def command_publish(args: argparse.Namespace) -> int:
             previous_comment,
         )
     except ReviewError:
-        require_current_pr()
+        require_publishable_binding()
         publish_status(
             status_client,
             repository,
@@ -3493,7 +3958,7 @@ def command_publish(args: argparse.Namespace) -> int:
             args.run_url,
         )
         raise
-    require_current_pr()
+    require_publishable_binding()
     publish_status(
         status_client,
         repository,
@@ -3507,7 +3972,7 @@ def command_publish(args: argparse.Namespace) -> int:
         args.run_url,
         ISSUE_STATUS_CONTEXT,
     )
-    require_current_pr()
+    require_publishable_binding()
     publish_status(
         status_client, repository, head_sha, state, description, args.run_url
     )
@@ -3536,11 +4001,32 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
 
+    route = commands.add_parser("route")
+    route.add_argument("--repository", required=True)
+    route.add_argument("--repository-id", required=True, type=int)
+    route.add_argument("--pr-number", required=True, type=int)
+    route.add_argument("--event-name", required=True)
+    route.add_argument("--expected-head-sha", required=True)
+    route.add_argument("--config", required=True, type=Path)
+    route.add_argument("--output", required=True, type=Path)
+    route.set_defaults(handler=command_route)
+
+    bind_deferred = commands.add_parser("bind-deferred")
+    bind_deferred.add_argument("--repository", required=True)
+    bind_deferred.add_argument("--repository-id", required=True, type=int)
+    bind_deferred.add_argument("--run-id", required=True, type=int)
+    bind_deferred.add_argument("--config", required=True, type=Path)
+    bind_deferred.add_argument("--output", required=True, type=Path)
+    bind_deferred.set_defaults(handler=command_bind_deferred)
+
     prepare = commands.add_parser("prepare")
     prepare.add_argument("--repository", required=True)
+    prepare.add_argument("--repository-id", type=int, default=0)
     prepare.add_argument("--pr-number", required=True, type=int)
     prepare.add_argument("--event-name", required=True)
     prepare.add_argument("--expected-head-sha", default="")
+    prepare.add_argument("--allow-deferred", action="store_true")
+    prepare.add_argument("--source-run-id", type=int, default=0)
     prepare.add_argument("--base-root", required=True, type=Path)
     prepare.add_argument("--config", required=True, type=Path)
     prepare.add_argument("--context-output", required=True, type=Path)

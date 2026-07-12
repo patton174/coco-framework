@@ -59,12 +59,27 @@ produce effective SQL isolation. Request signature, encryption, and replay
 controls must fail safely under malformed input, concurrency, multi-instance
 deployment, and storage failure according to their documented contracts.
 
-Secret-backed review runs are allowed only for same-repository pull requests
-authored by a human or by the exact configured Coco Agent App login and
-immutable Bot ID. Review infrastructure must read workflow code, scripts,
-schemas, prompts, policy, and specifications from the protected base SHA. It
-must never checkout, execute, compile, or source PR head content. Forks and all
-other bots use the no-secret maintainer-approval path for the current head SHA.
+Direct secret-backed review runs are allowed only for same-repository pull
+requests whose author has GitHub `User` type, a non-empty login, and a positive
+numeric user ID, or by the exact Coco Agent App login, `Bot` type, and positive
+numeric Bot ID pinned by protected repository/environment variables. GitHub
+withholds Actions secrets and gives a read-only workflow token
+to Dependabot-triggered `pull_request_target` runs. Therefore the exact
+same-repository `dependabot[bot]` login, `Bot` type, and ID `49699333` pinned by
+protected base config is deferred: its original pull-request and review events
+run no models, read no secrets, and publish no final jury status. A
+protected-default-branch `workflow_run` may invoke the shared full jury only
+after GitHub API checks bind one successful source run to the expected workflow
+name and path, event, repository ID and full name, source head repository ID and
+full name, head branch and SHA, unique open PR targeting `main`, current head,
+and exact author identity. The
+publisher repeats that binding before any result is published. Review
+infrastructure must read executable policy from a protected base/default-branch
+revision and must never checkout, execute, compile, or source PR head content or
+consume source-run artifacts or caches. Forks and unpinned or
+identity-mismatched bots use the no-secret maintainer-approval path for the
+current head SHA. Bot authorship never replaces the required current-head human
+approval for merge.
 
 ## Context Completeness
 
@@ -162,14 +177,15 @@ or SHA/hash mismatch is an infrastructure block.
 
 ## Finding Issue Governance
 
-For trusted same-repository human or pinned-App reviews, confirmed P0/P1
+For direct same-repository human/Coco App reviews or successfully rebound
+deferred Dependabot reviews, confirmed P0/P1
 blockers and P2/P3 findings selected by the chair from the dual-`AGREE` eligible
 pool are actionable findings. A selected P2/P3 finding does not change
 `Agent jury gate`,
 but its managed Issue participates in `Agent issue gate`. The trusted publisher
 uses the configured Coco Agent GitHub App identity to maintain one repository
 issue per stable finding identity and one managed jury comment. Fork and
-untrusted-bot reviews never receive the App private key and never create or
+unpinned-bot reviews never receive the App private key and never create or
 update managed comments or finding issues.
 
 Each managed finding issue carries the `agent-review` label and a canonical,

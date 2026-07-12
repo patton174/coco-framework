@@ -1,0 +1,93 @@
+name: Deferred Agent Review Jury
+run-name: Deferred Agent Review Jury / source run #${{ github.event.workflow_run.id }}
+
+# workflow_run executes only from the protected default branch. It never
+# consumes source-run artifacts, caches, or pull request executable content.
+
+on:
+  workflow_run:
+    workflows: [Agent Review Jury]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  bind:
+    name: Rebind completed direct review
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request_target' &&
+      github.event.workflow_run.head_repository.id == fromJSON(github.repository_id) &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      eligible: ${{ steps.binding.outputs.eligible }}
+      head_sha: ${{ steps.binding.outputs.head_sha }}
+      pr_number: ${{ steps.binding.outputs.pr_number }}
+      repository_id: ${{ steps.binding.outputs.repository_id }}
+    steps:
+      - name: Checkout protected deferred binder
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: |
+            .github/agent-review
+            .github/scripts
+
+      - name: Bind source run to current pull request
+        id: binding
+        shell: bash
+        env:
+          COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          output="${RUNNER_TEMP}/agent-review-deferred-binding.json"
+          python3 .agent-review-base/.github/scripts/agent_review.py bind-deferred \
+            --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" \
+            --run-id "${SOURCE_RUN_ID}" \
+            --config .agent-review-base/.github/agent-review/config.json \
+            --output "${output}"
+          python3 - "${output}" "${GITHUB_OUTPUT}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          binding = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          with pathlib.Path(sys.argv[2]).open("a", encoding="utf-8") as target:
+              target.write(f"eligible={str(bool(binding['eligible'])).lower()}\n")
+              target.write(f"head_sha={binding['head_sha']}\n")
+              target.write(f"pr_number={binding['pr_number']}\n")
+              target.write(f"repository_id={binding['repository_id']}\n")
+          PY
+
+  deferred-secret-review:
+    name: Run delayed secret-backed jury
+    needs: bind
+    if: needs.bind.outputs.eligible == 'true'
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    uses: ./.github/workflows/reusable-agent-review-jury.yml
+    with:
+      pr_number: ${{ fromJSON(needs.bind.outputs.pr_number) }}
+      expected_head_sha: ${{ needs.bind.outputs.head_sha }}
+      event_name: workflow_run
+      repository_id: ${{ fromJSON(needs.bind.outputs.repository_id) }}
+      allow_deferred: true
+      source_run_id: ${{ github.event.workflow_run.id }}
+    secrets: inherit
