@@ -194,6 +194,7 @@
         "coco-features/**",
         "coco-support/pom.xml",
         "coco-support/coco-test/**",
+        "coco-support/coco-test-support/**",
         "coco-support/coco-tools/**",
         "docs/architecture/module-layout.md",
         "coco-support/coco-document/architecture/module-layout.md"
@@ -260,6 +261,66 @@
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "coco-build/coco-compatibility/coco-feature-audit/**",
+        "coco-build/coco-compatibility/coco-feature-data-permission/**",
+        "coco-build/coco-compatibility/coco-feature-mybatis-plus/**",
+        "coco-build/coco-compatibility/coco-feature-openapi/**",
+        "coco-build/coco-compatibility/coco-feature-security/**",
+        "coco-build/coco-compatibility/coco-feature-tenant/**",
+        "coco-build/coco-compatibility/coco-test/**",
+        "coco-maven-plugin/**",
+        "coco-build/coco-maven-plugin/**",
+        "coco-features/coco-feature-audit/**",
+        "coco-features/coco-audit/**",
+        "coco-features/coco-feature-data-permission/**",
+        "coco-features/coco-data-permission/**",
+        "coco-features/coco-feature-mybatis-plus/**",
+        "coco-features/coco-mybatis-plus/**",
+        "coco-features/coco-feature-openapi/**",
+        "coco-features/coco-openapi/**",
+        "coco-features/coco-feature-security/**",
+        "coco-features/coco-security/**",
+        "coco-features/coco-feature-tenant/**",
+        "coco-features/coco-tenant/**",
+        "coco-features/coco-feature-codegen/**",
+        "coco-test/**",
+        "coco-support/coco-test/**",
+        "coco-support/coco-test-support/**",
+        "coco-samples/**",
+        "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-module-migration.md"
+      ],
+      "spec_paths": [
+        "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-module-migration.md"
+      ]
+    },
+    {
+      "path_globs": [
+        "coco-config/**",
+        "coco-build/coco-compatibility/coco-config/**",
+        "coco-build/coco-compatibility/coco-feature-runtime/**",
+        "coco-build/coco-compatibility/coco-feature-web/**",
+        "coco-build/coco-dependencies/**",
+        "coco-features/coco-feature-registry/**",
+        "coco-foundation/coco-feature-model/**",
+        "coco-spring-boot-starter/**",
+        "coco-spring/coco-config/**",
+        "coco-spring/coco-spring-boot-starter/**",
+        "coco-features/coco-feature-runtime/**",
+        "coco-features/coco-feature-web/**",
+        "coco-features/coco-web/**",
+        ".gitignore",
+        ".github/labeler.yml",
+        ".github/workflows/reusable-tests.yml",
+        ".github/readme/fragments/en/50-samples-and-architecture.md",
+        ".github/readme/fragments/zh-CN/50-samples-and-architecture.md",
+        "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-coordinate-contract.md"
+      ],
+      "spec_paths": [
+        "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-coordinate-contract.md"
       ]
     }
   ]
