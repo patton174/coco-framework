@@ -192,7 +192,9 @@
         "coco-foundation/**",
         "coco-spring/**",
         "coco-features/**",
-        "coco-support/**",
+        "coco-support/pom.xml",
+        "coco-support/coco-test/**",
+        "coco-support/coco-tools/**",
         "docs/architecture/module-layout.md",
         "coco-support/coco-document/architecture/module-layout.md"
       ],
