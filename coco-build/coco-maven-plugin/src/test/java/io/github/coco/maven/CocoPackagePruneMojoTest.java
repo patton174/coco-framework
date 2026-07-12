@@ -120,6 +120,7 @@ class CocoPackagePruneMojoTest {
                         "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar",
                         "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.16.jar",
                         "BOOT-INF/lib/mybatis-plus-spring-3.5.16.jar",
+                        "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar",
                         "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar",
                         "BOOT-INF/lib/mybatis-spring-3.0.5.jar");
         assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
@@ -129,6 +130,7 @@ class CocoPackagePruneMojoTest {
                         "mybatis-3.5.19",
                         "mybatis-plus-core",
                         "mybatis-plus-jsqlparser-common",
+                        "mybatis-plus-spring-boot-native-image",
                         "mybatis-plus-spring-boot4-starter",
                         "mybatis-spring");
         assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
@@ -138,6 +140,7 @@ class CocoPackagePruneMojoTest {
                         "mybatis-3.5.19",
                         "mybatis-plus-core",
                         "mybatis-plus-jsqlparser-common",
+                        "mybatis-plus-spring-boot-native-image",
                         "mybatis-plus-spring-boot4-starter",
                         "mybatis-spring");
         assertRunnableSpringBootArchive(archivePath);
@@ -226,6 +229,7 @@ class CocoPackagePruneMojoTest {
                     - "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar"
                     - "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.16.jar"
                     - "BOOT-INF/lib/mybatis-plus-spring-3.5.16.jar"
+                    - "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar"
                     - "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar"
                     - "BOOT-INF/lib/mybatis-spring-3.0.5.jar"
                     - "BOOT-INF/lib/spring-jdbc-7.0.0.jar"
@@ -240,6 +244,7 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar"
                       - "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.16.jar"
                       - "BOOT-INF/lib/mybatis-plus-spring-3.5.16.jar"
+                      - "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar"
                       - "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar"
                       - "BOOT-INF/lib/mybatis-spring-3.0.5.jar"
                       - "BOOT-INF/lib/spring-jdbc-7.0.0.jar"
@@ -252,6 +257,7 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar", "mybatis-plus-core");
             add(outputStream, "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.16.jar", "mybatis-jsqlparser-common");
             add(outputStream, "BOOT-INF/lib/mybatis-plus-spring-3.5.16.jar", "mybatis-plus-spring");
+            add(outputStream, "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar", "mybatis-native-image");
             add(outputStream, "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar", "mybatis-starter");
             add(outputStream, "BOOT-INF/lib/mybatis-spring-3.0.5.jar", "mybatis-spring");
             add(outputStream, "BOOT-INF/lib/spring-jdbc-7.0.0.jar", "spring-jdbc");

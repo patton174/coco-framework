@@ -97,6 +97,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.binding.outputs.pr-number }}
           REPOSITORY: ${{ github.repository }}
+          COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
+          COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
         run: |
           set -euo pipefail
           output_dir="${RUNNER_TEMP}/agent-review-input"

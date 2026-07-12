@@ -59,11 +59,12 @@ produce effective SQL isolation. Request signature, encryption, and replay
 controls must fail safely under malformed input, concurrency, multi-instance
 deployment, and storage failure according to their documented contracts.
 
-Secret-backed review runs are allowed only for same-repository, non-bot pull
-requests. Review infrastructure must read workflow code, scripts, schemas,
-prompts, policy, and specifications from the protected base SHA. It must never
-checkout, execute, compile, or source PR head content. Fork and bot PRs use the
-no-secret maintainer-approval path for the current head SHA.
+Secret-backed review runs are allowed only for same-repository pull requests
+authored by a human or by the exact configured Coco Agent App login and
+immutable Bot ID. Review infrastructure must read workflow code, scripts,
+schemas, prompts, policy, and specifications from the protected base SHA. It
+must never checkout, execute, compile, or source PR head content. Forks and all
+other bots use the no-secret maintainer-approval path for the current head SHA.
 
 ## Context Completeness
 
@@ -161,14 +162,15 @@ or SHA/hash mismatch is an infrastructure block.
 
 ## Finding Issue Governance
 
-For same-repository, non-bot reviews, confirmed P0/P1 blockers and P2/P3
-findings selected by the chair from the dual-`AGREE` eligible pool are
-actionable findings. A selected P2/P3 finding does not change `Agent jury gate`,
+For trusted same-repository human or pinned-App reviews, confirmed P0/P1
+blockers and P2/P3 findings selected by the chair from the dual-`AGREE` eligible
+pool are actionable findings. A selected P2/P3 finding does not change
+`Agent jury gate`,
 but its managed Issue participates in `Agent issue gate`. The trusted publisher
 uses the configured Coco Agent GitHub App identity to maintain one repository
-issue per stable finding identity and one managed jury comment. Fork and bot
-reviews never receive the App private key and never create or update managed
-comments or finding issues.
+issue per stable finding identity and one managed jury comment. Fork and
+untrusted-bot reviews never receive the App private key and never create or
+update managed comments or finding issues.
 
 Each managed finding issue carries the `agent-review` label and a canonical,
 single-line `coco-agent-review` JSON marker binding it to the pull request, the
