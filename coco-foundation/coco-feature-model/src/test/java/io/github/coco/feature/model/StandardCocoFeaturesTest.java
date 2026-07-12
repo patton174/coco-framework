@@ -45,6 +45,18 @@ class StandardCocoFeaturesTest {
     void declaresPlannedFeatureDependencies() {
         Map<CocoFeature, CocoFeatureDefinition> definitions = StandardCocoFeatures.allByFeature();
 
+        assertEquals(Map.of(
+                CocoFeature.WEB, "coco-web",
+                CocoFeature.MYBATIS_PLUS, "coco-mybatis-plus",
+                CocoFeature.AUDIT, "coco-audit",
+                CocoFeature.SECURITY, "coco-security",
+                CocoFeature.TENANT, "coco-tenant",
+                CocoFeature.DATA_PERMISSION, "coco-data-permission",
+                CocoFeature.OPENAPI, "coco-openapi",
+                CocoFeature.CODEGEN, "coco-feature-codegen"),
+                definitions.entrySet().stream()
+                        .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey,
+                                entry -> entry.getValue().artifactId())));
         assertEquals("io.github.coco.feature.web.CocoWebAutoConfiguration",
                 definitions.get(CocoFeature.WEB).autoConfigurationClassName());
         assertEquals(Set.of(), definitions.get(CocoFeature.AUDIT).dependencies());
@@ -58,6 +70,31 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.CODEGEN).dependencies());
         assertEquals(Set.of("coco-feature-codegen", "freemarker"),
                 definitions.get(CocoFeature.CODEGEN).pruneArtifactIds());
+    }
+
+    @Test
+    void exposesOnlyCanonicalAndCompatibilityCocoArtifactIdsAsEquivalent() {
+        Map<CocoFeature, CocoFeatureDefinition> definitions = StandardCocoFeatures.allByFeature();
+
+        assertEquals(Set.of("coco-web", "coco-feature-web"),
+                StandardCocoFeatures.equivalentArtifactIds(definitions.get(CocoFeature.WEB)));
+        assertEquals(Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus"),
+                StandardCocoFeatures.equivalentArtifactIds(definitions.get(CocoFeature.MYBATIS_PLUS)));
+        assertEquals(Set.of("coco-feature-codegen"),
+                StandardCocoFeatures.equivalentArtifactIds(definitions.get(CocoFeature.CODEGEN)));
+    }
+
+    @Test
+    void preservesPublishedFeatureDefinitionRecordShape() {
+        assertEquals(List.of(
+                "feature",
+                "artifactId",
+                "autoConfigurationClassName",
+                "defaultEnabled",
+                "dependencies",
+                "pruneArtifactIds"), java.util.Arrays.stream(CocoFeatureDefinition.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList());
     }
 
     @Test
@@ -154,6 +191,7 @@ class StandardCocoFeaturesTest {
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
         assertEquals(List.of(
                 "coco-feature-mybatis-plus",
+                "coco-mybatis-plus",
                 "mybatis",
                 "mybatis-plus",
                 "mybatis-plus-annotation",
@@ -170,6 +208,11 @@ class StandardCocoFeaturesTest {
                 .findFirst()
                 .orElseThrow()
                 .pruneArtifactIds());
+        assertEquals("coco-mybatis-plus", manifest.features().stream()
+                .filter(entry -> "mybatis-plus".equals(entry.id()))
+                .findFirst()
+                .orElseThrow()
+                .artifactId());
     }
 
     @Test

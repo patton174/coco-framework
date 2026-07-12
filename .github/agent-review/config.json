@@ -212,6 +212,7 @@
         "coco-foundation/coco-i18n/**",
         "coco-config/**",
         "coco-spring/coco-config/**",
+        "coco-build/coco-compatibility/coco-config/**",
         "coco-spring-boot-autoconfigure/**",
         "coco-spring/coco-spring-boot-autoconfigure/**",
         "coco-features/coco-feature-registry/**",

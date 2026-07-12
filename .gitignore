@@ -1,6 +1,6 @@
 target/
-!coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/context/target/
-!coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/context/target/**
+!coco-features/coco-web/src/main/java/io/github/coco/feature/web/context/target/
+!coco-features/coco-web/src/main/java/io/github/coco/feature/web/context/target/**
 .codegraph/
 .idea/
 .vscode/

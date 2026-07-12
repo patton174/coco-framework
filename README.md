@@ -342,15 +342,22 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
 flowchart LR
     app["Business Application"] --> parent["coco-parent"]
     app --> starter["coco-spring-boot-starter"]
-    starter --> config["coco-config"]
-    config --> runtime["coco-feature-runtime"]
-    runtime --> web["Web Runtime"]
-    runtime --> security["Security Foundation"]
-    runtime --> data["Data Integration"]
+    starter --> autoconfigure["coco-spring-boot-autoconfigure"]
+    starter --> web["coco-web"]
+    starter --> security["coco-security / coco-audit / coco-openapi"]
+    starter --> data["coco-mybatis-plus / coco-tenant / coco-data-permission"]
+    web --> autoconfigure
+    security --> autoconfigure
+    data --> autoconfigure
+    autoconfigure --> foundation["coco-foundation"]
     web --> business["Normal Spring Business Code"]
     security --> business
     data --> business
 ```
+
+### 2.x Compatibility Coordinates
+
+The published `coco-config`, `coco-feature-runtime`, `coco-feature-web`, `coco-feature-mybatis-plus`, `coco-feature-audit`, `coco-feature-security`, `coco-feature-tenant`, `coco-feature-data-permission`, `coco-feature-openapi`, and `coco-test` coordinates remain resolvable throughout 2.x as source-free compatibility JARs under `coco-build/coco-compatibility`. They do not own implementation and are not internal dependency targets. New applications continue to use `coco-spring-boot-starter`; direct framework consumers use `coco-spring-boot-autoconfigure`, the canonical `coco-*` feature artifacts shown above, or `coco-test-support`. `coco-feature-codegen` is unchanged.
 
 ## Coco Ecosystem
 

@@ -61,11 +61,38 @@ jobs:
             .github/scripts/agent_issue_gate.py \
             .github/scripts/auto_merge.py \
             .github/scripts/test_agent_review.py \
-            .github/scripts/test_auto_merge.py
+            .github/scripts/test_auto_merge.py \
+            coco-support/coco-tools/tests/test_canonical_maven_ownership.py \
+            coco-support/coco-tools/artifact-ownership/check_artifact_ownership.py \
+            coco-support/coco-tools/artifact-ownership/tests/test_check_artifact_ownership.py \
+            coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py \
+            coco-support/coco-tools/compatibility-consumers/tests/test_run_compatibility_consumers.py
           python .github/scripts/test_agent_review.py
           python .github/scripts/test_auto_merge.py
-          python -m ruff check .github/scripts
-          python -m ruff format --check .github/scripts
+          python -B -m unittest discover \
+            -s coco-support/coco-tools/tests \
+            -p 'test_*.py' \
+            -v
+          python -B -m unittest discover \
+            -s coco-support/coco-tools/compatibility-consumers/tests \
+            -p 'test_*.py' \
+            -v
+          python -B -m unittest discover \
+            -s coco-support/coco-tools/artifact-ownership/tests \
+            -p 'test_*.py' \
+            -v
+          python -m ruff check \
+            .github/scripts \
+            coco-support/coco-tools/tests \
+            coco-support/coco-tools/artifact-ownership \
+            coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py \
+            coco-support/coco-tools/compatibility-consumers/tests
+          python -m ruff format --check \
+            .github/scripts \
+            coco-support/coco-tools/tests \
+            coco-support/coco-tools/artifact-ownership \
+            coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py \
+            coco-support/coco-tools/compatibility-consumers/tests
           node --test .github/readme/tests/readme.test.mjs
           node .github/readme/scripts/render.mjs --check
 

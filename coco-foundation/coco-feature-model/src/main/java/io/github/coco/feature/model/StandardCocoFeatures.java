@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -30,11 +31,13 @@ import io.github.coco.api.feature.CocoFeature;
 public final class StandardCocoFeatures {
 
     private static final List<CocoFeatureDefinition> FEATURES = List.of(
-            feature(CocoFeature.WEB, "coco-feature-web",
-                    "io.github.coco.feature.web.CocoWebAutoConfiguration"),
-            feature(CocoFeature.MYBATIS_PLUS, "coco-feature-mybatis-plus",
+            feature(CocoFeature.WEB, "coco-web",
+                    "io.github.coco.feature.web.CocoWebAutoConfiguration",
+                    Set.of("coco-web", "coco-feature-web")),
+            feature(CocoFeature.MYBATIS_PLUS, "coco-mybatis-plus",
                     "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration",
                     Set.of(
+                            "coco-mybatis-plus",
                             "coco-feature-mybatis-plus",
                             "mybatis",
                             "mybatis-plus",
@@ -48,18 +51,23 @@ public final class StandardCocoFeatures {
                             "mybatis-plus-spring-boot-native-image",
                             "mybatis-plus-spring-boot4-starter",
                             "mybatis-spring")),
-            feature(CocoFeature.AUDIT, "coco-feature-audit",
-                    "io.github.coco.feature.audit.CocoAuditAutoConfiguration"),
-            feature(CocoFeature.SECURITY, "coco-feature-security",
-                    "io.github.coco.feature.security.CocoSecurityAutoConfiguration"),
-            feature(CocoFeature.TENANT, "coco-feature-tenant",
+            feature(CocoFeature.AUDIT, "coco-audit",
+                    "io.github.coco.feature.audit.CocoAuditAutoConfiguration",
+                    Set.of("coco-audit", "coco-feature-audit")),
+            feature(CocoFeature.SECURITY, "coco-security",
+                    "io.github.coco.feature.security.CocoSecurityAutoConfiguration",
+                    Set.of("coco-security", "coco-feature-security")),
+            feature(CocoFeature.TENANT, "coco-tenant",
                     "io.github.coco.feature.tenant.CocoTenantAutoConfiguration",
+                    Set.of("coco-tenant", "coco-feature-tenant"),
                     CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
-            feature(CocoFeature.DATA_PERMISSION, "coco-feature-data-permission",
+            feature(CocoFeature.DATA_PERMISSION, "coco-data-permission",
                     "io.github.coco.feature.datapermission.CocoDataPermissionAutoConfiguration",
+                    Set.of("coco-data-permission", "coco-feature-data-permission"),
                     CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
-            feature(CocoFeature.OPENAPI, "coco-feature-openapi",
+            feature(CocoFeature.OPENAPI, "coco-openapi",
                     "io.github.coco.feature.openapi.CocoOpenApiAutoConfiguration",
+                    Set.of("coco-openapi", "coco-feature-openapi"),
                     CocoFeature.WEB, CocoFeature.SECURITY),
             feature(CocoFeature.CODEGEN, "coco-feature-codegen",
                     "io.github.coco.feature.codegen.CocoCodegenAutoConfiguration",
@@ -89,6 +97,27 @@ public final class StandardCocoFeatures {
     public static Map<CocoFeature, CocoFeatureDefinition> allByFeature() {
         return FEATURES.stream()
                 .collect(Collectors.toUnmodifiableMap(CocoFeatureDefinition::feature, Function.identity()));
+    }
+
+    /**
+     * <p>
+     * 返回功能定义对应的 canonical 与 2.x 兼容 artifactId。
+     * </p>
+     * <p>
+     * 第三方传递裁剪项不会被视为 Coco 功能制品。
+     * </p>
+     * @param definition 功能定义
+     * @return 等价 Coco 制品 artifactId
+     */
+    public static Set<String> equivalentArtifactIds(CocoFeatureDefinition definition) {
+        CocoFeatureDefinition checkedDefinition = Objects.requireNonNull(definition,
+                "definition must not be null");
+        Set<String> artifactIds = new HashSet<>();
+        artifactIds.add(checkedDefinition.artifactId());
+        checkedDefinition.pruneArtifactIds().stream()
+                .filter(artifactId -> artifactId.startsWith("coco-"))
+                .forEach(artifactIds::add);
+        return Set.copyOf(artifactIds);
     }
 
     /**

@@ -22,6 +22,7 @@ import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.apache.maven.model.Build;
+import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
@@ -84,8 +85,8 @@ class CocoFeaturesMojoTest {
         assertThat(manifest.enabledFeatureIds()).doesNotContain("tenant", "data-permission");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-feature-web")
-                .doesNotContain("io.github.patton174:coco-feature-tenant");
+                .contains("io.github.patton174:coco-web")
+                .doesNotContain("io.github.patton174:coco-tenant");
         assertThat(project.getArtifacts()).isEmpty();
     }
 
@@ -120,8 +121,8 @@ class CocoFeaturesMojoTest {
                 .satisfies(entry -> assertThat(entry.dependencies()).isEmpty());
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-feature-audit")
-                .doesNotContain("io.github.patton174:coco-feature-web");
+                .contains("io.github.patton174:coco-audit")
+                .doesNotContain("io.github.patton174:coco-web");
     }
 
     @Test
@@ -160,8 +161,9 @@ class CocoFeaturesMojoTest {
                 artifact("com.baomidou", "mybatis-plus-spring-boot-native-image"),
                 artifact("com.baomidou", "mybatis-plus-spring-boot4-starter"),
                 artifact("com.example", "mybatis"),
-                artifact("coco-feature-audit"),
-                artifact("coco-feature-web"),
+                artifact("coco-audit"),
+                artifact("coco-web"),
+                artifact("coco-mybatis-plus"),
                 artifact("coco-feature-mybatis-plus"),
                 artifact("org.mybatis", "mybatis"),
                 artifact("org.mybatis", "mybatis-extra"),
@@ -169,6 +171,8 @@ class CocoFeaturesMojoTest {
                 artifact("org.springframework", "spring-jdbc")));
         project.setArtifacts(artifacts);
         project.setDependencyArtifacts(new LinkedHashSet<>(artifacts));
+        project.getModel().addDependency(dependency("io.github.patton174", "coco-mybatis-plus"));
+        project.getModel().addDependency(dependency("io.github.patton174", "coco-feature-mybatis-plus"));
         CocoFeaturesMojo mojo = new CocoFeaturesMojo();
         set(mojo, "project", project);
         set(mojo, "outputDirectory", output.toFile());
@@ -183,13 +187,15 @@ class CocoFeaturesMojoTest {
         assertThat(manifest.enabledFeatureIds()).contains("audit").doesNotContain("mybatis-plus");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-feature-audit")
-                .doesNotContain("io.github.patton174:coco-feature-mybatis-plus");
+                .contains("io.github.patton174:coco-audit")
+                .doesNotContain(
+                        "io.github.patton174:coco-mybatis-plus",
+                        "io.github.patton174:coco-feature-mybatis-plus");
         assertThat(project.getArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
                 .contains(
-                        "io.github.patton174:coco-feature-audit",
-                        "io.github.patton174:coco-feature-web",
+                        "io.github.patton174:coco-audit",
+                        "io.github.patton174:coco-web",
                         "com.example:mybatis",
                         "org.mybatis:mybatis-extra",
                         "org.springframework:spring-jdbc")
@@ -198,14 +204,15 @@ class CocoFeaturesMojoTest {
                         "com.baomidou:mybatis-plus-jsqlparser-common",
                         "com.baomidou:mybatis-plus-spring-boot-native-image",
                         "com.baomidou:mybatis-plus-spring-boot4-starter",
+                        "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus",
                         "org.mybatis:mybatis",
                         "org.mybatis:mybatis-spring");
         assertThat(project.getDependencyArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
                 .contains(
-                        "io.github.patton174:coco-feature-audit",
-                        "io.github.patton174:coco-feature-web",
+                        "io.github.patton174:coco-audit",
+                        "io.github.patton174:coco-web",
                         "com.example:mybatis",
                         "org.mybatis:mybatis-extra",
                         "org.springframework:spring-jdbc")
@@ -214,6 +221,7 @@ class CocoFeaturesMojoTest {
                         "com.baomidou:mybatis-plus-jsqlparser-common",
                         "com.baomidou:mybatis-plus-spring-boot-native-image",
                         "com.baomidou:mybatis-plus-spring-boot4-starter",
+                        "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus",
                         "org.mybatis:mybatis",
                         "org.mybatis:mybatis-spring");
@@ -254,7 +262,7 @@ class CocoFeaturesMojoTest {
                 .singleElement()
                 .satisfies(dependency -> {
                     assertThat(dependency.getGroupId()).isEqualTo("io.github.patton174");
-                    assertThat(dependency.getArtifactId()).isEqualTo("coco-feature-web");
+                    assertThat(dependency.getArtifactId()).isEqualTo("coco-web");
                     assertThat(dependency.getVersion()).isEqualTo("1.0.0-SNAPSHOT");
                     assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_RUNTIME);
                 });
@@ -281,11 +289,48 @@ class CocoFeaturesMojoTest {
                 .singleElement()
                 .satisfies(dependency -> {
                     assertThat(dependency.getGroupId()).isEqualTo("io.github.patton174");
-                    assertThat(dependency.getArtifactId()).isEqualTo("coco-feature-web");
+                    assertThat(dependency.getArtifactId()).isEqualTo("coco-web");
                     assertThat(dependency.getVersion()).isEqualTo("1.0.0-SNAPSHOT");
                     assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_RUNTIME);
                 });
         assertThat(project.getArtifacts()).isEmpty();
+    }
+
+    @Test
+    void treatsLegacyAliasAsAnExistingFeatureDependency() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("legacy-alias"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.getModel().addDependency(dependency("io.github.patton174", "coco-feature-web"));
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "2.0.2");
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .extracting(Dependency::getArtifactId)
+                .containsExactly("coco-feature-web");
+    }
+
+    @Test
+    void rejectsFeatureArtifactsFromAnotherFrameworkVersion() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("misaligned-version"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.setArtifacts(Set.of(
+                artifact("io.github.patton174", "coco-feature-web", "2.0.1"),
+                artifact("io.github.patton174", "coco-web", "2.0.2")));
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "2.0.2");
+
+        assertThatThrownBy(mojo::validateFeatureArtifactVersions)
+                .isInstanceOf(MojoExecutionException.class)
+                .hasMessage("Coco feature artifact versions must align with '2.0.2': "
+                        + "io.github.patton174:coco-feature-web:2.0.1.");
     }
 
     private MavenProject project(Path baseDir, Path output) throws Exception {
@@ -307,8 +352,20 @@ class CocoFeaturesMojoTest {
     }
 
     private Artifact artifact(String groupId, String artifactId) {
-        return new DefaultArtifact(groupId, artifactId, "1.0.0-SNAPSHOT",
+        return artifact(groupId, artifactId, "1.0.0-SNAPSHOT");
+    }
+
+    private Artifact artifact(String groupId, String artifactId, String version) {
+        return new DefaultArtifact(groupId, artifactId, version,
                 Artifact.SCOPE_RUNTIME, "jar", null, new DefaultArtifactHandler("jar"));
+    }
+
+    private Dependency dependency(String groupId, String artifactId) {
+        Dependency dependency = new Dependency();
+        dependency.setGroupId(groupId);
+        dependency.setArtifactId(artifactId);
+        dependency.setVersion("1.0.0-SNAPSHOT");
+        return dependency;
     }
 
     private CocoFeaturePlan planWithOnly(CocoFeature feature) {

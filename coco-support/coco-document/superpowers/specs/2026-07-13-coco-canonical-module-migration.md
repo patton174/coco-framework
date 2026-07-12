@@ -22,7 +22,9 @@ assumed the old coordinates could be deleted before a public 2.0 release.
 | 8b | `coco-feature-security` | `coco-security` |
 | 8b | `coco-feature-openapi` | `coco-openapi` |
 | 8c | `coco-feature-web` | `coco-web` |
-| 9 | `coco-test` | `coco-test-support` |
+| 9a | `coco-test` | `coco-test-support` |
+| 9b | `coco-config` | `coco-spring-boot-autoconfigure` |
+| 9b | `coco-feature-runtime` | `coco-spring-boot-autoconfigure` |
 
 The group ID and project version remain identical. Canonical feature modules
 live under `coco-features/coco-*`; test support lives under
@@ -142,8 +144,9 @@ mandatory.
 
 ## Acceptance Criteria
 
-- Seven canonical features and `coco-test-support` are the only implementation
-  owners; all eight old coordinates remain source-free 2.x compatibility JARs.
+- Seven canonical features, `coco-spring-boot-autoconfigure`, and
+  `coco-test-support` are the only implementation owners; all ten old
+  coordinates remain source-free 2.x compatibility JARs.
 - BOM and root management contain both forms; internal production composition
   uses canonical features, except unchanged `coco-feature-codegen`.
 - Public Java, configuration, feature, manifest, plugin, and runtime behavior

@@ -45,12 +45,21 @@
         <module>coco-foundation/coco-feature-model</module>
         <module>coco-foundation/coco-i18n</module>
         <module>coco-foundation/coco-logging</module>
-        <module>coco-spring/coco-config</module>
         <module>coco-spring/coco-spring-boot-autoconfigure</module>
         <module>coco-spring/coco-spring-boot-starter</module>
+        <module>coco-support/coco-test-support</module>
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
-        <module>coco-support/coco-test</module>
+        <module>coco-build/coco-compatibility/coco-config</module>
+        <module>coco-build/coco-compatibility/coco-feature-runtime</module>
+        <module>coco-build/coco-compatibility/coco-feature-web</module>
+        <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
+        <module>coco-build/coco-compatibility/coco-feature-audit</module>
+        <module>coco-build/coco-compatibility/coco-feature-security</module>
+        <module>coco-build/coco-compatibility/coco-feature-tenant</module>
+        <module>coco-build/coco-compatibility/coco-feature-data-permission</module>
+        <module>coco-build/coco-compatibility/coco-feature-openapi</module>
+        <module>coco-build/coco-compatibility/coco-test</module>
     </modules>
 
     <properties>
@@ -132,7 +141,17 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-web</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-web</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-mybatis-plus</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -142,7 +161,17 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-audit</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-audit</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-security</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -152,12 +181,27 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-tenant</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-tenant</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-data-permission</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-data-permission</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-openapi</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -178,6 +222,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-spring-boot-autoconfigure</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-test-support</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -432,6 +481,36 @@
                                             <message>Release profile requires a non-SNAPSHOT revision, for example -Drevision=1.0.0.</message>
                                         </requireReleaseVersion>
                                     </rules>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>attach-compatibility-sources</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classesDirectory>${project.basedir}/../facade-attachments</classesDirectory>
+                                    <classifier>sources</classifier>
+                                    <skipIfEmpty>true</skipIfEmpty>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>attach-compatibility-javadocs</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classesDirectory>${project.basedir}/../facade-attachments</classesDirectory>
+                                    <classifier>javadoc</classifier>
+                                    <skipIfEmpty>true</skipIfEmpty>
                                 </configuration>
                             </execution>
                         </executions>

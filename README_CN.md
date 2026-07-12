@@ -342,15 +342,22 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
 flowchart LR
     app["业务应用"] --> parent["coco-parent"]
     app --> starter["coco-spring-boot-starter"]
-    starter --> config["coco-config"]
-    config --> runtime["coco-feature-runtime"]
-    runtime --> web["Web 运行时"]
-    runtime --> security["安全基础"]
-    runtime --> data["数据集成"]
+    starter --> autoconfigure["coco-spring-boot-autoconfigure"]
+    starter --> web["coco-web"]
+    starter --> security["coco-security / coco-audit / coco-openapi"]
+    starter --> data["coco-mybatis-plus / coco-tenant / coco-data-permission"]
+    web --> autoconfigure
+    security --> autoconfigure
+    data --> autoconfigure
+    autoconfigure --> foundation["coco-foundation"]
     web --> business["普通 Spring 业务代码"]
     security --> business
     data --> business
 ```
+
+### 2.x 兼容坐标
+
+已发布的 `coco-config`、`coco-feature-runtime`、`coco-feature-web`、`coco-feature-mybatis-plus`、`coco-feature-audit`、`coco-feature-security`、`coco-feature-tenant`、`coco-feature-data-permission`、`coco-feature-openapi` 和 `coco-test` 坐标在整个 2.x 周期内仍可解析，它们位于 `coco-build/coco-compatibility`，仅作为无源码兼容 JAR，不再拥有实现，也不是仓库内部依赖目标。新应用继续使用 `coco-spring-boot-starter`；直接依赖框架模块时，应使用 `coco-spring-boot-autoconfigure`、上图所列的 canonical `coco-*` feature 制品或 `coco-test-support`。`coco-feature-codegen` 保持不变。
 
 ## Coco 生态
 

@@ -1,8 +1,9 @@
 name: Reusable / Tests
 
-# Reusable test pipeline: cross-platform framework build + sample verification.
-# Called by ci.yml (push/PR) and release.yml (before publishing) so the exact
-# same verification runs in CI and at release time. Not triggered directly.
+# Reusable test pipeline: cross-platform framework build, sample verification,
+# and isolated Maven compatibility consumers. Called by ci.yml (push/PR) and
+# release.yml (before publishing) so the exact same verification runs in CI and
+# at release time. Not triggered directly.
 
 on:
   workflow_call:
@@ -58,6 +59,11 @@ jobs:
       - name: Verify framework and install artifacts
         run: mvn -B -ntp install
 
+      - name: Verify canonical artifact ownership
+        run: >-
+          python coco-support/coco-tools/artifact-ownership/check_artifact_ownership.py
+          --version 1.0.0-SNAPSHOT
+
       - name: Verify sample parent version alignment
         run: python coco-samples/coco-sample-basic/scripts/verify_parent_version.py
 
@@ -92,15 +98,25 @@ jobs:
           sample_jar='coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar'
           jar_entries="${RUNNER_TEMP}/coco-sample-basic-jar-entries.txt"
           jar tf "${sample_jar}" > "${jar_entries}"
-          grep 'BOOT-INF/lib/coco-feature' "${jar_entries}"
-          assert_no_match 'coco-feature-(mybatis-plus|tenant|data-permission)-' "${jar_entries}"
+          for feature in web audit security openapi; do
+            canonical_count="$(grep -c "BOOT-INF/lib/coco-${feature}-" "${jar_entries}" || true)"
+            if (( canonical_count != 1 )); then
+              echo "::error::Expected exactly one canonical ${feature} artifact; found ${canonical_count}."
+              exit 1
+            fi
+          done
+          grep 'BOOT-INF/lib/coco-feature-codegen-' "${jar_entries}"
+          assert_no_match \
+            'BOOT-INF/lib/coco-feature-(web|mybatis-plus|audit|security|tenant|data-permission|openapi)-' \
+            "${jar_entries}"
+          assert_no_match 'BOOT-INF/lib/coco-(mybatis-plus|tenant|data-permission)-' "${jar_entries}"
           assert_no_match 'BOOT-INF/lib/(mybatis|mybatis-plus)-' "${jar_entries}"
           jar xf "${sample_jar}" \
             BOOT-INF/classpath.idx BOOT-INF/layers.idx
           test -f BOOT-INF/classpath.idx
           test -f BOOT-INF/layers.idx
           assert_no_match \
-            'coco-feature-(mybatis-plus|tenant|data-permission)-|/(mybatis|mybatis-plus)-' \
+            'coco-feature-(web|mybatis-plus|audit|security|tenant|data-permission|openapi)-|coco-(mybatis-plus|tenant|data-permission)-|/(mybatis|mybatis-plus)-' \
             BOOT-INF/classpath.idx BOOT-INF/layers.idx
 
       - name: Verify sample business flow with Python
@@ -112,12 +128,62 @@ jobs:
       - name: Verify full sample feature composition
         shell: bash
         run: |
-          for feature in web mybatis-plus audit security tenant data-permission openapi codegen; do
-            jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
-              | grep "BOOT-INF/lib/coco-feature-${feature}-"
-          done
+          set -euo pipefail
+          jar_entries="${RUNNER_TEMP}/coco-sample-full-jar-entries.txt"
           jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
-            | grep 'BOOT-INF/lib/h2-'
+            > "${jar_entries}"
+          for feature in web mybatis-plus audit security tenant data-permission openapi; do
+            canonical_count="$(grep -c "BOOT-INF/lib/coco-${feature}-" "${jar_entries}" || true)"
+            if (( canonical_count != 1 )); then
+              echo "::error::Expected exactly one canonical ${feature} artifact; found ${canonical_count}."
+              exit 1
+            fi
+          done
+          if grep -E \
+            'BOOT-INF/lib/coco-feature-(web|mybatis-plus|audit|security|tenant|data-permission|openapi)-' \
+            "${jar_entries}"; then
+            echo "::error::Legacy 2.x compatibility artifacts must not be packaged in the full sample."
+            exit 1
+          fi
+          grep 'BOOT-INF/lib/coco-feature-codegen-' "${jar_entries}"
+          grep 'BOOT-INF/lib/h2-' "${jar_entries}"
 
       - name: Verify full sample business flow with Python
         run: python coco-samples/coco-sample-full/scripts/verify_business_flow.py
+
+  compatibility-consumers:
+    name: compatibility consumers (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JAVA_TOOLCHAIN_VERSION: '21'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21 toolchain
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_TOOLCHAIN_VERSION }}
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Verify external compatibility consumers
+        run: >-
+          python coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py
+          --candidate-version 2.0.2-SNAPSHOT
+          --install-candidate
+          --jdk-home "$JAVA_HOME"
+
+      - name: Verify candidate artifact ownership
+        run: >-
+          python coco-support/coco-tools/artifact-ownership/check_artifact_ownership.py
+          --version 2.0.2-SNAPSHOT

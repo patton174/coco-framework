@@ -38,31 +38,31 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-web</artifactId>
+            <artifactId>coco-web</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-mybatis-plus</artifactId>
+            <artifactId>coco-mybatis-plus</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-audit</artifactId>
+            <artifactId>coco-audit</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-security</artifactId>
+            <artifactId>coco-security</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-tenant</artifactId>
+            <artifactId>coco-tenant</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-data-permission</artifactId>
+            <artifactId>coco-data-permission</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-openapi</artifactId>
+            <artifactId>coco-openapi</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>

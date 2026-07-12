@@ -117,6 +117,7 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         }
 
         CocoFeaturePlan plan = resolveFeaturePlan();
+        validateFeatureArtifactVersions();
         writeManifest(plan);
         applyFeatureDependencies(plan);
         pruneDisabledFeatureArtifacts(plan);
@@ -158,10 +159,13 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             if (!plan.isEnabled(definition.feature())) {
                 continue;
             }
-            String coordinate = this.featureGroupId + ":" + definition.artifactId();
-            if (existingDependencies.contains(coordinate)) {
+            boolean equivalentDependencyPresent = StandardCocoFeatures.equivalentArtifactIds(definition).stream()
+                    .map(artifactId -> this.featureGroupId + ":" + artifactId)
+                    .anyMatch(existingDependencies::contains);
+            if (equivalentDependencyPresent) {
                 continue;
             }
+            String coordinate = this.featureGroupId + ":" + definition.artifactId();
             Dependency dependency = new Dependency();
             dependency.setGroupId(this.featureGroupId);
             dependency.setArtifactId(definition.artifactId());
@@ -187,6 +191,9 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         if (disabledArtifactIds.isEmpty()) {
             return;
         }
+        this.project.getModel().getDependencies()
+                .removeIf(dependency -> isPrunableCoordinate(
+                        dependency.getGroupId(), dependency.getArtifactId(), disabledArtifactIds));
         this.project.setArtifacts(pruneArtifacts(this.project.getArtifacts(), disabledArtifactIds));
         if (this.project.getDependencyArtifacts() != null) {
             this.project.setDependencyArtifacts(pruneArtifacts(this.project.getDependencyArtifacts(), disabledArtifactIds));
@@ -219,19 +226,39 @@ public final class CocoFeaturesMojo extends AbstractMojo {
      * @return 需要裁剪时返回 {@code true}
      */
     private boolean isPrunableArtifact(Artifact artifact, Set<String> excludedArtifactIds) {
-        String artifactId = artifact.getArtifactId();
+        return isPrunableCoordinate(artifact.getGroupId(), artifact.getArtifactId(), excludedArtifactIds);
+    }
+
+    private boolean isPrunableCoordinate(String groupId, String artifactId, Set<String> excludedArtifactIds) {
         if (!excludedArtifactIds.contains(artifactId)) {
             return false;
         }
-        String groupId = artifact.getGroupId();
-        if (artifactId.startsWith("coco-feature-")) {
-            return this.featureGroupId.equals(groupId);
+        if (this.featureGroupId.equals(groupId)) {
+            return true;
         }
         if (artifactId.startsWith("mybatis-plus")) {
             return "com.baomidou".equals(groupId);
         }
         return ("mybatis".equals(artifactId) || "mybatis-spring".equals(artifactId))
                 && "org.mybatis".equals(groupId);
+    }
+
+    void validateFeatureArtifactVersions() throws MojoExecutionException {
+        Set<String> equivalentArtifactIds = StandardCocoFeatures.all().stream()
+                .flatMap(definition -> StandardCocoFeatures.equivalentArtifactIds(definition).stream())
+                .collect(Collectors.toUnmodifiableSet());
+        List<String> misalignedArtifacts = this.project.getArtifacts().stream()
+                .filter(artifact -> this.featureGroupId.equals(artifact.getGroupId()))
+                .filter(artifact -> equivalentArtifactIds.contains(artifact.getArtifactId()))
+                .filter(artifact -> !this.featureVersion.equals(artifact.getBaseVersion()))
+                .map(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId() + ":"
+                        + artifact.getBaseVersion())
+                .sorted()
+                .toList();
+        if (!misalignedArtifacts.isEmpty()) {
+            throw new MojoExecutionException("Coco feature artifact versions must align with '"
+                    + this.featureVersion + "': " + String.join(", ", misalignedArtifacts) + ".");
+        }
     }
 
     /**

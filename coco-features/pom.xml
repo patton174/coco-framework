@@ -17,14 +17,13 @@
     <description>Feature aggregate modules for Coco Framework.</description>
 
     <modules>
-        <module>coco-feature-runtime</module>
-        <module>coco-feature-web</module>
-        <module>coco-feature-mybatis-plus</module>
-        <module>coco-feature-audit</module>
-        <module>coco-feature-security</module>
-        <module>coco-feature-tenant</module>
-        <module>coco-feature-data-permission</module>
-        <module>coco-feature-openapi</module>
+        <module>coco-web</module>
+        <module>coco-mybatis-plus</module>
+        <module>coco-audit</module>
+        <module>coco-security</module>
+        <module>coco-tenant</module>
+        <module>coco-data-permission</module>
+        <module>coco-openapi</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>

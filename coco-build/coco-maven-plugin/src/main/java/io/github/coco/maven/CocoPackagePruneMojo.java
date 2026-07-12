@@ -9,8 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -18,8 +20,10 @@ import java.util.jar.JarOutputStream;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 
+import io.github.coco.feature.model.CocoFeatureDefinition;
 import io.github.coco.feature.model.CocoFeatureManifest;
 import io.github.coco.feature.model.CocoFeatureManifestLoader;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
@@ -110,10 +114,21 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
         }
         try (InputStream inputStream = Files.newInputStream(manifestPath)) {
             CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(inputStream);
-            return manifest.features().stream()
+            Map<String, CocoFeatureDefinition> currentDefinitions = StandardCocoFeatures.all().stream()
+                    .collect(Collectors.toUnmodifiableMap(
+                            definition -> definition.feature().id(),
+                            definition -> definition));
+            Set<String> artifactIds = new LinkedHashSet<>();
+            manifest.features().stream()
                     .filter(entry -> !entry.enabled())
-                    .flatMap(entry -> entry.pruneArtifactIds().stream())
-                    .collect(Collectors.toUnmodifiableSet());
+                    .forEach(entry -> {
+                        artifactIds.addAll(entry.pruneArtifactIds());
+                        CocoFeatureDefinition currentDefinition = currentDefinitions.get(entry.id());
+                        if (currentDefinition != null) {
+                            artifactIds.addAll(currentDefinition.pruneArtifactIds());
+                        }
+                    });
+            return Set.copyOf(artifactIds);
         }
         catch (IOException ex) {
             throw new MojoExecutionException("Failed to read Coco feature manifest: " + manifestPath, ex);

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.patton174</groupId>
+        <artifactId>coco-framework</artifactId>
+        <version>${revision}</version>
+        <relativePath>../../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>coco-test</artifactId>
+    <packaging>jar</packaging>
+    <name>Coco Test</name>
+    <!-- 2.x compatibility facade; new consumers should use coco-test-support. -->
+    <description>Deprecated source-free compatibility facade retained throughout the 2.x line. New consumers should use coco-test-support, which owns the APIs and implementations previously published through this coordinate.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-test-support</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>

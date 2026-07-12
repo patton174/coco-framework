@@ -24,7 +24,7 @@ import org.w3c.dom.NodeList;
 /**
  * Coco Spring 依赖切换兼容性测试。
  * <p>
- * 验证内部消费者直接依赖自动配置模块，同时保留 2.x 已发布 facade 的 reactor、BOM 和传递依赖契约。
+ * 验证内部消费者使用 canonical 坐标，同时保留 2.x 已发布 facade 的 reactor、BOM 和传递依赖契约。
  * </p>
  * <p>
  * 项目信息：
@@ -41,50 +41,118 @@ class CocoSpringDependencyCutoverTest {
 
     private static final String AUTOCONFIGURE_ARTIFACT = "coco-spring-boot-autoconfigure";
 
+    private static final Path COMPATIBILITY_ROOT = Path.of("coco-build", "coco-compatibility");
+
+    private static final Path EXTERNAL_CONSUMERS_ROOT = Path.of(
+            "coco-support", "coco-tools", "compatibility-consumers");
+
+    private static final Path CANONICAL_CONSUMER_POM = EXTERNAL_CONSUMERS_ROOT.resolve(
+            Path.of("fixtures", "canonical", "pom.xml"));
+
+    private static final Path LEGACY_CONSUMER_POM = EXTERNAL_CONSUMERS_ROOT.resolve(
+            Path.of("fixtures", "legacy-2x", "pom.xml"));
+
+    private static final Path PUBLIC_FQCN_CONSUMER_SOURCE = Path.of(
+            "src", "main", "java", "io", "github", "coco", "consumer", "PublicFqcnConsumer.java");
+
     private static final List<Facade> FACADES = List.of(
             new Facade(
                     "coco-config",
-                    Path.of("coco-spring", "coco-config"),
+                    AUTOCONFIGURE_ARTIFACT,
+                    Path.of("coco-spring", "coco-spring-boot-autoconfigure"),
                     Path.of("src", "test", "java", "io", "github", "coco", "config",
                             "CocoConfigFacadeFqcnCompileContract.java")),
             new Facade(
                     "coco-feature-runtime",
-                    Path.of("coco-features", "coco-feature-runtime"),
+                    AUTOCONFIGURE_ARTIFACT,
+                    Path.of("coco-spring", "coco-spring-boot-autoconfigure"),
                     Path.of("src", "test", "java", "io", "github", "coco", "feature", "runtime",
-                            "CocoFeatureRuntimeFacadeFqcnCompileContract.java")));
+                            "CocoFeatureRuntimeFacadeFqcnCompileContract.java")),
+            new Facade(
+                    "coco-feature-web",
+                    "coco-web",
+                    Path.of("coco-features", "coco-web"),
+                    compatibilityCompileProbe("web", "CocoFeatureWebCompatibilityCompileProbe.java")),
+            new Facade(
+                    "coco-feature-mybatis-plus",
+                    "coco-mybatis-plus",
+                    Path.of("coco-features", "coco-mybatis-plus"),
+                    compatibilityCompileProbe("mybatisplus",
+                            "CocoFeatureMybatisPlusCompatibilityCompileProbe.java")),
+            new Facade(
+                    "coco-feature-audit",
+                    "coco-audit",
+                    Path.of("coco-features", "coco-audit"),
+                    compatibilityCompileProbe("audit", "CocoFeatureAuditCompatibilityCompileProbe.java")),
+            new Facade(
+                    "coco-feature-security",
+                    "coco-security",
+                    Path.of("coco-features", "coco-security"),
+                    compatibilityCompileProbe("security", "CocoFeatureSecurityCompatibilityCompileProbe.java")),
+            new Facade(
+                    "coco-feature-tenant",
+                    "coco-tenant",
+                    Path.of("coco-features", "coco-tenant"),
+                    compatibilityCompileProbe("tenant", "CocoFeatureTenantCompatibilityCompileProbe.java")),
+            new Facade(
+                    "coco-feature-data-permission",
+                    "coco-data-permission",
+                    Path.of("coco-features", "coco-data-permission"),
+                    compatibilityCompileProbe("datapermission",
+                            "CocoFeatureDataPermissionCompatibilityCompileProbe.java")),
+            new Facade(
+                    "coco-feature-openapi",
+                    "coco-openapi",
+                    Path.of("coco-features", "coco-openapi"),
+                    compatibilityCompileProbe("openapi", "CocoFeatureOpenApiCompatibilityCompileProbe.java")),
+            new Facade(
+                    "coco-test",
+                    "coco-test-support",
+                    Path.of("coco-support", "coco-test-support"),
+                    Path.of("src", "test", "java", "io", "github", "coco", "test",
+                            "CocoTestFacadeFqcnCompileContract.java")));
 
     private static final Set<String> FACADE_ARTIFACTS = FACADES.stream()
             .map(Facade::artifactId)
             .collect(Collectors.toUnmodifiableSet());
 
+    private static final Set<String> CANONICAL_ARTIFACTS = FACADES.stream()
+            .map(Facade::canonicalArtifactId)
+            .collect(Collectors.toUnmodifiableSet());
+
     private static final List<Path> AUTOCONFIGURE_CONSUMERS = List.of(
             Path.of("coco-spring", "coco-spring-boot-starter", "pom.xml"),
-            Path.of("coco-features", "coco-feature-audit", "pom.xml"),
+            Path.of("coco-features", "coco-audit", "pom.xml"),
             Path.of("coco-features", "coco-feature-codegen", "pom.xml"),
-            Path.of("coco-features", "coco-feature-data-permission", "pom.xml"),
-            Path.of("coco-features", "coco-feature-mybatis-plus", "pom.xml"),
-            Path.of("coco-features", "coco-feature-openapi", "pom.xml"),
-            Path.of("coco-features", "coco-feature-security", "pom.xml"),
-            Path.of("coco-features", "coco-feature-tenant", "pom.xml"),
-            Path.of("coco-features", "coco-feature-web", "pom.xml"));
+            Path.of("coco-features", "coco-data-permission", "pom.xml"),
+            Path.of("coco-features", "coco-mybatis-plus", "pom.xml"),
+            Path.of("coco-features", "coco-openapi", "pom.xml"),
+            Path.of("coco-features", "coco-security", "pom.xml"),
+            Path.of("coco-features", "coco-tenant", "pom.xml"),
+            Path.of("coco-features", "coco-web", "pom.xml"));
 
     @Test
     void keepsPublishedFacadesInReactorsAndDependencyManagement() throws Exception {
         Path projectRoot = projectRoot();
         Path rootPom = projectRoot.resolve("pom.xml");
-        Path featuresPom = projectRoot.resolve("coco-features/pom.xml");
         Path bomPom = projectRoot.resolve("coco-build/coco-dependencies/pom.xml");
 
-        assertThat(reactorModulePaths(rootPom))
-                .contains(projectRoot.resolve("coco-spring/coco-config").normalize());
-        assertThat(reactorModulePaths(featuresPom))
-                .contains(projectRoot.resolve("coco-features/coco-feature-runtime").normalize());
-        assertThat(dependencyManagementArtifactIds(readPom(rootPom))).containsAll(FACADE_ARTIFACTS);
-        assertThat(dependencyManagementArtifactIds(readPom(bomPom))).containsAll(FACADE_ARTIFACTS);
+        Set<Path> rootModules = reactorModulePaths(rootPom);
+        for (Facade facade : FACADES) {
+            assertThat(rootModules)
+                    .as("reactor module for %s", facade.artifactId())
+                    .contains(projectRoot.resolve(facade.modulePath()).normalize());
+        }
+        assertThat(dependencyManagementArtifactIds(readPom(rootPom)))
+                .containsAll(FACADE_ARTIFACTS)
+                .containsAll(CANONICAL_ARTIFACTS);
+        assertThat(dependencyManagementArtifactIds(readPom(bomPom)))
+                .containsAll(FACADE_ARTIFACTS)
+                .containsAll(CANONICAL_ARTIFACTS);
     }
 
     @Test
-    void keepsFacadesSourceFreeWithSingleAutoconfigureDependency() throws Exception {
+    void keepsFacadesSourceFreeWithSingleCanonicalDependency() throws Exception {
         Path projectRoot = projectRoot();
 
         for (Facade facade : FACADES) {
@@ -93,11 +161,14 @@ class CocoSpringDependencyCutoverTest {
             assertThat(pom).isRegularFile();
             assertThat(directDependencyArtifactIds(readPom(pom)))
                     .as("direct dependencies in %s", facade.modulePath())
-                    .isEqualTo(Set.of(AUTOCONFIGURE_ARTIFACT));
+                    .isEqualTo(Set.of(facade.canonicalArtifactId()));
             assertThat(regularFiles(module.resolve("src/main")))
                     .as("published sources and registration resources in %s", facade.modulePath())
                     .isEmpty();
             assertThat(module.resolve(facade.compileProbe())).isRegularFile();
+            assertThat(projectRoot.resolve(facade.canonicalModulePath()).resolve("pom.xml"))
+                    .as("canonical module for %s", facade.artifactId())
+                    .isRegularFile();
         }
     }
 
@@ -119,14 +190,42 @@ class CocoSpringDependencyCutoverTest {
                 .map(projectRoot::resolve)
                 .map(path -> path.resolve("pom.xml").normalize())
                 .collect(Collectors.toUnmodifiableSet());
+        Path externalConsumersRoot = projectRoot.resolve(EXTERNAL_CONSUMERS_ROOT).normalize();
         for (Path pom : sourcePoms(projectRoot)) {
-            if (!facadePoms.contains(pom)) {
+            if (!facadePoms.contains(pom) && !pom.startsWith(externalConsumersRoot)) {
                 assertThat(directDependencyArtifactIds(readPom(pom)))
                         .as("direct dependencies in %s", projectRoot.relativize(pom))
                         .doesNotContainAnyElementsOf(FACADE_ARTIFACTS);
             }
         }
 
+    }
+
+    @Test
+    void separatesCanonicalAndLegacyExternalConsumerCoordinates() throws Exception {
+        Path projectRoot = projectRoot();
+        Path canonicalPom = projectRoot.resolve(CANONICAL_CONSUMER_POM);
+        Path legacyPom = projectRoot.resolve(LEGACY_CONSUMER_POM);
+
+        assertThat(directDependencyArtifactIds(readPom(canonicalPom)))
+                .as("canonical external consumer dependencies")
+                .isEqualTo(CANONICAL_ARTIFACTS)
+                .doesNotContainAnyElementsOf(FACADE_ARTIFACTS);
+        assertThat(directDependencyArtifactIds(readPom(legacyPom)))
+                .as("legacy 2.x external consumer dependencies")
+                .isEqualTo(FACADE_ARTIFACTS)
+                .doesNotContainAnyElementsOf(CANONICAL_ARTIFACTS);
+
+        Path canonicalSource = canonicalPom.getParent().resolve(PUBLIC_FQCN_CONSUMER_SOURCE);
+        Path legacySource = legacyPom.getParent().resolve(PUBLIC_FQCN_CONSUMER_SOURCE);
+        assertThat(canonicalSource).isRegularFile();
+        assertThat(legacySource).isRegularFile();
+        assertThat(Files.readString(canonicalSource)).isEqualTo(Files.readString(legacySource));
+    }
+
+    private static Path compatibilityCompileProbe(String packageName, String className) {
+        return Path.of("src", "test", "java", "io", "github", "coco", "compatibility", packageName,
+                className);
     }
 
     private static Path projectRoot() {
@@ -240,6 +339,12 @@ class CocoSpringDependencyCutoverTest {
         return directChildren(parent, localName).stream().findFirst().orElse(null);
     }
 
-    private record Facade(String artifactId, Path modulePath, Path compileProbe) {
+    private record Facade(String artifactId, String canonicalArtifactId, Path canonicalModulePath,
+            Path compileProbe) {
+
+        private Path modulePath() {
+            return COMPATIBILITY_ROOT.resolve(this.artifactId);
+        }
+
     }
 }

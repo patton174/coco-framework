@@ -1,0 +1,14 @@
+base-package: io.github.coco.consumer.generated
+resources:
+  - name: Widget
+    table: sample_widget
+    id:
+      name: id
+      column: id
+      type: Long
+      strategy: AUTO
+    fields:
+      - name: name
+        column: name
+        type: String
+        required: true

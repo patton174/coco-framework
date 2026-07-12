@@ -419,8 +419,11 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-feature-registry",
                 "coco-foundation/coco-feature-model",
             ): i18n_specs | {canonical_coordinate_spec},
-            ("coco-config", "coco-spring/coco-config"): i18n_specs
-            | {canonical_coordinate_spec},
+            (
+                "coco-config",
+                "coco-spring/coco-config",
+                "coco-build/coco-compatibility/coco-config",
+            ): i18n_specs | {canonical_coordinate_spec},
             (
                 "coco-spring-boot-autoconfigure",
                 "coco-spring/coco-spring-boot-autoconfigure",
@@ -679,20 +682,20 @@ class AgentReviewTests(unittest.TestCase):
 
         spring_cutover_batches = {
             "starter-and-core-features": [
-                "coco-spring/coco-config/pom.xml",
-                "coco-spring/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
-                "coco-features/coco-feature-runtime/pom.xml",
-                "coco-features/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
+                "coco-build/coco-compatibility/coco-config/pom.xml",
+                "coco-build/coco-compatibility/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
+                "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
                 "coco-spring/coco-spring-boot-starter/pom.xml",
                 "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
-                "coco-features/coco-feature-data-permission/pom.xml",
-                "coco-features/coco-feature-mybatis-plus/pom.xml",
-                "coco-features/coco-feature-openapi/pom.xml",
-                "coco-features/coco-feature-security/pom.xml",
-                "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-data-permission/pom.xml",
+                "coco-features/coco-mybatis-plus/pom.xml",
+                "coco-features/coco-openapi/pom.xml",
+                "coco-features/coco-security/pom.xml",
+                "coco-features/coco-tenant/pom.xml",
             ],
-            "web": ["coco-features/coco-feature-web/pom.xml"],
-            "audit": ["coco-features/coco-feature-audit/pom.xml"],
+            "web": ["coco-features/coco-web/pom.xml"],
+            "audit": ["coco-features/coco-audit/pom.xml"],
             "codegen": ["coco-features/coco-feature-codegen/pom.xml"],
         }
         module_entries = review.module_map(repository_root)

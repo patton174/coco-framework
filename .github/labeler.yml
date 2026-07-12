@@ -17,20 +17,20 @@
 "area: web":
   - changed-files:
       - any-glob-to-any-file:
-          - "coco-features/coco-feature-web/**"
+          - "coco-features/coco-web/**"
 
 "area: persistence":
   - changed-files:
       - any-glob-to-any-file:
-          - "coco-features/coco-feature-mybatis-plus/**"
-          - "coco-features/coco-feature-tenant/**"
-          - "coco-features/coco-feature-data-permission/**"
+          - "coco-features/coco-mybatis-plus/**"
+          - "coco-features/coco-tenant/**"
+          - "coco-features/coco-data-permission/**"
 
 "area: observability":
   - changed-files:
       - any-glob-to-any-file:
           - "coco-foundation/coco-logging/**"
-          - "coco-features/coco-feature-audit/**"
+          - "coco-features/coco-audit/**"
 
 "area: tooling":
   - changed-files:
@@ -60,7 +60,7 @@ security:
   - changed-files:
       - any-glob-to-any-file:
           - "SECURITY.md"
-          - "coco-features/coco-feature-security/**"
-          - "coco-features/coco-feature-web/src/main/java/**/security/**"
-          - "coco-features/coco-feature-web/src/main/java/**/signature/**"
-          - "coco-features/coco-feature-web/src/main/java/**/encryption/**"
+          - "coco-features/coco-security/**"
+          - "coco-features/coco-web/src/main/java/**/security/**"
+          - "coco-features/coco-web/src/main/java/**/signature/**"
+          - "coco-features/coco-web/src/main/java/**/encryption/**"
