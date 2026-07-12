@@ -32,7 +32,9 @@ coco-features/
   coco-tenant/
   coco-web/
 coco-support/
+  coco-document/
   coco-test-support/
+  coco-tools/
 ```
 
 ## 所有权

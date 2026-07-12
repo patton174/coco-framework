@@ -160,7 +160,7 @@ blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续
 上下文按以下优先级构建并保留来源：
 
 1. **受保护政策**：`AGENTS.md` 和 `.github/agent-review/policy.md`。
-2. **相关规格**：由新旧变更路径映射到 `docs/superpowers/specs/*.md`，只读取 base 版本；
+2. **相关规格**：由新旧变更路径映射到 `coco-support/coco-document/superpowers/specs/*.md`，只读取 base 版本；
    所有命中的规格必须完整注入，否则上下文构建失败。
 3. **PR 意图**：标题、正文、commit message；标记为不可信声明，不覆盖政策和代码事实。
 4. **变更清单**：文件状态、增删行、模块归属和 diff hash。

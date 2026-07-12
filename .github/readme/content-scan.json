@@ -7,7 +7,7 @@
     ],
     "prefixes": [
       "coco-",
-      "docs/"
+      "coco-support/coco-document/"
     ],
     "suffixes": [
       "/pom.xml"

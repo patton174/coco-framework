@@ -110,7 +110,7 @@ class CocoNodeLogRendererBootstrapTest {
 
     @Test
     void locatesRendererScriptFromWorkspaceSourceTree(@TempDir Path tempDir) throws Exception {
-        Path script = tempDir.resolve("tools/coco-log-renderer/bin/coco-log-renderer.mjs");
+        Path script = tempDir.resolve("coco-support/coco-tools/coco-log-renderer/bin/coco-log-renderer.mjs");
         Files.createDirectories(script.getParent());
         Files.writeString(script, "console.log('coco');");
 
@@ -130,7 +130,7 @@ class CocoNodeLogRendererBootstrapTest {
     private static Path findWorkspaceCliRendererScript() {
         Path current = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
         while (current != null) {
-            Path script = current.resolve("tools/coco-log-renderer/bin/coco-log-renderer.mjs");
+            Path script = current.resolve("coco-support/coco-tools/coco-log-renderer/bin/coco-log-renderer.mjs");
             if (Files.isRegularFile(script)) {
                 return script;
             }

@@ -39,7 +39,7 @@ const LIFECYCLE_FIELDS = new Set(['app', 'profiles', 'time', 'java', 'pid']);
  * <ul>
  *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
- *   <li>模块：{@code tools/coco-log-renderer}</li>
+ *   <li>模块：{@code coco-support/coco-tools/coco-log-renderer}</li>
  * </ul>
  * @author patton174
  * @since 1.0.0
@@ -181,7 +181,7 @@ function printHelp() {
 Pipe Coco Java logs into this command to render compact terminal output.
 
 Examples:
-  mvn spring-boot:run | node tools/coco-log-renderer/bin/coco-log-renderer.mjs
+  mvn spring-boot:run | node coco-support/coco-tools/coco-log-renderer/bin/coco-log-renderer.mjs
   java -jar app.jar 2>&1 | coco-log-renderer --color=always
 `);
 }

@@ -36,6 +36,8 @@ business application's control.
   resolution; `coco-feature-runtime` enforces resolved feature state at runtime.
 - Each `coco-feature-*` module owns its stated behavior. Feature implementation
   must not be moved into the starter or an unrelated common module.
+- `coco-support` owns test support, repository documentation, and development-only
+  tools. Runtime modules must not depend on its documentation or tool directories.
 - `coco-maven-plugin` owns generated feature manifests, enabled dependency
   application, package pruning, and the explicit code-generation goal.
 

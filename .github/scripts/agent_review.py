@@ -831,7 +831,7 @@ def changed_file_priority(entry: dict[str, Any]) -> tuple[int, int, int, str]:
         path_priority = 1
     elif "/src/test/" in filename:
         path_priority = 2
-    elif filename.startswith(("docs/", "README")):
+    elif filename.startswith(("coco-support/coco-document/", "docs/", "README")):
         path_priority = 3
     else:
         path_priority = 4

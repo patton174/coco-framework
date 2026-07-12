@@ -39,6 +39,7 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-feature-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
 - `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe generated-file writing; `coco-maven-plugin` exposes this through the opt-in `coco:generate` goal.
 - `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
+- `coco-support/coco-document` contains repository architecture, release, audit, plan, and specification documents; `coco-support/coco-tools` contains development-only repository tools; `coco-support/coco-test` contains reusable test support.
 - During the staged 2.0 migration, I18n, Logging, and Feature Model retain their existing auto-configuration FQCNs. Their Spring bindings move to `coco-spring-boot-autoconfigure` in the separately reviewed Spring composition batch.
 
 ## Development Rules
