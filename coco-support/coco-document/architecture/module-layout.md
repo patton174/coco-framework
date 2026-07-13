@@ -13,6 +13,8 @@ coco-build/
   coco-dependencies/
   coco-parent/
   coco-maven-plugin/
+  coco-compatibility/
+    ... 2.x legacy-coordinate facades only ...
 coco-foundation/
   coco-api/
   coco-context/
@@ -41,13 +43,26 @@ coco-support/
 
 | 目录 | 职责 |
 | --- | --- |
-| `coco-build` | 依赖管理、推荐父 POM、构建期 feature 清单和打包裁剪 |
+| `coco-build` | 依赖管理、推荐父 POM、构建期 feature 清单、打包裁剪和 2.x 旧坐标发布兼容 |
 | `coco-foundation` | 稳定公共契约、通用上下文、异常、国际化、日志和与 Spring 无关的 feature 模型 |
 | `coco-spring` | Spring Boot 自动配置、运行时 feature 计划和单 starter 组合入口 |
 | `coco-features` | 可独立启停的 Web 服务器能力 |
 | `coco-support` | 测试和开发辅助能力，不进入普通业务运行时 |
 
 `coco-spring-boot-starter` 保留标准 Spring Boot starter 制品名，但只负责组合依赖，不承载具体 feature 行为。
+
+`coco-build/coco-compatibility` 不是普通业务依赖入口。它只容纳已经公开发布、在 2.x 兼容窗口内必须继续可解析的旧 Maven 坐标；这些模块只能是 relocation POM 或无源码兼容门面，不得重新拥有实现、自动配置注册或资源。兼容模块可以在迁移批次中逐步归入该目录，目录中的旧坐标在下一主版本才可删除。
+
+## 已发布兼容基线
+
+`v2.0.1` 已经向 Maven Central 发布 `coco-config`、`coco-feature-runtime`、`coco-feature-*`、`coco-test`、`coco-feature-codegen` 和 `coco-maven-plugin`。因此早期“在公开 2.0 前直接删除旧坐标”的假设已经失效，后续 2.x 迁移必须遵守以下规则：
+
+1. 新名称对应的制品成为框架内部和新业务项目的主路径；框架内部不得继续依赖仅为兼容保留的旧坐标。
+2. 每个已发布旧坐标在 2.x 内必须继续可解析，并提供与其原有公开类型、配置和运行行为兼容的传递表面。优先使用无源码兼容 JAR；只有经过 Maven Resolver、插件和真实消费项目验证后才可改为 relocation POM。
+3. 兼容制品不得复制实现类、自动配置导入、`spring.factories`、消息资源或模板。实现只能有一个物理所有者。
+4. Java 包名、公开 FQCN、配置前缀、feature id 和插件 goal 不因目录或 artifactId 重命名而改变；任何此类变更需要单独的主版本兼容评审。
+5. BOM 必须同时管理 2.x 主坐标和仍受支持的旧坐标。starter 只组合主坐标，不通过旧兼容坐标间接获得能力。
+6. 旧坐标的最终删除最早进入下一主版本，并且必须有发布说明、替代坐标和经过验证的消费迁移路径。
 
 ## 依赖方向
 
@@ -71,8 +86,8 @@ flowchart TD
 
 1. Agent Review 同时识别 1.x 路径和 2.0 目标路径，并为重命名的旧、新两侧注入完整规格。
 2. 先完成物理目录归组，不在同一 PR 中混入 Maven 坐标和 Java 包名变更。
-3. 再按 foundation、Spring 组合层和各 feature 分批重命名、扁平化或合并模块。
-4. `coco-samples` 和 `coco-feature-codegen` 在独立步骤移出框架仓库，分别由 `coco-admin` 和 `coco-generate` 承接。
+3. 再按 foundation、Spring 组合层和各 feature 分批重命名、扁平化或合并主实现模块；已发布旧坐标同步转换为 2.x 兼容门面，而不是直接删除。
+4. `coco-samples` 和 Codegen 实现只能在独立步骤移出框架仓库：`coco-admin` 必须先承接等价的端到端验证，`coco-generate` 必须先承接公开 API、模板和生成行为。`coco:generate` 在 2.x 内继续由旧插件兼容，除非版本化迁移规格明确了新入口和双跑等价结果。
 5. 每个 PR 的完整 diff 必须低于 Agent Review 的 `180000` 字符硬上限；必选策略和规格必须完整装入 `48000` 字符预算，不能截断或静默遗漏。
 6. 每一步都必须通过 JDK 21 下的 Maven verify、release smoke、治理测试和当前 head 的三项合并门禁。
 
@@ -87,8 +102,8 @@ flowchart TD
 | `coco-common-i18n` | `coco-i18n` |
 | `coco-common-logging` | `coco-logging` |
 | `coco-feature-registry` | `coco-feature-model` |
-| `coco-config`, `coco-feature-runtime` | 合并到 `coco-spring-boot-autoconfigure` |
-| `coco-feature-*` | 对应的 `coco-*` feature 制品 |
-| `coco-test` | `coco-test-support` |
-| `coco-feature-codegen`, `coco:generate` | 移至 `coco-generate` |
-| `coco-samples` | 移出框架；产品接入参考 `coco-admin` |
+| `coco-config`, `coco-feature-runtime` | 实现合并到 `coco-spring-boot-autoconfigure`；旧坐标作为 2.x 无源码兼容门面保留 |
+| `coco-feature-*` | 对应的 `coco-*` 主 feature 制品；旧坐标作为 2.x 兼容门面保留 |
+| `coco-test` | `coco-test-support` 主制品；`coco-test` 作为 2.x 兼容门面保留 |
+| `coco-feature-codegen`, `coco:generate` | 由 `coco-generate` 按版本化迁移承接；旧 API 和 goal 在 2.x 兼容窗口内继续可用 |
+| `coco-samples` | 仅在等价验证落入 `coco-admin` 后移出框架 |
