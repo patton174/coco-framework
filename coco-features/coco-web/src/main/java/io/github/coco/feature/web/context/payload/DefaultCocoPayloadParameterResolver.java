@@ -296,7 +296,7 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
     }
 
     private List<String> sanitizeValues(String name, List<String> values, boolean formPayload, Charset charset) {
-        if (isMaskedParameterName(name)) {
+        if (!this.properties.shouldCaptureParameterValue(name)) {
             return List.of(MASKED_VALUE);
         }
         if (values == null || values.isEmpty()) {
@@ -314,11 +314,6 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
     private String sanitizeValue(String value, boolean formPayload, Charset charset) {
         String normalizedValue = formPayload ? decodeFormComponent(value, charset) : value;
         return trimValue(normalizedValue, this.properties.getMaxParameterValueLength());
-    }
-
-    private boolean isMaskedParameterName(String name) {
-        return name != null && this.properties.getMaskedParameterNames()
-                .contains(name.trim().toLowerCase(Locale.ROOT));
     }
 
     private boolean isIncludedContentType(String contentType) {

@@ -338,22 +338,17 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
         int separatorIndex = pair.indexOf('=');
         String name = separatorIndex < 0 ? pair : pair.substring(0, separatorIndex);
         String value = separatorIndex < 0 ? "" : pair.substring(separatorIndex + 1);
-        if (isMaskedParameterName(decodeQueryComponent(name))) {
+        if (!this.properties.shouldCaptureParameterValue(decodeQueryComponent(name))) {
             return name + "=" + MASKED_VALUE;
         }
         return separatorIndex < 0 ? trimParameterValue(name) : name + "=" + trimParameterValue(value);
     }
 
     private String sanitizeParameterValue(String name, String value) {
-        if (isMaskedParameterName(name)) {
+        if (!this.properties.shouldCaptureParameterValue(name)) {
             return MASKED_VALUE;
         }
         return trimParameterValue(value);
-    }
-
-    private boolean isMaskedParameterName(String name) {
-        return name != null && this.properties.getMaskedParameterNames()
-                .contains(name.trim().toLowerCase(Locale.ROOT));
     }
 
     private String trimParameterValue(String value) {

@@ -1,6 +1,8 @@
 package io.github.coco.feature.web.context;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -28,13 +30,21 @@ public class CocoWebParameterProperties {
     private static final int DEFAULT_MAX_PARAMETER_VALUE_LENGTH = 256;
 
     private static final Set<String> DEFAULT_MASKED_PARAMETER_NAMES = Set.of(
-            "password", "passwd", "pwd", "secret", "token", "access_token", "refresh_token", "authorization");
+            "password", "passwd", "pwd", "passcode", "pin",
+            "secret", "client_secret", "api_secret", "private_key",
+            "token", "access_token", "refresh_token", "id_token", "session_token", "csrf_token",
+            "authorization", "authorization_code", "auth_code",
+            "otp", "one_time_password", "verification_code", "api_key", "session_id");
 
     private boolean includeParameters = true;
 
     private int maxParameterValueLength = DEFAULT_MAX_PARAMETER_VALUE_LENGTH;
 
     private Set<String> maskedParameterNames = DEFAULT_MASKED_PARAMETER_NAMES;
+
+    private CocoWebParameterValueCaptureMode valueCaptureMode = CocoWebParameterValueCaptureMode.METADATA_ONLY;
+
+    private Set<String> valueAllowedParameterNames = Set.of();
 
     @NestedConfigurationProperty
     private CocoPayloadParameterProperties payload = new CocoPayloadParameterProperties();
@@ -115,6 +125,72 @@ public class CocoWebParameterProperties {
 
     /**
      * <p>
+     * 返回普通请求上下文中的参数值采集模式。
+     * </p>
+     * @return 参数值采集模式
+     */
+    public CocoWebParameterValueCaptureMode getValueCaptureMode() {
+        return this.valueCaptureMode;
+    }
+
+    /**
+     * <p>
+     * 设置普通请求上下文中的参数值采集模式。
+     * </p>
+     * @param valueCaptureMode 参数值采集模式；为空时恢复安全的仅元数据模式
+     */
+    public void setValueCaptureMode(CocoWebParameterValueCaptureMode valueCaptureMode) {
+        this.valueCaptureMode = valueCaptureMode == null
+                ? CocoWebParameterValueCaptureMode.METADATA_ONLY
+                : valueCaptureMode;
+    }
+
+    /**
+     * <p>
+     * 返回允许采集值的参数名集合。
+     * </p>
+     * <p>
+     * 仅当参数值采集模式为 {@link CocoWebParameterValueCaptureMode#ALLOW_LIST} 时生效，名称按大小写不敏感的完整参数名匹配。
+     * </p>
+     * @return 允许采集值的参数名集合
+     */
+    public Set<String> getValueAllowedParameterNames() {
+        return this.valueAllowedParameterNames;
+    }
+
+    /**
+     * <p>
+     * 设置允许采集值的参数名集合。
+     * </p>
+     * @param valueAllowedParameterNames 允许采集值的参数名集合
+     */
+    public void setValueAllowedParameterNames(Set<String> valueAllowedParameterNames) {
+        this.valueAllowedParameterNames = normalizeNames(valueAllowedParameterNames);
+    }
+
+    /**
+     * <p>
+     * 返回指定参数值是否可以进入普通请求上下文。
+     * </p>
+     * <p>
+     * 敏感名称匹配始终优先于采集模式。敏感名称识别忽略大小写和常见分隔符，并识别 camelCase 及嵌套参数名中的完整名称片段。
+     * </p>
+     * @param parameterName 参数名
+     * @return 允许采集参数值时返回 {@code true}
+     */
+    public boolean shouldCaptureParameterValue(String parameterName) {
+        if (matchesMaskedParameterName(parameterName)) {
+            return false;
+        }
+        return switch (this.valueCaptureMode) {
+            case ALL -> true;
+            case ALLOW_LIST -> this.valueAllowedParameterNames.contains(normalizeName(parameterName));
+            case METADATA_ONLY -> false;
+        };
+    }
+
+    /**
+     * <p>
      * 返回请求体参数解析配置。
      * </p>
      * @return 请求体参数解析配置
@@ -131,5 +207,89 @@ public class CocoWebParameterProperties {
      */
     public void setPayload(CocoPayloadParameterProperties payload) {
         this.payload = payload == null ? new CocoPayloadParameterProperties() : payload;
+    }
+
+    private boolean matchesMaskedParameterName(String parameterName) {
+        List<String> candidateParts = splitNameParts(parameterName);
+        if (candidateParts.isEmpty()) {
+            return false;
+        }
+        Set<String> canonicalMaskedNames = new LinkedHashSet<>();
+        for (String maskedName : this.maskedParameterNames) {
+            String canonicalName = canonicalName(maskedName);
+            if (!canonicalName.isEmpty()) {
+                canonicalMaskedNames.add(canonicalName);
+            }
+        }
+        for (int start = 0; start < candidateParts.size(); start++) {
+            StringBuilder candidate = new StringBuilder();
+            for (int end = start; end < candidateParts.size(); end++) {
+                candidate.append(candidateParts.get(end));
+                if (canonicalMaskedNames.contains(candidate.toString())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> normalizeNames(Set<String> names) {
+        if (names == null || names.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> normalizedNames = new LinkedHashSet<>();
+        for (String name : names) {
+            String normalizedName = normalizeName(name);
+            if (!normalizedName.isEmpty()) {
+                normalizedNames.add(normalizedName);
+            }
+        }
+        return normalizedNames.isEmpty() ? Set.of() : Set.copyOf(normalizedNames);
+    }
+
+    private static String normalizeName(String name) {
+        return name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String canonicalName(String name) {
+        return String.join("", splitNameParts(name));
+    }
+
+    private static List<String> splitNameParts(String name) {
+        if (name == null || name.isBlank()) {
+            return List.of();
+        }
+        List<String> parts = new ArrayList<>();
+        StringBuilder part = new StringBuilder();
+        for (int index = 0; index < name.length(); index++) {
+            char character = name.charAt(index);
+            if (!Character.isLetterOrDigit(character)) {
+                addPart(parts, part);
+                continue;
+            }
+            if (startsCamelCasePart(name, index, part)) {
+                addPart(parts, part);
+            }
+            part.append(Character.toLowerCase(character));
+        }
+        addPart(parts, part);
+        return List.copyOf(parts);
+    }
+
+    private static boolean startsCamelCasePart(String value, int index, StringBuilder currentPart) {
+        if (currentPart.isEmpty() || !Character.isUpperCase(value.charAt(index))) {
+            return false;
+        }
+        char previous = value.charAt(index - 1);
+        boolean nextIsLowerCase = index + 1 < value.length() && Character.isLowerCase(value.charAt(index + 1));
+        return Character.isLowerCase(previous) || Character.isDigit(previous)
+                || (Character.isUpperCase(previous) && nextIsLowerCase);
+    }
+
+    private static void addPart(List<String> parts, StringBuilder part) {
+        if (!part.isEmpty()) {
+            parts.add(part.toString());
+            part.setLength(0);
+        }
     }
 }

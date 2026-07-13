@@ -66,6 +66,7 @@ import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
 import io.github.coco.feature.web.request.metadata.CocoWebSecurityMetadataSource;
 import io.github.coco.feature.web.context.CocoWebParameterProperties;
+import io.github.coco.feature.web.context.CocoWebParameterValueCaptureMode;
 import io.github.coco.feature.web.context.DefaultCocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.DefaultCocoClientIpResolver;
 import io.github.coco.feature.web.context.DefaultCocoRequestHeaderResolver;
@@ -688,6 +689,13 @@ class CocoWebAutoConfigurationTest {
         assertTrue(properties.getContext().getTarget().isApplyForwardedPrefix());
         assertEquals(256, properties.getContext().getParameter().getMaxParameterValueLength());
         assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("token"));
+        assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("client_secret"));
+        assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("id_token"));
+        assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("authorization_code"));
+        assertTrue(properties.getContext().getParameter().getMaskedParameterNames().contains("otp"));
+        assertEquals(CocoWebParameterValueCaptureMode.METADATA_ONLY,
+                properties.getContext().getParameter().getValueCaptureMode());
+        assertTrue(properties.getContext().getParameter().getValueAllowedParameterNames().isEmpty());
         assertTrue(properties.getContext().getParameter().getPayload().isEnabled());
         assertTrue(properties.getContext().getParameter().getPayload().getIncludedContentTypes()
                 .contains("application/json"));
@@ -1285,7 +1293,7 @@ class CocoWebAutoConfigurationTest {
                 assertEquals(List.of("10.0.0.8", "10.0.0.9"), requestContext.clientIpChain());
                 assertEquals(1, requestContext.clientIpResolvedChainIndex().orElseThrow());
                 assertEquals("PostmanRuntime/7.37", requestContext.userAgent().orElseThrow());
-                assertEquals("name=Coco&token=******", requestContext.queryString().orElseThrow());
+                assertEquals("name=******&token=******", requestContext.queryString().orElseThrow());
                 assertEquals("zh-CN", requestContext.locale().orElseThrow());
                 assertEquals("https", requestContext.attribute("scheme").orElseThrow());
                 assertEquals("api.example.test", requestContext.attribute("host").orElseThrow());
@@ -1302,9 +1310,9 @@ class CocoWebAutoConfigurationTest {
                 assertEquals("transport-captured", requestContext.requestContextPhase().orElseThrow());
                 assertEquals("no-body", requestContext.requestPayloadParseStatus().orElseThrow());
                 assertTrue(requestContext.header("accept-language").orElseThrow().contains("zh-cn"));
-                assertEquals("Coco", requestContext.parameter("name").orElseThrow());
+                assertEquals("******", requestContext.parameter("name").orElseThrow());
                 assertEquals("******", requestContext.parameter("token").orElseThrow());
-                assertEquals("Coco", requestContext.queryParameter("name").orElseThrow());
+                assertEquals("******", requestContext.queryParameter("name").orElseThrow());
                 assertEquals("******", requestContext.queryParameter("token").orElseThrow());
                 assertTrue(requestContext.payloadParameter("name").isEmpty());
                 assertEquals("incoming-trace", MDC.get("traceId"));
@@ -1477,7 +1485,9 @@ class CocoWebAutoConfigurationTest {
                         "coco.web.context.included-header-names=authorization,accept-language",
                         "coco.web.context.trusted-proxy-cidrs=127.0.0.1/32",
                         "coco.web.context.max-header-value-length=8",
-                        "coco.web.context.parameter.max-parameter-value-length=4")
+                        "coco.web.context.parameter.max-parameter-value-length=4",
+                        "coco.web.context.parameter.value-capture-mode=allow-list",
+                        "coco.web.context.parameter.value-allowed-parameter-names=name")
                 .run(context -> {
                     CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
                             FilterRegistrationBean.class));
@@ -1592,7 +1602,9 @@ class CocoWebAutoConfigurationTest {
     @Test
     void resolvesCachedJsonPayloadParametersIntoContextAndSecurityInput() {
         this.webContextRunner
-                .withPropertyValues("coco.web.context.canonicalization.version=coco-v2")
+                .withPropertyValues(
+                        "coco.web.context.canonicalization.version=coco-v2",
+                        "coco.web.context.parameter.value-capture-mode=all")
                 .run(context -> {
             CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
             CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
@@ -1646,7 +1658,9 @@ class CocoWebAutoConfigurationTest {
     @Test
     void resolvesCachedFormPayloadParametersIntoContextAndSecurityInput() {
         this.webContextRunner
-                .withPropertyValues("coco.web.context.canonicalization.version=coco-v2")
+                .withPropertyValues(
+                        "coco.web.context.canonicalization.version=coco-v2",
+                        "coco.web.context.parameter.value-capture-mode=all")
                 .run(context -> {
             CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
             CocoWebRequestCanonicalizer canonicalizer = context.getBean(CocoWebRequestCanonicalizer.class);
@@ -1781,7 +1795,9 @@ class CocoWebAutoConfigurationTest {
     @Test
     void marksJsonPayloadAsDepthLimitedWhenMaxDepthIsReached() {
         this.webContextRunner
-                .withPropertyValues("coco.web.context.parameter.payload.max-json-depth=1")
+                .withPropertyValues(
+                        "coco.web.context.parameter.payload.max-json-depth=1",
+                        "coco.web.context.parameter.value-capture-mode=all")
                 .run(context -> {
                     CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
                     MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
@@ -1804,7 +1820,9 @@ class CocoWebAutoConfigurationTest {
     @Test
     void marksFormPayloadAsParameterLimitedWhenMaxCountIsReached() {
         this.webContextRunner
-                .withPropertyValues("coco.web.context.parameter.payload.max-parameter-count=2")
+                .withPropertyValues(
+                        "coco.web.context.parameter.payload.max-parameter-count=2",
+                        "coco.web.context.parameter.value-capture-mode=all")
                 .run(context -> {
                     CocoWebRequestContextResolver resolver = context.getBean(CocoWebRequestContextResolver.class);
                     MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
@@ -2377,6 +2395,7 @@ class CocoWebAutoConfigurationTest {
     @Test
     void defaultRequestParameterResolverProvidesSanitizedAndRawViews() {
         CocoWebParameterProperties properties = new CocoWebParameterProperties();
+        properties.setValueCaptureMode(CocoWebParameterValueCaptureMode.ALL);
         properties.setMaxParameterValueLength(4);
         CocoRequestParameterResolver resolver = new DefaultCocoRequestParameterResolver(properties);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
@@ -3488,7 +3507,7 @@ class CocoWebAutoConfigurationTest {
                                                 assertEquals("signature-verified",
                                                         requestContext.requestContextPhase().orElseThrow());
                                                 assertTrue(requestContext.securityAppId().isEmpty());
-                                                assertEquals("COCO-BODY",
+                                                assertEquals("******",
                                                         requestContext.payloadParameter("sku").orElseThrow());
                                                 reachedBusiness.set(true);
                                             })))));
@@ -3523,10 +3542,10 @@ class CocoWebAutoConfigurationTest {
                                                 CocoRequestContext requestContext =
                                                         CocoRequestContextHolder.current().orElseThrow();
                                                 assertTrue(requestContext.securityAppId().isEmpty());
-                                                assertEquals("COCO-FORM", requestContext.parameter("sku").orElseThrow());
-                                                assertEquals("COCO-FORM",
+                                                assertEquals("******", requestContext.parameter("sku").orElseThrow());
+                                                assertEquals("******",
                                                         requestContext.payloadParameter("sku").orElseThrow());
-                                                assertEquals("sample-app",
+                                                assertEquals("******",
                                                         requestContext.payloadParameter("appId").orElseThrow());
                                                 reachedBusiness.set(true);
                                             })))));
@@ -3676,8 +3695,9 @@ class CocoWebAutoConfigurationTest {
                                             new MockFilterChain(new TraceCapturingServlet(() -> {
                                                 CocoRequestContext requestContext =
                                                         CocoRequestContextHolder.current().orElseThrow();
-                                                assertEquals(nonce, requestContext.payloadParameter("nonce").orElseThrow());
-                                                assertEquals(timestamp,
+                                                assertEquals("******",
+                                                        requestContext.payloadParameter("nonce").orElseThrow());
+                                                assertEquals("******",
                                                         requestContext.payloadParameter("timestamp").orElseThrow());
                                                 assertEquals("replay-verified",
                                                         requestContext.requestContextPhase().orElseThrow());
@@ -3726,8 +3746,9 @@ class CocoWebAutoConfigurationTest {
                                             new MockFilterChain(new TraceCapturingServlet(() -> {
                                                 CocoRequestContext requestContext =
                                                         CocoRequestContextHolder.current().orElseThrow();
-                                                assertEquals(nonce, requestContext.payloadParameter("nonce").orElseThrow());
-                                                assertEquals(timestamp,
+                                                assertEquals("******",
+                                                        requestContext.payloadParameter("nonce").orElseThrow());
+                                                assertEquals("******",
                                                         requestContext.payloadParameter("timestamp").orElseThrow());
                                                 assertEquals("replay-verified",
                                                         requestContext.requestContextPhase().orElseThrow());
@@ -4400,7 +4421,7 @@ class CocoWebAutoConfigurationTest {
                                                 assertTrue(requestContext.requestEncrypted());
                                                 assertEquals("decrypted",
                                                         requestContext.requestContextPhase().orElseThrow());
-                                                assertEquals("COCO-ENVELOPE",
+                                                assertEquals("******",
                                                         requestContext.payloadParameter("sku").orElseThrow());
                                             })))));
 
@@ -4829,8 +4850,8 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("/api/users", accessLog.path().orElseThrow());
                     assertEquals("10.0.0.9", accessLog.clientIp().orElseThrow());
                     assertEquals("PostmanRuntime/7.37", accessLog.userAgent().orElseThrow());
-                    assertEquals("name=Coco&token=******", accessLog.queryString().orElseThrow());
-                    assertEquals(List.of("Coco"), accessLog.requestParameters().get("name"));
+                    assertEquals("name=******&token=******", accessLog.queryString().orElseThrow());
+                    assertEquals(List.of("******"), accessLog.requestParameters().get("name"));
                     assertEquals(List.of("******"), accessLog.requestParameters().get("token"));
                     assertEquals(201, accessLog.status());
                     assertTrue(accessLog.success());

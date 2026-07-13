@@ -163,6 +163,8 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.include-parameters\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.max-parameter-value-length\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.masked-parameter-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.value-capture-mode\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.value-allowed-parameter-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.included-content-types\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.max-json-depth\""));
@@ -206,6 +208,11 @@ class CocoWebConfigurationMetadataTest {
         assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "cookie", "trace", "debug");
         assertHintValues(metadata, "coco.web.context.parameter.payload.included-content-types",
                 "application/json", "application/*+json", "application/x-www-form-urlencoded");
+        assertHintValues(metadata, "coco.web.context.parameter.value-capture-mode",
+                "metadata-only", "allow-list", "all");
+        assertAdditionalProperty(metadata, "coco.web.context.parameter.value-capture-mode");
+        assertAdditionalProperty(metadata, "coco.web.context.parameter.value-allowed-parameter-names");
+        assertAdditionalProperty(metadata, "coco.web.context.parameter.masked-parameter-names");
         assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v2");
         assertHintValues(metadata, "coco.web.signature.metadata-source", "header", "parameter",
                 "header-then-parameter", "parameter-then-header");

@@ -9,6 +9,8 @@ import io.github.coco.feature.web.context.CocoClientIpResolver;
 import io.github.coco.feature.web.context.CocoRequestCookieResolver;
 import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
 import io.github.coco.feature.web.context.CocoRequestParameterResolver;
+import io.github.coco.feature.web.context.CocoWebParameterProperties;
+import io.github.coco.feature.web.context.CocoWebParameterValueCaptureMode;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
@@ -28,6 +30,9 @@ import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityInputRe
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.request.metadata.DefaultCocoWebRequestSecurityInputResolver;
 import io.github.coco.feature.web.request.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.i18n.CocoMessageService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -49,6 +54,10 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 public class CocoWebContextAutoConfiguration {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CocoWebContextAutoConfiguration.class);
+
+    private static final String ALL_PARAMETER_VALUES_WARNING = "coco.web.access-log.parameter-values-all";
 
     /**
      * <p>
@@ -116,14 +125,19 @@ public class CocoWebContextAutoConfiguration {
      * <p>
      * 创建默认 Coco 请求参数解析器�?     * </p>
      * @param properties Coco Web 配置属�?     * @param payloadParameterResolver 请求体参数解析器
+     * @param messageService Coco 消息服务
      * @return 请求参数解析�?     */
     @Bean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
     public CocoRequestParameterResolver cocoRequestParameterResolver(CocoWebProperties properties,
-            CocoPayloadParameterResolver payloadParameterResolver) {
-        return new DefaultCocoRequestParameterResolver(properties.getContext().getParameter(),
-                payloadParameterResolver);
+            CocoPayloadParameterResolver payloadParameterResolver, CocoMessageService messageService) {
+        CocoWebParameterProperties parameterProperties = properties.getContext().getParameter();
+        if (properties.getAccessLog().isEnabled() && parameterProperties.isIncludeParameters()
+                && parameterProperties.getValueCaptureMode() == CocoWebParameterValueCaptureMode.ALL) {
+            LOGGER.warn(messageService.getMessage(ALL_PARAMETER_VALUES_WARNING));
+        }
+        return new DefaultCocoRequestParameterResolver(parameterProperties, payloadParameterResolver);
     }
 
     /**

@@ -31,6 +31,30 @@
       "defaultValue": "coco_replay_key"
     },
     {
+      "name": "coco.web.context.parameter.value-capture-mode",
+      "type": "io.github.coco.feature.web.context.CocoWebParameterValueCaptureMode",
+      "description": "普通 Web 请求上下文和访问日志的参数值采集模式；默认仅保留参数名。签名、加密和防重放使用的原始安全输入不受该配置影响。",
+      "defaultValue": "metadata-only"
+    },
+    {
+      "name": "coco.web.context.parameter.value-allowed-parameter-names",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "允许采集值的完整参数名集合；仅在 value-capture-mode=allow-list 时生效，按大小写不敏感方式精确匹配。",
+      "defaultValue": []
+    },
+    {
+      "name": "coco.web.context.parameter.masked-parameter-names",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "始终隐藏值的敏感参数名集合；匹配优先于采集模式，并忽略大小写、下划线、连字符、点号及 camelCase 等常见命名变体。",
+      "defaultValue": [
+        "password", "passwd", "pwd", "passcode", "pin",
+        "secret", "client_secret", "api_secret", "private_key",
+        "token", "access_token", "refresh_token", "id_token", "session_token", "csrf_token",
+        "authorization", "authorization_code", "auth_code",
+        "otp", "one_time_password", "verification_code", "api_key", "session_id"
+      ]
+    },
+    {
       "name": "coco.web.signature.matcher.required[].methods",
       "type": "java.util.Set<java.lang.String>",
       "description": "需要强制验签的 HTTP 方法集合。"
@@ -92,6 +116,23 @@
     }
   ],
   "hints": [
+    {
+      "name": "coco.web.context.parameter.value-capture-mode",
+      "values": [
+        {
+          "value": "metadata-only",
+          "description": "仅记录参数名，所有参数值均替换为掩码占位符；这是默认模式。"
+        },
+        {
+          "value": "allow-list",
+          "description": "仅记录 value-allowed-parameter-names 明确允许的参数值，其他参数值替换为掩码占位符。"
+        },
+        {
+          "value": "all",
+          "description": "显式恢复旧版行为，记录所有未命中敏感参数名单的参数值；生产使用前必须审查掩码名单。"
+        }
+      ]
+    },
     {
       "name": "coco.web.replay.store-type",
       "values": [
