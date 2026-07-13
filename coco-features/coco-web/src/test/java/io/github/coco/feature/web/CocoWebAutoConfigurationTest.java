@@ -91,6 +91,7 @@ import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoPayloadTooLargeException;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
+import io.github.coco.feature.web.replay.CocoReplayCapacityExceededException;
 import io.github.coco.feature.web.replay.CocoReplayFilter;
 import io.github.coco.feature.web.replay.CocoReplayKey;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
@@ -399,6 +400,20 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void bindsReplayInMemoryCapacityProperties() {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.replay.in-memory.max-entries=321",
+                        "coco.web.replay.in-memory.max-entries-per-app-id=17")
+                .run(context -> {
+                    CocoReplayProperties replay = context.getBean(CocoWebProperties.class).getReplay();
+
+                    assertEquals(321, replay.getInMemory().getMaxEntries());
+                    assertEquals(17, replay.getInMemory().getMaxEntriesPerAppId());
+                });
+    }
+
+    @Test
     void returnsLocalizedErrorResponseForCocoException() {
         CocoTraceContext.setTraceId("trace-test");
         this.webContextRunner.run(context -> {
@@ -673,6 +688,8 @@ class CocoWebAutoConfigurationTest {
         assertEquals(300L, properties.getReplay().getTtlSeconds());
         assertEquals(300L, properties.getReplay().getMaxClockSkewSeconds());
         assertEquals(60L, properties.getReplay().getCleanupIntervalSeconds());
+        assertEquals(100_000, properties.getReplay().getInMemory().getMaxEntries());
+        assertEquals(10_000, properties.getReplay().getInMemory().getMaxEntriesPerAppId());
         assertEquals(128, properties.getTrace().getMaxLength());
         assertEquals(CocoTraceProperties.DEFAULT_ALLOWED_PATTERN, properties.getTrace().getAllowedPattern());
         assertTrue(properties.getContext().isIncludeHeaders());
@@ -3312,6 +3329,99 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void rejectsUntrustedReplayMetadataBeforeStoreReservation() throws Exception {
+        AtomicInteger reservations = new AtomicInteger();
+        this.webContextRunner
+                .withBean(CocoReplayStore.class, () -> (key, expiresAt) -> {
+                    reservations.incrementAndGet();
+                    return true;
+                })
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/public/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "forged-app");
+                    request.addHeader("X-Coco-Timestamp", Long.toString(System.currentTimeMillis()));
+                    request.addHeader("X-Coco-Nonce", "forged-nonce");
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+
+                    assertEquals(0, reservations.get());
+                    assertUnauthorizedResponse(response, "Request replay identity is not trusted.");
+                });
+    }
+
+    @Test
+    void allowsExplicitMatcherForReplayOnlyRequest() throws Exception {
+        AtomicInteger reservations = new AtomicInteger();
+        this.webContextRunner
+                .withBean(CocoReplayStore.class, () -> (key, expiresAt) -> {
+                    reservations.incrementAndGet();
+                    return true;
+                })
+                .withPropertyValues(
+                        "coco.web.replay.matcher.required[0].methods[0]=POST",
+                        "coco.web.replay.matcher.required[0].path-patterns[0]=/replay-only/**")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/replay-only/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
+                    request.addHeader("X-Coco-App-Id", "replay-client");
+                    request.addHeader("X-Coco-Timestamp", Long.toString(System.currentTimeMillis()));
+                    request.addHeader("X-Coco-Nonce", "replay-only-nonce");
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse,
+                                    new MockFilterChain(new TraceCapturingServlet(() ->
+                                            reachedBusiness.set(true)))));
+
+                    assertEquals(200, response.getStatus(), response.getContentAsString());
+                    assertEquals(1, reservations.get());
+                    assertEquals(Boolean.TRUE, reachedBusiness.get());
+                });
+    }
+
+    @Test
+    void returnsDistinctSystemErrorWhenReplayCapacityIsExhausted() throws Exception {
+        this.webContextRunner
+                .withBean(CocoReplayStore.class, () -> (key, expiresAt) -> {
+                    throw new CocoReplayCapacityExceededException(
+                            CocoReplayCapacityExceededException.Scope.GLOBAL, 1);
+                })
+                .withPropertyValues("coco.web.replay.required=true")
+                .run(context -> {
+                    CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    CocoReplayFilter replayFilter = replayFilter(context.getBean(
+                            "cocoReplayFilterRegistration", FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/replay-only/orders");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("Accept-Language", "en-US");
+                    request.addHeader("X-Coco-App-Id", "replay-client");
+                    request.addHeader("X-Coco-Timestamp", Long.toString(System.currentTimeMillis()));
+                    request.addHeader("X-Coco-Nonce", "capacity-nonce");
+
+                    traceFilter.doFilter(request, response, (traceRequest, traceResponse) ->
+                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+
+                    assertEquals(500, response.getStatus());
+                    Map<?, ?> body = new ObjectMapper().readValue(response.getContentAsString(), Map.class);
+                    assertEquals(Boolean.FALSE, body.get("success"));
+                    assertEquals(500, body.get("code"));
+                    assertEquals("Replay protection capacity is exhausted.", body.get("message"));
+                });
+    }
+
+    @Test
     void cachesSignedRequestBodyWhenContentTypeIsNotIncluded() throws Exception {
         this.webContextRunner
                 .withPropertyValues("coco.web.signature.secrets.sample-app=sample-secret")
@@ -3728,9 +3838,12 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void rejectsReplayedJsonPayloadRequestWithOptionalParameterMetadataSource() throws Exception {
+    void rejectsReplayedJsonPayloadRequestWithExplicitMatcherAndParameterMetadataSource() throws Exception {
         this.webContextRunner
-                .withPropertyValues("coco.web.replay.metadata-source=parameter")
+                .withPropertyValues(
+                        "coco.web.replay.metadata-source=parameter",
+                        "coco.web.replay.matcher.required[0].methods[0]=POST",
+                        "coco.web.replay.matcher.required[0].path-patterns[0]=/api/orders")
                 .run(context -> {
                     CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
                             context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
@@ -3781,6 +3894,7 @@ class CocoWebAutoConfigurationTest {
 
     @Test
     void rejectsReplayedEncryptedRequestWithCustomReplayHeaders() throws Exception {
+        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
         this.webContextRunner
                 .withPropertyValues(
                         "coco.web.replay.protect-encrypted-requests=true",
@@ -3788,31 +3902,44 @@ class CocoWebAutoConfigurationTest {
                         "coco.web.replay.key-id-header-name=X-Replay-Key",
                         "coco.web.replay.timestamp-header-name=X-Replay-Time",
                         "coco.web.replay.nonce-header-name=X-Replay-Nonce",
-                        "coco.web.encryption.encrypted-header-name=X-Crypto-Enabled")
+                        "coco.web.encryption.encrypted-header-name=X-Crypto-Enabled",
+                        "coco.web.encryption.keys.sample-app=" + Base64.getEncoder().encodeToString(key))
                 .run(context -> {
+                    CocoRequestBodyCachingFilter bodyFilter = requestBodyCachingFilter(
+                            context.getBean("cocoRequestBodyCachingFilterRegistration", FilterRegistrationBean.class));
                     CocoTraceFilter traceFilter = traceFilter(context.getBean("cocoTraceFilterRegistration",
                             FilterRegistrationBean.class));
+                    CocoEncryptionFilter encryptionFilter = encryptionFilter(context.getBean(
+                            "cocoEncryptionFilterRegistration", FilterRegistrationBean.class));
                     CocoReplayFilter replayFilter = replayFilter(context.getBean(
                             "cocoReplayFilterRegistration", FilterRegistrationBean.class));
                     String timestamp = String.valueOf(System.currentTimeMillis());
                     String nonce = "nonce-encrypted-replay-1001";
-                    MockHttpServletRequest firstRequest = encryptedReplayRequest("encrypted-replay-first",
-                            timestamp, nonce);
+                    byte[] plainBody = "{\"sku\":\"COCO-REPLAY\"}".getBytes(StandardCharsets.UTF_8);
+                    MockHttpServletRequest firstRequest = encryptedReplayRequest(plainBody, key,
+                            "encrypted-replay-first", timestamp, nonce);
                     MockHttpServletResponse firstResponse = new MockHttpServletResponse();
                     AtomicReference<Boolean> reachedBusiness = new AtomicReference<>(false);
 
-                    traceFilter.doFilter(firstRequest, firstResponse, (traceRequest, traceResponse) ->
-                            replayFilter.doFilter(traceRequest, traceResponse,
-                                    new MockFilterChain(new TraceCapturingServlet(() ->
-                                            reachedBusiness.set(true)))));
+                    bodyFilter.doFilter(firstRequest, firstResponse, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse,
+                                            (decryptedRequest, decryptedResponse) ->
+                                                    replayFilter.doFilter(decryptedRequest, decryptedResponse,
+                                                            new MockFilterChain(new TraceCapturingServlet(() ->
+                                                                    reachedBusiness.set(true)))))));
 
-                    MockHttpServletRequest replayRequest = encryptedReplayRequest("encrypted-replay-second",
-                            timestamp, nonce);
+                    MockHttpServletRequest replayRequest = encryptedReplayRequest(plainBody, key,
+                            "encrypted-replay-second", timestamp, nonce);
                     replayRequest.addHeader("Accept-Language", "en-US");
                     MockHttpServletResponse replayResponse = new MockHttpServletResponse();
 
-                    traceFilter.doFilter(replayRequest, replayResponse, (traceRequest, traceResponse) ->
-                            replayFilter.doFilter(traceRequest, traceResponse, new MockFilterChain()));
+                    bodyFilter.doFilter(replayRequest, replayResponse, (bodyRequest, bodyResponse) ->
+                            traceFilter.doFilter(bodyRequest, bodyResponse, (traceRequest, traceResponse) ->
+                                    encryptionFilter.doFilter(traceRequest, traceResponse,
+                                            (decryptedRequest, decryptedResponse) ->
+                                                    replayFilter.doFilter(decryptedRequest, decryptedResponse,
+                                                            new MockFilterChain()))));
 
                     assertEquals(200, firstResponse.getStatus());
                     assertEquals(Boolean.TRUE, reachedBusiness.get());
@@ -5261,10 +5388,20 @@ class CocoWebAutoConfigurationTest {
         return request;
     }
 
-    private static MockHttpServletRequest encryptedReplayRequest(String traceId, String timestamp, String nonce) {
+    private static MockHttpServletRequest encryptedReplayRequest(byte[] plainBody, byte[] key, String traceId,
+            String timestamp, String nonce) {
+        byte[] iv = "123456789012".getBytes(StandardCharsets.UTF_8);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        String encodedIv = Base64.getEncoder().encodeToString(iv);
+        byte[] aad = CocoEncryptionAssociatedData.from("sample-app", null, encodedIv, "AES-GCM", true,
+                "POST", "/api/orders", null, timestamp, nonce);
+        request.setContent(Base64.getEncoder().encode(aesGcmEncrypt(plainBody, key, iv, aad)));
         request.addHeader("X-Trace-Id", traceId);
         request.addHeader("X-Crypto-Enabled", "true");
+        request.addHeader("X-Coco-App-Id", "sample-app");
+        request.addHeader("X-Coco-IV", encodedIv);
+        request.addHeader("X-Coco-Algorithm", "AES-GCM");
         request.addHeader("X-Replay-App", "sample-app");
         request.addHeader("X-Replay-Key", "key-1001");
         request.addHeader("X-Replay-Time", timestamp);

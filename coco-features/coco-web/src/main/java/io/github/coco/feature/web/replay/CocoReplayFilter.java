@@ -153,8 +153,12 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
         CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
         CocoWebRequestSecurityMetadata metadata = this.securityMetadataResolver.resolve(snapshot.securityInput());
-        if (!CocoReplayRequestShape.shouldProtect(this.properties, metadata, replayRequired)) {
+        boolean protectionClaimed = CocoReplayRequestShape.shouldProtect(this.properties, metadata, replayRequired);
+        if (!protectionClaimed) {
             return;
+        }
+        if (!CocoReplayRequestShape.shouldReserve(this.properties, metadata, snapshot, replayRequired)) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.replay.untrusted-identity");
         }
         CocoReplayKey replayKey = this.replayKeyResolver.resolve(snapshot, metadata);
         CocoReplayRequestShape.validateRequiredFields(replayKey);

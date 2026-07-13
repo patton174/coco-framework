@@ -25,6 +25,10 @@ public class CocoReplayProperties {
 
     private static final long DEFAULT_MAX_CLOCK_SKEW_SECONDS = 300L;
 
+    private static final int DEFAULT_IN_MEMORY_MAX_ENTRIES = 100_000;
+
+    private static final int DEFAULT_IN_MEMORY_MAX_ENTRIES_PER_APP_ID = 10_000;
+
     private static final String DEFAULT_APP_ID_HEADER_NAME = "X-Coco-App-Id";
 
     private static final String DEFAULT_KEY_ID_HEADER_NAME = "X-Coco-Key-Id";
@@ -51,6 +55,9 @@ public class CocoReplayProperties {
 
     @NestedConfigurationProperty
     private CocoWebRequestMatcherProperties matcher = new CocoWebRequestMatcherProperties();
+
+    @NestedConfigurationProperty
+    private InMemoryProperties inMemory = new InMemoryProperties();
 
     @NestedConfigurationProperty
     private JdbcProperties jdbc = new JdbcProperties();
@@ -233,6 +240,26 @@ public class CocoReplayProperties {
      */
     public void setMatcher(CocoWebRequestMatcherProperties matcher) {
         this.matcher = matcher == null ? new CocoWebRequestMatcherProperties() : matcher;
+    }
+
+    /**
+     * <p>
+     * 返回进程内防重放存储配置。
+     * </p>
+     * @return 进程内防重放存储配置
+     */
+    public InMemoryProperties getInMemory() {
+        return this.inMemory;
+    }
+
+    /**
+     * <p>
+     * 设置进程内防重放存储配置。
+     * </p>
+     * @param inMemory 进程内防重放存储配置
+     */
+    public void setInMemory(InMemoryProperties inMemory) {
+        this.inMemory = inMemory == null ? new InMemoryProperties() : inMemory;
     }
 
     /**
@@ -445,6 +472,72 @@ public class CocoReplayProperties {
         this.maxClockSkewSeconds = maxClockSkewSeconds < 0
                 ? DEFAULT_MAX_CLOCK_SKEW_SECONDS
                 : maxClockSkewSeconds;
+    }
+
+    /**
+     * Coco 进程内防重放存储配置。
+     * <p>
+     * 全局容量限制单个存储实例持有的有效键总数；应用隔离容量限制单个 appId 持有的有效键数，
+     * 防止一个已识别应用耗尽全部进程内容量。
+     * </p>
+     * <p>
+     * 项目信息：
+     * </p>
+     * <ul>
+     *   <li>作者：<a href="https://github.com/patton174">patton174</a></li>
+     *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
+     *   <li>模块：{@code coco-web}</li>
+     * </ul>
+     * @author patton174
+     * @since 1.0.0
+     */
+    public static class InMemoryProperties {
+
+        private int maxEntries = DEFAULT_IN_MEMORY_MAX_ENTRIES;
+
+        private int maxEntriesPerAppId = DEFAULT_IN_MEMORY_MAX_ENTRIES_PER_APP_ID;
+
+        /**
+         * <p>
+         * 返回进程内有效防重放键的全局硬上限。
+         * </p>
+         * @return 全局硬上限
+         */
+        public int getMaxEntries() {
+            return this.maxEntries;
+        }
+
+        /**
+         * <p>
+         * 设置进程内有效防重放键的全局硬上限。
+         * </p>
+         * @param maxEntries 全局硬上限；小于等于零时恢复默认值
+         */
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries <= 0 ? DEFAULT_IN_MEMORY_MAX_ENTRIES : maxEntries;
+        }
+
+        /**
+         * <p>
+         * 返回单个 appId 的有效防重放键硬上限。
+         * </p>
+         * @return 单个 appId 的硬上限
+         */
+        public int getMaxEntriesPerAppId() {
+            return this.maxEntriesPerAppId;
+        }
+
+        /**
+         * <p>
+         * 设置单个 appId 的有效防重放键硬上限。
+         * </p>
+         * @param maxEntriesPerAppId 单个 appId 的硬上限；小于等于零时恢复默认值
+         */
+        public void setMaxEntriesPerAppId(int maxEntriesPerAppId) {
+            this.maxEntriesPerAppId = maxEntriesPerAppId <= 0
+                    ? DEFAULT_IN_MEMORY_MAX_ENTRIES_PER_APP_ID
+                    : maxEntriesPerAppId;
+        }
     }
 
     /**

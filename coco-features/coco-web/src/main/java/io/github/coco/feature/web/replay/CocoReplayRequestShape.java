@@ -2,8 +2,10 @@ package io.github.coco.feature.web.replay;
 
 import java.time.Instant;
 
+import io.github.coco.context.CocoRequestContextAttributes;
 import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadata;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -54,6 +56,36 @@ final class CocoReplayRequestShape {
                 || (properties.isProtectEncryptedRequests() && metadata.encrypted());
     }
 
+    /**
+     * <p>
+     * 判断当前请求是否已经具备占用防重放存储的可信条件。
+     * </p>
+     * <p>
+     * 显式 required 或 matcher 规则允许 replay-only 协议。其他请求必须先由签名或解密过滤器发布可信证据，
+     * 仅携带可伪造的协议字段不能占用存储容量。
+     * </p>
+     * @param properties 防重放配置属性
+     * @param metadata 请求安全元数据
+     * @param snapshot 请求快照
+     * @param replayRequired 当前请求是否显式要求防重放
+     * @return 允许占用防重放存储时返回 {@code true}
+     */
+    static boolean shouldReserve(CocoReplayProperties properties, CocoWebRequestSecurityMetadata metadata,
+            CocoWebRequestSnapshot snapshot, boolean replayRequired) {
+        if (replayRequired) {
+            return true;
+        }
+        boolean signatureVerified = metadata.signed()
+                && trusted(snapshot, CocoRequestContextAttributes.SIGNATURE_VERIFIED);
+        boolean encryptionVerified = metadata.encrypted()
+                && trusted(snapshot, CocoRequestContextAttributes.REQUEST_DECRYPTED);
+        if (metadata.replayProtected() && (signatureVerified || encryptionVerified)) {
+            return true;
+        }
+        return (properties.isProtectSignedRequests() && signatureVerified)
+                || (properties.isProtectEncryptedRequests() && encryptionVerified);
+    }
+
     static void validateRequiredFields(CocoReplayKey replayKey) {
         if (replayKey.appId() == null) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.missing-app-id");
@@ -79,5 +111,9 @@ final class CocoReplayRequestShape {
                 throw CocoBusinessExceptions.unauthorized("coco.web.replay.invalid-timestamp");
             }
         }
+    }
+
+    private static boolean trusted(CocoWebRequestSnapshot snapshot, String attributeName) {
+        return snapshot != null && Boolean.parseBoolean(snapshot.contextAttributes().get(attributeName));
     }
 }

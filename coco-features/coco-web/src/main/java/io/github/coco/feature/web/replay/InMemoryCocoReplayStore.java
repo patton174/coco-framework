@@ -2,15 +2,17 @@ package io.github.coco.feature.web.replay;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +20,8 @@ import org.slf4j.LoggerFactory;
 /**
  * 进程内 Coco Web 防重放存储。
  * <p>
- * 使用内存映射保存已占用的防重放键，适合单进程应用和本地开发；集群部署时应由业务项目替换为分布式存储实现。
+ * 使用有界内存映射保存已占用的防重放键，并同时执行全局和 appId 隔离容量限制。
+ * 适合单进程应用和本地开发；集群部署时应由业务项目替换为分布式存储实现。
  * </p>
  * <p>
  * 项目信息：
@@ -37,9 +40,17 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
 
     private static final AtomicBoolean WARNING_LOGGED = new AtomicBoolean();
 
-    private final ConcurrentMap<String, Instant> reservedKeys = new ConcurrentHashMap<>();
+    private final Map<String, Reservation> reservedKeys = new HashMap<>();
+
+    private final Map<String, Integer> reservedKeyCountsByAppId = new HashMap<>();
+
+    private final ReentrantLock reservationLock = new ReentrantLock();
 
     private final long cleanupIntervalSeconds;
+
+    private final int maxEntries;
+
+    private final int maxEntriesPerAppId;
 
     private final Clock clock;
 
@@ -48,6 +59,8 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
     private final AtomicBoolean cleanupStarted = new AtomicBoolean();
 
     private final AtomicBoolean closed = new AtomicBoolean();
+
+    private final AtomicLong capacityRejections = new AtomicLong();
 
     /**
      * <p>
@@ -73,6 +86,8 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
     InMemoryCocoReplayStore(CocoReplayProperties properties, Clock clock, boolean backgroundCleanupEnabled) {
         CocoReplayProperties replayProperties = properties == null ? new CocoReplayProperties() : properties;
         this.cleanupIntervalSeconds = replayProperties.getCleanupIntervalSeconds();
+        this.maxEntries = replayProperties.getInMemory().getMaxEntries();
+        this.maxEntriesPerAppId = replayProperties.getInMemory().getMaxEntriesPerAppId();
         this.clock = clock == null ? Clock.systemUTC() : clock;
         this.cleanupExecutor = backgroundCleanupEnabled
                 ? Executors.newSingleThreadScheduledExecutor(new CleanupThreadFactory())
@@ -89,15 +104,37 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
         Instant checkedExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
         startCleanupTaskIfNecessary();
         Instant now = this.clock.instant();
-        AtomicBoolean reserved = new AtomicBoolean(false);
-        this.reservedKeys.compute(checkedKey.value(), (ignored, currentExpiresAt) -> {
-            if (currentExpiresAt == null || !currentExpiresAt.isAfter(now)) {
-                reserved.set(true);
-                return checkedExpiresAt;
+        String storageKey = checkedKey.value();
+        String appId = checkedKey.appId();
+        CocoReplayCapacityExceededException rejected = null;
+        this.reservationLock.lock();
+        try {
+            Reservation current = this.reservedKeys.get(storageKey);
+            if (current != null) {
+                if (current.expiresAt().isAfter(now)) {
+                    return false;
+                }
+                this.reservedKeys.put(storageKey, new Reservation(checkedExpiresAt, current.appId()));
+                return true;
             }
-            return currentExpiresAt;
-        });
-        return reserved.get();
+            CocoReplayCapacityExceededException capacityFailure = capacityFailure(appId);
+            if (capacityFailure != null) {
+                cleanupExpiredKeysLocked(now);
+                capacityFailure = capacityFailure(appId);
+            }
+            if (capacityFailure != null) {
+                rejected = capacityFailure;
+            }
+            else {
+                this.reservedKeys.put(storageKey, new Reservation(checkedExpiresAt, appId));
+                this.reservedKeyCountsByAppId.merge(appId, 1, Integer::sum);
+                return true;
+            }
+        }
+        finally {
+            this.reservationLock.unlock();
+        }
+        throw recordCapacityRejection(rejected);
     }
 
     /**
@@ -112,19 +149,83 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
 
     int cleanupExpiredKeys() {
         Instant now = this.clock.instant();
-        AtomicInteger removed = new AtomicInteger();
-        this.reservedKeys.entrySet().removeIf(entry -> {
-            boolean expired = !entry.getValue().isAfter(now);
-            if (expired) {
-                removed.incrementAndGet();
-            }
-            return expired;
-        });
-        return removed.get();
+        this.reservationLock.lock();
+        try {
+            return cleanupExpiredKeysLocked(now);
+        }
+        finally {
+            this.reservationLock.unlock();
+        }
     }
 
     int reservedKeyCount() {
-        return this.reservedKeys.size();
+        this.reservationLock.lock();
+        try {
+            return this.reservedKeys.size();
+        }
+        finally {
+            this.reservationLock.unlock();
+        }
+    }
+
+    int reservedKeyCountForAppId(String appId) {
+        String normalizedAppId = appId == null || appId.isBlank() ? null : appId.trim();
+        this.reservationLock.lock();
+        try {
+            return this.reservedKeyCountsByAppId.getOrDefault(normalizedAppId, 0);
+        }
+        finally {
+            this.reservationLock.unlock();
+        }
+    }
+
+    private CocoReplayCapacityExceededException capacityFailure(String appId) {
+        if (this.reservedKeys.size() >= this.maxEntries) {
+            return new CocoReplayCapacityExceededException(
+                    CocoReplayCapacityExceededException.Scope.GLOBAL, this.maxEntries);
+        }
+        if (this.reservedKeyCountsByAppId.getOrDefault(appId, 0) >= this.maxEntriesPerAppId) {
+            return new CocoReplayCapacityExceededException(
+                    CocoReplayCapacityExceededException.Scope.APP_ID, this.maxEntriesPerAppId);
+        }
+        return null;
+    }
+
+    private CocoReplayCapacityExceededException recordCapacityRejection(
+            CocoReplayCapacityExceededException exception) {
+        long totalRejections = this.capacityRejections.incrementAndGet();
+        if ((totalRejections & (totalRejections - 1)) == 0) {
+            LOGGER.warn("Coco replay capacity exhausted: scope={}, capacity={}, totalRejections={}",
+                    exception.scope().id(), exception.capacity(), totalRejections);
+        }
+        return exception;
+    }
+
+    private int cleanupExpiredKeysLocked(Instant now) {
+        int removed = 0;
+        Iterator<Map.Entry<String, Reservation>> iterator = this.reservedKeys.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Reservation reservation = iterator.next().getValue();
+            if (!reservation.expiresAt().isAfter(now)) {
+                iterator.remove();
+                decrementAppIdCount(reservation.appId());
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    private void decrementAppIdCount(String appId) {
+        Integer current = this.reservedKeyCountsByAppId.get(appId);
+        if (current == null || current <= 0) {
+            throw new IllegalStateException("Coco replay appId capacity accounting is inconsistent");
+        }
+        if (current == 1) {
+            this.reservedKeyCountsByAppId.remove(appId);
+        }
+        else {
+            this.reservedKeyCountsByAppId.put(appId, current - 1);
+        }
     }
 
     private void startCleanupTaskIfNecessary() {
@@ -160,5 +261,8 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
             thread.setDaemon(true);
             return thread;
         }
+    }
+
+    private record Reservation(Instant expiresAt, String appId) {
     }
 }

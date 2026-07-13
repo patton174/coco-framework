@@ -68,7 +68,9 @@ class CocoWebMessageResourceStructureTest {
             "coco.web.replay.missing-nonce",
             "coco.web.replay.invalid-timestamp",
             "coco.web.replay.expired",
-            "coco.web.replay.detected");
+            "coco.web.replay.detected",
+            "coco.web.replay.untrusted-identity",
+            "coco.web.replay.capacity-exhausted");
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
@@ -128,6 +130,14 @@ class CocoWebMessageResourceStructureTest {
                     messageService.getMessage("coco.web.replay.detected", Locale.US));
             assertEquals("检测到重复请求。",
                     messageService.getMessage("coco.web.replay.detected", Locale.SIMPLIFIED_CHINESE));
+            assertEquals("Request replay identity is not trusted.",
+                    messageService.getMessage("coco.web.replay.untrusted-identity", Locale.US));
+            assertEquals("防重放请求身份未经可信校验。",
+                    messageService.getMessage("coco.web.replay.untrusted-identity", Locale.SIMPLIFIED_CHINESE));
+            assertEquals("Replay protection capacity is exhausted.",
+                    messageService.getMessage("coco.web.replay.capacity-exhausted", Locale.US));
+            assertEquals("防重放保护容量已耗尽。",
+                    messageService.getMessage("coco.web.replay.capacity-exhausted", Locale.SIMPLIFIED_CHINESE));
         });
     }
 

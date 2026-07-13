@@ -33,6 +33,7 @@ public interface CocoReplayStore {
      * @param key 防重放键
      * @param expiresAt 键的绝对过期时间
      * @return 占用成功时返回 {@code true}；同一键仍处于有效占用期时返回 {@code false}
+     * @throws CocoReplayCapacityExceededException 存储达到容量硬上限时抛出
      * @throws RuntimeException 存储不可用、超时或其他基础设施操作失败时抛出
      */
     boolean reserve(CocoReplayKey key, Instant expiresAt);

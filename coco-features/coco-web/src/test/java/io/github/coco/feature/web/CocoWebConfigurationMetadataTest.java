@@ -129,6 +129,8 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.encryption.keys\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.store-type\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.in-memory.max-entries\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.in-memory.max-entries-per-app-id\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.jdbc.table-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.required\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-signed-requests\""));
@@ -222,6 +224,8 @@ class CocoWebConfigurationMetadataTest {
                 "header-then-parameter", "parameter-then-header");
         assertHintValues(metadata, "coco.web.replay.store-type", "in-memory", "jdbc");
         assertAdditionalProperty(metadata, "coco.web.replay.store-type");
+        assertAdditionalProperty(metadata, "coco.web.replay.in-memory.max-entries");
+        assertAdditionalProperty(metadata, "coco.web.replay.in-memory.max-entries-per-app-id");
         assertAdditionalProperty(metadata, "coco.web.replay.jdbc.table-name");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");

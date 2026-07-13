@@ -25,6 +25,18 @@
       "defaultValue": "in-memory"
     },
     {
+      "name": "coco.web.replay.in-memory.max-entries",
+      "type": "java.lang.Integer",
+      "description": "进程内防重放存储持有的有效键全局硬上限；达到上限且没有可回收过期键时请求会 fail-closed。",
+      "defaultValue": 100000
+    },
+    {
+      "name": "coco.web.replay.in-memory.max-entries-per-app-id",
+      "type": "java.lang.Integer",
+      "description": "进程内防重放存储中单个 appId 持有的有效键硬上限；用于隔离单个已识别应用的容量消耗。",
+      "defaultValue": 10000
+    },
+    {
       "name": "coco.web.replay.jdbc.table-name",
       "type": "java.lang.String",
       "description": "业务预建的 JDBC 防重放键表名；支持普通表名或单层 schema-qualified 表名，框架不会执行 DDL。",
