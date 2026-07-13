@@ -61,9 +61,12 @@ jobs:
             .github/scripts/agent_issue_gate.py \
             .github/scripts/auto_merge.py \
             .github/scripts/test_agent_review.py \
-            .github/scripts/test_auto_merge.py
+            .github/scripts/test_auto_merge.py \
+            .github/scripts/verify_sample_feature_coordinates.py \
+            .github/scripts/test_verify_sample_feature_coordinates.py
           python .github/scripts/test_agent_review.py
           python .github/scripts/test_auto_merge.py
+          python .github/scripts/test_verify_sample_feature_coordinates.py
           python -m ruff check .github/scripts
           python -m ruff format --check .github/scripts
           node --test .github/readme/tests/readme.test.mjs
