@@ -17,7 +17,11 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
     def write_archive(
         self, libraries: list[str], index_lines: list[str] | None = None
     ) -> None:
-        lines = index_lines if index_lines is not None else libraries
+        lines = (
+            index_lines
+            if index_lines is not None
+            else [f'- "BOOT-INF/lib/{library}"' for library in libraries]
+        )
         with ZipFile(self.archive, "w") as archive:
             for library in libraries:
                 archive.writestr(f"BOOT-INF/lib/{library}", "library")
@@ -48,7 +52,7 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
                 "coco-web-2.0.2.jar",
                 "coco-feature-audit-2.0.2.jar",
                 "coco-security-2.0.2.jar",
-                "coco-feature-codegen-2.0.2.jar",
+                "coco-codegen-2.0.2.jar",
             ]
         )
 
@@ -82,6 +86,7 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
         self.write_archive(
             ["coco-web-2.0.2.jar"],
             [
+                '- "BOOT-INF/lib/coco-web-2.0.2.jar"',
                 "BOOT-INF/lib/coco-feature-tenant-2.0.2.jar",
                 "BOOT-INF/lib/mybatis-3.5.0.jar",
             ],
@@ -97,6 +102,40 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
         self.assertEqual(2, len(errors))
         self.assertIn("tenant", errors[0])
         self.assertIn("mybatis-", errors[1])
+
+    def test_index_substring_collisions_are_not_artifact_tokens(self) -> None:
+        self.write_archive(
+            ["coco-web-2.0.2.jar"],
+            [
+                '- "BOOT-INF/lib/coco-web-2.0.2.jar"',
+                '- "BOOT-INF/lib/not-coco-feature-tenant-2.0.2.jar"',
+                '- "BOOT-INF/lib/not-mybatis-3.5.0.jar"',
+            ],
+        )
+
+        self.assertEqual(
+            [],
+            verifier.check_archive(
+                self.archive,
+                required_features=("web",),
+                forbidden_features=("tenant",),
+                forbidden_library_prefixes=("mybatis-",),
+            ),
+        )
+
+    def test_required_feature_must_have_an_exact_index_jar_token(self) -> None:
+        self.write_archive(
+            ["coco-web-2.0.2.jar"],
+            ['- "BOOT-INF/lib/not-coco-web-2.0.2.jar"'],
+        )
+
+        errors = verifier.check_archive(
+            self.archive,
+            required_features=("web",),
+        )
+
+        self.assertEqual(1, len(errors))
+        self.assertIn("Spring Boot index jar token", errors[0])
 
     def test_required_library_and_boot_indexes_are_enforced(self) -> None:
         with ZipFile(self.archive, "w") as archive:

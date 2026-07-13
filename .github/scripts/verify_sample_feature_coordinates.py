@@ -24,6 +24,20 @@ def matching_libraries(libraries: list[str], prefixes: tuple[str, ...]) -> list[
     )
 
 
+def indexed_libraries(index_contents: list[str]) -> list[str]:
+    libraries: set[str] = set()
+    for content in index_contents:
+        for line in content.splitlines():
+            token = line.strip().lstrip("\ufeff")
+            if token.startswith("- "):
+                token = token[2:].strip()
+            if len(token) >= 2 and token[0] in ("'", '"') and token[-1] == token[0]:
+                token = token[1:-1]
+            if token.startswith(BOOT_LIBRARY_PREFIX) and token.endswith(".jar"):
+                libraries.add(Path(token).name)
+    return sorted(libraries)
+
+
 def check_archive(
     archive_path: Path,
     *,
@@ -42,11 +56,12 @@ def check_archive(
                 for entry in entries
                 if entry.startswith(BOOT_LIBRARY_PREFIX) and entry.endswith(".jar")
             )
-            index_text = "\n".join(
+            index_contents = [
                 archive.read(entry).decode("utf-8", errors="replace")
                 for entry in BOOT_INDEX_ENTRIES
                 if entry in entries
-            )
+            ]
+            index_library_names = indexed_libraries(index_contents)
     except (OSError, BadZipFile) as exc:
         return [f"unable to read Spring Boot archive {archive_path}: {exc}"]
 
@@ -63,6 +78,15 @@ def check_archive(
                 f"feature {feature} requires exactly one old or canonical artifact; "
                 f"found {len(matches)}: {', '.join(matches) or 'none'}"
             )
+        elif not missing_indexes:
+            index_matches = matching_libraries(
+                index_library_names, feature_prefixes(feature)
+            )
+            if len(index_matches) != 1:
+                errors.append(
+                    f"feature {feature} requires exactly one Spring Boot index jar token; "
+                    f"found {len(index_matches)}: {', '.join(index_matches) or 'none'}"
+                )
 
     for feature in forbidden_features:
         prefixes = feature_prefixes(feature)
@@ -72,16 +96,16 @@ def check_archive(
                 f"feature {feature} must be pruned; found: {', '.join(matches)}"
             )
         for prefix in prefixes:
-            if prefix in index_text:
+            if matching_libraries(index_library_names, (prefix,)):
                 errors.append(
                     f"feature {feature} remains in a Spring Boot index as {prefix}"
                 )
 
     if require_codegen:
-        matches = matching_libraries(libraries, ("coco-feature-codegen-",))
+        matches = matching_libraries(libraries, feature_prefixes("codegen"))
         if len(matches) != 1:
             errors.append(
-                "codegen requires exactly one coco-feature-codegen artifact; "
+                "codegen requires exactly one old or canonical artifact; "
                 f"found {len(matches)}: {', '.join(matches) or 'none'}"
             )
 
@@ -96,7 +120,7 @@ def check_archive(
             errors.append(
                 f"library prefix {prefix} must be pruned; found: {', '.join(matches)}"
             )
-        if prefix in index_text:
+        if matching_libraries(index_library_names, (prefix,)):
             errors.append(f"library prefix {prefix} remains in a Spring Boot index")
 
     return errors
