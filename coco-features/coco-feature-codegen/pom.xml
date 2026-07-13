@@ -57,7 +57,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-test</artifactId>
+            <artifactId>coco-test-support</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
