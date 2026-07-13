@@ -84,8 +84,8 @@ class CocoFeaturesMojoTest {
         assertThat(manifest.enabledFeatureIds()).doesNotContain("tenant", "data-permission");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-feature-web")
-                .doesNotContain("io.github.patton174:coco-feature-tenant");
+                .contains(featureCoordinate(CocoFeature.WEB))
+                .doesNotContain(featureCoordinate(CocoFeature.TENANT));
         assertThat(project.getArtifacts()).isEmpty();
     }
 
@@ -120,8 +120,8 @@ class CocoFeaturesMojoTest {
                 .satisfies(entry -> assertThat(entry.dependencies()).isEmpty());
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-feature-audit")
-                .doesNotContain("io.github.patton174:coco-feature-web");
+                .contains(featureCoordinate(CocoFeature.AUDIT))
+                .doesNotContain(featureCoordinate(CocoFeature.WEB));
     }
 
     @Test
@@ -183,8 +183,8 @@ class CocoFeaturesMojoTest {
         assertThat(manifest.enabledFeatureIds()).contains("audit").doesNotContain("mybatis-plus");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-feature-audit")
-                .doesNotContain("io.github.patton174:coco-feature-mybatis-plus");
+                .contains(featureCoordinate(CocoFeature.AUDIT))
+                .doesNotContain(featureCoordinate(CocoFeature.MYBATIS_PLUS));
         assertThat(project.getArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
                 .contains(
@@ -254,7 +254,7 @@ class CocoFeaturesMojoTest {
                 .singleElement()
                 .satisfies(dependency -> {
                     assertThat(dependency.getGroupId()).isEqualTo("io.github.patton174");
-                    assertThat(dependency.getArtifactId()).isEqualTo("coco-feature-web");
+                    assertThat(dependency.getArtifactId()).isEqualTo(featureArtifactId(CocoFeature.WEB));
                     assertThat(dependency.getVersion()).isEqualTo("1.0.0-SNAPSHOT");
                     assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_RUNTIME);
                 });
@@ -281,7 +281,7 @@ class CocoFeaturesMojoTest {
                 .singleElement()
                 .satisfies(dependency -> {
                     assertThat(dependency.getGroupId()).isEqualTo("io.github.patton174");
-                    assertThat(dependency.getArtifactId()).isEqualTo("coco-feature-web");
+                    assertThat(dependency.getArtifactId()).isEqualTo(featureArtifactId(CocoFeature.WEB));
                     assertThat(dependency.getVersion()).isEqualTo("1.0.0-SNAPSHOT");
                     assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_RUNTIME);
                 });
@@ -309,6 +309,14 @@ class CocoFeaturesMojoTest {
     private Artifact artifact(String groupId, String artifactId) {
         return new DefaultArtifact(groupId, artifactId, "1.0.0-SNAPSHOT",
                 Artifact.SCOPE_RUNTIME, "jar", null, new DefaultArtifactHandler("jar"));
+    }
+
+    private String featureCoordinate(CocoFeature feature) {
+        return "io.github.patton174:" + featureArtifactId(feature);
+    }
+
+    private String featureArtifactId(CocoFeature feature) {
+        return StandardCocoFeatures.allByFeature().get(feature).artifactId();
     }
 
     private CocoFeaturePlan planWithOnly(CocoFeature feature) {
