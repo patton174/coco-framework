@@ -23,6 +23,8 @@ import java.util.stream.Collectors;
  */
 public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatter {
 
+    private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
+
     /**
      * {@inheritDoc}
      */
@@ -116,7 +118,7 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
     }
 
     private static String detail(String label, String value) {
-        return String.format("  %-18s %s", label, value == null ? "" : value);
+        return String.format("  %-18s %s", escapeText(label), escapeText(value));
     }
 
     private static void appendOptionalLine(StringBuilder builder, java.util.Optional<String> value, String label) {
@@ -163,13 +165,13 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
             if (!firstEntry) {
                 builder.append(',');
             }
-            builder.append('"').append(escape(entry.getKey())).append("\":[");
+            builder.append('"').append(escapeJson(entry.getKey())).append("\":[");
             boolean firstValue = true;
             for (String value : entry.getValue()) {
                 if (!firstValue) {
                     builder.append(',');
                 }
-                builder.append('"').append(escape(value)).append('"');
+                builder.append('"').append(escapeJson(value)).append('"');
                 firstValue = false;
             }
             builder.append(']');
@@ -187,8 +189,8 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
             if (!firstEntry) {
                 builder.append(',');
             }
-            builder.append('"').append(escape(entry.getKey())).append("\":\"")
-                    .append(escape(entry.getValue())).append('"');
+            builder.append('"').append(escapeJson(entry.getKey())).append("\":\"")
+                    .append(escapeJson(entry.getValue())).append('"');
             firstEntry = false;
         }
         return builder.append('}').toString();
@@ -206,9 +208,9 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
         if (!first && builder.charAt(builder.length() - 1) != '{') {
             builder.append(',');
         }
-        builder.append('"').append(escape(name)).append("\":");
+        builder.append('"').append(escapeJson(name)).append("\":");
         if (quoteValue) {
-            builder.append('"').append(escape(value)).append('"');
+            builder.append('"').append(escapeJson(value)).append('"');
         }
         else {
             builder.append(value);
@@ -219,7 +221,29 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
         return '"' + value + '"';
     }
 
-    private static String escape(String value) {
+    private static String escapeText(String value) {
+        String source = value == null ? "" : value;
+        StringBuilder builder = new StringBuilder(source.length());
+        for (int index = 0; index < source.length(); index++) {
+            char character = source.charAt(index);
+            switch (character) {
+                case '\n' -> builder.append("\\n");
+                case '\r' -> builder.append("\\r");
+                case '\t' -> builder.append("\\t");
+                default -> {
+                    if (Character.isISOControl(character)) {
+                        appendUnicodeEscape(builder, character);
+                    }
+                    else {
+                        builder.append(character);
+                    }
+                }
+            }
+        }
+        return builder.toString();
+    }
+
+    private static String escapeJson(String value) {
         String source = value == null ? "" : value;
         StringBuilder builder = new StringBuilder(source.length());
         for (int index = 0; index < source.length(); index++) {
@@ -227,12 +251,29 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
             switch (character) {
                 case '\\' -> builder.append("\\\\");
                 case '"' -> builder.append("\\\"");
+                case '\b' -> builder.append("\\b");
+                case '\f' -> builder.append("\\f");
                 case '\n' -> builder.append("\\n");
                 case '\r' -> builder.append("\\r");
                 case '\t' -> builder.append("\\t");
-                default -> builder.append(character);
+                default -> {
+                    if (Character.isISOControl(character)) {
+                        appendUnicodeEscape(builder, character);
+                    }
+                    else {
+                        builder.append(character);
+                    }
+                }
             }
         }
         return builder.toString();
+    }
+
+    private static void appendUnicodeEscape(StringBuilder builder, char character) {
+        builder.append("\\u")
+                .append(HEX_DIGITS[(character >>> 12) & 0x0f])
+                .append(HEX_DIGITS[(character >>> 8) & 0x0f])
+                .append(HEX_DIGITS[(character >>> 4) & 0x0f])
+                .append(HEX_DIGITS[character & 0x0f]);
     }
 }

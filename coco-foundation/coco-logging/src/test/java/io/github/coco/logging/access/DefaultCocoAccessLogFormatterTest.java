@@ -1,6 +1,7 @@
 package io.github.coco.logging.access;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -93,6 +94,48 @@ class DefaultCocoAccessLogFormatterTest {
                         + "\"payloadParseStatus\":\"parsed\",\"requestTargetSource\":\"forwarded\","
                         + "\"parameters\":{},\"status\":200,\"durationMs\":12,\"success\":true}",
                 normalize(formatter.format(accessLog, properties)));
+    }
+
+    @Test
+    void escapesControlCharactersAtTextFormattingBoundary() {
+        CocoAccessLog accessLog = CocoAccessLog.of("trace-\u001b-value", "get", "/orders\r\nforged\t\u0000tail",
+                500, 7L, false, "Failure\r\nforged\u007f", "10.0.0.8", "source\tvalue",
+                "Agent\r\nforged", "text/plain", "name=line\nbreak&tab=\t&escape=\u001bend",
+                Map.of("x-test\r\nname", "line1\nline2\t\u0001end"),
+                null, null, null, null, null, null,
+                Map.of("unsafe\rname", List.of("value\nforged\t\u001bend")));
+        DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
+
+        String text = normalize(formatter.format(accessLog, new CocoAccessLogProperties()));
+
+        assertTrue(text.contains("trace-\\u001b-value"));
+        assertTrue(text.contains("/orders\\r\\nforged\\t\\u0000tail?name=line\\nbreak&tab=\\t&escape=\\u001bend"),
+                text);
+        assertTrue(text.contains("x-test\\r\\nname=line1\\nline2\\t\\u0001end"));
+        assertTrue(text.contains("unsafe\\rname=value\\nforged\\t\\u001bend"));
+        assertTrue(text.contains("Failure\\r\\nforged\\u007f"));
+        assertFalse(text.contains("\nforged"));
+        assertFalse(text.contains("\t"));
+        assertFalse(text.contains("\u0000"));
+        assertFalse(text.contains("\u0001"));
+        assertFalse(text.contains("\u001b"));
+        assertFalse(text.contains("\u007f"));
+    }
+
+    @Test
+    void keepsJsonEscapingSingleAndEscapesOtherControlCharacters() {
+        CocoAccessLog accessLog = CocoAccessLog.of("trace-json", "get", "/orders\nnext\u0001tail",
+                200, 1L, true, null);
+        CocoAccessLogProperties properties = new CocoAccessLogProperties();
+        properties.setStyle(CocoAccessLogStyle.JSON);
+        DefaultCocoAccessLogFormatter formatter = new DefaultCocoAccessLogFormatter();
+
+        String json = formatter.format(accessLog, properties);
+
+        assertTrue(json.contains("\"path\":\"/orders\\nnext\\u0001tail\""));
+        assertFalse(json.contains("/orders\\\\nnext"));
+        assertFalse(json.contains("\n"));
+        assertFalse(json.contains("\u0001"));
     }
 
     private static String normalize(String value) {
