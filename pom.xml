@@ -51,11 +51,12 @@
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
         <module>coco-support/coco-test</module>
+        <module>coco-build/coco-compatibility/coco-feature-web</module>
         <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
-        <module>coco-build/coco-compatibility/coco-feature-tenant</module>
-        <module>coco-build/coco-compatibility/coco-feature-data-permission</module>
         <module>coco-build/coco-compatibility/coco-feature-audit</module>
         <module>coco-build/coco-compatibility/coco-feature-security</module>
+        <module>coco-build/coco-compatibility/coco-feature-tenant</module>
+        <module>coco-build/coco-compatibility/coco-feature-data-permission</module>
         <module>coco-build/coco-compatibility/coco-feature-openapi</module>
     </modules>
 
@@ -134,6 +135,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-model</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-web</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
