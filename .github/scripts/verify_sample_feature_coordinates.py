@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+from collections import Counter
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 
 BOOT_LIBRARY_PREFIX = "BOOT-INF/lib/"
 BOOT_INDEX_ENTRIES = ("BOOT-INF/classpath.idx", "BOOT-INF/layers.idx")
+DIRECT_BOOT_LIBRARY_TOKEN = re.compile(r"BOOT-INF/lib/([^/\\]+[.]jar)")
 
 
 def feature_prefixes(feature: str) -> tuple[str, str]:
@@ -24,8 +27,14 @@ def matching_libraries(libraries: list[str], prefixes: tuple[str, ...]) -> list[
     )
 
 
-def indexed_libraries(index_contents: list[str]) -> list[str]:
-    libraries: set[str] = set()
+def direct_library_name(token: str) -> str | None:
+    match = DIRECT_BOOT_LIBRARY_TOKEN.fullmatch(token)
+    return match.group(1) if match is not None else None
+
+
+def indexed_libraries(index_contents: list[str]) -> tuple[list[str], list[str]]:
+    library_tokens: set[str] = set()
+    errors: set[str] = set()
     for content in index_contents:
         for line in content.splitlines():
             token = line.strip().lstrip("\ufeff")
@@ -34,8 +43,41 @@ def indexed_libraries(index_contents: list[str]) -> list[str]:
             if len(token) >= 2 and token[0] in ("'", '"') and token[-1] == token[0]:
                 token = token[1:-1]
             if token.startswith(BOOT_LIBRARY_PREFIX) and token.endswith(".jar"):
-                libraries.add(Path(token).name)
-    return sorted(libraries)
+                if direct_library_name(token) is None:
+                    errors.add(
+                        f"Spring Boot index entry {token!r} must be a direct "
+                        "BOOT-INF/lib/<filename>.jar token"
+                    )
+                else:
+                    library_tokens.add(token)
+    return sorted(library_tokens), sorted(errors)
+
+
+def check_required_feature(
+    errors: list[str],
+    *,
+    feature: str,
+    subject: str,
+    libraries: list[str],
+    index_library_names: list[str],
+    missing_indexes: list[str],
+) -> None:
+    matches = matching_libraries(libraries, feature_prefixes(feature))
+    if len(matches) != 1:
+        errors.append(
+            f"{subject} requires exactly one old or canonical artifact; "
+            f"found {len(matches)}: {', '.join(matches) or 'none'}"
+        )
+    elif not missing_indexes:
+        index_matches = matching_libraries(
+            index_library_names, feature_prefixes(feature)
+        )
+        if index_matches != matches:
+            errors.append(
+                f"{subject} requires exactly one Spring Boot index jar token "
+                f"matching archive artifact {matches[0]}; found "
+                f"{len(index_matches)}: {', '.join(index_matches) or 'none'}"
+            )
 
 
 def check_archive(
@@ -50,18 +92,26 @@ def check_archive(
     errors: list[str] = []
     try:
         with ZipFile(archive_path) as archive:
-            entries = set(archive.namelist())
+            entry_names = archive.namelist()
+            entries = set(entry_names)
+            archive_library_tokens = [
+                entry for entry in entry_names if direct_library_name(entry) is not None
+            ]
+            archive_library_counts = Counter(archive_library_tokens)
             libraries = sorted(
-                Path(entry).name
-                for entry in entries
-                if entry.startswith(BOOT_LIBRARY_PREFIX) and entry.endswith(".jar")
+                token.removeprefix(BOOT_LIBRARY_PREFIX)
+                for token in archive_library_tokens
             )
             index_contents = [
                 archive.read(entry).decode("utf-8", errors="replace")
                 for entry in BOOT_INDEX_ENTRIES
                 if entry in entries
             ]
-            index_library_names = indexed_libraries(index_contents)
+            index_library_tokens, index_errors = indexed_libraries(index_contents)
+            index_library_names = sorted(
+                token.removeprefix(BOOT_LIBRARY_PREFIX)
+                for token in index_library_tokens
+            )
     except (OSError, BadZipFile) as exc:
         return [f"unable to read Spring Boot archive {archive_path}: {exc}"]
 
@@ -70,23 +120,25 @@ def check_archive(
         errors.append(
             f"missing Spring Boot index entries: {', '.join(missing_indexes)}"
         )
+    errors.extend(index_errors)
 
-    for feature in required_features:
-        matches = matching_libraries(libraries, feature_prefixes(feature))
-        if len(matches) != 1:
+    for token in index_library_tokens:
+        archive_matches = archive_library_counts[token]
+        if archive_matches != 1:
             errors.append(
-                f"feature {feature} requires exactly one old or canonical artifact; "
-                f"found {len(matches)}: {', '.join(matches) or 'none'}"
+                f"Spring Boot index jar token {token} must bind exactly one "
+                f"archive jar; found {archive_matches}"
             )
-        elif not missing_indexes:
-            index_matches = matching_libraries(
-                index_library_names, feature_prefixes(feature)
-            )
-            if len(index_matches) != 1:
-                errors.append(
-                    f"feature {feature} requires exactly one Spring Boot index jar token; "
-                    f"found {len(index_matches)}: {', '.join(index_matches) or 'none'}"
-                )
+
+    for feature in dict.fromkeys(required_features):
+        check_required_feature(
+            errors,
+            feature=feature,
+            subject=f"feature {feature}",
+            libraries=libraries,
+            index_library_names=index_library_names,
+            missing_indexes=missing_indexes,
+        )
 
     for feature in forbidden_features:
         prefixes = feature_prefixes(feature)
@@ -101,13 +153,15 @@ def check_archive(
                     f"feature {feature} remains in a Spring Boot index as {prefix}"
                 )
 
-    if require_codegen:
-        matches = matching_libraries(libraries, feature_prefixes("codegen"))
-        if len(matches) != 1:
-            errors.append(
-                "codegen requires exactly one old or canonical artifact; "
-                f"found {len(matches)}: {', '.join(matches) or 'none'}"
-            )
+    if require_codegen and "codegen" not in required_features:
+        check_required_feature(
+            errors,
+            feature="codegen",
+            subject="codegen",
+            libraries=libraries,
+            index_library_names=index_library_names,
+            missing_indexes=missing_indexes,
+        )
 
     for prefix in required_library_prefixes:
         matches = matching_libraries(libraries, (prefix,))

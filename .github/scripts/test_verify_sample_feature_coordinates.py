@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -99,13 +100,21 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
             forbidden_library_prefixes=("mybatis-",),
         )
 
-        self.assertEqual(2, len(errors))
-        self.assertIn("tenant", errors[0])
-        self.assertIn("mybatis-", errors[1])
+        self.assertEqual(4, len(errors))
+        self.assertEqual(
+            2,
+            sum("must bind exactly one archive jar" in error for error in errors),
+        )
+        self.assertTrue(any("tenant" in error for error in errors))
+        self.assertTrue(any("mybatis-" in error for error in errors))
 
     def test_index_substring_collisions_are_not_artifact_tokens(self) -> None:
         self.write_archive(
-            ["coco-web-2.0.2.jar"],
+            [
+                "coco-web-2.0.2.jar",
+                "not-coco-feature-tenant-2.0.2.jar",
+                "not-mybatis-3.5.0.jar",
+            ],
             [
                 '- "BOOT-INF/lib/coco-web-2.0.2.jar"',
                 '- "BOOT-INF/lib/not-coco-feature-tenant-2.0.2.jar"',
@@ -125,7 +134,7 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
 
     def test_required_feature_must_have_an_exact_index_jar_token(self) -> None:
         self.write_archive(
-            ["coco-web-2.0.2.jar"],
+            ["coco-web-2.0.2.jar", "not-coco-web-2.0.2.jar"],
             ['- "BOOT-INF/lib/not-coco-web-2.0.2.jar"'],
         )
 
@@ -136,6 +145,113 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
 
         self.assertEqual(1, len(errors))
         self.assertIn("Spring Boot index jar token", errors[0])
+
+    def test_required_feature_index_token_binds_exact_archive_artifact(
+        self,
+    ) -> None:
+        invalid_tokens = {
+            "wrong-version": "BOOT-INF/lib/coco-web-2.0.1.jar",
+            "legacy-canonical-mismatch": "BOOT-INF/lib/coco-feature-web-2.0.2.jar",
+            "nested-path": "BOOT-INF/lib/nested/coco-web-2.0.2.jar",
+            "parent-traversal": "BOOT-INF/lib/../coco-web-2.0.2.jar",
+        }
+
+        for name, token in invalid_tokens.items():
+            with self.subTest(name=name):
+                self.write_archive(
+                    ["coco-web-2.0.2.jar"],
+                    [f'- "{token}"'],
+                )
+
+                errors = verifier.check_archive(
+                    self.archive,
+                    required_features=("web",),
+                )
+
+                self.assertTrue(errors)
+                if name in {"nested-path", "parent-traversal"}:
+                    self.assertTrue(
+                        any(
+                            "direct BOOT-INF/lib/<filename>.jar token" in error
+                            for error in errors
+                        )
+                    )
+                else:
+                    self.assertTrue(
+                        any(
+                            "must bind exactly one archive jar" in error
+                            for error in errors
+                        )
+                    )
+
+    def test_required_feature_rejects_duplicate_archive_jar_entry(self) -> None:
+        library = "coco-web-2.0.2.jar"
+        token = f"BOOT-INF/lib/{library}"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            with ZipFile(self.archive, "w") as archive:
+                archive.writestr(token, "first")
+                archive.writestr(token, "second")
+                for entry in verifier.BOOT_INDEX_ENTRIES:
+                    archive.writestr(entry, f'- "{token}"')
+
+        errors = verifier.check_archive(
+            self.archive,
+            required_features=("web",),
+        )
+
+        self.assertTrue(
+            any(
+                "must bind exactly one archive jar; found 2" in error
+                for error in errors
+            )
+        )
+
+    def test_codegen_requirement_covers_coordinate_matrix(self) -> None:
+        cases = {
+            "old": (["coco-feature-codegen-2.0.2.jar"], []),
+            "canonical": (["coco-codegen-2.0.2.jar"], []),
+            "missing": ([], ["found 0"]),
+            "duplicate": (
+                [
+                    "coco-feature-codegen-2.0.2.jar",
+                    "coco-codegen-2.0.2.jar",
+                ],
+                ["found 2"],
+            ),
+        }
+
+        for name, (libraries, expected_errors) in cases.items():
+            with self.subTest(name=name):
+                self.write_archive(libraries)
+
+                errors = verifier.check_archive(
+                    self.archive,
+                    require_codegen=True,
+                )
+
+                self.assertEqual(len(expected_errors), len(errors))
+                for expected_error in expected_errors:
+                    self.assertTrue(
+                        any(expected_error in error for error in errors),
+                        errors,
+                    )
+
+    def test_codegen_requirement_binds_exact_index_artifact(self) -> None:
+        self.write_archive(
+            ["coco-codegen-2.0.2.jar"],
+            ['- "BOOT-INF/lib/coco-feature-codegen-2.0.2.jar"'],
+        )
+
+        errors = verifier.check_archive(
+            self.archive,
+            require_codegen=True,
+        )
+
+        self.assertTrue(
+            any("must bind exactly one archive jar" in error for error in errors)
+        )
+        self.assertTrue(any("Spring Boot index jar token" in error for error in errors))
 
     def test_required_library_and_boot_indexes_are_enforced(self) -> None:
         with ZipFile(self.archive, "w") as archive:

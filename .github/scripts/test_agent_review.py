@@ -357,6 +357,7 @@ class AgentReviewTests(unittest.TestCase):
             ".github/workflows/agent-open-pr.yml",
             ".github/workflows/release.yml",
             ".github/workflows/pr-labeler.yml",
+            ".github/labeler.yml",
             ".github/dependabot.yml",
             ".github/CODEOWNERS",
             ".github/ISSUE_TEMPLATE/bug-report.yml",
@@ -387,13 +388,18 @@ class AgentReviewTests(unittest.TestCase):
             "coco-spring/coco-config/pom.xml",
             "coco-test/pom.xml",
             "coco-support/coco-test/pom.xml",
+            "coco-support/coco-test-support/pom.xml",
+            "coco-build/coco-compatibility/coco-test/pom.xml",
         ):
             with self.subTest(path=path):
                 self.assertIn(module_layout_spec, mapped_specs(path))
-        self.assertEqual(
-            {module_layout_spec},
-            mapped_specs("coco-support/coco-test/pom.xml"),
-        )
+        for path in (
+            "coco-support/coco-test/pom.xml",
+            "coco-support/coco-test-support/pom.xml",
+            "coco-build/coco-compatibility/coco-test/pom.xml",
+        ):
+            with self.subTest(test_support_path=path):
+                self.assertEqual({module_layout_spec}, mapped_specs(path))
         i18n_specs = {module_layout_spec, api_i18n_spec, common_i18n_spec}
         web_specs = {
             module_layout_spec,
@@ -468,15 +474,27 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertEqual({governance_spec}, mapped_specs(governance_spec))
         self.assertEqual({module_layout_spec}, mapped_specs(module_layout_spec))
-        support_directory_layout_policy = {
-            "coco-document": False,
-            "coco-test": True,
-            "coco-tools": True,
-        }
         support_directories = {
             path.name
             for path in (repository_root / "coco-support").iterdir()
-            if path.is_dir() and not path.name.startswith(".")
+            if path.is_dir()
+            and not path.name.startswith(".")
+            and any(
+                child.name != "target" and not child.name.startswith(".")
+                for child in path.iterdir()
+            )
+        }
+        test_support_directories = {"coco-test", "coco-test-support"}
+        active_test_support_directories = support_directories & test_support_directories
+        self.assertEqual(
+            1,
+            len(active_test_support_directories),
+            "Exactly one old or canonical test-support source path must be active.",
+        )
+        support_directory_layout_policy = {
+            "coco-document": False,
+            "coco-tools": True,
+            **{directory: True for directory in active_test_support_directories},
         }
         self.assertEqual(
             set(support_directory_layout_policy),
@@ -597,6 +615,8 @@ class AgentReviewTests(unittest.TestCase):
                 "pom.xml",
                 "coco-test/pom.xml",
                 "coco-support/coco-test/pom.xml",
+                "coco-support/coco-test-support/pom.xml",
+                "coco-build/coco-compatibility/coco-test/pom.xml",
             ],
         }
 
@@ -614,6 +634,11 @@ class AgentReviewTests(unittest.TestCase):
                     "coco-support/coco-document/architecture/module-layout.md",
                     {source["source"] for source in sources},
                 )
+                if name == "support":
+                    self.assertLess(
+                        sum(len(source["content"]) for source in sources),
+                        review.normalized_limits(value)["policy_chars"],
+                    )
 
         spring_cutover_batches = {
             "starter-and-core-features": [
@@ -691,13 +716,22 @@ class AgentReviewTests(unittest.TestCase):
         repository_root = Path(__file__).resolve().parents[2]
         config_path = repository_root / ".github/agent-review/config.json"
         value = review.load_config(config_path)
+        jury_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
         governance_spec = "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
         omissions: list[str] = []
 
         sources = review.collect_policy(
             repository_root,
             value,
-            ["AGENTS.md", governance_spec],
+            [
+                ".github/agent-review/config.json",
+                ".github/labeler.yml",
+                ".github/scripts/test_agent_review.py",
+                ".github/scripts/test_verify_sample_feature_coordinates.py",
+                ".github/scripts/verify_sample_feature_coordinates.py",
+                ".github/workflows/reusable-static-analysis.yml",
+                ".github/workflows/reusable-tests.yml",
+            ],
             omissions,
         )
 
@@ -706,9 +740,14 @@ class AgentReviewTests(unittest.TestCase):
             {
                 "AGENTS.md",
                 ".github/agent-review/policy.md",
+                jury_spec,
                 governance_spec,
             },
             {source["source"] for source in sources},
+        )
+        self.assertLess(
+            sum(len(source["content"]) for source in sources),
+            review.normalized_limits(value)["policy_chars"],
         )
 
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
@@ -2740,6 +2779,25 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertEqual("failure", client.sent[-1][2]["state"])
                 self.assertEqual(
                     review.ISSUE_STATUS_CONTEXT, client.sent[-1][2]["context"]
+                )
+
+    def test_labeler_does_not_predeclare_missing_compatibility_modules(
+        self,
+    ) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        labeler = (repository_root / ".github/labeler.yml").read_text(encoding="utf-8")
+
+        compatibility_glob_roots = [
+            value.removesuffix("/**")
+            for value in re.findall(r'"([^"]+)"', labeler)
+            if value.startswith("coco-build/coco-compatibility/")
+            and value.endswith("/**")
+        ]
+        for relative_root in compatibility_glob_roots:
+            with self.subTest(compatibility_glob=relative_root):
+                self.assertTrue(
+                    (repository_root / relative_root).is_dir(),
+                    f"Labeler compatibility glob has no module directory: {relative_root}",
                 )
 
     def test_governance_files_follow_naming_convention(self) -> None:
