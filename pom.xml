@@ -51,6 +51,9 @@
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
         <module>coco-support/coco-test</module>
+        <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
+        <module>coco-build/coco-compatibility/coco-feature-tenant</module>
+        <module>coco-build/coco-compatibility/coco-feature-data-permission</module>
     </modules>
 
     <properties>
@@ -137,6 +140,11 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-mybatis-plus</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-mybatis-plus</artifactId>
                 <version>${revision}</version>
             </dependency>
@@ -152,7 +160,17 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-tenant</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-tenant</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-data-permission</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
