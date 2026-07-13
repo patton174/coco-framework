@@ -386,6 +386,9 @@ class AgentReviewTests(unittest.TestCase):
             "coco-foundation/coco-api/pom.xml",
             "coco-config/pom.xml",
             "coco-spring/coco-config/pom.xml",
+            "coco-build/coco-compatibility/coco-config/pom.xml",
+            "coco-features/coco-feature-runtime/pom.xml",
+            "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
             "coco-test/pom.xml",
             "coco-support/coco-test/pom.xml",
             "coco-support/coco-test-support/pom.xml",
@@ -422,7 +425,11 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-feature-registry",
                 "coco-foundation/coco-feature-model",
             ): i18n_specs,
-            ("coco-config", "coco-spring/coco-config"): i18n_specs,
+            (
+                "coco-config",
+                "coco-spring/coco-config",
+                "coco-build/coco-compatibility/coco-config",
+            ): i18n_specs,
             (
                 "coco-spring-boot-autoconfigure",
                 "coco-spring/coco-spring-boot-autoconfigure",
@@ -642,10 +649,15 @@ class AgentReviewTests(unittest.TestCase):
 
         spring_cutover_batches = {
             "starter-and-core-features": [
+                "coco-config/pom.xml",
                 "coco-spring/coco-config/pom.xml",
                 "coco-spring/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
+                "coco-build/coco-compatibility/coco-config/pom.xml",
+                "coco-build/coco-compatibility/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
                 "coco-features/coco-feature-runtime/pom.xml",
                 "coco-features/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
+                "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
                 "coco-spring/coco-spring-boot-starter/pom.xml",
                 "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
                 "coco-features/coco-feature-data-permission/pom.xml",
