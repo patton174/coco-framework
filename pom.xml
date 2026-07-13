@@ -54,6 +54,9 @@
         <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
         <module>coco-build/coco-compatibility/coco-feature-tenant</module>
         <module>coco-build/coco-compatibility/coco-feature-data-permission</module>
+        <module>coco-build/coco-compatibility/coco-feature-audit</module>
+        <module>coco-build/coco-compatibility/coco-feature-security</module>
+        <module>coco-build/coco-compatibility/coco-feature-openapi</module>
     </modules>
 
     <properties>
@@ -150,7 +153,17 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-audit</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-audit</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-security</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -176,6 +189,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-data-permission</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-openapi</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
