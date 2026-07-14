@@ -26,6 +26,10 @@ import net.sf.jsqlparser.schema.Table;
  * 自定义范围和本人范围按配置列生成 {@code IN} 条件。复杂业务模型应替换该 SPI。
  * </p>
  * <p>
+ * 文本值使用标准 SQL 单引号双写。反斜杠和控制字符无法在未知数据库方言下安全编码，默认实现会拒绝包含
+ * 此类字符的整条谓词，避免生成可能被方言重新解释的 SQL 字面量。
+ * </p>
+ * <p>
  * 项目信息：
  * </p>
  * <ul>
@@ -91,7 +95,15 @@ public final class DefaultCocoDataPermissionSqlPredicateProvider implements Coco
     }
 
     private static Optional<StringValue> stringValueExpression(String value) {
-        return hasText(value) ? Optional.of(new StringValue(value.replace("'", "''"))) : Optional.empty();
+        if (!hasText(value) || !isStandardStringLiteralSafe(value)) {
+            return Optional.empty();
+        }
+        return Optional.of(new StringValue(value.replace("'", "''")));
+    }
+
+    private static boolean isStandardStringLiteralSafe(String value) {
+        return value.codePoints()
+                .noneMatch(codePoint -> codePoint == '\\' || Character.isISOControl(codePoint));
     }
 
     private static Optional<LongValue> longValueExpression(String value) {

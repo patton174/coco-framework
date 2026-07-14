@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -182,6 +183,38 @@ class CocoDataPermissionAutoConfigurationTest {
         Expression expression = handler.getSqlSegment(table, null, "SampleMapper.selectOrders");
 
         assertThat(expression.toString()).isEqualTo("o.dept_id IN ('D1')");
+    }
+
+    @Test
+    void handlerUsesStandardStringLiteralsForQuotesAndUnicode() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        Table table = new Table("sample_order");
+        table.setAlias(new Alias("o"));
+
+        assertThat(predicate(properties, Set.of("O'Reilly"), table).toString())
+                .isEqualTo("o.dept_id IN ('O''Reilly')");
+        assertThat(predicate(properties, Set.of("研发部-東京"), table).toString())
+                .isEqualTo("o.dept_id IN ('研发部-東京')");
+    }
+
+    @Test
+    void handlerDeniesUnsafeStringLiteralCharactersAndEntireMixedPredicate() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        Table table = new Table("sample_order");
+        List<String> unsafeValues = List.of(
+                "a\\' OR 1=1 --",
+                "quoted'\\value",
+                "scope\u0000value",
+                "scope\nvalue",
+                "scope\u007fvalue");
+
+        for (String unsafeValue : unsafeValues) {
+            assertThat(predicate(properties, Set.of(unsafeValue), table).toString())
+                    .as("unsafe value %s", unsafeValue)
+                    .isEqualTo("1 = 0");
+        }
+        assertThat(predicate(properties, Set.of("allowed", "a\\' OR 1=1 --"), table).toString())
+                .isEqualTo("1 = 0");
     }
 
     @Test

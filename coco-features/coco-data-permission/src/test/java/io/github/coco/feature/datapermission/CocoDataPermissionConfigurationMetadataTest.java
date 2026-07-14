@@ -6,11 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.StreamSupport;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlColumnType;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -48,7 +51,10 @@ class CocoDataPermissionConfigurationMetadataTest {
                 "io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlColumnType");
         assertHintValues(metadata, "coco.data-permission.sql.missing-context-policy", "throw", "deny", "ignore");
         assertHintValues(metadata, "coco.data-permission.sql.missing-rule-policy", "deny", "ignore");
-        assertHintValues(metadata, "coco.data-permission.sql.resources.*.column-type", "string", "long");
+        assertHintValues(metadata, "coco.data-permission.sql.resources.*.column-type",
+                Arrays.stream(CocoDataPermissionSqlColumnType.values())
+                        .map(columnType -> columnType.name().toLowerCase(Locale.ROOT))
+                        .toArray(String[]::new));
     }
 
     private JsonNode configurationMetadata() throws IOException {

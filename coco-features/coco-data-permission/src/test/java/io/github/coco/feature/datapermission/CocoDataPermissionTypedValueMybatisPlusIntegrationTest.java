@@ -64,14 +64,14 @@ class CocoDataPermissionTypedValueMybatisPlusIntegrationTest {
     }
 
     @Test
-    void treatsStringValuesAsLiteralsInsteadOfSqlFragments() throws Exception {
+    void deniesMysqlBackslashEscapeAttackBeforeH2Execution() throws Exception {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
         createTables(dataSource);
         CocoDataPermissionSqlProperties properties = properties();
         SqlSessionFactory sqlSessionFactory = sqlSessionFactory(dataSource, properties);
         CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
-                rule("typed-string", "blocked' OR TRUE --"),
+                rule("typed-string", "a\\' OR 1=1 --"),
                 rule("typed-integer", "20"),
                 rule("typed-decimal", "2.50"),
                 rule("typed-boolean", "true")));
@@ -85,6 +85,24 @@ class CocoDataPermissionTypedValueMybatisPlusIntegrationTest {
         assertThat(result).isEmpty();
     }
 
+    @Test
+    void filtersUnicodeStringValuesThroughH2AndMybatisPlus() throws Exception {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
+        createTables(dataSource);
+        SqlSessionFactory sqlSessionFactory = sqlSessionFactory(dataSource, properties());
+        CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
+                rule("typed-string", "研发部-東京")));
+
+        List<Long> result = CocoDataPermissionContextHolder.callWithContext(context, () -> {
+            try (SqlSession session = sqlSessionFactory.openSession()) {
+                return session.getMapper(TypedValueMapper.class).stringIds();
+            }
+        });
+
+        assertThat(result).containsExactly(3L);
+    }
+
     private static void createTables(DriverManagerDataSource dataSource) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         jdbcTemplate.execute("CREATE SCHEMA permission_schema");
@@ -96,7 +114,8 @@ class CocoDataPermissionTypedValueMybatisPlusIntegrationTest {
                 "CREATE TABLE permission_schema.typed_decimal (id BIGINT PRIMARY KEY, scope_value DECIMAL(10, 2))");
         jdbcTemplate.execute(
                 "CREATE TABLE permission_schema.typed_boolean (id BIGINT PRIMARY KEY, scope_value BOOLEAN)");
-        jdbcTemplate.execute("INSERT INTO permission_schema.typed_string VALUES (1, 'allowed'), (2, 'blocked')");
+        jdbcTemplate.execute(
+                "INSERT INTO permission_schema.typed_string VALUES (1, 'allowed'), (2, 'blocked'), (3, '研发部-東京')");
         jdbcTemplate.execute("INSERT INTO permission_schema.typed_integer VALUES (1, 10), (2, 20)");
         jdbcTemplate.execute("INSERT INTO permission_schema.typed_decimal VALUES (1, 1.25), (2, 2.50)");
         jdbcTemplate.execute("INSERT INTO permission_schema.typed_boolean VALUES (1, TRUE), (2, FALSE)");
