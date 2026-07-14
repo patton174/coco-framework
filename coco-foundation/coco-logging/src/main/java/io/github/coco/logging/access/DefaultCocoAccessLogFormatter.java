@@ -231,7 +231,8 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
                 case '\r' -> builder.append("\\r");
                 case '\t' -> builder.append("\\t");
                 default -> {
-                    if (Character.isISOControl(character)) {
+                    if (Character.isISOControl(character) || isTextLineSeparator(character)
+                            || isUnpairedSurrogate(source, index, character)) {
                         appendUnicodeEscape(builder, character);
                     }
                     else {
@@ -257,7 +258,8 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
                 case '\r' -> builder.append("\\r");
                 case '\t' -> builder.append("\\t");
                 default -> {
-                    if (Character.isISOControl(character)) {
+                    if (Character.isISOControl(character) || isTextLineSeparator(character)
+                            || isUnpairedSurrogate(source, index, character)) {
                         appendUnicodeEscape(builder, character);
                     }
                     else {
@@ -275,5 +277,17 @@ public final class DefaultCocoAccessLogFormatter implements CocoAccessLogFormatt
                 .append(HEX_DIGITS[(character >>> 8) & 0x0f])
                 .append(HEX_DIGITS[(character >>> 4) & 0x0f])
                 .append(HEX_DIGITS[character & 0x0f]);
+    }
+
+    private static boolean isTextLineSeparator(char character) {
+        return character == '\u2028' || character == '\u2029';
+    }
+
+    private static boolean isUnpairedSurrogate(String value, int index, char character) {
+        if (Character.isHighSurrogate(character)) {
+            return index + 1 >= value.length() || !Character.isLowSurrogate(value.charAt(index + 1));
+        }
+        return Character.isLowSurrogate(character)
+                && (index == 0 || !Character.isHighSurrogate(value.charAt(index - 1)));
     }
 }
