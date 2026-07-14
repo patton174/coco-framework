@@ -31,8 +31,7 @@ class ArchiveInspection:
     readable: bool
     archive_library_tokens: frozenset[str]
     duplicate_library_tokens: frozenset[str]
-    index_library_tokens: frozenset[str]
-    indexes_complete: bool
+    indexes: tuple[tuple[str, ParsedIndex], ...]
     errors: tuple[str, ...]
 
 
@@ -226,8 +225,7 @@ def failed_inspection(message: str) -> ArchiveInspection:
         readable=False,
         archive_library_tokens=frozenset(),
         duplicate_library_tokens=frozenset(),
-        index_library_tokens=frozenset(),
-        indexes_complete=False,
+        indexes=(),
         errors=(message,),
     )
 
@@ -322,32 +320,22 @@ def inspect_open_archive(archive: ZipFile) -> ArchiveInspection:
             f"duplicate ZIP entry {name!r} appears {count} times with {detail}"
         )
 
-    missing_indexes = [entry for entry, infos in index_infos.items() if not infos]
-    indexes_complete = not missing_indexes
-    if missing_indexes:
-        errors.append(
-            f"missing Spring Boot index entries: {', '.join(missing_indexes)}"
-        )
-
-    index_library_tokens: set[str] = set()
+    # Spring Boot index files are optional metadata. If present, each unique
+    # index remains an independent, authoritative view of the packaged classpath.
+    indexes: list[tuple[str, ParsedIndex]] = []
     for index_name in BOOT_INDEX_ENTRIES:
         infos = index_infos[index_name]
         if len(infos) != 1:
-            if len(infos) > 1:
-                indexes_complete = False
             continue
         parsed = read_index_entry(archive, index_name, infos[0])
-        index_library_tokens.update(parsed.library_tokens)
-        if parsed.errors:
-            indexes_complete = False
-            errors.extend(parsed.errors)
+        indexes.append((index_name, parsed))
+        errors.extend(parsed.errors)
 
     return ArchiveInspection(
         readable=True,
         archive_library_tokens=frozenset(archive_library_tokens),
         duplicate_library_tokens=frozenset(duplicate_library_tokens),
-        index_library_tokens=frozenset(index_library_tokens),
-        indexes_complete=indexes_complete,
+        indexes=tuple(indexes),
         errors=tuple(errors),
     )
 
@@ -386,12 +374,10 @@ def append_required_artifact_error(
     subject: str,
     prefixes: tuple[str, ...],
     archive_libraries: tuple[str, ...],
-    index_libraries: tuple[str, ...],
-    indexes_complete: bool,
+    index_libraries: tuple[tuple[str, tuple[str, ...]], ...],
     exactly_one: bool,
 ) -> None:
     archive_matches = matching_libraries(archive_libraries, prefixes)
-    index_matches = matching_libraries(index_libraries, prefixes)
     cardinality_valid = (
         len(archive_matches) == 1 if exactly_one else bool(archive_matches)
     )
@@ -406,15 +392,15 @@ def append_required_artifact_error(
             f"{len(archive_matches)}: {', '.join(archive_matches) or 'none'}"
         )
         return
-    if indexes_complete and index_matches != archive_matches:
-        errors.append(
-            f"{subject} requires matching archive artifacts in the archive and "
-            "Spring Boot indexes; "
-            f"archive found {len(archive_matches)}: "
-            f"{', '.join(archive_matches) or 'none'}; "
-            f"index found {len(index_matches)}: "
-            f"{', '.join(index_matches) or 'none'}"
-        )
+    for index_name, libraries in index_libraries:
+        index_matches = matching_libraries(libraries, prefixes)
+        if index_matches != archive_matches:
+            errors.append(
+                f"{subject} requires matching archive artifacts in Spring Boot "
+                f"index {index_name}; archive found {len(archive_matches)}: "
+                f"{', '.join(archive_matches) or 'none'}; index found "
+                f"{len(index_matches)}: {', '.join(index_matches) or 'none'}"
+            )
 
 
 def append_forbidden_artifact_error(
@@ -423,18 +409,25 @@ def append_forbidden_artifact_error(
     subject: str,
     prefixes: tuple[str, ...],
     archive_libraries: tuple[str, ...],
-    index_libraries: tuple[str, ...],
+    index_libraries: tuple[tuple[str, tuple[str, ...]], ...],
 ) -> None:
     archive_matches = matching_libraries(archive_libraries, prefixes)
-    index_matches = matching_libraries(index_libraries, prefixes)
-    if not archive_matches and not index_matches:
+    index_matches = tuple(
+        (index_name, matching_libraries(libraries, prefixes))
+        for index_name, libraries in index_libraries
+    )
+    if not archive_matches and not any(matches for _, matches in index_matches):
         return
+    locations = [
+        f"archive found {len(archive_matches)}: {', '.join(archive_matches) or 'none'}",
+        *(
+            f"{index_name} found {len(matches)}: {', '.join(matches) or 'none'}"
+            for index_name, matches in index_matches
+        ),
+    ]
     errors.append(
         f"{subject} must be pruned from the archive and Spring Boot indexes; "
-        f"archive found {len(archive_matches)}: "
-        f"{', '.join(archive_matches) or 'none'}; "
-        f"index found {len(index_matches)}: "
-        f"{', '.join(index_matches) or 'none'}"
+        + "; ".join(locations)
     )
 
 
@@ -452,17 +445,22 @@ def check_archive(
     if not inspection.readable:
         return errors
 
-    for token in sorted(inspection.index_library_tokens):
-        if token in inspection.duplicate_library_tokens:
-            continue
-        if token not in inspection.archive_library_tokens:
-            errors.append(
-                f"Spring Boot index jar token {token} does not bind exactly one "
-                "archive jar; found 0"
-            )
+    for index_name, parsed in inspection.indexes:
+        for token in sorted(parsed.library_tokens):
+            if token in inspection.duplicate_library_tokens:
+                continue
+            if token not in inspection.archive_library_tokens:
+                errors.append(
+                    f"Spring Boot index jar token {token} in {index_name} does not "
+                    "bind exactly one archive jar; found 0"
+                )
 
     archive_libraries = library_names(inspection.archive_library_tokens)
-    index_libraries = library_names(inspection.index_library_tokens)
+    index_libraries = tuple(
+        (index_name, library_names(parsed.library_tokens))
+        for index_name, parsed in inspection.indexes
+        if not parsed.errors
+    )
     normalized_required_features = list(dict.fromkeys(required_features))
     if require_codegen and "codegen" not in normalized_required_features:
         normalized_required_features.append("codegen")
@@ -475,7 +473,6 @@ def check_archive(
             prefixes=feature_prefixes(feature),
             archive_libraries=archive_libraries,
             index_libraries=index_libraries,
-            indexes_complete=inspection.indexes_complete,
             exactly_one=True,
         )
 
@@ -495,7 +492,6 @@ def check_archive(
             prefixes=(prefix,),
             archive_libraries=archive_libraries,
             index_libraries=index_libraries,
-            indexes_complete=inspection.indexes_complete,
             exactly_one=False,
         )
 

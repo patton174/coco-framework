@@ -32,16 +32,22 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
         libraries: list[str],
         *,
         indexed_libraries: list[str] | None = None,
+        classpath_libraries: list[str] | None = None,
+        layers_libraries: list[str] | None = None,
         classpath: str | bytes | None = None,
         layers: str | bytes | None = None,
         include_indexes: tuple[str, ...] = verifier.BOOT_INDEX_ENTRIES,
         extra_entries: tuple[tuple[str | ZipInfo, str | bytes], ...] = (),
     ) -> None:
         indexed = libraries if indexed_libraries is None else indexed_libraries
-        classpath_content = (
-            self.classpath_index(indexed) if classpath is None else classpath
+        classpath_indexed = (
+            indexed if classpath_libraries is None else classpath_libraries
         )
-        layers_content = self.layers_index(indexed) if layers is None else layers
+        layers_indexed = indexed if layers_libraries is None else layers_libraries
+        classpath_content = (
+            self.classpath_index(classpath_indexed) if classpath is None else classpath
+        )
+        layers_content = self.layers_index(layers_indexed) if layers is None else layers
         with ZipFile(self.archive, "w") as archive:
             for library in libraries:
                 archive.writestr(f"BOOT-INF/lib/{library}", f"library:{library}")
@@ -198,6 +204,121 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
                 else:
                     self.assertEqual([], errors)
 
+    def test_each_index_validates_required_feature_independently(self) -> None:
+        web = "coco-web-2.0.2.jar"
+        audit = "coco-audit-2.0.2.jar"
+        cases = {
+            "classpath-missing-layers-present": (
+                [audit],
+                [web, audit],
+                "classpath.idx",
+            ),
+            "layers-missing-classpath-present": ([web, audit], [audit], "layers.idx"),
+        }
+
+        for name, (
+            classpath_libraries,
+            layers_libraries,
+            failing_index,
+        ) in cases.items():
+            with self.subTest(name=name):
+                self.write_archive(
+                    [web, audit],
+                    classpath_libraries=classpath_libraries,
+                    layers_libraries=layers_libraries,
+                )
+
+                errors = verifier.check_archive(
+                    self.archive,
+                    required_features=("web",),
+                )
+
+                self.assertEqual(1, len(errors), errors)
+                self.assert_errors_contain(
+                    errors,
+                    (failing_index, "feature web", "index found 0"),
+                )
+
+    def test_boot_index_files_are_optional(self) -> None:
+        library = "coco-web-2.0.2.jar"
+        cases = {
+            "neither": (),
+            "classpath-only": ("BOOT-INF/classpath.idx",),
+            "layers-only": ("BOOT-INF/layers.idx",),
+        }
+
+        for name, include_indexes in cases.items():
+            with self.subTest(name=name):
+                self.write_archive([library], include_indexes=include_indexes)
+
+                self.assertEqual(
+                    [],
+                    verifier.check_archive(
+                        self.archive,
+                        required_features=("web",),
+                    ),
+                )
+
+    def test_empty_present_index_is_not_masked_by_other_index(self) -> None:
+        library = "coco-web-2.0.2.jar"
+        cases = {
+            "classpath-empty": ("", None, "classpath.idx"),
+            "layers-empty": (None, "", "layers.idx"),
+        }
+
+        for name, (classpath, layers, failing_index) in cases.items():
+            with self.subTest(name=name):
+                self.write_archive(
+                    [library],
+                    classpath=classpath,
+                    layers=layers,
+                )
+
+                errors = verifier.check_archive(
+                    self.archive,
+                    required_features=("web",),
+                )
+
+                self.assertEqual(1, len(errors), errors)
+                self.assert_errors_contain(
+                    errors,
+                    (failing_index, "feature web", "index found 0"),
+                )
+
+    def test_each_index_binds_old_or_canonical_to_exact_archive_coordinate(
+        self,
+    ) -> None:
+        canonical = "coco-web-2.0.2.jar"
+        old = "coco-feature-web-2.0.2.jar"
+        cases = {
+            "classpath-old-layers-canonical": ([old], [canonical], "classpath.idx"),
+            "classpath-canonical-layers-old": ([canonical], [old], "layers.idx"),
+        }
+
+        for name, (
+            classpath_libraries,
+            layers_libraries,
+            failing_index,
+        ) in cases.items():
+            with self.subTest(name=name):
+                self.write_archive(
+                    [canonical],
+                    classpath_libraries=classpath_libraries,
+                    layers_libraries=layers_libraries,
+                )
+
+                errors = verifier.check_archive(
+                    self.archive,
+                    required_features=("web",),
+                )
+
+                self.assertEqual(2, len(errors), errors)
+                self.assertTrue(all(failing_index in error for error in errors), errors)
+                self.assert_errors_contain(
+                    errors,
+                    (old, canonical, "does not bind exactly one archive jar"),
+                )
+
     def test_index_parser_rejects_malformed_library_token_matrix(self) -> None:
         library = "coco-web-2.0.2.jar"
         token = f"BOOT-INF/lib/{library}"
@@ -257,6 +378,7 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
                         or "not valid UTF-8" in errors[0],
                         errors,
                     )
+                    self.assertIn(index_name, errors[0])
 
     def test_index_parser_accepts_one_leading_utf8_bom_per_index(self) -> None:
         library = "coco-web-2.0.2.jar"
@@ -313,7 +435,7 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
             "missing-index-token": (
                 ["coco-web-2.0.2.jar", "h2-2.2.224.jar"],
                 ["coco-web-2.0.2.jar"],
-                ("required library prefix h2-", "archive and Spring Boot indexes"),
+                ("required library prefix h2-", "Spring Boot index"),
             ),
             "orphan-index-token": (
                 ["coco-web-2.0.2.jar"],
@@ -454,7 +576,7 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
                 self.assertEqual(1, len(errors), errors)
                 self.assertIn(expected, errors[0])
 
-    def test_required_rules_report_missing_boot_indexes(self) -> None:
+    def test_required_rules_without_indexes_use_archive_cardinality(self) -> None:
         with ZipFile(self.archive, "w") as archive:
             archive.writestr("BOOT-INF/lib/coco-web-2.0.2.jar", "library")
 
@@ -464,8 +586,8 @@ class SampleFeatureCoordinateTests(unittest.TestCase):
             required_library_prefixes=("h2-",),
         )
 
-        self.assertEqual(2, len(errors), errors)
-        self.assert_errors_contain(errors, ("missing Spring Boot index", "h2-"))
+        self.assertEqual(1, len(errors), errors)
+        self.assert_errors_contain(errors, ("required library prefix h2-", "archive"))
 
 
 if __name__ == "__main__":
