@@ -364,9 +364,8 @@ public record CocoWebRequestSecurityInput(String method, String path, String que
         }
         List<String> copied = new ArrayList<>(values.size());
         for (String value : values) {
-            String normalizedValue = normalizeOptional(value);
-            if (normalizedValue != null) {
-                copied.add(normalizedValue);
+            if (value != null) {
+                copied.add(value);
             }
         }
         return List.copyOf(copied);

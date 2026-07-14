@@ -2,6 +2,7 @@ package io.github.coco.feature.web;
 
 import io.github.coco.logging.access.CocoAccessLogRecorder;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
+import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import io.github.coco.feature.web.trace.CocoTraceIdValidator;
 import io.github.coco.feature.web.trace.DefaultCocoTraceIdValidator;
@@ -55,6 +56,7 @@ public class CocoWebTraceAutoConfiguration {
      * @param accessLogRecorders 访问日志记录器提供器
      * @param requestContextResolver Web 请求上下文解析器
      * @param traceIdValidator TraceId 校验器
+     * @param exceptionResponseWriter 过滤器异常响应写出器提供器
      * @return Trace 过滤器注册器
      */
     @Bean
@@ -64,10 +66,12 @@ public class CocoWebTraceAutoConfiguration {
     public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties,
             ObjectProvider<CocoAccessLogRecorder> accessLogRecorders,
             CocoWebRequestContextResolver requestContextResolver,
-            CocoTraceIdValidator traceIdValidator) {
+            CocoTraceIdValidator traceIdValidator,
+            ObjectProvider<CocoFilterExceptionResponseWriter> exceptionResponseWriter) {
         FilterRegistrationBean<CocoTraceFilter> registration = new FilterRegistrationBean<>(
                 new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList(),
-                        properties.getAccessLog(), requestContextResolver, traceIdValidator));
+                        properties.getAccessLog(), requestContextResolver, traceIdValidator,
+                        exceptionResponseWriter.getIfAvailable()));
         registration.setName("cocoTraceFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
         registration.setAsyncSupported(true);

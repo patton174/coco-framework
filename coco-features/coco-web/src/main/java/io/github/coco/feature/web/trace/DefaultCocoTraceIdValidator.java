@@ -42,12 +42,11 @@ public final class DefaultCocoTraceIdValidator implements CocoTraceIdValidator {
      */
     @Override
     public boolean isValid(String traceId) {
-        if (traceId == null || traceId.isBlank()) {
+        if (!CocoTraceIdValidation.isTransportSafe(traceId)) {
             return false;
         }
-        String checkedTraceId = traceId.trim();
-        return checkedTraceId.length() <= this.maxLength
-                && this.allowedPattern.matcher(checkedTraceId).matches();
+        return traceId.length() <= this.maxLength
+                && this.allowedPattern.matcher(traceId).matches();
     }
 
     private static Pattern compileAllowedPattern(String allowedPattern) {
