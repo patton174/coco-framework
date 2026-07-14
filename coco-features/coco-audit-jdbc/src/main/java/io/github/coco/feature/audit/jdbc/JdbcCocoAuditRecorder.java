@@ -27,7 +27,8 @@ import org.springframework.jdbc.core.JdbcOperations;
  * 基于 JDBC 的 Coco 审计记录器。
  * <p>
  * 使用业务项目提供的 {@link JdbcOperations} 和预建审计表。每次写入均使用预编译参数，不接受任意 SQL 标识符；
- * 记录器不创建表、连接、事务管理器或后台线程。调用线程已有事务时，所有批次参与该事务；没有事务时，各批次遵循
+ * 默认不创建表、连接、事务管理器或后台线程。显式开启 schema 初始化时，只调用业务提供的
+ * {@link CocoAuditSchemaInitializer}，不提供通用数据库方言 DDL。调用线程已有事务时，所有批次参与该事务；没有事务时，各批次遵循
  * 数据源的默认提交策略。数据库失败会原样向上传递，由 Coco 审计发布器的失败策略决定后续行为。
  * </p>
  *
@@ -45,11 +46,13 @@ public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoClose
 
     private final JdbcOperations jdbcOperations;
 
+    private final String tableReference;
+
     private final String insertSql;
 
     private final int batchSize;
 
-    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock(true);
 
     private boolean closed;
 
@@ -59,10 +62,25 @@ public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoClose
      * @param properties JDBC 审计记录器配置
      */
     public JdbcCocoAuditRecorder(JdbcOperations jdbcOperations, CocoAuditJdbcProperties properties) {
+        this(jdbcOperations, properties, null);
+    }
+
+    /**
+     * 创建 JDBC 审计记录器。
+     * @param jdbcOperations 业务项目提供的 JDBC 操作入口
+     * @param properties JDBC 审计记录器配置
+     * @param schemaInitializer 业务数据库方言的可选审计表初始化器
+     */
+    public JdbcCocoAuditRecorder(JdbcOperations jdbcOperations, CocoAuditJdbcProperties properties,
+            CocoAuditSchemaInitializer schemaInitializer) {
         this.jdbcOperations = Objects.requireNonNull(jdbcOperations, "jdbcOperations must not be null");
         CocoAuditJdbcProperties checkedProperties = Objects.requireNonNull(properties, "properties must not be null");
         this.batchSize = requirePositive(checkedProperties.getBatchSize(), "batchSize");
-        this.insertSql = buildInsertSql(checkedProperties.getSchema(), checkedProperties.getTableName());
+        this.tableReference = buildTableReference(checkedProperties.getSchema(), checkedProperties.getTableName());
+        this.insertSql = buildInsertSql(this.tableReference);
+        if (checkedProperties.isInitializeSchema()) {
+            initializeSchema(schemaInitializer, checkedProperties);
+        }
     }
 
     /**
@@ -150,11 +168,26 @@ public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoClose
         return failure;
     }
 
-    private static String buildInsertSql(String schema, String tableName) {
+    private void initializeSchema(CocoAuditSchemaInitializer schemaInitializer,
+            CocoAuditJdbcProperties properties) {
+        CocoAuditSchemaInitializer checkedInitializer = Objects.requireNonNull(schemaInitializer,
+                "coco.audit.jdbc.initialize-schema requires a unique CocoAuditSchemaInitializer bean");
+        checkedInitializer.initialize(this.jdbcOperations, new CocoAuditJdbcSchema(
+                optionalIdentifier(properties.getSchema()), properties.getTableName(), this.tableReference));
+    }
+
+    private static String buildTableReference(String schema, String tableName) {
         String checkedTableName = requireIdentifier(tableName, "tableName");
-        String tableReference = schema == null || schema.isBlank()
+        return schema == null || schema.isBlank()
                 ? checkedTableName
                 : requireIdentifier(schema, "schema") + "." + checkedTableName;
+    }
+
+    private static String optionalIdentifier(String identifier) {
+        return identifier == null || identifier.isBlank() ? null : requireIdentifier(identifier, "schema");
+    }
+
+    private static String buildInsertSql(String tableReference) {
         return "INSERT INTO " + tableReference + " (event_type, action, resource_type, resource_id, trace_id, actor, "
                 + "tenant_id, success, occurred_at_epoch_millis, attributes_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     }

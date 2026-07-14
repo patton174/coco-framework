@@ -15,11 +15,13 @@ coco:
       enabled: true
       schema: audit
       table-name: coco_audit_event
+      initialize-schema: false
       batch-size: 100
 ```
 
 - `enabled` 默认 `false`。
 - `table-name` 默认 `coco_audit_event`，`schema` 可选。
+- `initialize-schema` 默认 `false`。显式开启时必须提供唯一的 `CocoAuditSchemaInitializer` Bean；该 SPI 接收已验证的 schema/table 标识符并由业务按 PostgreSQL、MySQL、SQL Server、Oracle 或其他目标方言执行 DDL。缺少或存在多个 initializer 时记录器创建立即失败，不会静默降级。
 - 两个标识符都只能是未引用的单段 SQL 标识符，语法为 `[A-Za-z_][A-Za-z0-9_]*`；空表名、引号、空格、点号、注释和 SQL 分隔符均被拒绝。schema 与表名由框架安全拼成唯一的两段表引用。
 - 自动配置只在 Audit 功能有效、`JdbcOperations` 位于 classpath 且业务只提供一个候选（或明确 `@Primary`）时启用。
 - 自动配置排序早于默认审计日志记录器。业务提供任意 `CocoAuditRecorder` Bean 时，JDBC 与默认日志记录器均回退，业务可完全替换实现。
@@ -27,7 +29,7 @@ coco:
 
 ## 表与数据语义
 
-框架不自动执行 DDL。参考 DDL 位于工件的 `META-INF/coco/audit-jdbc-reference.sql`，业务必须使用自身的 Flyway、Liquibase 或迁移流程创建等价表并按目标数据库方言调整 CLOB/索引类型。
+默认情况下框架不执行 DDL。参考 DDL 位于工件的 `META-INF/coco/audit-jdbc-reference.sql`，业务必须使用自身的 Flyway、Liquibase 或迁移流程创建等价表并按目标数据库方言调整 CLOB/索引类型。`initialize-schema=true` 只触发业务提供的方言 initializer，不替代生产迁移和索引管理，Coco 不宣称其 DDL 跨方言可用。
 
 固定列为 `event_type`、`action`、`resource_type`、`resource_id`、`trace_id`、`actor`、`tenant_id`、`success`、`occurred_at_epoch_millis`、`attributes_json`。可选结构化文本字段为空时写入 SQL `NULL`；`attributes_json` 使用稳定排序的 JSON 对象，空属性写入 `{}`。所有值通过 `PreparedStatement` 绑定，表和 schema 之外的 SQL 不接受配置拼接。
 
@@ -41,7 +43,7 @@ coco:
 
 ## 非目标
 
-- 自动建表、迁移、删除、归档或分区审计表。
+- 默认自动建表、迁移、删除、归档或分区审计表。
 - 管理业务 DataSource、连接池、数据库账号、事务管理器或高可用。
 - 绑定 Coco 到任何业务用户、身份、组织或租户模型。
 - 承诺跨系统 exactly-once、审计保留合规或消息投递。

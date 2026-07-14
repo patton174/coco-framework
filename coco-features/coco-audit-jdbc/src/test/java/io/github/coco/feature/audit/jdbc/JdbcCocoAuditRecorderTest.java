@@ -12,6 +12,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -233,6 +236,54 @@ class JdbcCocoAuditRecorderTest {
     }
 
     @Test
+    void requiresAnExplicitSchemaInitializerWhenInitializationIsEnabled() {
+        CocoAuditJdbcProperties properties = properties("initializer_required", null, 1);
+        properties.setInitializeSchema(true);
+
+        assertThatThrownBy(() -> new JdbcCocoAuditRecorder(this.jdbcTemplate, properties))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining(CocoAuditSchemaInitializer.class.getSimpleName());
+        Integer tables = this.jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+                 WHERE TABLE_NAME = 'INITIALIZER_REQUIRED'
+                """, Integer.class);
+        assertThat(tables).isZero();
+    }
+
+    @Test
+    void delegatesSchemaInitializationToTheExplicitDatabaseDialectSpi() {
+        CocoAuditJdbcProperties properties = properties("spi_initialized_audit", null, 1);
+        properties.setInitializeSchema(true);
+        AtomicReference<CocoAuditJdbcSchema> initializedSchema = new AtomicReference<>();
+        CocoAuditSchemaInitializer initializer = (jdbcOperations, schema) -> {
+            initializedSchema.set(schema);
+            jdbcOperations.execute("""
+                    CREATE TABLE spi_initialized_audit (
+                        event_type CLOB NOT NULL,
+                        action CLOB NULL,
+                        resource_type CLOB NULL,
+                        resource_id CLOB NULL,
+                        trace_id CLOB NULL,
+                        actor CLOB NULL,
+                        tenant_id CLOB NULL,
+                        success BOOLEAN NOT NULL,
+                        occurred_at_epoch_millis BIGINT NOT NULL,
+                        attributes_json CLOB NOT NULL
+                    )
+                    """);
+        };
+
+        JdbcCocoAuditRecorder recorder = new JdbcCocoAuditRecorder(this.jdbcTemplate, properties, initializer);
+        recorder.record(event("spi-initialized"));
+
+        assertThat(initializedSchema.get())
+                .extracting(CocoAuditJdbcSchema::tableReference)
+                .isEqualTo("spi_initialized_audit");
+        Integer rows = this.jdbcTemplate.queryForObject("SELECT COUNT(*) FROM spi_initialized_audit", Integer.class);
+        assertThat(rows).isEqualTo(1);
+    }
+
+    @Test
     void rejectsWritesAfterCloseWithoutClosingTheBusinessDataSource() {
         JdbcCocoAuditRecorder recorder = newRecorder(1);
         recorder.close();
@@ -269,6 +320,55 @@ class JdbcCocoAuditRecorderTest {
         }
         finally {
             blockingTemplate.release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void closeCompletesUnderSustainedWritePressureAndRejectsNewWrites() throws Exception {
+        JdbcCocoAuditRecorder recorder = newRecorder(1);
+        ExecutorService executor = Executors.newFixedThreadPool(5);
+        AtomicBoolean keepWriting = new AtomicBoolean(true);
+        AtomicInteger successfulWrites = new AtomicInteger();
+        CountDownLatch started = new CountDownLatch(4);
+        CountDownLatch wrote = new CountDownLatch(1);
+        try {
+            List<Future<?>> writers = new ArrayList<>();
+            for (int index = 0; index < 4; index++) {
+                int writer = index;
+                writers.add(executor.submit(() -> {
+                    started.countDown();
+                    while (keepWriting.get()) {
+                        try {
+                            recorder.record(event("pressure-" + writer));
+                            successfulWrites.incrementAndGet();
+                            wrote.countDown();
+                        }
+                        catch (IllegalStateException ex) {
+                            return null;
+                        }
+                    }
+                    return null;
+                }));
+            }
+            assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(wrote.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> close = executor.submit(recorder::close);
+            close.get(5, TimeUnit.SECONDS);
+            keepWriting.set(false);
+            for (Future<?> writer : writers) {
+                writer.get(5, TimeUnit.SECONDS);
+            }
+
+            assertThat(successfulWrites.get()).isPositive();
+            assertThatThrownBy(() -> recorder.record(event("after-pressure-close")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("closed");
+        }
+        finally {
+            keepWriting.set(false);
             executor.shutdownNow();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }

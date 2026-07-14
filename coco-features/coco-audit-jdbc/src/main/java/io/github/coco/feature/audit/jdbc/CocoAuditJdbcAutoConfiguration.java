@@ -19,7 +19,8 @@ import org.springframework.jdbc.core.JdbcOperations;
  * Coco JDBC 审计记录器自动配置。
  * <p>
  * 仅在业务显式启用 {@code coco.audit.jdbc.enabled} 且提供唯一 {@link JdbcOperations} 候选时注册。业务自定义
- * {@link CocoAuditRecorder} 会使该配置回退；该模块不推断用户、租户或审计表结构，也不创建数据库对象。
+ * {@link CocoAuditRecorder} 会使该配置回退；该模块不推断用户、租户或审计表结构。开启 schema 初始化时，业务提供的
+ * {@link CocoAuditSchemaInitializer} 负责执行目标数据库方言的 DDL。
  * </p>
  *
  * @author patton174
@@ -52,7 +53,8 @@ public class CocoAuditJdbcAutoConfiguration {
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean(CocoAuditRecorder.class)
     public JdbcCocoAuditRecorder jdbcCocoAuditRecorder(JdbcOperations jdbcOperations,
-            CocoAuditJdbcProperties properties) {
-        return new JdbcCocoAuditRecorder(jdbcOperations, properties);
+            CocoAuditJdbcProperties properties, org.springframework.beans.factory.ObjectProvider<CocoAuditSchemaInitializer>
+                    schemaInitializer) {
+        return new JdbcCocoAuditRecorder(jdbcOperations, properties, schemaInitializer.getIfUnique());
     }
 }

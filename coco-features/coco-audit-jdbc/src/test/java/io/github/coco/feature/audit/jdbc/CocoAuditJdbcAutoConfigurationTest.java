@@ -7,6 +7,7 @@ import java.lang.reflect.Proxy;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.feature.audit.CocoAuditAutoConfiguration;
+import io.github.coco.feature.audit.core.CocoAuditFormatter;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
 import io.github.coco.feature.audit.core.LoggingCocoAuditRecorder;
 import io.github.coco.i18n.CocoMessageService;
@@ -115,6 +116,49 @@ class CocoAuditJdbcAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(JdbcCocoAuditRecorder.class);
                     assertThat(context).doesNotHaveBean(CocoAuditRecorder.class);
+                });
+    }
+
+    @Test
+    void preservesBusinessFormatterAndRecorderWithoutCreatingJdbcRecorder() {
+        CocoAuditRecorder customRecorder = event -> { };
+        CocoAuditFormatter customFormatter = event -> "business-format";
+        this.contextRunner
+                .withPropertyValues("coco.audit.jdbc.enabled=true")
+                .withBean(JdbcOperations.class, () -> jdbcOperations("custom-formatter"))
+                .withBean(CocoAuditRecorder.class, () -> customRecorder)
+                .withBean(CocoAuditFormatter.class, () -> customFormatter)
+                .run(context -> {
+                    assertThat(context.getBean(CocoAuditRecorder.class)).isSameAs(customRecorder);
+                    assertThat(context.getBean(CocoAuditFormatter.class)).isSameAs(customFormatter);
+                    assertThat(context).doesNotHaveBean(JdbcCocoAuditRecorder.class);
+                    assertThat(context).doesNotHaveBean(LoggingCocoAuditRecorder.class);
+                });
+    }
+
+    @Test
+    void doesNotRequireH2OnTheProductionClasspath() {
+        this.contextRunner
+                .withClassLoader(new FilteredClassLoader(org.h2.Driver.class))
+                .withPropertyValues("coco.audit.jdbc.enabled=true")
+                .withBean(JdbcOperations.class, CocoAuditJdbcAutoConfigurationTest::manualJdbcOperations)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(JdbcCocoAuditRecorder.class);
+                });
+    }
+
+    @Test
+    void failsFastWhenSchemaInitializationHasNoBusinessInitializer() {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.audit.jdbc.enabled=true",
+                        "coco.audit.jdbc.initialize-schema=true")
+                .withBean(JdbcOperations.class, () -> jdbcOperations("initializer-missing"))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining(CocoAuditSchemaInitializer.class.getSimpleName());
                 });
     }
 

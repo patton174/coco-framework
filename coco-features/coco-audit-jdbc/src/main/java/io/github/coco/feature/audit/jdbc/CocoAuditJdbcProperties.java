@@ -5,7 +5,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Coco JDBC 审计记录器配置属性。
  * <p>
- * 该配置只控制显式引入 {@code coco-audit-jdbc} 后的 JDBC 记录器，不创建数据源、表或事务管理器。
+ * 该配置只控制显式引入 {@code coco-audit-jdbc} 后的 JDBC 记录器，不创建数据源或事务管理器。开启 schema 初始化时，
+ * 业务显式提供的 {@link CocoAuditSchemaInitializer} 决定建表 SQL。
  * </p>
  *
  * @author patton174
@@ -22,6 +23,8 @@ public class CocoAuditJdbcProperties {
     private String schema;
 
     private String tableName = DEFAULT_TABLE_NAME;
+
+    private boolean initializeSchema;
 
     private int batchSize = 100;
 
@@ -71,6 +74,22 @@ public class CocoAuditJdbcProperties {
      */
     public void setTableName(String tableName) {
         this.tableName = tableName;
+    }
+
+    /**
+     * 返回是否在记录器创建时初始化审计表。
+     * @return 初始化审计表时返回 {@code true}
+     */
+    public boolean isInitializeSchema() {
+        return this.initializeSchema;
+    }
+
+    /**
+     * 设置是否在记录器创建时初始化审计表。
+     * @param initializeSchema 是否初始化审计表
+     */
+    public void setInitializeSchema(boolean initializeSchema) {
+        this.initializeSchema = initializeSchema;
     }
 
     /**

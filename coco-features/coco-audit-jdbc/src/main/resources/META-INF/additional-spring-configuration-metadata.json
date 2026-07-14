@@ -18,6 +18,12 @@
       "description": "Unquoted SQL table identifier for audit events."
     },
     {
+      "name": "coco.audit.jdbc.initialize-schema",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Invoke the business-provided CocoAuditSchemaInitializer when the JDBC recorder starts."
+    },
+    {
       "name": "coco.audit.jdbc.batch-size",
       "type": "java.lang.Integer",
       "defaultValue": 100,
