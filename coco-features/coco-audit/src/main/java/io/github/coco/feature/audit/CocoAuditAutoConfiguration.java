@@ -136,9 +136,22 @@ public class CocoAuditAutoConfiguration {
     @ConditionalOnBean(CocoAuditRecorder.class)
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "coco.audit.async", name = "enabled", havingValue = "false", matchIfMissing = true)
     public CocoAuditPublisher cocoAuditPublisher(Collection<CocoAuditRecorder> auditRecorders,
             CocoAuditErrorHandler errorHandler) {
         return new CompositeCocoAuditPublisher(auditRecorders, errorHandler);
+    }
+
+    @Bean(name = "cocoAuditPublisher", destroyMethod = "close")
+    @ConditionalOnBean(CocoAuditRecorder.class)
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "coco.audit.async", name = "enabled", havingValue = "true")
+    CocoAuditPublisher asyncCocoAuditPublisher(Collection<CocoAuditRecorder> auditRecorders,
+            CocoAuditErrorHandler errorHandler, CocoAuditProperties properties) {
+        CocoAuditProperties.AsyncProperties async = properties.getAsync();
+        return new AsyncCocoAuditPublisher(new CompositeCocoAuditPublisher(auditRecorders, errorHandler),
+                async.getQueueCapacity(), async.getShutdownTimeout(), properties.getFailurePolicy());
     }
 
     /**

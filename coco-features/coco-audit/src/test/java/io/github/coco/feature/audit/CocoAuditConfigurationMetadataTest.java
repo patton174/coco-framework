@@ -40,6 +40,9 @@ class CocoAuditConfigurationMetadataTest {
         assertProperty(metadata, "coco.audit.enabled", "java.lang.Boolean", true);
         assertProperty(metadata, "coco.audit.failure-policy",
                 "io.github.coco.feature.audit.core.CocoAuditFailurePolicy", "ignore");
+        assertProperty(metadata, "coco.audit.async.enabled", "java.lang.Boolean", false);
+        assertProperty(metadata, "coco.audit.async.queue-capacity", "java.lang.Integer", 1024);
+        assertProperty(metadata, "coco.audit.async.shutdown-timeout", "java.time.Duration", "5s");
         assertProperty(metadata, "coco.audit.logging.enabled", "java.lang.Boolean", true);
         assertProperty(metadata, "coco.audit.logging.logger-name", "java.lang.String", "io.github.coco.audit");
         assertProperty(metadata, "coco.audit.logging.level",
