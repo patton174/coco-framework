@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.context;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -389,6 +390,8 @@ public class CocoWebContextProperties {
      * </p>
      * @return Web 请求参数配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoWebParameterProperties getParameter() {
         return this.parameter;
     }
