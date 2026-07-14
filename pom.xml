@@ -84,6 +84,7 @@
         <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
         <central.auto-publish>false</central.auto-publish>
         <central.wait-until>VALIDATED</central.wait-until>
+        <coco.compatibility.release-artifacts>false</coco.compatibility.release-artifacts>
         <coco.enforcer.skip>false</coco.enforcer.skip>
         <project.build.outputTimestamp>2026-07-04T00:00:00Z</project.build.outputTimestamp>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -463,6 +464,9 @@
     <profiles>
         <profile>
             <id>release</id>
+            <properties>
+                <coco.compatibility.release-artifacts>true</coco.compatibility.release-artifacts>
+            </properties>
             <build>
                 <plugins>
                     <plugin>

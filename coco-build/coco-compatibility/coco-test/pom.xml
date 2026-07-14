@@ -23,5 +23,28 @@
             <artifactId>coco-test-support</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <cocoTestCompatibilityJar>${project.build.directory}/${project.build.finalName}.jar</cocoTestCompatibilityJar>
+                        <cocoTestCanonicalJar>${project.basedir}/../../../coco-support/coco-test-support/target/coco-test-support-${project.version}.jar</cocoTestCanonicalJar>
+                        <cocoTestReleaseSourcesJar>${project.build.directory}/${project.build.finalName}-sources.jar</cocoTestReleaseSourcesJar>
+                        <cocoTestReleaseJavadocJar>${project.build.directory}/${project.build.finalName}-javadoc.jar</cocoTestReleaseJavadocJar>
+                        <cocoTestReleaseArtifactsRequired>${coco.compatibility.release-artifacts}</cocoTestReleaseArtifactsRequired>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

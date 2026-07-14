@@ -140,6 +140,14 @@ def direct_dependencies(project: ET.Element) -> list[ET.Element]:
     return direct_children(dependencies, "dependency")
 
 
+def production_dependencies(project: ET.Element) -> list[ET.Element]:
+    return [
+        dependency
+        for dependency in direct_dependencies(project)
+        if child_text(dependency, "scope") not in {"provided", "test"}
+    ]
+
+
 def managed_dependencies(project: ET.Element) -> list[ET.Element]:
     management = direct_child(project, "dependencyManagement")
     if management is None:
@@ -304,20 +312,16 @@ class CanonicalMavenOwnershipTests(unittest.TestCase):
                 module = self.root / ownership.compatibility_module
                 project = read_pom(module / "pom.xml")
                 packaging = child_text(project, "packaging") or "jar"
-                production_dependencies = [
-                    dependency
-                    for dependency in direct_dependencies(project)
-                    if child_text(dependency, "scope") != "test"
-                ]
+                production_dependencies_for_facade = production_dependencies(project)
 
                 self.assertEqual(
                     ownership.legacy_artifact, project_artifact_id(project)
                 )
                 self.assertEqual("jar", packaging)
                 self.assertEqual([], source_files(module / "src/main"))
-                self.assertEqual(1, len(production_dependencies))
+                self.assertEqual(1, len(production_dependencies_for_facade))
 
-                dependency = production_dependencies[0]
+                dependency = production_dependencies_for_facade[0]
                 self.assertEqual(
                     ownership.canonical_artifact,
                     child_text(dependency, "artifactId"),
@@ -432,6 +436,27 @@ class CanonicalMavenOwnershipTests(unittest.TestCase):
             [
                 child_text(dependency, "artifactId")
                 for dependency in unmanaged_dependencies(project)
+            ],
+        )
+
+    def test_production_dependencies_exclude_test_and_provided_scopes(self) -> None:
+        project = ET.fromstring(
+            """
+            <project>
+              <dependencies>
+                <dependency><artifactId>coco-test-support</artifactId></dependency>
+                <dependency><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+                <dependency><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
+              </dependencies>
+            </project>
+            """
+        )
+
+        self.assertEqual(
+            ["coco-test-support"],
+            [
+                child_text(dependency, "artifactId")
+                for dependency in production_dependencies(project)
             ],
         )
 

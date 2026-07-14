@@ -386,8 +386,7 @@ class AgentReviewTests(unittest.TestCase):
             "coco-build/coco-parent/pom.xml",
             "coco-api/pom.xml",
             "coco-foundation/coco-api/pom.xml",
-            "coco-config/pom.xml",
-            "coco-spring/coco-config/pom.xml",
+            "coco-build/coco-compatibility/coco-config/pom.xml",
             "coco-test/pom.xml",
             "coco-support/coco-test/pom.xml",
         ):
@@ -419,11 +418,8 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-feature-registry",
                 "coco-foundation/coco-feature-model",
             ): i18n_specs | {canonical_coordinate_spec},
-            (
-                "coco-config",
-                "coco-spring/coco-config",
-                "coco-build/coco-compatibility/coco-config",
-            ): i18n_specs | {canonical_coordinate_spec},
+            ("coco-build/coco-compatibility/coco-config",): i18n_specs
+            | {canonical_coordinate_spec},
             (
                 "coco-spring-boot-autoconfigure",
                 "coco-spring/coco-spring-boot-autoconfigure",
@@ -642,11 +638,6 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-foundation/coco-api/pom.xml",
                 "coco-common/coco-common-i18n/pom.xml",
                 "coco-foundation/coco-common/coco-common-i18n/pom.xml",
-            ],
-            "spring-config": [
-                "pom.xml",
-                "coco-config/pom.xml",
-                "coco-spring/coco-config/pom.xml",
             ],
             "spring-autoconfigure": [
                 "pom.xml",
