@@ -4,16 +4,24 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatureRegistry;
 import io.github.coco.api.feature.CocoFeatures;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.i18n.CocoMessageService;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
+import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -39,6 +47,9 @@ import org.springframework.context.annotation.Configuration;
  */
 @SuppressWarnings("deprecation")
 class CocoConfigAutoConfigurationTest {
+
+    @TempDir
+    Path tempDir;
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CocoConfigAutoConfiguration.class));
@@ -112,6 +123,46 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void manifestWithoutProvenanceLogsDependencyImpactWithoutAttributingCause(CapturedOutput output) throws Exception {
+        Path manifestPath = this.tempDir.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
+        Files.createDirectories(manifestPath.getParent());
+        CocoFeaturePlan buildPlan = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(java.util.Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS)));
+        Files.writeString(manifestPath, CocoFeatureManifestLoader.write(
+                StandardCocoFeatures.toManifest(buildPlan, "test")), StandardCharsets.UTF_8);
+
+        try (URLClassLoader classLoader = new URLClassLoader(
+                new java.net.URL[] { this.tempDir.toUri().toURL() }, getClass().getClassLoader())) {
+            this.contextRunner.withClassLoader(classLoader).run(context -> {
+                CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
+
+                assertFalse(plan.isEnabled(CocoFeature.TENANT));
+                assertFalse(plan.isEnabled(CocoFeature.MYBATIS_PLUS));
+            });
+        }
+
+        assertTrue(output.getAll().contains("dependencyAffected=[codegen, data-permission, tenant]"));
+        assertTrue(output.getAll().contains("dependencyProvenance=unknown"));
+        assertFalse(output.getAll().contains("disabledByDependency="));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void codeConfigurationLogsOnlyDependencyPropagatedFeatures(CapturedOutput output) {
+        this.contextRunner
+                .withUserConfiguration(DependencyDisabledCocoConfiguration.class)
+                .run(context -> {
+                    CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
+
+                    assertEquals(java.util.Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
+                            plan.disabledByDependencyFeatures());
+                });
+
+        assertTrue(output.getAll().contains("disabledByDependency=[codegen, data-permission]"));
+    }
+
+    @Test
     void mergesDisabledFeaturesFromCocoConfigurerBeans() {
         this.contextRunner
                 .withUserConfiguration(UserCocoConfiguration.class)
@@ -171,5 +222,10 @@ class CocoConfigAutoConfigurationTest {
     @Configuration(proxyBeanMethods = false)
     @CocoFeatures(enabled = CocoFeature.TENANT)
     static class AnnotatedCocoConfiguration {
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @CocoFeatures(disabled = { CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS })
+    static class DependencyDisabledCocoConfiguration {
     }
 }

@@ -7,10 +7,11 @@ import java.util.stream.Collectors;
 
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.feature.runtime.condition.CocoRuntimeFeatureResolver;
-import io.github.coco.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.runtime.condition.CocoRuntimeFeatureResolver;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -67,7 +68,9 @@ public class CocoConfigAutoConfiguration {
         CocoFeatureSelection codeSelection = CocoFeatureSelectionCollector.collect(beanFactory, configurers);
         CocoFeaturePlan plan = resolver.resolveWithCodeSelection(
                 environment, beanFactory.getBeanClassLoader(), codeSelection);
-        logFeaturePlan("startup-plan", plan, properties.getFeatures().toSelection(), codeSelection);
+        boolean manifestWithoutProvenance = CocoFeatureManifestLoader.load(beanFactory.getBeanClassLoader()).isPresent();
+        logFeaturePlan("startup-plan", plan, properties.getFeatures().toSelection(), codeSelection,
+                manifestWithoutProvenance);
         return plan;
     }
 
@@ -139,17 +142,25 @@ public class CocoConfigAutoConfiguration {
     }
 
     private static void logFeaturePlan(String source, CocoFeaturePlan plan, CocoFeatureSelection propertySelection,
-            CocoFeatureSelection codeSelection) {
+            CocoFeatureSelection codeSelection, boolean manifestWithoutProvenance) {
         if (!LOGGER.isInfoEnabled()) {
             return;
         }
         LOGGER.info("Coco features resolved from " + source
                 + ": enabled=" + featureIds(plan.enabledFeatures())
                 + ", disabled=" + featureIds(plan.disabledFeatures())
-                + ", disabledByDependency=" + featureIds(disabledByDependencyFeatures(plan,
-                        propertySelection.merge(codeSelection)))
+                + dependencyDiagnostic(plan, propertySelection.merge(codeSelection), manifestWithoutProvenance)
                 + ", propertySelection=" + describeSelection(propertySelection)
                 + ", codeSelection=" + describeSelection(codeSelection) + ".");
+    }
+
+    private static String dependencyDiagnostic(CocoFeaturePlan plan, CocoFeatureSelection selection,
+            boolean manifestWithoutProvenance) {
+        if (manifestWithoutProvenance) {
+            return ", dependencyAffected=" + featureIds(plan.disabledByDependencyFeatures())
+                    + ", dependencyProvenance=unknown";
+        }
+        return ", disabledByDependency=" + featureIds(disabledByDependencyFeatures(plan, selection));
     }
 
     private static String describeSelection(CocoFeatureSelection selection) {
