@@ -6874,9 +6874,7 @@ class AgentReviewTests(unittest.TestCase):
             ) -> review.ModelTextResponse:
                 del system, user, max_tokens
                 self.calls += 1
-                return review.ModelTextResponse(
-                    json.dumps(self.response), "end_turn"
-                )
+                return review.ModelTextResponse(json.dumps(self.response), "end_turn")
 
         context = bound_context()
         report = specialist_report("correctness", context)
@@ -6925,9 +6923,7 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_production_policy_routes_fit_without_omissions(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
-        value = review.load_config(
-            repository_root / ".github/agent-review/config.json"
-        )
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
         limit = review.normalized_limits(value)["policy_chars"]
         for index, mapping in enumerate(value["spec_path_mappings"]):
             for pattern in mapping["path_globs"]:
