@@ -1,5 +1,6 @@
 package io.github.coco.feature.security.web;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
@@ -58,12 +59,16 @@ public class CocoSecurityWebProperties {
 
     /**
      * <p>
-     * 返回可信请求头安全上下文适配配置。
+     * 返回可信请求头安全上下文适配配置的可变 JavaBean 引用。
+     * Spring Binder 和已有 Java 配置使用者会通过 {@code getHeader().set...} 更新嵌套属性，
+     * 因此这里有意暴露受 {@link #setHeader(CocoSecurityWebHeaderProperties)} 防御性复制保护的内部配置。
      * </p>
      * @return 可信请求头安全上下文适配配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Nested ConfigurationProperties JavaBean "
+            + "accessors must retain their established live mutable semantics for Spring Binder and Java consumers.")
     public CocoSecurityWebHeaderProperties getHeader() {
-        return new CocoSecurityWebHeaderProperties(this.header);
+        return this.header;
     }
 
     /**

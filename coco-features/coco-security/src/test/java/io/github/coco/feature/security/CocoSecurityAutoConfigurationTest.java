@@ -20,6 +20,7 @@ import io.github.coco.feature.security.context.CocoSecurityContextHolder;
 import io.github.coco.feature.security.context.CocoSecurityContextResolver;
 import io.github.coco.feature.security.context.CocoSecurityPrincipal;
 import io.github.coco.feature.security.web.CocoSecurityWebFilter;
+import io.github.coco.feature.security.web.CocoSecurityWebHeaderProperties;
 import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
 import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.AfterEach;
@@ -140,17 +141,28 @@ class CocoSecurityAutoConfigurationTest {
     @Test
     void webFilterBindsTrustedHeaderSecurityContextAndRestoresPreviousContext() throws Exception {
         this.webContextRunner
-                .withPropertyValues("coco.security.web.header.enabled=true")
+                .withPropertyValues(
+                        "coco.security.web.header.enabled=true",
+                        "coco.security.web.header.principal-id-header-name=X-Trusted-Principal-Id",
+                        "coco.security.web.header.principal-name-header-name=X-Trusted-Principal-Name",
+                        "coco.security.web.header.roles-header-name=X-Trusted-Roles",
+                        "coco.security.web.header.permissions-header-name=X-Trusted-Permissions",
+                        "coco.security.web.header.authority-delimiter=|")
                 .run(context -> {
                     CocoSecurityWebFilter filter = securityWebFilter(context);
+                    CocoSecurityWebHeaderProperties header = context.getBean(CocoSecurityProperties.class)
+                            .getWeb().getHeader();
+                    assertTrue(header.isEnabled());
+                    assertEquals("X-Trusted-Principal-Id", header.getPrincipalIdHeaderName());
+                    assertEquals("|", header.getAuthorityDelimiter());
                     CocoSecurityContext previous = CocoSecurityContext.authenticated(
                             CocoSecurityPrincipal.of("previous", "Previous"));
                     AtomicReference<CocoSecurityContext> currentInChain = new AtomicReference<>();
                     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
-                    request.addHeader("X-Coco-Principal-Id", "1001");
-                    request.addHeader("X-Coco-Principal-Name", "Patton");
-                    request.addHeader("X-Coco-Roles", "admin, operator");
-                    request.addHeader("X-Coco-Permissions", "order:read, order:write");
+                    request.addHeader("X-Trusted-Principal-Id", "1001");
+                    request.addHeader("X-Trusted-Principal-Name", "Patton");
+                    request.addHeader("X-Trusted-Roles", "admin|operator");
+                    request.addHeader("X-Trusted-Permissions", "order:read|order:write");
                     CocoSecurityContextHolder.set(previous);
 
                     filter.doFilter(request, new MockHttpServletResponse(),
