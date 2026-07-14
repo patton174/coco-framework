@@ -4,8 +4,15 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+import io.github.coco.context.CocoContextScope;
+import io.github.coco.context.CocoContextSnapshot;
 import io.github.coco.context.CocoRequestContext;
 import io.github.coco.context.CocoRequestContextHolder;
 import io.github.coco.logging.access.CocoAccessLog;
@@ -16,6 +23,11 @@ import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
+import io.github.coco.logging.context.CocoMdcContext;
+import jakarta.servlet.AsyncContext;
+import jakarta.servlet.AsyncEvent;
+import jakarta.servlet.AsyncListener;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,6 +35,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
+import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.context.request.async.CallableProcessingInterceptor;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -42,6 +57,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * @since 1.0.0
  */
 public final class CocoTraceFilter extends OncePerRequestFilter {
+
+    private static final String ASYNC_CONTEXT_INTERCEPTOR_KEY = CocoTraceFilter.class.getName() + ".context";
+
+    private static final String REQUEST_STATE_ATTRIBUTE = CocoTraceFilter.class.getName() + ".state";
 
     private final String headerName;
 
@@ -167,13 +186,17 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
-        long startNanos = System.nanoTime();
-        String traceId = resolveTraceId(request);
+        RequestState state = requestState(request);
+        CocoWebRequestSnapshot requestSnapshot = state.requestSnapshot();
+        Optional<CocoRequestContext> previousRequestContext = CocoRequestContextHolder.current();
+        Optional<String> previousTraceId = CocoTraceContext.currentTraceId();
         String previousMdcValue = MDC.get(this.mdcKey);
-        CocoWebRequestSnapshot requestSnapshot = this.requestContextResolver.resolve(traceId, request);
         CocoRequestContext requestContext = requestSnapshot.toRequestContext();
         CocoRequestContextHolder.set(requestContext);
         MDC.put(this.mdcKey, requestSnapshot.traceId());
+        if (request.getDispatcherType() == DispatcherType.REQUEST) {
+            registerAsyncContextInterceptor(request);
+        }
         writeTraceResponse(response, requestSnapshot.traceId());
         Throwable failure = null;
         try {
@@ -181,14 +204,43 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         }
         catch (IOException | ServletException | RuntimeException | Error ex) {
             failure = ex;
+            state.recordFailure(ex);
             throw ex;
         }
         finally {
-            recordAccessLog(latestRequestSnapshot(request, requestSnapshot), response.getStatus(),
-                    elapsedMillis(startNanos), failure);
-            restoreMdcValue(previousMdcValue);
-            CocoRequestContextHolder.clear();
+            try {
+                finishDispatch(request, response, state, failure);
+            }
+            finally {
+                restoreMdcValue(previousMdcValue);
+                restoreRequestContext(previousRequestContext, previousTraceId);
+            }
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected boolean shouldNotFilterErrorDispatch() {
+        return false;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected void doFilterNestedErrorDispatch(HttpServletRequest request, HttpServletResponse response,
+            FilterChain filterChain) throws ServletException, IOException {
+        doFilterInternal(request, response, filterChain);
     }
 
     /**
@@ -249,6 +301,227 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             return;
         }
         MDC.put(this.mdcKey, previousMdcValue);
+    }
+
+    private static void restoreRequestContext(Optional<CocoRequestContext> previousRequestContext,
+            Optional<String> previousTraceId) {
+        if (previousRequestContext.isPresent()) {
+            CocoRequestContextHolder.set(previousRequestContext.get());
+            return;
+        }
+        CocoRequestContextHolder.clear();
+        previousTraceId.ifPresent(CocoTraceContext::setTraceId);
+    }
+
+    private RequestState requestState(HttpServletRequest request) {
+        Object existing = request.getAttribute(REQUEST_STATE_ATTRIBUTE);
+        if (existing instanceof RequestState state) {
+            return state;
+        }
+        String traceId = resolveTraceId(request);
+        CocoWebRequestSnapshot requestSnapshot = this.requestContextResolver.resolve(traceId, request);
+        RequestState state = new RequestState(System.nanoTime(), requestSnapshot);
+        request.setAttribute(REQUEST_STATE_ATTRIBUTE, state);
+        return state;
+    }
+
+    private void finishDispatch(HttpServletRequest request, HttpServletResponse response,
+            RequestState state, Throwable dispatchFailure) {
+        if (request.isAsyncStarted()) {
+            registerAsyncListener(request, response, state);
+            return;
+        }
+        if (dispatchFailure != null && request.getDispatcherType() != DispatcherType.ERROR) {
+            return;
+        }
+        completeRequest(request, response, state);
+    }
+
+    private void registerAsyncListener(HttpServletRequest request, HttpServletResponse response,
+            RequestState state) {
+        AsyncContext asyncContext = request.getAsyncContext();
+        if (!state.registerAsyncContext(asyncContext)) {
+            return;
+        }
+        try {
+            asyncContext.addListener(new TraceAsyncListener(request, response, state, captureAsyncContext()));
+        }
+        catch (IllegalStateException ex) {
+            if (!request.isAsyncStarted()) {
+                completeRequest(request, response, state);
+            }
+            else {
+                throw ex;
+            }
+        }
+    }
+
+    private void completeRequest(HttpServletRequest request, HttpServletResponse response, RequestState state) {
+        if (!state.complete()) {
+            return;
+        }
+        Throwable failure = state.failure();
+        int status = response.getStatus();
+        if (failure != null && status < 400) {
+            status = HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+        }
+        recordAccessLog(latestRequestSnapshot(request, state.requestSnapshot()), status,
+                elapsedMillis(state.startNanos()), failure);
+        request.removeAttribute(REQUEST_STATE_ATTRIBUTE);
+    }
+
+    private static void registerAsyncContextInterceptor(HttpServletRequest request) {
+        CocoContextSnapshot contextSnapshot = CocoContextSnapshot.compose(
+                CocoRequestContextHolder.capture(), CocoMdcContext.capture());
+        WebAsyncUtils.getAsyncManager(request).registerCallableInterceptor(
+                ASYNC_CONTEXT_INTERCEPTOR_KEY, new ContextCallableProcessingInterceptor(contextSnapshot));
+    }
+
+    private static CocoContextSnapshot captureAsyncContext() {
+        return CocoContextSnapshot.compose(CocoRequestContextHolder.capture(), CocoMdcContext.capture());
+    }
+
+    private static final class ContextCallableProcessingInterceptor implements CallableProcessingInterceptor {
+
+        private final CocoContextSnapshot contextSnapshot;
+
+        private final ThreadLocal<CocoContextScope> activeScope = new ThreadLocal<>();
+
+        private ContextCallableProcessingInterceptor(CocoContextSnapshot contextSnapshot) {
+            this.contextSnapshot = contextSnapshot;
+        }
+
+        @Override
+        public <T> void preProcess(NativeWebRequest request, Callable<T> task) {
+            closeActiveScope();
+            this.activeScope.set(this.contextSnapshot.restore());
+        }
+
+        @Override
+        public <T> void postProcess(NativeWebRequest request, Callable<T> task, Object concurrentResult) {
+            closeActiveScope();
+        }
+
+        @Override
+        public <T> void afterCompletion(NativeWebRequest request, Callable<T> task) {
+            closeActiveScope();
+        }
+
+        private void closeActiveScope() {
+            CocoContextScope scope = this.activeScope.get();
+            if (scope == null) {
+                return;
+            }
+            this.activeScope.remove();
+            scope.close();
+        }
+    }
+
+    private final class TraceAsyncListener implements AsyncListener {
+
+        private final HttpServletRequest request;
+
+        private final HttpServletResponse response;
+
+        private final RequestState state;
+
+        private final CocoContextSnapshot contextSnapshot;
+
+        private TraceAsyncListener(HttpServletRequest request, HttpServletResponse response, RequestState state,
+                CocoContextSnapshot contextSnapshot) {
+            this.request = request;
+            this.response = response;
+            this.state = state;
+            this.contextSnapshot = contextSnapshot;
+        }
+
+        @Override
+        public void onComplete(AsyncEvent event) {
+            withRequestContext(() -> completeRequest(eventRequest(event), eventResponse(event), this.state));
+        }
+
+        @Override
+        public void onTimeout(AsyncEvent event) {
+            withRequestContext(() -> this.state.recordFailure(new TimeoutException("Servlet async request timed out")));
+        }
+
+        @Override
+        public void onError(AsyncEvent event) {
+            withRequestContext(() -> this.state.recordFailure(event.getThrowable()));
+        }
+
+        @Override
+        public void onStartAsync(AsyncEvent event) {
+            withRequestContext(() -> {
+                AsyncContext asyncContext = event.getAsyncContext();
+                if (this.state.registerAsyncContext(asyncContext)) {
+                    asyncContext.addListener(new TraceAsyncListener(this.request, this.response, this.state,
+                            this.contextSnapshot));
+                }
+            });
+        }
+
+        private void withRequestContext(Runnable action) {
+            try (CocoContextScope ignored = this.contextSnapshot.restore()) {
+                action.run();
+            }
+        }
+
+        private HttpServletRequest eventRequest(AsyncEvent event) {
+            return event.getSuppliedRequest() instanceof HttpServletRequest suppliedRequest
+                    ? suppliedRequest
+                    : this.request;
+        }
+
+        private HttpServletResponse eventResponse(AsyncEvent event) {
+            return event.getSuppliedResponse() instanceof HttpServletResponse suppliedResponse
+                    ? suppliedResponse
+                    : this.response;
+        }
+    }
+
+    private static final class RequestState {
+
+        private final long startNanos;
+
+        private final CocoWebRequestSnapshot requestSnapshot;
+
+        private final AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        private final AtomicReference<AsyncContext> registeredAsyncContext = new AtomicReference<>();
+
+        private final AtomicBoolean completed = new AtomicBoolean();
+
+        private RequestState(long startNanos, CocoWebRequestSnapshot requestSnapshot) {
+            this.startNanos = startNanos;
+            this.requestSnapshot = requestSnapshot;
+        }
+
+        private long startNanos() {
+            return this.startNanos;
+        }
+
+        private CocoWebRequestSnapshot requestSnapshot() {
+            return this.requestSnapshot;
+        }
+
+        private void recordFailure(Throwable failure) {
+            if (failure != null) {
+                this.failure.compareAndSet(null, failure);
+            }
+        }
+
+        private Throwable failure() {
+            return this.failure.get();
+        }
+
+        private boolean registerAsyncContext(AsyncContext asyncContext) {
+            return this.registeredAsyncContext.getAndSet(asyncContext) != asyncContext;
+        }
+
+        private boolean complete() {
+            return this.completed.compareAndSet(false, true);
+        }
     }
 
     /**

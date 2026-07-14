@@ -8,6 +8,7 @@ import io.github.coco.feature.security.context.HolderCocoSecurityContextResolver
 import io.github.coco.feature.security.web.CocoSecurityWebFilter;
 import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
 import io.github.coco.feature.security.web.HeaderCocoWebSecurityContextResolver;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.Filter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -98,6 +99,8 @@ public class CocoSecurityAutoConfiguration {
                 new CocoSecurityWebFilter(resolver));
         registration.setName("cocoSecurityWebFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
+        registration.setAsyncSupported(true);
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
         return registration;
     }
 }

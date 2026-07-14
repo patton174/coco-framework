@@ -3,15 +3,22 @@ package io.github.coco.feature.security.web;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 
+import io.github.coco.context.CocoContextScope;
+import io.github.coco.context.CocoContextSnapshot;
 import io.github.coco.feature.security.context.CocoSecurityContext;
 import io.github.coco.feature.security.context.CocoSecurityContextHolder;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.context.request.async.CallableProcessingInterceptor;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 
 /**
  * Coco Web 安全上下文桥接过滤器。
@@ -30,6 +37,8 @@ import jakarta.servlet.http.HttpServletRequest;
  * @since 1.0.0
  */
 public final class CocoSecurityWebFilter implements Filter {
+
+    private static final String ASYNC_CONTEXT_INTERCEPTOR_KEY = CocoSecurityWebFilter.class.getName() + ".context";
 
     private final CocoWebSecurityContextResolver resolver;
 
@@ -62,6 +71,9 @@ public final class CocoSecurityWebFilter implements Filter {
             else {
                 CocoSecurityContextHolder.clear();
             }
+            if (httpRequest.getDispatcherType() == DispatcherType.REQUEST) {
+                registerAsyncContextInterceptor(httpRequest);
+            }
             chain.doFilter(request, response);
         }
         finally {
@@ -75,6 +87,48 @@ public final class CocoSecurityWebFilter implements Filter {
         }
         else {
             CocoSecurityContextHolder.clear();
+        }
+    }
+
+    private static void registerAsyncContextInterceptor(HttpServletRequest request) {
+        CocoContextSnapshot contextSnapshot = CocoSecurityContextHolder.capture();
+        WebAsyncUtils.getAsyncManager(request).registerCallableInterceptor(
+                ASYNC_CONTEXT_INTERCEPTOR_KEY, new SecurityCallableProcessingInterceptor(contextSnapshot));
+    }
+
+    private static final class SecurityCallableProcessingInterceptor implements CallableProcessingInterceptor {
+
+        private final CocoContextSnapshot contextSnapshot;
+
+        private final ThreadLocal<CocoContextScope> activeScope = new ThreadLocal<>();
+
+        private SecurityCallableProcessingInterceptor(CocoContextSnapshot contextSnapshot) {
+            this.contextSnapshot = contextSnapshot;
+        }
+
+        @Override
+        public <T> void preProcess(NativeWebRequest request, Callable<T> task) {
+            closeActiveScope();
+            this.activeScope.set(this.contextSnapshot.restore());
+        }
+
+        @Override
+        public <T> void postProcess(NativeWebRequest request, Callable<T> task, Object concurrentResult) {
+            closeActiveScope();
+        }
+
+        @Override
+        public <T> void afterCompletion(NativeWebRequest request, Callable<T> task) {
+            closeActiveScope();
+        }
+
+        private void closeActiveScope() {
+            CocoContextScope scope = this.activeScope.get();
+            if (scope == null) {
+                return;
+            }
+            this.activeScope.remove();
+            scope.close();
         }
     }
 }
