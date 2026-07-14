@@ -15,8 +15,9 @@ import io.github.coco.api.feature.CocoFeatureRegistry;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-api}</li>
  * </ul>
- * @deprecated 功能选择建议优先使用 {@code coco.features.*} 配置项或 {@link io.github.coco.api.feature.CocoFeatures}
- * 注解声明。该接口仅作为早期 Java 配置入口保留兼容。
+ * @deprecated 功能选择建议优先使用 {@code coco.features.*} 配置项或将
+ * {@link io.github.coco.api.feature.CocoFeatures} 标注在 SpringApplication 主源类上。该 Bean 回调发生在功能条件
+ * 已经判断之后，仅保留源代码和二进制兼容；当回调试图改变启动早期计划时，应用会显式启动失败。
  * @author patton174
  * @since 1.0.0
  */
@@ -28,7 +29,8 @@ public interface CocoConfigurer {
      * 配置 Coco 标准功能的启用或禁用声明。
      * </p>
      * <p>
-     * 业务项目可以通过该方法在 Java 配置类中集中声明功能开关，框架会在启动阶段与配置文件和注解声明合并。
+     * 业务项目可以通过该方法保留旧版功能开关声明。只有声明与启动早期计划一致时才能继续启动；需要改变计划时，
+     * 请迁移到 {@code coco.features.*} 或主源类上的 {@code @CocoFeatures}。
      * </p>
      * @param features 功能注册器
      */

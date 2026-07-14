@@ -36,21 +36,7 @@ public final class StandardCocoFeatures {
                     Set.of("coco-web", "coco-feature-web")),
             feature(CocoFeature.MYBATIS_PLUS, "coco-mybatis-plus",
                     "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration",
-                    Set.of(
-                            "coco-mybatis-plus",
-                            "coco-feature-mybatis-plus",
-                            "mybatis",
-                            "mybatis-plus",
-                            "mybatis-plus-annotation",
-                            "mybatis-plus-core",
-                            "mybatis-plus-extension",
-                            "mybatis-plus-jsqlparser-4.9",
-                            "mybatis-plus-jsqlparser-common",
-                            "mybatis-plus-spring",
-                            "mybatis-plus-spring-boot-autoconfigure",
-                            "mybatis-plus-spring-boot-native-image",
-                            "mybatis-plus-spring-boot4-starter",
-                            "mybatis-spring")),
+                    Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus")),
             feature(CocoFeature.AUDIT, "coco-audit",
                     "io.github.coco.feature.audit.CocoAuditAutoConfiguration",
                     Set.of("coco-audit", "coco-feature-audit")),
@@ -71,7 +57,7 @@ public final class StandardCocoFeatures {
                     CocoFeature.WEB, CocoFeature.SECURITY),
             feature(CocoFeature.CODEGEN, "coco-feature-codegen",
                     "io.github.coco.feature.codegen.CocoCodegenAutoConfiguration",
-                    Set.of("coco-feature-codegen", "freemarker"),
+                    Set.of("coco-feature-codegen"),
                     CocoFeature.MYBATIS_PLUS)
     );
 
@@ -201,7 +187,8 @@ public final class StandardCocoFeatures {
      * 从构建期功能清单还原最终功能启用计划。
      * </p>
      * <p>
-     * 清单中的启用状态是构建期已经计算完成的结果，运行期不再重复合并业务配置。
+     * 清单中的启用状态表示构建产物实际可用的能力，不代表最终运行态；最终运行计划由
+     * {@link #resolveRuntimePlan(CocoFeatureManifest, CocoFeatureSelection)} 在该边界内继续解析。
      * </p>
      * @param manifest 构建期功能清单
      * @return 最终功能启用计划
@@ -220,6 +207,47 @@ public final class StandardCocoFeatures {
         EnumSet<CocoFeature> disabled = EnumSet.allOf(CocoFeature.class);
         disabled.removeAll(enabled);
         return new CocoFeaturePlan(enabled, disabled, FEATURES);
+    }
+
+    /**
+     * <p>
+     * 在构建清单给出的能力可用边界内解析运行期功能计划。
+     * </p>
+     * <p>
+     * 清单中的启用集合表示构建产物实际携带的能力。运行期配置可以继续缩小该集合，但不能重新启用构建时
+     * 已裁剪的能力；发生冲突时会立即失败，避免条件装配与实际 classpath 不一致。
+     * </p>
+     * @param manifest 构建期功能清单；为空时按无构建清单模式解析
+     * @param runtimeSelection profile、外部配置、命令行或启动早期代码声明形成的运行期选择
+     * @return 最终运行期功能计划
+     * @throws IllegalStateException 运行期请求启用构建产物中不可用的能力时抛出
+     */
+    public static CocoFeaturePlan resolveRuntimePlan(CocoFeatureManifest manifest,
+            CocoFeatureSelection runtimeSelection) {
+        CocoFeatureSelection requestedSelection = runtimeSelection == null
+                ? CocoFeatureSelection.empty()
+                : runtimeSelection;
+        if (manifest == null) {
+            return resolve(requestedSelection);
+        }
+
+        CocoFeaturePlan availabilityPlan = fromManifest(manifest);
+        EnumSet<CocoFeature> unavailable = EnumSet.noneOf(CocoFeature.class);
+        unavailable.addAll(requestedSelection.enabled());
+        unavailable.removeAll(requestedSelection.disabled());
+        unavailable.removeAll(availabilityPlan.enabledFeatures());
+        if (!unavailable.isEmpty()) {
+            String featureIds = unavailable.stream()
+                    .map(CocoFeature::id)
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            throw new IllegalStateException("Coco features are not available in the build feature manifest: "
+                    + featureIds + ". Rebuild the application with these features available.");
+        }
+
+        CocoFeatureSelection buildAvailability = CocoFeatureSelection.of(
+                availabilityPlan.enabledFeatures(), availabilityPlan.disabledFeatures());
+        return resolve(buildAvailability.merge(requestedSelection));
     }
 
     private static void validateManifest(CocoFeatureManifest manifest) {

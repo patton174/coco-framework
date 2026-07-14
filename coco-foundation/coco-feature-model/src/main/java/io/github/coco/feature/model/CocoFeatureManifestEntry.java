@@ -6,7 +6,7 @@ import java.util.Objects;
 /**
  * Coco 功能清单条目。
  * <p>
- * 描述一个标准功能在构建产物中的最终启用状态、运行期装配坐标和禁用时可裁剪 artifact。
+ * 描述一个标准功能在构建产物中的可用状态、运行期装配坐标和禁用时可裁剪的 Coco artifact。
  * </p>
  * <p>
  * 项目信息：
@@ -36,7 +36,7 @@ public record CocoFeatureManifestEntry(
      * @param artifactId 功能模块 Maven artifactId
      * @param autoConfigurationClassName 功能自动配置类全限定名
      * @param defaultEnabled 是否默认启用
-     * @param enabled 构建后是否最终启用
+     * @param enabled 构建产物中是否可用
      * @param dependencies 依赖功能标识列表
      */
     public CocoFeatureManifestEntry(String id, String artifactId, String autoConfigurationClassName,
@@ -52,7 +52,7 @@ public record CocoFeatureManifestEntry(
      * @param artifactId 功能模块 Maven artifactId
      * @param autoConfigurationClassName 功能自动配置类全限定名
      * @param defaultEnabled 是否默认启用
-     * @param enabled 构建后是否最终启用
+     * @param enabled 构建产物中是否可用
      * @param dependencies 依赖功能标识列表
      * @param pruneArtifactIds 功能禁用时需要从可执行包中移除的 artifactId 列表
      */

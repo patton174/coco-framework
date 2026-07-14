@@ -33,6 +33,13 @@ import org.junit.jupiter.api.Test;
 class StandardCocoFeaturesTest {
 
     @Test
+    void onlyCocoOwnedArtifactsAreSafeToPrune() {
+        assertTrue(StandardCocoFeatures.all().stream()
+                .flatMap(definition -> definition.pruneArtifactIds().stream())
+                .allMatch(artifactId -> artifactId.startsWith("coco-")));
+    }
+
+    @Test
     void registersAllStandardFeatures() {
         Set<CocoFeature> registered = StandardCocoFeatures.all().stream()
                 .map(CocoFeatureDefinition::feature)
@@ -68,7 +75,7 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.OPENAPI).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
-        assertEquals(Set.of("coco-feature-codegen", "freemarker"),
+        assertEquals(Set.of("coco-feature-codegen"),
                 definitions.get(CocoFeature.CODEGEN).pruneArtifactIds());
     }
 
@@ -191,19 +198,7 @@ class StandardCocoFeaturesTest {
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
         assertEquals(List.of(
                 "coco-feature-mybatis-plus",
-                "coco-mybatis-plus",
-                "mybatis",
-                "mybatis-plus",
-                "mybatis-plus-annotation",
-                "mybatis-plus-core",
-                "mybatis-plus-extension",
-                "mybatis-plus-jsqlparser-4.9",
-                "mybatis-plus-jsqlparser-common",
-                "mybatis-plus-spring",
-                "mybatis-plus-spring-boot-autoconfigure",
-                "mybatis-plus-spring-boot-native-image",
-                "mybatis-plus-spring-boot4-starter",
-                "mybatis-spring"), manifest.features().stream()
+                "coco-mybatis-plus"), manifest.features().stream()
                 .filter(entry -> "mybatis-plus".equals(entry.id()))
                 .findFirst()
                 .orElseThrow()
@@ -262,6 +257,67 @@ class StandardCocoFeaturesTest {
         assertEquals("1.0", manifest.schemaVersion());
         assertEquals(List.of("coco-feature-web"), manifest.features().get(0).pruneArtifactIds());
         assertTrue(StandardCocoFeatures.fromManifest(manifest).enabledFeatures().contains(CocoFeature.WEB));
+    }
+
+    @Test
+    void runtimeSelectionCanNarrowBuildManifestAvailability() {
+        CocoFeatureManifest manifest = StandardCocoFeatures.toManifest(
+                StandardCocoFeatures.resolve(CocoFeatureSelection.empty()), "test");
+
+        CocoFeaturePlan runtimePlan = StandardCocoFeatures.resolveRuntimePlan(manifest,
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.WEB)));
+
+        assertFalse(runtimePlan.isEnabled(CocoFeature.WEB));
+        assertFalse(runtimePlan.isEnabled(CocoFeature.OPENAPI));
+        assertTrue(runtimePlan.isEnabled(CocoFeature.AUDIT));
+    }
+
+    @Test
+    void runtimeSelectionCannotEnableFeatureOutsideBuildManifestAvailability() {
+        CocoFeatureManifest manifest = StandardCocoFeatures.toManifest(
+                StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.WEB))), "test");
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> StandardCocoFeatures.resolveRuntimePlan(manifest,
+                        CocoFeatureSelection.ofEnabled(Set.of(CocoFeature.WEB))));
+
+        assertTrue(exception.getMessage().contains("web"));
+        assertTrue(exception.getMessage().contains("not available"));
+    }
+
+    @Test
+    void runtimeDisableWinsWithoutAvailabilityConflictWhenSameFeatureIsAlsoEnabled() {
+        CocoFeatureManifest manifest = StandardCocoFeatures.toManifest(
+                StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.WEB))), "test");
+
+        CocoFeaturePlan runtimePlan = StandardCocoFeatures.resolveRuntimePlan(manifest,
+                CocoFeatureSelection.of(Set.of(CocoFeature.WEB), Set.of(CocoFeature.WEB)));
+
+        assertFalse(runtimePlan.isEnabled(CocoFeature.WEB));
+    }
+
+    @Test
+    void legacyManifestRemainsACompatibleRuntimeAvailabilityBoundary() {
+        CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(new java.io.ByteArrayInputStream("""
+                {
+                  "schemaVersion" : "1.0",
+                  "generatedBy" : "legacy-test",
+                  "features" : [ {
+                    "id" : "web",
+                    "artifactId" : "coco-feature-web",
+                    "autoConfigurationClassName" : "io.github.coco.feature.web.CocoWebAutoConfiguration",
+                    "defaultEnabled" : true,
+                    "enabled" : true,
+                    "dependencies" : [ ]
+                  } ]
+                }
+                """.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        CocoFeaturePlan runtimePlan = StandardCocoFeatures.resolveRuntimePlan(manifest,
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.WEB)));
+
+        assertFalse(runtimePlan.isEnabled(CocoFeature.WEB));
+        assertEquals(Set.of(), runtimePlan.enabledFeatures());
     }
 
     @Test
