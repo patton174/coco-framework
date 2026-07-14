@@ -2,12 +2,15 @@ package io.github.coco.feature.web.trace;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import io.github.coco.context.CocoRequestContext;
 import io.github.coco.context.CocoRequestContextHolder;
+import io.github.coco.context.trace.CocoTraceIdGenerator;
+import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.logging.access.CocoAccessLog;
 import io.github.coco.logging.access.CocoAccessLogRecorder;
 import io.github.coco.context.trace.CocoTraceContext;
@@ -16,6 +19,7 @@ import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshotAttributes;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestContextResolver;
+import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -70,6 +74,10 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     private final CocoWebRequestContextResolver requestContextResolver;
 
     private final CocoTraceIdValidator traceIdValidator;
+
+    private final int maxLength;
+
+    private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
 
     /**
      * <p>
@@ -139,6 +147,26 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             CocoAccessLogCaptureProperties accessLogProperties,
             CocoWebRequestContextResolver requestContextResolver,
             CocoTraceIdValidator traceIdValidator) {
+        this(properties, accessLogRecorders, accessLogProperties, requestContextResolver, traceIdValidator, null);
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web Trace 过滤器。
+     * </p>
+     * @param properties Trace 配置属性
+     * @param accessLogRecorders 接口访问日志记录器集合
+     * @param accessLogProperties 接口访问日志配置属性
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param traceIdValidator TraceId 校验器
+     * @param exceptionResponseWriter 过滤器异常响应写出器
+     */
+    public CocoTraceFilter(CocoTraceProperties properties,
+            Collection<CocoAccessLogRecorder> accessLogRecorders,
+            CocoAccessLogCaptureProperties accessLogProperties,
+            CocoWebRequestContextResolver requestContextResolver,
+            CocoTraceIdValidator traceIdValidator,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         CocoTraceProperties checkedProperties = Objects.requireNonNull(properties, "properties must not be null");
         this.headerName = checkedProperties.getHeaderName();
         this.mdcKey = checkedProperties.getMdcKey();
@@ -159,6 +187,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         this.traceIdValidator = traceIdValidator == null
                 ? new DefaultCocoTraceIdValidator(checkedProperties)
                 : traceIdValidator;
+        this.maxLength = checkedProperties.getMaxLength();
+        this.exceptionResponseWriter = exceptionResponseWriter;
     }
 
     /**
@@ -168,7 +198,12 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
         long startNanos = System.nanoTime();
-        String traceId = resolveTraceId(request);
+        TraceIdResolution traceIdResolution = resolveTraceId(request);
+        if (!traceIdResolution.accepted()) {
+            writeInvalidTraceIdResponse(request, response);
+            return;
+        }
+        String traceId = traceIdResolution.traceId();
         String previousMdcValue = MDC.get(this.mdcKey);
         CocoWebRequestSnapshot requestSnapshot = this.requestContextResolver.resolve(traceId, request);
         CocoRequestContext requestContext = requestSnapshot.toRequestContext();
@@ -196,21 +231,59 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
      * 解析当前请求的 TraceId。
      * </p>
      * <p>
-     * 优先读取配置的 HTTP 头；当请求头缺失或为空白时，创建新的 TraceId。
+     * 优先读取配置的 HTTP 头；请求头缺失时创建新的 TraceId。空白、非法或冲突的重复请求头会被拒绝，
+     * 且不会进入请求上下文、响应通道或访问日志。
      * </p>
      * @param request 当前 HTTP 请求
-     * @return 可写入上下文和响应头的 TraceId
+     * @return TraceId 解析结果；可接受时携带可写入上下文和响应头的 TraceId
      */
-    private String resolveTraceId(HttpServletRequest request) {
-        String requestTraceId = request.getHeader(this.headerName);
-        if (requestTraceId == null || requestTraceId.isBlank()) {
-            return CocoTraceContext.getOrCreateTraceId();
+    private TraceIdResolution resolveTraceId(HttpServletRequest request) {
+        Enumeration<String> headerValues = request.getHeaders(this.headerName);
+        if (headerValues == null || !headerValues.hasMoreElements()) {
+            return TraceIdResolution.accepted(newServerTraceId());
         }
-        String candidateTraceId = requestTraceId.trim();
-        if (this.traceIdValidator.isValid(candidateTraceId)) {
-            return candidateTraceId;
+        String traceId = null;
+        while (headerValues.hasMoreElements()) {
+            String candidate = CocoTraceIdValidator.normalizeHeaderValue(headerValues.nextElement());
+            if (!isAcceptedExternalTraceId(candidate)) {
+                return TraceIdResolution.rejected();
+            }
+            if (traceId != null && !traceId.equals(candidate)) {
+                return TraceIdResolution.rejected();
+            }
+            traceId = candidate;
         }
-        return CocoTraceContext.getOrCreateTraceId();
+        return TraceIdResolution.accepted(traceId);
+    }
+
+    private boolean isAcceptedExternalTraceId(String traceId) {
+        return traceId != null
+                && traceId.length() <= this.maxLength
+                && CocoTraceIdValidator.isTransportSafe(traceId)
+                && this.traceIdValidator.isValid(traceId);
+    }
+
+    private static String newServerTraceId() {
+        String traceId = CocoTraceIdGenerator.generate();
+        if (!CocoTraceIdValidator.isTransportSafe(traceId)) {
+            throw new IllegalStateException("Coco generated an unsafe TraceId");
+        }
+        return traceId;
+    }
+
+    private void writeInvalidTraceIdResponse(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        if (this.exceptionResponseWriter == null) {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+        try {
+            this.exceptionResponseWriter.write(CocoBusinessExceptions.request("coco.web.trace.invalid-trace-id"),
+                    request, response);
+        }
+        finally {
+            CocoRequestContextHolder.clear();
+        }
     }
 
     /**
@@ -324,5 +397,16 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     private static CocoWebRequestSnapshot latestRequestSnapshot(HttpServletRequest request,
             CocoWebRequestSnapshot fallbackSnapshot) {
         return CocoWebRequestSnapshotAttributes.get(request).orElse(fallbackSnapshot);
+    }
+
+    private record TraceIdResolution(String traceId, boolean accepted) {
+
+        private static TraceIdResolution accepted(String traceId) {
+            return new TraceIdResolution(traceId, true);
+        }
+
+        private static TraceIdResolution rejected() {
+            return new TraceIdResolution(null, false);
+        }
     }
 }
