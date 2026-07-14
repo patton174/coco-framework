@@ -1,6 +1,7 @@
 package io.github.coco.i18n;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -37,7 +38,7 @@ public class CocoI18nProperties {
      * @return 消息资源 basename 列表
      */
     public List<String> getBasename() {
-        return this.basename;
+        return Collections.unmodifiableList(new ArrayList<>(this.basename));
     }
 
     /**

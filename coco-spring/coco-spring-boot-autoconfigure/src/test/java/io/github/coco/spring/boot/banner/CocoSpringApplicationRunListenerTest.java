@@ -16,8 +16,11 @@ import io.github.coco.logging.core.CocoLogRecord;
 import io.github.coco.logging.core.CocoLogSink;
 import io.github.coco.logging.lifecycle.CocoLifecycleLogger;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.bootstrap.DefaultBootstrapContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.mock.env.MockEnvironment;
 
 /**
  * <p>
@@ -75,6 +78,16 @@ class CocoSpringApplicationRunListenerTest {
         }
     }
 
+    @Test
+    void configuresTheOriginalApplicationDuringEnvironmentPreparation() {
+        CapturingSpringApplication application = new CapturingSpringApplication();
+        CocoSpringApplicationRunListener listener = new CocoSpringApplicationRunListener(application, new String[0]);
+
+        listener.environmentPrepared(new DefaultBootstrapContext(), new MockEnvironment());
+
+        assertEquals(CocoSpringBanner.class, application.banner().getClass());
+    }
+
     /**
      * <p>
      * 测试用日志输出器。
@@ -100,6 +113,24 @@ class CocoSpringApplicationRunListenerTest {
          */
         List<CocoLogRecord> records() {
             return this.records;
+        }
+    }
+
+    static final class CapturingSpringApplication extends SpringApplication {
+
+        private Banner banner;
+
+        CapturingSpringApplication() {
+            super(Object.class);
+        }
+
+        @Override
+        public void setBanner(Banner banner) {
+            this.banner = banner;
+        }
+
+        Banner banner() {
+            return this.banner;
         }
     }
 }

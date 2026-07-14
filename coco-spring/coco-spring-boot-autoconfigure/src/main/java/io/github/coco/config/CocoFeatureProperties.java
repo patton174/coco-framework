@@ -35,7 +35,7 @@ public class CocoFeatureProperties {
      * @return 显式启用的功能集合
      */
     public Set<CocoFeature> getEnabled() {
-        return this.enabled;
+        return Set.copyOf(this.enabled);
     }
 
     /**
@@ -55,7 +55,7 @@ public class CocoFeatureProperties {
      * @return 显式禁用的功能集合
      */
     public Set<CocoFeature> getDisabled() {
-        return this.disabled;
+        return Set.copyOf(this.disabled);
     }
 
     /**

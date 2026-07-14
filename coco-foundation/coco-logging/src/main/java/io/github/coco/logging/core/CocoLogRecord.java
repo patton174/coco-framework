@@ -27,7 +27,7 @@ public final class CocoLogRecord {
 
     private final String message;
 
-    private final Throwable failure;
+    private final Optional<Throwable> failure;
 
     /**
      * <p>
@@ -42,7 +42,7 @@ public final class CocoLogRecord {
         this.handle = Objects.requireNonNull(handle, "handle must not be null");
         this.level = level == null ? CocoLogLevel.INFO : level;
         this.message = message == null ? "" : message;
-        this.failure = failure;
+        this.failure = Optional.ofNullable(failure);
     }
 
     /**
@@ -82,6 +82,6 @@ public final class CocoLogRecord {
      * @return 日志异常；没有异常时为空
      */
     public Optional<Throwable> failure() {
-        return Optional.ofNullable(this.failure);
+        return this.failure;
     }
 }

@@ -2,6 +2,7 @@ package io.github.coco.spring.boot.banner;
 
 import java.time.Duration;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.logging.lifecycle.CocoLifecycleLogger;
 import io.github.coco.spring.boot.logging.CocoNodeLogRendererBootstrap;
 import org.springframework.boot.Banner;
@@ -29,6 +30,8 @@ import org.springframework.core.env.ConfigurableEnvironment;
  */
 public final class CocoSpringApplicationRunListener implements SpringApplicationRunListener {
 
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring Boot requires this listener to configure "
+            + "the supplied SpringApplication before the banner is printed.")
     private final SpringApplication application;
 
     /**

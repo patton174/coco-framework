@@ -28,12 +28,12 @@ public class CocoCommonProperties {
 
     /**
      * <p>
-     * 返回 Coco 国际化配置。
+     * 返回 Coco 国际化配置快照。
      * </p>
      * @return 国际化配置
      */
     public CocoI18nProperties getI18n() {
-        return this.i18n;
+        return copy(this.i18n);
     }
 
     /**
@@ -43,6 +43,18 @@ public class CocoCommonProperties {
      * @param i18n 国际化配置
      */
     public void setI18n(CocoI18nProperties i18n) {
-        this.i18n = i18n == null ? new CocoI18nProperties() : i18n;
+        this.i18n = copy(i18n);
+    }
+
+    private static CocoI18nProperties copy(CocoI18nProperties source) {
+        CocoI18nProperties copy = new CocoI18nProperties();
+        if (source == null) {
+            return copy;
+        }
+        copy.setBasename(source.getBasename());
+        copy.setDefaultLocale(source.getDefaultLocale());
+        copy.setFallbackToSystemLocale(source.isFallbackToSystemLocale());
+        copy.setUseCodeAsDefaultMessage(source.isUseCodeAsDefaultMessage());
+        return copy;
     }
 }

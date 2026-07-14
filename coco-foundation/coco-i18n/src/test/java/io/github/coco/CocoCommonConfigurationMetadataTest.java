@@ -1,13 +1,23 @@
 package io.github.coco;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
+import io.github.coco.i18n.CocoI18nProperties;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
 /**
  * Coco 通用配置元数据测试。
@@ -37,5 +47,53 @@ class CocoCommonConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.common.i18n.default-locale\""));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.fallback-to-system-locale\""));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.use-code-as-default-message\""));
+    }
+
+    @Test
+    void exposesImmutableI18nConfigurationSnapshots() {
+        List<String> basenames = new ArrayList<>(List.of("application-messages"));
+        CocoI18nProperties i18n = new CocoI18nProperties();
+        i18n.setBasename(basenames);
+        CocoCommonProperties properties = new CocoCommonProperties();
+        properties.setI18n(i18n);
+        basenames.add("late-mutation");
+        i18n.setDefaultLocale(Locale.US);
+
+        CocoI18nProperties snapshot = properties.getI18n();
+
+        assertEquals(List.of("application-messages"), snapshot.getBasename());
+        assertEquals(Locale.SIMPLIFIED_CHINESE, snapshot.getDefaultLocale());
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.getBasename().add("other"));
+        snapshot.setDefaultLocale(Locale.CANADA);
+        assertEquals(Locale.SIMPLIFIED_CHINESE, properties.getI18n().getDefaultLocale());
+    }
+
+    @Test
+    void bindsNestedI18nPropertiesThroughJavaBeanAccessors() {
+        CocoCommonProperties properties = new CocoCommonProperties();
+        Binder binder = new Binder(new MapConfigurationPropertySource(Map.of(
+                "coco.common.i18n.basename[0]", "application-messages",
+                "coco.common.i18n.default-locale", "en_US",
+                "coco.common.i18n.fallback-to-system-locale", "true",
+                "coco.common.i18n.use-code-as-default-message", "false")));
+
+        assertTrue(binder.bind("coco.common", Bindable.ofInstance(properties)).isBound());
+        CocoI18nProperties i18n = properties.getI18n();
+        assertEquals(List.of("application-messages"), i18n.getBasename());
+        assertEquals(Locale.US, i18n.getDefaultLocale());
+        assertTrue(i18n.isFallbackToSystemLocale());
+        assertEquals(false, i18n.isUseCodeAsDefaultMessage());
+    }
+
+    @Test
+    void preservesPublishedI18nConfigurationApi() throws ReflectiveOperationException {
+        assertEquals(CocoCommonProperties.class, Class.forName("io.github.coco.CocoCommonProperties"));
+        assertEquals(CocoI18nProperties.class, Class.forName("io.github.coco.i18n.CocoI18nProperties"));
+        assertNotNull(CocoCommonProperties.class.getConstructor());
+        assertEquals(CocoI18nProperties.class, CocoCommonProperties.class.getMethod("getI18n").getReturnType());
+        assertNotNull(CocoCommonProperties.class.getMethod("setI18n", CocoI18nProperties.class));
+        assertNotNull(CocoI18nProperties.class.getConstructor());
+        assertEquals(List.class, CocoI18nProperties.class.getMethod("getBasename").getReturnType());
+        assertNotNull(CocoI18nProperties.class.getMethod("setBasename", List.class));
     }
 }

@@ -51,7 +51,7 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
      */
     public DefaultCocoFeatureManager(CocoFeaturePlan featurePlan) {
         this.featurePlan = Objects.requireNonNull(featurePlan, "featurePlan must not be null");
-        this.enabledFeatures = this.featurePlan.enabledFeatures();
+        this.enabledFeatures = Set.copyOf(this.featurePlan.enabledFeatures());
         EnumSet<CocoFeature> resolvedDisabled = EnumSet.allOf(CocoFeature.class);
         resolvedDisabled.removeAll(this.enabledFeatures);
         this.disabledFeatures = Set.copyOf(resolvedDisabled);
@@ -70,7 +70,7 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
      */
     @Override
     public Set<CocoFeature> enabledFeatures() {
-        return this.enabledFeatures;
+        return Set.copyOf(this.enabledFeatures);
     }
 
     /**
@@ -78,7 +78,7 @@ public final class DefaultCocoFeatureManager implements CocoFeatureManager {
      */
     @Override
     public Set<CocoFeature> disabledFeatures() {
-        return this.disabledFeatures;
+        return Set.copyOf(this.disabledFeatures);
     }
 
     /**

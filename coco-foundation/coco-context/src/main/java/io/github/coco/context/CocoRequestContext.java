@@ -125,7 +125,7 @@ public final class CocoRequestContext {
      * @return 扩展属性
      */
     public Map<String, String> attributes() {
-        return this.attributes;
+        return Collections.unmodifiableMap(new LinkedHashMap<>(this.attributes));
     }
 
     /**

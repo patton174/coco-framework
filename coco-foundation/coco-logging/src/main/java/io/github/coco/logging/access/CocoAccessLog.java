@@ -230,7 +230,7 @@ public final class CocoAccessLog {
     }
 
     public Map<String, String> headers() {
-        return this.headers;
+        return Collections.unmodifiableMap(new LinkedHashMap<>(this.headers));
     }
 
     public Optional<String> requestBodySha256() {
@@ -258,7 +258,9 @@ public final class CocoAccessLog {
     }
 
     public Map<String, List<String>> requestParameters() {
-        return this.requestParameters;
+        Map<String, List<String>> copied = new LinkedHashMap<>();
+        this.requestParameters.forEach((name, values) -> copied.put(name, List.copyOf(values)));
+        return Collections.unmodifiableMap(copied);
     }
 
     public int status() {

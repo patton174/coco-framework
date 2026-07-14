@@ -6,6 +6,7 @@ import io.github.coco.api.feature.CocoFeature;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 
 /**
@@ -49,6 +50,13 @@ class OnCocoFeatureConditionTest {
                 .run(context -> assertThat(context).doesNotHaveBean("tenantFeatureBean"));
     }
 
+    @Test
+    void rejectsMetadataWithoutCocoFeatureDeclaration() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(MissingFeatureDeclarationConfiguration.class)
+                .run(context -> assertThat(context).doesNotHaveBean("missingFeatureDeclaration"));
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class ConditionalFeatureConfiguration {
 
@@ -66,6 +74,16 @@ class OnCocoFeatureConditionTest {
         @ConditionalOnCocoFeature(CocoFeature.TENANT)
         String tenantFeatureBean() {
             return "tenant";
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @Conditional(OnCocoFeatureCondition.class)
+    static class MissingFeatureDeclarationConfiguration {
+
+        @Bean
+        String missingFeatureDeclaration() {
+            return "unexpected";
         }
     }
 }
