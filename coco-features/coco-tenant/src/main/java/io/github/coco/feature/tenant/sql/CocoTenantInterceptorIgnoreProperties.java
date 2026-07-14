@@ -1,5 +1,6 @@
 package io.github.coco.feature.tenant.sql;
 
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -30,6 +31,18 @@ public class CocoTenantInterceptorIgnoreProperties {
     private Set<String> allowedMappedStatements = new LinkedHashSet<>();
 
     private boolean strictMode;
+
+    public CocoTenantInterceptorIgnoreProperties() {
+    }
+
+    public CocoTenantInterceptorIgnoreProperties(CocoTenantInterceptorIgnoreProperties source) {
+        CocoTenantInterceptorIgnoreProperties checkedSource = source == null
+                ? new CocoTenantInterceptorIgnoreProperties() : source;
+        this.blockUnlisted = checkedSource.blockUnlisted;
+        this.exactMappedStatements = new LinkedHashSet<>(checkedSource.exactMappedStatements);
+        this.allowedMappedStatements = new LinkedHashSet<>(checkedSource.allowedMappedStatements);
+        this.strictMode = checkedSource.strictMode;
+    }
 
     /**
      * <p>
@@ -64,7 +77,7 @@ public class CocoTenantInterceptorIgnoreProperties {
      * @return 允许跳过租户隔离的完整 MappedStatement ID 精确白名单
      */
     public Set<String> getExactMappedStatements() {
-        return this.exactMappedStatements;
+        return Collections.unmodifiableSet(new LinkedHashSet<>(this.exactMappedStatements));
     }
 
     /**
@@ -99,7 +112,7 @@ public class CocoTenantInterceptorIgnoreProperties {
             replacement = "coco.tenant.sql.interceptor-ignore.exact-mapped-statements",
             reason = "通配模式授权范围过宽，请迁移到完整 MappedStatement ID 精确白名单。")
     public Set<String> getAllowedMappedStatements() {
-        return this.allowedMappedStatements;
+        return Collections.unmodifiableSet(new LinkedHashSet<>(this.allowedMappedStatements));
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.coco.feature.tenant.sql;
 
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -32,6 +33,18 @@ public class CocoTenantSqlProperties {
     private boolean failOnMissingContext = true;
 
     private CocoTenantInterceptorIgnoreProperties interceptorIgnore = new CocoTenantInterceptorIgnoreProperties();
+
+    public CocoTenantSqlProperties() {
+    }
+
+    public CocoTenantSqlProperties(CocoTenantSqlProperties source) {
+        CocoTenantSqlProperties checkedSource = source == null ? new CocoTenantSqlProperties() : source;
+        this.enabled = checkedSource.enabled;
+        this.tenantIdColumn = checkedSource.tenantIdColumn;
+        this.ignoreTables = new LinkedHashSet<>(checkedSource.ignoreTables);
+        this.failOnMissingContext = checkedSource.failOnMissingContext;
+        this.interceptorIgnore = new CocoTenantInterceptorIgnoreProperties(checkedSource.interceptorIgnore);
+    }
 
     /**
      * <p>
@@ -82,7 +95,7 @@ public class CocoTenantSqlProperties {
      * @return 无需追加租户条件的表名集合
      */
     public Set<String> getIgnoreTables() {
-        return this.ignoreTables;
+        return Collections.unmodifiableSet(new LinkedHashSet<>(this.ignoreTables));
     }
 
     /**
@@ -122,7 +135,7 @@ public class CocoTenantSqlProperties {
      * @return 拦截器忽略治理配置
      */
     public CocoTenantInterceptorIgnoreProperties getInterceptorIgnore() {
-        return this.interceptorIgnore;
+        return new CocoTenantInterceptorIgnoreProperties(this.interceptorIgnore);
     }
 
     /**
@@ -134,6 +147,6 @@ public class CocoTenantSqlProperties {
     public void setInterceptorIgnore(CocoTenantInterceptorIgnoreProperties interceptorIgnore) {
         this.interceptorIgnore = interceptorIgnore == null
                 ? new CocoTenantInterceptorIgnoreProperties()
-                : interceptorIgnore;
+                : new CocoTenantInterceptorIgnoreProperties(interceptorIgnore);
     }
 }

@@ -193,6 +193,34 @@ class CocoTenantAutoConfigurationTest {
     }
 
     @Test
+    void exposesDefensiveSnapshotsWithoutChangingConfiguredSqlValues() {
+        CocoTenantProperties properties = new CocoTenantProperties();
+        CocoTenantSqlProperties sql = new CocoTenantSqlProperties();
+        sql.setIgnoreTables(java.util.Set.of("shared_table"));
+        io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
+                new io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties();
+        ignore.setExactMappedStatements(java.util.Set.of("com.example.Mapper.selectShared"));
+        sql.setInterceptorIgnore(ignore);
+        properties.setSql(sql);
+
+        assertThat(properties.getSql()).isNotSameAs(sql);
+        assertThat(properties.getSql().getIgnoreTables()).containsExactly("shared_table");
+        assertThat(properties.getSql().getInterceptorIgnore()).isNotSameAs(ignore);
+        assertThat(properties.getSql().getInterceptorIgnore().getExactMappedStatements())
+                .containsExactly("com.example.Mapper.selectShared");
+        sql.setIgnoreTables(java.util.Set.of("changed_after_set"));
+        ignore.setExactMappedStatements(java.util.Set.of("changed_after_set"));
+        assertThat(properties.getSql().getIgnoreTables()).containsExactly("shared_table");
+        assertThat(properties.getSql().getInterceptorIgnore().getExactMappedStatements())
+                .containsExactly("com.example.Mapper.selectShared");
+        assertThatThrownBy(() -> properties.getSql().getIgnoreTables().add("not_configured"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> properties.getSql().getInterceptorIgnore().getExactMappedStatements()
+                .add("not_configured"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void disablesTenantSqlCustomizer() {
         this.mybatisContextRunner
                 .withPropertyValues("coco.tenant.sql.enabled=false")
@@ -226,7 +254,10 @@ class CocoTenantAutoConfigurationTest {
     @Test
     void allowsExactAllowlistedTenantInterceptorIgnore() throws Exception {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getExactMappedStatements().add("com.example.AdminMapper.selectShared");
+        io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
+                new io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties();
+        ignore.setExactMappedStatements(java.util.Set.of("com.example.AdminMapper.selectShared"));
+        properties.setInterceptorIgnore(ignore);
         List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
         CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
         MappedStatement mappedStatement = mappedStatement("com.example.AdminMapper.selectShared",
@@ -244,7 +275,10 @@ class CocoTenantAutoConfigurationTest {
     @SuppressWarnings("deprecation")
     void preservesLegacyPatternMatching() throws Exception {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getAllowedMappedStatements().add("com.example.AdminMapper.*");
+        io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
+                new io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties();
+        ignore.setAllowedMappedStatements(java.util.Set.of("com.example.AdminMapper.*"));
+        properties.setInterceptorIgnore(ignore);
         CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, event -> {
         });
         MappedStatement mappedStatement = mappedStatement("com.example.AdminMapper.selectShared",
@@ -258,7 +292,10 @@ class CocoTenantAutoConfigurationTest {
     @Test
     void allowsUnlistedTenantInterceptorIgnoreWhenBlockingIsDisabled() throws Exception {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().setBlockUnlisted(false);
+        io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
+                new io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties();
+        ignore.setBlockUnlisted(false);
+        properties.setInterceptorIgnore(ignore);
         List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
         CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
         MappedStatement mappedStatement = mappedStatement("com.example.ReportMapper.selectAll",
@@ -275,8 +312,11 @@ class CocoTenantAutoConfigurationTest {
     @Test
     void strictModeBlocksUnlistedBypassWhenCompatibilityBlockingIsDisabled() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().setBlockUnlisted(false);
-        properties.getInterceptorIgnore().setStrictMode(true);
+        io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
+                new io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties();
+        ignore.setBlockUnlisted(false);
+        ignore.setStrictMode(true);
+        properties.setInterceptorIgnore(ignore);
         CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, event -> {
         });
         MappedStatement mappedStatement = mappedStatement("com.example.ReportMapper.selectAll",
@@ -291,7 +331,10 @@ class CocoTenantAutoConfigurationTest {
     @Test
     void doesNotAllowPrefixOrWildcardMappedStatementIds() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getExactMappedStatements().add("com.example.AdminMapper.*");
+        io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
+                new io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties();
+        ignore.setExactMappedStatements(java.util.Set.of("com.example.AdminMapper.*"));
+        properties.setInterceptorIgnore(ignore);
         CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, event -> {
         });
         MappedStatement mappedStatement = mappedStatement("com.example.AdminMapper.selectShared",

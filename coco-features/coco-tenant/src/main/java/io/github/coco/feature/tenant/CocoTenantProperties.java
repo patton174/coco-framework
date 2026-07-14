@@ -33,7 +33,7 @@ public class CocoTenantProperties {
      * @return 租户 SQL 隔离配置
      */
     public CocoTenantSqlProperties getSql() {
-        return this.sql;
+        return new CocoTenantSqlProperties(this.sql);
     }
 
     /**
@@ -43,6 +43,6 @@ public class CocoTenantProperties {
      * @param sql 租户 SQL 隔离配置
      */
     public void setSql(CocoTenantSqlProperties sql) {
-        this.sql = sql == null ? new CocoTenantSqlProperties() : sql;
+        this.sql = sql == null ? new CocoTenantSqlProperties() : new CocoTenantSqlProperties(sql);
     }
 }
