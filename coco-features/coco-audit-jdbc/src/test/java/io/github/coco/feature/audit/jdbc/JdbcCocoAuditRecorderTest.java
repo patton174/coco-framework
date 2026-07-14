@@ -13,10 +13,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
+import io.github.coco.feature.audit.core.CocoAuditFailurePolicy;
+import io.github.coco.feature.audit.core.CocoAuditPublisher;
+import io.github.coco.feature.audit.core.CompositeCocoAuditPublisher;
+import io.github.coco.feature.audit.core.PolicyCocoAuditErrorHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -139,13 +148,55 @@ class JdbcCocoAuditRecorderTest {
     }
 
     @Test
-    void propagatesDatabaseFailuresWithoutEventContentInRecorderMessages() {
+    void logsSafeWarningAndHonorsIgnoreAndThrowFailurePolicies() {
         JdbcCocoAuditRecorder recorder = newRecorder(1);
         this.jdbcTemplate.execute("DROP TABLE coco_audit_event");
+        String secret = "secret-json-body-" + "x".repeat(20_000);
+        CocoAuditEvent event = CocoAuditEvent.builder("database-down")
+                .attribute("requestBody", secret)
+                .build();
+        Logger logger = (Logger) LoggerFactory.getLogger(JdbcCocoAuditRecorder.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            CocoAuditPublisher ignoredPublisher = new CompositeCocoAuditPublisher(List.of(recorder),
+                    new PolicyCocoAuditErrorHandler(CocoAuditFailurePolicy.IGNORE));
+            ignoredPublisher.publish(event);
 
-        assertThatThrownBy(() -> recorder.record(CocoAuditEvent.builder("secret-body-value").build()))
+            CocoAuditPublisher throwingPublisher = new CompositeCocoAuditPublisher(List.of(recorder),
+                    new PolicyCocoAuditErrorHandler(CocoAuditFailurePolicy.THROW));
+            assertThatThrownBy(() -> throwingPublisher.publish(event))
+                    .isInstanceOf(DataAccessException.class)
+                    .satisfies(failure -> assertThat(failure.getMessage()).doesNotContain(secret));
+
+            assertThat(appender.list).hasSize(2).allSatisfy(loggingEvent -> {
+                assertThat(loggingEvent.getFormattedMessage()).contains("Coco JDBC audit write failed")
+                        .doesNotContain(secret);
+                assertThat(loggingEvent.getThrowableProxy()).isNull();
+            });
+        }
+        finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void rollsBackEveryBatchWhenTheCallingTransactionFailsMidBatch() {
+        this.jdbcTemplate.execute("""
+                ALTER TABLE coco_audit_event ADD CONSTRAINT occurred_at_non_negative
+                    CHECK (occurred_at_epoch_millis >= 0)
+                """);
+        JdbcCocoAuditRecorder recorder = newRecorder(2);
+        TransactionTemplate transactionTemplate = new TransactionTemplate(
+                new DataSourceTransactionManager(this.dataSource));
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> recorder.recordBatch(List.of(
+                event("first-batch"), eventAt("failing-batch", Instant.ofEpochMilli(-1)), event("last-batch")))))
                 .isInstanceOf(DataAccessException.class)
-                .satisfies(failure -> assertThat(failure.getMessage()).doesNotContain("secret-body-value"));
+                .hasMessageContaining("occurred_at_epoch_millis");
+        assertThat(rowCount()).isZero();
     }
 
     @Test
@@ -164,10 +215,19 @@ class JdbcCocoAuditRecorderTest {
 
     @Test
     void rejectsUnsafeIdentifiersAndInvalidBatchSizes() {
-        assertThatThrownBy(() -> new JdbcCocoAuditRecorder(this.jdbcTemplate, properties("audit;DROP", null, 1)))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new JdbcCocoAuditRecorder(this.jdbcTemplate, properties("audit", "bad.schema", 1)))
-                .isInstanceOf(IllegalArgumentException.class);
+        List<String> unsafeTableNames = List.of("audit;DROP", "audit.table", "audit table", "audit--comment",
+                "\"audit\"", "`audit`", "audit\nnext", "审计表", "1audit");
+        List<String> unsafeSchemaNames = List.of("bad.schema", "audit;DROP", "audit schema", "\"audit\"",
+                "audit--comment", "audit\nnext", "审计", "1audit");
+
+        for (String tableName : unsafeTableNames) {
+            assertThatThrownBy(() -> new JdbcCocoAuditRecorder(this.jdbcTemplate, properties(tableName, null, 1)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        for (String schemaName : unsafeSchemaNames) {
+            assertThatThrownBy(() -> new JdbcCocoAuditRecorder(this.jdbcTemplate, properties("audit", schemaName, 1)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
         assertThatThrownBy(() -> new JdbcCocoAuditRecorder(this.jdbcTemplate, properties("audit", null, 0)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -182,6 +242,36 @@ class JdbcCocoAuditRecorderTest {
                 .hasMessageContaining("closed");
         assertThat(this.jdbcTemplate.queryForObject("SELECT COUNT(*) FROM coco_audit_event", Integer.class))
                 .isZero();
+    }
+
+    @Test
+    void closeWaitsForAnInFlightWriteAndPreventsWritesAfterReturning() throws Exception {
+        BlockingJdbcTemplate blockingTemplate = new BlockingJdbcTemplate(this.dataSource);
+        JdbcCocoAuditRecorder recorder = new JdbcCocoAuditRecorder(
+                blockingTemplate, properties("coco_audit_event", null, 1));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> write = executor.submit(() -> recorder.record(event("in-flight")));
+            assertThat(blockingTemplate.entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> close = executor.submit(recorder::close);
+            assertThatThrownBy(() -> close.get(100, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+
+            blockingTemplate.release.countDown();
+            write.get(5, TimeUnit.SECONDS);
+            close.get(5, TimeUnit.SECONDS);
+
+            assertThatThrownBy(() -> recorder.record(event("after-concurrent-close")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("closed");
+            assertThat(rowCount()).isEqualTo(1);
+        }
+        finally {
+            blockingTemplate.release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     private JdbcCocoAuditRecorder newRecorder(int batchSize) {
@@ -202,6 +292,36 @@ class JdbcCocoAuditRecorderTest {
     }
 
     private static CocoAuditEvent event(String type) {
-        return CocoAuditEvent.builder(type).occurredAt(Instant.parse("2026-07-15T08:30:00Z")).build();
+        return eventAt(type, Instant.parse("2026-07-15T08:30:00Z"));
+    }
+
+    private static CocoAuditEvent eventAt(String type, Instant occurredAt) {
+        return CocoAuditEvent.builder(type).occurredAt(occurredAt).build();
+    }
+
+    private static final class BlockingJdbcTemplate extends JdbcTemplate {
+
+        private final CountDownLatch entered = new CountDownLatch(1);
+
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        private BlockingJdbcTemplate(DriverManagerDataSource dataSource) {
+            super(dataSource);
+        }
+
+        @Override
+        public int[] batchUpdate(String sql, BatchPreparedStatementSetter preparedStatementSetter) {
+            this.entered.countDown();
+            try {
+                if (!this.release.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("test batch write was not released");
+                }
+            }
+            catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("test batch write was interrupted", ex);
+            }
+            return super.batchUpdate(sql, preparedStatementSetter);
+        }
     }
 }

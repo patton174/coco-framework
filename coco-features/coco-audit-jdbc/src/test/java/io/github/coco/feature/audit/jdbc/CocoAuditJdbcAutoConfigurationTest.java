@@ -2,6 +2,8 @@ package io.github.coco.feature.audit.jdbc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Proxy;
+
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.feature.audit.CocoAuditAutoConfiguration;
@@ -10,6 +12,8 @@ import io.github.coco.feature.audit.core.LoggingCocoAuditRecorder;
 import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -79,9 +83,60 @@ class CocoAuditJdbcAutoConfigurationTest {
                 .run(context -> assertThat(context).hasSingleBean(JdbcCocoAuditRecorder.class));
     }
 
+    @Test
+    void createsRecorderWithManualJdbcOperationsWhenJdbcTemplateIsUnavailable() {
+        this.contextRunner
+                .withClassLoader(new FilteredClassLoader(JdbcTemplate.class, JdbcTemplateAutoConfiguration.class))
+                .withPropertyValues("coco.audit.jdbc.enabled=true")
+                .withBean(JdbcOperations.class, CocoAuditJdbcAutoConfigurationTest::manualJdbcOperations)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(JdbcCocoAuditRecorder.class);
+                });
+    }
+
+    @Test
+    void backsOffSafelyWhenSpringJdbcIsUnavailable() {
+        this.contextRunner
+                .withClassLoader(new FilteredClassLoader(JdbcOperations.class))
+                .withPropertyValues("coco.audit.jdbc.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(JdbcCocoAuditRecorder.class);
+                    assertThat(context).hasSingleBean(LoggingCocoAuditRecorder.class);
+                });
+    }
+
+    @Test
+    void doesNotActivateWhenTheAuditFeatureIsDisabled() {
+        this.contextRunner
+                .withPropertyValues("coco.audit.jdbc.enabled=true", "coco.features.disabled[0]=audit")
+                .withBean(JdbcOperations.class, () -> jdbcOperations("audit-disabled"))
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(JdbcCocoAuditRecorder.class);
+                    assertThat(context).doesNotHaveBean(CocoAuditRecorder.class);
+                });
+    }
+
     private static JdbcOperations jdbcOperations(String databaseName) {
         return new JdbcTemplate(new DriverManagerDataSource(
                 "jdbc:h2:mem:audit_auto_" + databaseName + ";DB_CLOSE_DELAY=-1", "sa", ""));
+    }
+
+    private static JdbcOperations manualJdbcOperations() {
+        return (JdbcOperations) Proxy.newProxyInstance(JdbcOperations.class.getClassLoader(),
+                new Class<?>[] { JdbcOperations.class }, (proxy, method, arguments) -> {
+                    if (method.getName().equals("toString")) {
+                        return "manualJdbcOperations";
+                    }
+                    if (method.getName().equals("hashCode")) {
+                        return System.identityHashCode(proxy);
+                    }
+                    if (method.getName().equals("equals")) {
+                        return proxy == arguments[0];
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
     }
 
     @Configuration(proxyBeanMethods = false)

@@ -9,14 +9,17 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcOperations;
 
@@ -33,6 +36,8 @@ import org.springframework.jdbc.core.JdbcOperations;
  */
 public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoCloseable {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(JdbcCocoAuditRecorder.class);
+
     private static final Pattern IDENTIFIER_PATTERN = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
@@ -44,7 +49,9 @@ public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoClose
 
     private final int batchSize;
 
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
+
+    private boolean closed;
 
     /**
      * 创建 JDBC 审计记录器。
@@ -71,21 +78,34 @@ public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoClose
      * <p>
      * 该方法不开始或提交事务。调用方需要批次原子性时，应在业务已选择的 Spring 事务边界内调用；无事务情况下，
      * 已成功提交的先前批次不会因后续批次失败而自动回滚。
-     * </p>
+    * </p>
      * @param events 待写入的审计事件
      */
+    @SuppressFBWarnings(value = "THROWS_METHOD_THROWS_RUNTIMEEXCEPTION",
+            justification = "The Coco audit publisher must receive the original recorder failure.")
     public void recordBatch(Collection<CocoAuditEvent> events) {
-        ensureOpen();
-        Objects.requireNonNull(events, "events must not be null");
-        if (events.isEmpty()) {
-            return;
+        this.lifecycleLock.readLock().lock();
+        try {
+            ensureOpen();
+            try {
+                Objects.requireNonNull(events, "events must not be null");
+                if (events.isEmpty()) {
+                    return;
+                }
+                List<AuditRow> rows = new ArrayList<>(events.size());
+                for (CocoAuditEvent event : events) {
+                    rows.add(AuditRow.from(Objects.requireNonNull(event, "audit event must not be null")));
+                }
+                for (int start = 0; start < rows.size(); start += this.batchSize) {
+                    writeBatch(rows.subList(start, Math.min(start + this.batchSize, rows.size())));
+                }
+            }
+            catch (RuntimeException ex) {
+                throw loggedWriteFailure(ex);
+            }
         }
-        List<AuditRow> rows = new ArrayList<>(events.size());
-        for (CocoAuditEvent event : events) {
-            rows.add(AuditRow.from(Objects.requireNonNull(event, "audit event must not be null")));
-        }
-        for (int start = 0; start < rows.size(); start += this.batchSize) {
-            writeBatch(rows.subList(start, Math.min(start + this.batchSize, rows.size())));
+        finally {
+            this.lifecycleLock.readLock().unlock();
         }
     }
 
@@ -97,7 +117,13 @@ public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoClose
      */
     @Override
     public void close() {
-        this.closed.set(true);
+        this.lifecycleLock.writeLock().lock();
+        try {
+            this.closed = true;
+        }
+        finally {
+            this.lifecycleLock.writeLock().unlock();
+        }
     }
 
     private void writeBatch(List<AuditRow> rows) {
@@ -113,9 +139,15 @@ public final class JdbcCocoAuditRecorder implements CocoAuditRecorder, AutoClose
     }
 
     private void ensureOpen() {
-        if (this.closed.get()) {
+        if (this.closed) {
             throw new IllegalStateException("Coco audit JDBC recorder is closed");
         }
+    }
+
+    private static RuntimeException loggedWriteFailure(RuntimeException failure) {
+        LOGGER.warn("Coco JDBC audit write failed ({}); audit event content was not logged.",
+                failure.getClass().getName());
+        return failure;
     }
 
     private static String buildInsertSql(String schema, String tableName) {
