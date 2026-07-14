@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -47,11 +48,15 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
 
     private final ThreadLocal<Boolean> notifyingDropListener = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
+    private final ThreadLocal<Integer> directWriteDepth = new ThreadLocal<>();
+
     private final Object lifecycleMonitor = new Object();
 
     private final Thread worker;
 
     private boolean accepting = true;
+
+    private int inFlightDirectWrites;
 
     /**
      * <p>
@@ -73,11 +78,18 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
      * @param dropListener 异步日志丢弃监听器
      */
     public AsyncCocoLogSink(CocoLogSink delegate, int queueCapacity, CocoAsyncLogDropListener dropListener) {
+        this(delegate, queueCapacity, dropListener, AsyncCocoLogSink::newWorkerThread);
+    }
+
+    AsyncCocoLogSink(CocoLogSink delegate, int queueCapacity, CocoAsyncLogDropListener dropListener,
+            ThreadFactory workerThreadFactory) {
         this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
         this.queue = new ArrayBlockingQueue<>(normalizeCapacity(queueCapacity));
         this.dropListener = Objects.requireNonNull(dropListener, "dropListener must not be null");
-        this.worker = new Thread(this::drain, "coco-log-writer");
-        this.worker.setDaemon(true);
+        ThreadFactory checkedWorkerThreadFactory = Objects.requireNonNull(workerThreadFactory,
+                "workerThreadFactory must not be null");
+        this.worker = Objects.requireNonNull(checkedWorkerThreadFactory.newThread(this::drain),
+                "workerThreadFactory must create a thread");
         this.worker.start();
     }
 
@@ -99,9 +111,17 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
             if (!writeSynchronously && this.queue.offer(capture(checkedRecord))) {
                 return;
             }
+            if (writeSynchronously || isImportant(checkedRecord.level())) {
+                beginDirectWrite();
+            }
         }
         if (writeSynchronously || isImportant(checkedRecord.level())) {
-            this.delegate.log(checkedRecord);
+            try {
+                this.delegate.log(checkedRecord);
+            }
+            finally {
+                completeDirectWrite();
+            }
             return;
         }
         if (isDroppable(checkedRecord.level())) {
@@ -123,6 +143,7 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
      * <p>
      * 停止接收新的日志记录，并刷完关闭前已接受的日志记录。
      * </p>
+     * @throws IllegalStateException 当前线程在输出器内部重入关闭，或等待关闭完成时被中断
      */
     @Override
     public void close() {
@@ -130,14 +151,16 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
             this.accepting = false;
         }
         this.worker.interrupt();
-        if (Thread.currentThread() == this.worker) {
-            return;
+        if (Thread.currentThread() == this.worker || this.directWriteDepth.get() != null) {
+            throw new IllegalStateException("AsyncCocoLogSink cannot complete close from its delegate");
         }
         try {
             this.worker.join();
+            awaitDirectWrites();
         }
         catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while closing AsyncCocoLogSink", ex);
         }
     }
 
@@ -162,14 +185,11 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
     }
 
     private static AsyncLogEnvelope capture(CocoLogRecord record) {
-        Map<String, String> mdcContext = MDC.getCopyOfContextMap();
-        Map<String, String> copiedMdcContext = mdcContext == null || mdcContext.isEmpty()
-                ? Map.of()
-                : Collections.unmodifiableMap(new HashMap<>(mdcContext));
-        return new AsyncLogEnvelope(record, copiedMdcContext, CocoTraceContext.capture());
+        return new AsyncLogEnvelope(record, captureMdc(), CocoTraceContext.capture());
     }
 
     private void writeAsync(AsyncLogEnvelope envelope) {
+        Map<String, String> previousMdcContext = captureMdc();
         restoreMdc(envelope.mdcContext());
         try (CocoContextScope ignored = CocoTraceContext.restore(envelope.traceContext())) {
             this.delegate.log(envelope.record());
@@ -178,8 +198,43 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
             // A failing delegate must not strand later accepted records in the worker queue.
         }
         finally {
-            MDC.clear();
+            restoreMdc(previousMdcContext);
         }
+    }
+
+    private void beginDirectWrite() {
+        this.inFlightDirectWrites++;
+        Integer currentDepth = this.directWriteDepth.get();
+        this.directWriteDepth.set(currentDepth == null ? 1 : currentDepth + 1);
+    }
+
+    private void completeDirectWrite() {
+        int remainingDepth = this.directWriteDepth.get() - 1;
+        if (remainingDepth == 0) {
+            this.directWriteDepth.remove();
+        }
+        else {
+            this.directWriteDepth.set(remainingDepth);
+        }
+        synchronized (this.lifecycleMonitor) {
+            this.inFlightDirectWrites--;
+            this.lifecycleMonitor.notifyAll();
+        }
+    }
+
+    private void awaitDirectWrites() throws InterruptedException {
+        synchronized (this.lifecycleMonitor) {
+            while (this.inFlightDirectWrites > 0) {
+                this.lifecycleMonitor.wait();
+            }
+        }
+    }
+
+    private static Map<String, String> captureMdc() {
+        Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+        return mdcContext == null || mdcContext.isEmpty()
+                ? Map.of()
+                : Collections.unmodifiableMap(new HashMap<>(mdcContext));
     }
 
     private static void restoreMdc(Map<String, String> context) {
@@ -193,6 +248,12 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
 
     private static int normalizeCapacity(int queueCapacity) {
         return queueCapacity <= 0 ? DEFAULT_QUEUE_CAPACITY : queueCapacity;
+    }
+
+    private static Thread newWorkerThread(Runnable runnable) {
+        Thread thread = new Thread(runnable, "coco-log-writer");
+        thread.setDaemon(true);
+        return thread;
     }
 
     private static boolean isImportant(CocoLogLevel level) {
