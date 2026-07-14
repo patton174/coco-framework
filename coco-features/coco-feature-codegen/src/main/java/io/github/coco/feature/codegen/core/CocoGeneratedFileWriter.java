@@ -109,6 +109,7 @@ public final class CocoGeneratedFileWriter {
                 .toAbsolutePath().normalize();
         CocoCodegenResult checkedResult = Objects.requireNonNull(result, "result must not be null");
         CocoGeneratedFileWriteOptions checkedOptions = Objects.requireNonNull(options, "options must not be null");
+        CocoOutputRootLock.validateOutputRoot(root);
         List<PlannedFile> plannedFiles = plan(root, checkedResult.files());
 
         if (!checkedOptions.dryRun()) {

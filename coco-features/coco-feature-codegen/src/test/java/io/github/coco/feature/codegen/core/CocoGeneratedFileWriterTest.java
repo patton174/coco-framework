@@ -369,28 +369,39 @@ class CocoGeneratedFileWriterTest {
     }
 
     @Test
-    void rejectsFilesystemRootAsOutputDirectory() {
+    void rejectsFilesystemRootAsOutputDirectoryBeforeDryRunOrRealWrite() {
         Path filesystemRoot = this.tempDirectory.toAbsolutePath().getRoot();
         CocoCodegenResult result = CocoCodegenResult.of(List.of(new CocoGeneratedFile("value.txt", "value")));
 
-        assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(filesystemRoot, result))
-                .isInstanceOf(CocoCodegenException.class)
-                .hasMessageContaining("filesystem root cannot be used");
+        for (boolean dryRun : List.of(true, false)) {
+            assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(filesystemRoot, result,
+                    new CocoGeneratedFileWriteOptions(false, dryRun)))
+                    .isInstanceOf(CocoCodegenException.class)
+                    .hasMessageContaining("filesystem root cannot be used");
+        }
     }
 
     @Test
-    void rejectsSharedStateRootAsOutputDirectory() {
-        Path output = this.tempDirectory.resolve(".coco-codegen-state");
+    void rejectsSharedStateRootAndDescendantsBeforeDryRunOrRealWrite() {
+        Path stateRoot = this.tempDirectory.resolve(".coco-codegen-state");
         CocoCodegenResult result = CocoCodegenResult.of(List.of(new CocoGeneratedFile("value.txt", "value")));
 
-        assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(output, result))
-                .isInstanceOf(CocoCodegenException.class)
-                .hasMessageContaining("state root must be outside output root");
+        for (Path output : List.of(stateRoot, stateRoot.resolve("output"))) {
+            for (boolean dryRun : List.of(true, false)) {
+                assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(output, result,
+                        new CocoGeneratedFileWriteOptions(false, dryRun)))
+                        .isInstanceOf(CocoCodegenException.class)
+                        .hasMessageContaining("codegen state root cannot be used");
+            }
+        }
+        assertThat(stateRoot).doesNotExist();
     }
 
     @Test
-    void dryRunCreatesNoDirectoriesOrFiles() {
+    @EnabledOnOs(OS.WINDOWS)
+    void dryRunCreatesNoDirectoriesFilesOrCodegenStateOnWindows() {
         Path output = this.tempDirectory.resolve("dry-run");
+        Path stateRoot = output.getParent().resolve(".coco-codegen-state");
         CocoCodegenResult result = CocoCodegenResult.of(List.of(
                 new CocoGeneratedFile("nested/value.txt", "value")));
 
@@ -399,6 +410,7 @@ class CocoGeneratedFileWriterTest {
 
         assertThat(targets).containsExactly(output.resolve("nested/value.txt").toAbsolutePath());
         assertThat(output).doesNotExist();
+        assertThat(stateRoot).doesNotExist();
     }
 
     @Test

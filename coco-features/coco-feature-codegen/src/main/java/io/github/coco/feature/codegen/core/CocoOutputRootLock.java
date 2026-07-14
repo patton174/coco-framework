@@ -59,6 +59,7 @@ final class CocoOutputRootLock implements AutoCloseable {
 
     static CocoOutputRootLock acquire(Path root) {
         Path canonicalRoot = canonicalize(root);
+        validateOutputRoot(canonicalRoot);
         ReentrantLock processLock = PROCESS_LOCKS.computeIfAbsent(canonicalRoot, key -> new ReentrantLock());
         if (!processLock.tryLock()) {
             throw locked(canonicalRoot, "output root is already locked in this process", null);
@@ -118,6 +119,20 @@ final class CocoOutputRootLock implements AutoCloseable {
     static Path recoveryMarkerPath(Path root) {
         Path canonicalRoot = canonicalize(root);
         return statePaths(root, canonicalRoot).recoveryMarker();
+    }
+
+    static void validateOutputRoot(Path root) {
+        Path canonicalRoot = canonicalize(root);
+        if (canonicalRoot.getParent() == null) {
+            throw new CocoCodegenException("filesystem root cannot be used as a codegen output directory: "
+                    + canonicalRoot);
+        }
+        for (Path segment : canonicalRoot) {
+            if (isStateDirectoryName(segment.toString())) {
+                throw new CocoCodegenException("codegen state root cannot be used as a codegen output directory: "
+                        + canonicalRoot);
+            }
+        }
     }
 
     static void validateExistingPath(Path path) {
@@ -216,6 +231,12 @@ final class CocoOutputRootLock implements AutoCloseable {
         catch (IOException ex) {
             throw new CocoCodegenException("failed to resolve canonical output root: " + absoluteRoot, ex);
         }
+    }
+
+    private static boolean isStateDirectoryName(String name) {
+        return name.equals(STATE_DIRECTORY_NAME)
+                || (Path.of(name).getFileSystem().getSeparator().equals("\\")
+                && name.equalsIgnoreCase(STATE_DIRECTORY_NAME));
     }
 
     private static StatePaths statePaths(Path root, Path canonicalRoot) {
