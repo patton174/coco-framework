@@ -244,13 +244,6 @@ public final class StandardCocoFeatures {
     }
 
     private static CocoFeatureDefinition feature(CocoFeature feature, String artifactId, String autoConfigurationClassName,
-            CocoFeature... dependencies) {
-        return new CocoFeatureDefinition(feature, artifactId, autoConfigurationClassName, true, dependencies.length == 0
-                ? Set.of()
-                : Set.of(dependencies));
-    }
-
-    private static CocoFeatureDefinition feature(CocoFeature feature, String artifactId, String autoConfigurationClassName,
             Set<String> pruneArtifactIds, CocoFeature... dependencies) {
         return new CocoFeatureDefinition(feature, artifactId, autoConfigurationClassName, true, dependencies.length == 0
                 ? Set.of()
