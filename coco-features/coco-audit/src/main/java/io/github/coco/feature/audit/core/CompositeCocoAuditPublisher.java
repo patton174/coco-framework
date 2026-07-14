@@ -27,6 +27,8 @@ public final class CompositeCocoAuditPublisher implements CocoAuditPublisher {
 
     private final CocoAuditErrorHandler errorHandler;
 
+    private final ThreadLocal<Boolean> handlingRecorderFailure = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     /**
      * <p>
      * 创建组合式审计事件发布器。
@@ -53,8 +55,21 @@ public final class CompositeCocoAuditPublisher implements CocoAuditPublisher {
                 recorder.record(checkedEvent);
             }
             catch (RuntimeException ex) {
-                this.errorHandler.handle(checkedEvent, recorder, ex);
+                handleRecorderFailure(checkedEvent, recorder, ex);
             }
+        }
+    }
+
+    private void handleRecorderFailure(CocoAuditEvent event, CocoAuditRecorder recorder, RuntimeException failure) {
+        if (this.handlingRecorderFailure.get()) {
+            return;
+        }
+        this.handlingRecorderFailure.set(Boolean.TRUE);
+        try {
+            this.errorHandler.handle(event, recorder, failure);
+        }
+        finally {
+            this.handlingRecorderFailure.remove();
         }
     }
 }

@@ -13,6 +13,24 @@
       "defaultValue": "ignore"
     },
     {
+      "name": "coco.audit.async.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco publishes audit events through the bounded asynchronous queue.",
+      "defaultValue": false
+    },
+    {
+      "name": "coco.audit.async.queue-capacity",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of Coco audit events waiting in the asynchronous queue.",
+      "defaultValue": 1024
+    },
+    {
+      "name": "coco.audit.async.shutdown-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum time Coco waits for accepted audit events to drain during shutdown; timeout or interruption fails shutdown with the undrained event count.",
+      "defaultValue": "5s"
+    },
+    {
       "name": "coco.audit.logging.enabled",
       "type": "java.lang.Boolean",
       "description": "Whether Coco writes audit events through the default logging recorder.",

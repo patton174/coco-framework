@@ -1,18 +1,14 @@
 package io.github.coco.feature.tenant.sql;
 
-import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
 
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
-import com.baomidou.mybatisplus.core.toolkit.PluginUtils;
 import com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor;
 import io.github.coco.feature.tenant.CocoTenantErrorCode;
 import org.apache.ibatis.executor.Executor;
-import org.apache.ibatis.executor.statement.StatementHandler;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
-import org.apache.ibatis.mapping.SqlCommandType;
 import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.slf4j.Logger;
@@ -71,13 +67,9 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
      * {@inheritDoc}
      */
     @Override
-    public void beforePrepare(StatementHandler sh, Connection connection, Integer transactionTimeout) {
-        MappedStatement mappedStatement = PluginUtils.mpStatementHandler(sh).mappedStatement();
-        SqlCommandType commandType = mappedStatement.getSqlCommandType();
-        if (commandType == SqlCommandType.INSERT || commandType == SqlCommandType.UPDATE
-                || commandType == SqlCommandType.DELETE) {
-            govern(mappedStatement);
-        }
+    public boolean willDoUpdate(Executor executor, MappedStatement ms, Object parameter) throws SQLException {
+        govern(ms);
+        return true;
     }
 
     private void govern(MappedStatement mappedStatement) {
@@ -85,8 +77,9 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
         if (!InterceptorIgnoreHelper.willIgnoreTenantLine(mappedStatementId)) {
             return;
         }
+        CocoTenantInterceptorIgnoreProperties interceptorIgnore = this.properties.getInterceptorIgnore();
         boolean shouldBlock = !isAllowed(mappedStatementId)
-                && this.properties.getInterceptorIgnore().isBlockUnlisted();
+                && (interceptorIgnore.isStrictMode() || interceptorIgnore.isBlockUnlisted());
         CocoTenantInterceptorIgnoreDecision decision = shouldBlock
                 ? CocoTenantInterceptorIgnoreDecision.BLOCKED
                 : CocoTenantInterceptorIgnoreDecision.ALLOWED;
@@ -99,8 +92,16 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
         throw CocoTenantErrorCode.INTERCEPTOR_IGNORE_BLOCKED.forbidden(mappedStatementId);
     }
 
+    @SuppressWarnings("deprecation")
     private boolean isAllowed(String mappedStatementId) {
-        return this.properties.getInterceptorIgnore().getAllowedMappedStatements().stream()
+        CocoTenantInterceptorIgnoreProperties interceptorIgnore = this.properties.getInterceptorIgnore();
+        if (interceptorIgnore.getExactMappedStatements().contains(mappedStatementId)) {
+            return true;
+        }
+        if (interceptorIgnore.isStrictMode()) {
+            return false;
+        }
+        return interceptorIgnore.getAllowedMappedStatements().stream()
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(pattern -> !pattern.isEmpty())
@@ -113,9 +114,8 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
     }
 
     private static void warn(MappedStatement mappedStatement, CocoTenantInterceptorIgnoreDecision decision) {
-        LOGGER.warn("Coco tenant SQL isolation bypass {} for mapped statement [{}] command [{}].",
-                decision.name().toLowerCase(java.util.Locale.ROOT),
-                mappedStatement.getId(),
+        LOGGER.warn("event=coco_tenant_sql_bypass decision={} mappedStatementId={} commandType={}",
+                decision.name().toLowerCase(java.util.Locale.ROOT), mappedStatement.getId(),
                 mappedStatement.getSqlCommandType());
     }
 }

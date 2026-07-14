@@ -1,6 +1,7 @@
 package io.github.coco.feature.security.web;
 
 import java.util.Arrays;
+import java.util.Enumeration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -50,16 +51,36 @@ public final class HeaderCocoWebSecurityContextResolver implements CocoWebSecuri
         if (!this.properties.isEnabled()) {
             return Optional.empty();
         }
-        String principalId = normalize(request.getHeader(this.properties.getPrincipalIdHeaderName()));
+        HeaderValue principalIdHeader = singleHeaderValue(request, this.properties.getPrincipalIdHeaderName());
+        HeaderValue principalNameHeader = singleHeaderValue(request, this.properties.getPrincipalNameHeaderName());
+        HeaderValue rolesHeader = singleHeaderValue(request, this.properties.getRolesHeaderName());
+        HeaderValue permissionsHeader = singleHeaderValue(request, this.properties.getPermissionsHeaderName());
+        if (!principalIdHeader.valid() || !principalNameHeader.valid()
+                || !rolesHeader.valid() || !permissionsHeader.valid()) {
+            return Optional.empty();
+        }
+        String principalId = normalize(principalIdHeader.value());
         if (principalId == null) {
             return Optional.empty();
         }
-        String principalName = normalize(request.getHeader(this.properties.getPrincipalNameHeaderName()));
-        Set<String> roles = splitAuthorities(request.getHeader(this.properties.getRolesHeaderName()));
-        Set<String> permissions = splitAuthorities(request.getHeader(this.properties.getPermissionsHeaderName()));
+        String principalName = normalize(principalNameHeader.value());
+        Set<String> roles = splitAuthorities(rolesHeader.value());
+        Set<String> permissions = splitAuthorities(permissionsHeader.value());
         CocoSecurityPrincipal principal = new CocoSecurityPrincipal(principalId,
                 principalName == null ? principalId : principalName, roles, permissions, Map.of());
         return Optional.of(CocoSecurityContext.authenticated(principal));
+    }
+
+    private static HeaderValue singleHeaderValue(HttpServletRequest request, String headerName) {
+        Enumeration<String> values = request.getHeaders(headerName);
+        if (values == null || !values.hasMoreElements()) {
+            return HeaderValue.valid(null);
+        }
+        String value = values.nextElement();
+        if (values.hasMoreElements()) {
+            return HeaderValue.invalid();
+        }
+        return HeaderValue.valid(value);
     }
 
     private Set<String> splitAuthorities(String value) {
@@ -79,5 +100,16 @@ public final class HeaderCocoWebSecurityContextResolver implements CocoWebSecuri
             return null;
         }
         return value.trim();
+    }
+
+    private record HeaderValue(boolean valid, String value) {
+
+        private static HeaderValue valid(String value) {
+            return new HeaderValue(true, value);
+        }
+
+        private static HeaderValue invalid() {
+            return new HeaderValue(false, null);
+        }
     }
 }

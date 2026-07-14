@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -185,6 +186,38 @@ class CocoDataPermissionAutoConfigurationTest {
     }
 
     @Test
+    void handlerUsesStandardStringLiteralsForQuotesAndUnicode() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        Table table = new Table("sample_order");
+        table.setAlias(new Alias("o"));
+
+        assertThat(predicate(properties, Set.of("O'Reilly"), table).toString())
+                .isEqualTo("o.dept_id IN ('O''Reilly')");
+        assertThat(predicate(properties, Set.of("研发部-東京"), table).toString())
+                .isEqualTo("o.dept_id IN ('研发部-東京')");
+    }
+
+    @Test
+    void handlerDeniesUnsafeStringLiteralCharactersAndEntireMixedPredicate() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        Table table = new Table("sample_order");
+        List<String> unsafeValues = List.of(
+                "a\\' OR 1=1 --",
+                "quoted'\\value",
+                "scope\u0000value",
+                "scope\nvalue",
+                "scope\u007fvalue");
+
+        for (String unsafeValue : unsafeValues) {
+            assertThat(predicate(properties, Set.of(unsafeValue), table).toString())
+                    .as("unsafe value %s", unsafeValue)
+                    .isEqualTo("1 = 0");
+        }
+        assertThat(predicate(properties, Set.of("allowed", "a\\' OR 1=1 --"), table).toString())
+                .isEqualTo("1 = 0");
+    }
+
+    @Test
     void handlerCreatesNumericPredicateForLongColumn() {
         CocoDataPermissionSqlProperties properties = sqlProperties();
         properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.LONG);
@@ -211,6 +244,48 @@ class CocoDataPermissionAutoConfigurationTest {
                 "SampleMapper.selectOrders");
 
         assertThat(expression.toString()).isEqualTo("1 = 0");
+    }
+
+    @Test
+    void handlerCreatesPredicatesForExplicitIntegerDecimalAndBooleanColumns() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        CocoDataPermissionSqlResourceProperties resource = properties.resource("sample-order");
+        Table table = new Table("sample_order");
+        table.setAlias(new Alias("o"));
+
+        resource.setColumnType(CocoDataPermissionSqlColumnType.INTEGER);
+        assertThat(predicate(properties, Set.of("10", "20"), table).toString()).isEqualTo("o.dept_id IN (10, 20)");
+
+        resource.setColumnType(CocoDataPermissionSqlColumnType.DECIMAL);
+        assertThat(predicate(properties, Set.of("1.25", "2.5"), table).toString())
+                .isEqualTo("o.dept_id IN (1.25, 2.5)");
+
+        resource.setColumnType(CocoDataPermissionSqlColumnType.BOOLEAN);
+        assertThat(predicate(properties, Set.of("true", "false"), table).toString())
+                .isEqualTo("o.dept_id IN (FALSE, TRUE)");
+    }
+
+    @Test
+    void handlerDeniesWhenTypedValuesAreBlankInvalidOrMissing() {
+        CocoDataPermissionSqlProperties properties = sqlProperties();
+        Table table = new Table("sample_order");
+
+        for (CocoDataPermissionSqlColumnType columnType : CocoDataPermissionSqlColumnType.values()) {
+            properties.resource("sample-order").setColumnType(columnType);
+            assertThat(predicate(properties, Set.of(""), table).toString()).isEqualTo("1 = 0");
+        }
+        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.INTEGER);
+        assertThat(predicate(properties, Set.of("1 OR 1 = 1"), table).toString()).isEqualTo("1 = 0");
+        assertThat(predicate(properties, Set.of("2147483648"), table).toString()).isEqualTo("1 = 0");
+        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.DECIMAL);
+        assertThat(predicate(properties, Set.of("1.2.3"), table).toString()).isEqualTo("1 = 0");
+        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.BOOLEAN);
+        assertThat(predicate(properties, Set.of("yes"), table).toString()).isEqualTo("1 = 0");
+
+        CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
+                new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, null)));
+        CocoMybatisPlusDataPermissionHandler handler = handler(properties, () -> Optional.of(context));
+        assertThat(handler.getSqlSegment(table, null, "SampleMapper.selectOrders").toString()).isEqualTo("1 = 0");
     }
 
     @Test
@@ -293,6 +368,12 @@ class CocoDataPermissionAutoConfigurationTest {
         return new CocoMybatisPlusDataPermissionHandler(properties, contextResolver,
                 new PropertyCocoDataPermissionSqlResourceResolver(properties),
                 new DefaultCocoDataPermissionSqlPredicateProvider());
+    }
+
+    private static Expression predicate(CocoDataPermissionSqlProperties properties, Set<String> values, Table table) {
+        CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
+                new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, values)));
+        return handler(properties, () -> Optional.of(context)).getSqlSegment(table, null, "SampleMapper.selectOrders");
     }
 
     private static CocoDataPermissionSqlProperties sqlProperties() {

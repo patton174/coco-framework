@@ -66,6 +66,7 @@
         <revision>1.0.0-SNAPSHOT</revision>
         <java.version>17</java.version>
         <spring-boot.version>4.1.0</spring-boot.version>
+        <springdoc-openapi.version>3.0.3</springdoc-openapi.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <maven.version>3.9.16</maven.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
@@ -244,6 +245,11 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-jsqlparser-4.9</artifactId>
                 <version>${mybatis-plus.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-common</artifactId>
+                <version>${springdoc-openapi.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

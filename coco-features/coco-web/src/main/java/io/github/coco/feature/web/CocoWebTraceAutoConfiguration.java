@@ -5,6 +5,7 @@ import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.trace.CocoTraceFilter;
 import io.github.coco.feature.web.trace.CocoTraceIdValidator;
 import io.github.coco.feature.web.trace.DefaultCocoTraceIdValidator;
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -69,6 +70,8 @@ public class CocoWebTraceAutoConfiguration {
                         properties.getAccessLog(), requestContextResolver, traceIdValidator));
         registration.setName("cocoTraceFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
+        registration.setAsyncSupported(true);
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
         return registration;
     }
 }

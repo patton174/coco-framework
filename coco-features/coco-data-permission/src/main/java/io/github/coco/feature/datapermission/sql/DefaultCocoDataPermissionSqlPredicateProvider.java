@@ -1,16 +1,21 @@
 package io.github.coco.feature.datapermission.sql;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 import io.github.coco.feature.datapermission.context.CocoDataPermissionRule;
+import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.InExpression;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 
@@ -19,6 +24,10 @@ import net.sf.jsqlparser.schema.Table;
  * <p>
  * 默认实现只提供框架级通用策略：全部数据不追加条件，拒绝访问或缺少必要列配置时追加永假条件，
  * 自定义范围和本人范围按配置列生成 {@code IN} 条件。复杂业务模型应替换该 SPI。
+ * </p>
+ * <p>
+ * 文本值使用标准 SQL 单引号双写。反斜杠和控制字符无法在未知数据库方言下安全编码，默认实现会拒绝包含
+ * 此类字符的整条谓词，避免生成可能被方言重新解释的 SQL 字面量。
  * </p>
  * <p>
  * 项目信息：
@@ -76,22 +85,82 @@ public final class DefaultCocoDataPermissionSqlPredicateProvider implements Coco
     }
 
     private static Optional<Expression> valueExpression(String value, CocoDataPermissionSqlColumnType columnType) {
-        if (columnType == CocoDataPermissionSqlColumnType.LONG) {
-            return longValueExpression(value).map(Expression.class::cast);
+        return switch (columnType) {
+            case STRING -> stringValueExpression(value).map(Expression.class::cast);
+            case LONG -> longValueExpression(value).map(Expression.class::cast);
+            case INTEGER -> integerValueExpression(value).map(Expression.class::cast);
+            case DECIMAL -> decimalValueExpression(value).map(Expression.class::cast);
+            case BOOLEAN -> booleanValueExpression(value);
+        };
+    }
+
+    private static Optional<StringValue> stringValueExpression(String value) {
+        if (!hasText(value) || !isStandardStringLiteralSafe(value)) {
+            return Optional.empty();
         }
-        return Optional.of(new StringValue(value));
+        return Optional.of(new StringValue(value.replace("'", "''")));
+    }
+
+    private static boolean isStandardStringLiteralSafe(String value) {
+        return value.codePoints()
+                .noneMatch(codePoint -> codePoint == '\\' || Character.isISOControl(codePoint));
     }
 
     private static Optional<LongValue> longValueExpression(String value) {
-        if (value == null || value.isBlank()) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null) {
             return Optional.empty();
         }
         try {
-            return Optional.of(new LongValue(Long.parseLong(value.trim())));
+            return Optional.of(new LongValue(Long.parseLong(normalizedValue)));
         }
         catch (NumberFormatException ex) {
             return Optional.empty();
         }
+    }
+
+    private static Optional<LongValue> integerValueExpression(String value) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new LongValue(Integer.parseInt(normalizedValue)));
+        }
+        catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<DoubleValue> decimalValueExpression(String value) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new DoubleValue(new BigDecimal(normalizedValue).toPlainString()));
+        }
+        catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<Expression> booleanValueExpression(String value) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null
+                || (!"true".equalsIgnoreCase(normalizedValue) && !"false".equalsIgnoreCase(normalizedValue))) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(CCJSqlParserUtil.parseExpression(normalizedValue.toUpperCase(Locale.ROOT)));
+        }
+        catch (JSQLParserException ex) {
+            throw new IllegalStateException("Unable to create a boolean SQL literal", ex);
+        }
+    }
+
+    private static String normalize(String value) {
+        return hasText(value) ? value.trim() : null;
     }
 
     private static boolean hasText(String value) {

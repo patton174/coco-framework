@@ -129,6 +129,8 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.encryption.keys\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.store-type\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.in-memory.max-entries\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.in-memory.max-entries-per-app-id\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.jdbc.table-name\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.required\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-signed-requests\""));
@@ -163,6 +165,8 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.include-parameters\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.max-parameter-value-length\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.masked-parameter-names\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.value-capture-mode\""));
+        assertTrue(content.contains("\"name\": \"coco.web.context.parameter.value-allowed-parameter-names\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.included-content-types\""));
         assertTrue(content.contains("\"name\": \"coco.web.context.parameter.payload.max-json-depth\""));
@@ -206,6 +210,11 @@ class CocoWebConfigurationMetadataTest {
         assertHintValues(metadata, "coco.web.response.metadata-mode", "none", "cookie", "trace", "debug");
         assertHintValues(metadata, "coco.web.context.parameter.payload.included-content-types",
                 "application/json", "application/*+json", "application/x-www-form-urlencoded");
+        assertHintValues(metadata, "coco.web.context.parameter.value-capture-mode",
+                "metadata-only", "allow-list", "all");
+        assertAdditionalProperty(metadata, "coco.web.context.parameter.value-capture-mode");
+        assertAdditionalProperty(metadata, "coco.web.context.parameter.value-allowed-parameter-names");
+        assertAdditionalProperty(metadata, "coco.web.context.parameter.masked-parameter-names");
         assertHintValues(metadata, "coco.web.context.canonicalization.version", "coco-v2");
         assertHintValues(metadata, "coco.web.signature.metadata-source", "header", "parameter",
                 "header-then-parameter", "parameter-then-header");
@@ -215,6 +224,8 @@ class CocoWebConfigurationMetadataTest {
                 "header-then-parameter", "parameter-then-header");
         assertHintValues(metadata, "coco.web.replay.store-type", "in-memory", "jdbc");
         assertAdditionalProperty(metadata, "coco.web.replay.store-type");
+        assertAdditionalProperty(metadata, "coco.web.replay.in-memory.max-entries");
+        assertAdditionalProperty(metadata, "coco.web.replay.in-memory.max-entries-per-app-id");
         assertAdditionalProperty(metadata, "coco.web.replay.jdbc.table-name");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");

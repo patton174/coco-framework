@@ -108,6 +108,22 @@ class JdbcCocoReplayStoreTest {
     }
 
     @Test
+    void clientTimestampDoesNotControlStoredExpirationOrCleanupDeadline() {
+        JdbcCocoReplayStore store = newStore();
+        Instant serverExpiresAt = BASE_TIME.plusSeconds(60);
+
+        assertTrue(store.reserve(key("future", BASE_TIME.plusSeconds(300)), serverExpiresAt));
+        assertTrue(store.reserve(key("past", BASE_TIME.minusSeconds(300)), serverExpiresAt));
+        assertEquals(List.of(serverExpiresAt.toEpochMilli(), serverExpiresAt.toEpochMilli()), storedExpirations());
+        this.clock.set(serverExpiresAt.minusMillis(1));
+        assertEquals(0, store.cleanupExpiredKeys());
+
+        this.clock.set(serverExpiresAt);
+        assertEquals(2, store.cleanupExpiredKeys());
+        assertEquals(0, rowCount());
+    }
+
+    @Test
     void cleanupStartsLazilyOnFirstReservation() {
         CocoReplayProperties properties = properties();
         JdbcCocoReplayStore store = new JdbcCocoReplayStore(this.jdbcTemplate, properties, this.clock, true);
@@ -228,6 +244,11 @@ class JdbcCocoReplayStoreTest {
         return expiresAt == null ? 0L : expiresAt;
     }
 
+    private List<Long> storedExpirations() {
+        return this.jdbcTemplate.queryForList(
+                "SELECT expires_at_epoch_millis FROM coco_replay_key ORDER BY replay_key_hash", Long.class);
+    }
+
     private static void assertSingleConcurrentWinner(JdbcCocoReplayStore store, CocoReplayKey replayKey,
             Instant expiresAt) throws Exception {
         int contenders = 12;
@@ -262,6 +283,10 @@ class JdbcCocoReplayStoreTest {
 
     private static CocoReplayKey key(String nonce) {
         return new CocoReplayKey("app-1", "key-1", BASE_TIME.toString(), nonce, "POST", "/api/orders");
+    }
+
+    private static CocoReplayKey key(String nonce, Instant timestamp) {
+        return new CocoReplayKey("app-1", "key-1", timestamp.toString(), nonce, "POST", "/api/orders");
     }
 
     private static String sha256(String value) throws Exception {

@@ -99,7 +99,19 @@
         },
         {
           "value": "long",
-          "description": "权限值生成长整数字面量，适用于 BIGINT、INT 等整数列。"
+          "description": "兼容别名：权限值生成长整数字面量，适用于 BIGINT 等整数列。"
+        },
+        {
+          "value": "integer",
+          "description": "权限值生成 32 位整数字面量，适用于 INTEGER 等整数列。"
+        },
+        {
+          "value": "decimal",
+          "description": "权限值生成十进制字面量，适用于 DECIMAL、NUMERIC 等精确数值列。"
+        },
+        {
+          "value": "boolean",
+          "description": "权限值生成布尔字面量，且只能配置 true 或 false。"
         }
       ]
     }

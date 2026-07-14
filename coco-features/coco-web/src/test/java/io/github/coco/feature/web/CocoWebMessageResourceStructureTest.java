@@ -43,6 +43,7 @@ class CocoWebMessageResourceStructureTest {
             "coco.web.response.success",
             "coco.web.error.bad-request",
             "coco.web.error.method-not-allowed",
+            "coco.web.access-log.parameter-values-all",
             "coco.web.request-body.payload-too-large",
             "coco.web.signature.missing-signature",
             "coco.web.signature.missing-app-id",
@@ -67,7 +68,9 @@ class CocoWebMessageResourceStructureTest {
             "coco.web.replay.missing-nonce",
             "coco.web.replay.invalid-timestamp",
             "coco.web.replay.expired",
-            "coco.web.replay.detected");
+            "coco.web.replay.detected",
+            "coco.web.replay.untrusted-identity",
+            "coco.web.replay.capacity-exhausted");
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
@@ -114,6 +117,11 @@ class CocoWebMessageResourceStructureTest {
             assertEquals("请求体超过允许的最大大小。",
                     messageService.getMessage("coco.web.request-body.payload-too-large",
                             Locale.SIMPLIFIED_CHINESE));
+            assertEquals("Access logging captures all non-masked request parameter values; review the mask list before production use.",
+                    messageService.getMessage("coco.web.access-log.parameter-values-all", Locale.US));
+            assertEquals("访问日志正在采集全部未掩码的请求参数值；生产使用前请检查掩码名单。",
+                    messageService.getMessage("coco.web.access-log.parameter-values-all",
+                            Locale.SIMPLIFIED_CHINESE));
             assertEquals("Invalid request.",
                     messageService.getMessage("coco.web.error.bad-request", Locale.US));
             assertEquals("请求参数不合法。",
@@ -122,6 +130,14 @@ class CocoWebMessageResourceStructureTest {
                     messageService.getMessage("coco.web.replay.detected", Locale.US));
             assertEquals("检测到重复请求。",
                     messageService.getMessage("coco.web.replay.detected", Locale.SIMPLIFIED_CHINESE));
+            assertEquals("Request replay identity is not trusted.",
+                    messageService.getMessage("coco.web.replay.untrusted-identity", Locale.US));
+            assertEquals("防重放请求身份未经可信校验。",
+                    messageService.getMessage("coco.web.replay.untrusted-identity", Locale.SIMPLIFIED_CHINESE));
+            assertEquals("Replay protection capacity is exhausted.",
+                    messageService.getMessage("coco.web.replay.capacity-exhausted", Locale.US));
+            assertEquals("防重放保护容量已耗尽。",
+                    messageService.getMessage("coco.web.replay.capacity-exhausted", Locale.SIMPLIFIED_CHINESE));
         });
     }
 

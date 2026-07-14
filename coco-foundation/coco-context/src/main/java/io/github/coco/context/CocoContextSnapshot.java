@@ -125,11 +125,11 @@ public interface CocoContextSnapshot {
             List<CocoContextScope> scopes = new ArrayList<>(snapshotList.size());
             try {
                 for (CocoContextSnapshot snapshot : snapshotList) {
-                    scopes.add(snapshot.restore());
+                    scopes.add(Objects.requireNonNull(snapshot.restore(), "snapshot restore must not return null"));
                 }
             }
             catch (RuntimeException | Error ex) {
-                closeReverse(scopes);
+                closeReverse(scopes, ex);
                 throw ex;
             }
             return () -> closeReverse(scopes);
@@ -137,8 +137,42 @@ public interface CocoContextSnapshot {
     }
 
     private static void closeReverse(List<CocoContextScope> scopes) {
+        Throwable failure = null;
         for (int i = scopes.size() - 1; i >= 0; i--) {
-            scopes.get(i).close();
+            try {
+                scopes.get(i).close();
+            }
+            catch (RuntimeException | Error ex) {
+                if (failure == null) {
+                    failure = ex;
+                }
+                else {
+                    addSuppressed(failure, ex);
+                }
+            }
+        }
+        if (failure instanceof RuntimeException runtimeException) {
+            throw runtimeException;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    private static void closeReverse(List<CocoContextScope> scopes, Throwable primaryFailure) {
+        for (int i = scopes.size() - 1; i >= 0; i--) {
+            try {
+                scopes.get(i).close();
+            }
+            catch (RuntimeException | Error closeFailure) {
+                addSuppressed(primaryFailure, closeFailure);
+            }
+        }
+    }
+
+    private static void addSuppressed(Throwable primaryFailure, Throwable suppressedFailure) {
+        if (primaryFailure != suppressedFailure) {
+            primaryFailure.addSuppressed(suppressedFailure);
         }
     }
 }

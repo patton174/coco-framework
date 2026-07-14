@@ -19,6 +19,7 @@ import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.response.CocoResponseBodyFactory;
 import io.github.coco.feature.web.response.CocoResponseMetadata;
 import io.github.coco.feature.web.response.CocoResponsePayload;
+import io.github.coco.feature.web.replay.CocoReplayCapacityExceededException;
 import io.github.coco.feature.web.response.CocoResponseProperties;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.feature.web.response.DefaultCocoResponseBodyFactory;
@@ -434,6 +435,9 @@ public class CocoWebExceptionHandler {
      * @return 系统响应码
      */
     private int resolveSystemCode(CocoException exception, HttpStatusCode statusCode) {
+        if (exception instanceof CocoReplayCapacityExceededException) {
+            return statusCode == null ? HttpStatus.SERVICE_UNAVAILABLE.value() : statusCode.value();
+        }
         if (exception instanceof CocoPayloadTooLargeException) {
             return statusCode == null ? 413 : statusCode.value();
         }

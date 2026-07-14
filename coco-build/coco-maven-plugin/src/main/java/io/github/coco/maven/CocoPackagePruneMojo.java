@@ -8,10 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -50,6 +47,8 @@ import org.apache.maven.project.MavenProject;
 @Mojo(name = "prune-package", defaultPhase = LifecyclePhase.PACKAGE, threadSafe = true)
 public final class CocoPackagePruneMojo extends AbstractMojo {
 
+    private static final String DEFAULT_FEATURE_GROUP_ID = "io.github.patton174";
+
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 
@@ -61,6 +60,12 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "${project.build.finalName}", required = true)
     private String finalName;
+
+    @Parameter(property = "coco.features.featureGroupId", defaultValue = DEFAULT_FEATURE_GROUP_ID)
+    private String featureGroupId = DEFAULT_FEATURE_GROUP_ID;
+
+    @Parameter(property = "coco.features.featureVersion")
+    private String featureVersion;
 
     @Parameter(property = "coco.features.skip", defaultValue = "false")
     private boolean skip;
@@ -81,8 +86,8 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             getLog().info("Coco package pruning skipped for pom packaging.");
             return;
         }
-        Set<String> pruneArtifactIds = pruneArtifactIds();
-        if (pruneArtifactIds.isEmpty()) {
+        PrunePlan prunePlan = loadPrunePlan();
+        if (prunePlan.artifactIds().isEmpty()) {
             getLog().info("Coco package pruning skipped because no feature is disabled.");
             return;
         }
@@ -92,7 +97,7 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             return;
         }
         try {
-            int removed = pruneBootArchive(archivePath, pruneArtifactIds);
+            int removed = pruneBootArchive(archivePath, prunePlan);
             getLog().info("Coco package pruning removed " + removed + " disabled feature artifact(s).");
         }
         catch (IOException ex) {
@@ -107,30 +112,36 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
      * @return 被禁用功能对应的可裁剪 artifactId 集合
      * @throws MojoExecutionException 功能清单读取失败时抛出
      */
-    private Set<String> pruneArtifactIds() throws MojoExecutionException {
+    private PrunePlan loadPrunePlan() throws MojoExecutionException {
         Path manifestPath = this.classesDirectory.toPath().resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
         if (!Files.isRegularFile(manifestPath)) {
-            return Set.of();
+            return new PrunePlan(null, Set.of());
         }
         try (InputStream inputStream = Files.newInputStream(manifestPath)) {
             CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(inputStream);
+            StandardCocoFeatures.validateManifest(manifest);
             Map<String, CocoFeatureDefinition> currentDefinitions = StandardCocoFeatures.all().stream()
                     .collect(Collectors.toUnmodifiableMap(
                             definition -> definition.feature().id(),
                             definition -> definition));
+            Set<String> cocoArtifactIds = currentDefinitions.values().stream()
+                    .flatMap(definition -> StandardCocoFeatures.equivalentArtifactIds(definition).stream())
+                    .collect(Collectors.toUnmodifiableSet());
             Set<String> artifactIds = new LinkedHashSet<>();
             manifest.features().stream()
                     .filter(entry -> !entry.enabled())
                     .forEach(entry -> {
-                        artifactIds.addAll(entry.pruneArtifactIds());
+                        entry.pruneArtifactIds().stream()
+                                .filter(cocoArtifactIds::contains)
+                                .forEach(artifactIds::add);
                         CocoFeatureDefinition currentDefinition = currentDefinitions.get(entry.id());
                         if (currentDefinition != null) {
-                            artifactIds.addAll(currentDefinition.pruneArtifactIds());
+                            artifactIds.addAll(StandardCocoFeatures.equivalentArtifactIds(currentDefinition));
                         }
                     });
-            return Set.copyOf(artifactIds);
+            return new PrunePlan(manifest, Set.copyOf(artifactIds));
         }
-        catch (IOException ex) {
+        catch (IOException | RuntimeException ex) {
             throw new MojoExecutionException("Failed to read Coco feature manifest: " + manifestPath, ex);
         }
     }
@@ -157,46 +168,55 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
      * @return 实际移除的嵌套依赖数量
      * @throws IOException jar 读写失败时抛出
      */
-    int pruneBootArchive(Path archivePath, Set<String> pruneArtifactIds) throws IOException {
-        List<String> sortedPruneArtifactIds = sortedPruneArtifactIds(pruneArtifactIds);
-        Path temporaryPath = Files.createTempFile(archivePath.getParent(), archivePath.getFileName().toString(), ".tmp");
-        int removed = 0;
-        boolean changed = false;
-        try (JarFile source = new JarFile(archivePath.toFile());
-                JarOutputStream target = new JarOutputStream(Files.newOutputStream(temporaryPath))) {
-            var entries = source.entries();
-            while (entries.hasMoreElements()) {
-                JarEntry entry = entries.nextElement();
-                if (shouldPrune(entry, sortedPruneArtifactIds)) {
-                    removed++;
-                    changed = true;
-                    continue;
+    int pruneBootArchive(Path archivePath, PrunePlan prunePlan) throws IOException {
+        Path temporaryPath = null;
+        try {
+            int removed = 0;
+            try (JarFile source = new JarFile(archivePath.toFile())) {
+                Set<String> pruneEntryNames = CocoBootArchivePreflight.inspect(source, prunePlan.manifest(),
+                        effectiveFeatureGroupId(), this.featureVersion, prunePlan.artifactIds()).pruneEntryNames();
+                if (pruneEntryNames.isEmpty()) {
+                    return 0;
                 }
-                boolean bootIndex = isBootIndex(entry);
-                target.putNextEntry(targetEntry(entry, !bootIndex));
-                if (bootIndex) {
-                    changed = writeFilteredBootIndex(source, entry, sortedPruneArtifactIds, target) || changed;
-                }
-                else if (!entry.isDirectory()) {
-                    try (InputStream inputStream = source.getInputStream(entry)) {
-                        copy(inputStream, target);
+                temporaryPath = Files.createTempFile(archivePath.getParent(),
+                        archivePath.getFileName().toString(), ".tmp");
+                try (JarOutputStream target = new JarOutputStream(Files.newOutputStream(temporaryPath))) {
+                    var entries = source.entries();
+                    while (entries.hasMoreElements()) {
+                        JarEntry entry = entries.nextElement();
+                        if (pruneEntryNames.contains(entry.getName())) {
+                            removed++;
+                            continue;
+                        }
+                        boolean bootIndex = isBootIndex(entry);
+                        target.putNextEntry(targetEntry(entry, !bootIndex));
+                        if (bootIndex) {
+                            writeFilteredBootIndex(source, entry, pruneEntryNames, target);
+                        }
+                        else if (!entry.isDirectory()) {
+                            try (InputStream inputStream = source.getInputStream(entry)) {
+                                copy(inputStream, target);
+                            }
+                        }
+                        target.closeEntry();
                     }
                 }
-                target.closeEntry();
             }
-        }
-        if (!changed) {
-            Files.deleteIfExists(temporaryPath);
-            return 0;
-        }
-        try {
             backupOriginalArchive(archivePath);
             Files.move(temporaryPath, archivePath, StandardCopyOption.REPLACE_EXISTING);
             return removed;
         }
         finally {
-            Files.deleteIfExists(temporaryPath);
+            if (temporaryPath != null) {
+                Files.deleteIfExists(temporaryPath);
+            }
         }
+    }
+
+    private String effectiveFeatureGroupId() {
+        return this.featureGroupId == null || this.featureGroupId.isBlank()
+                ? DEFAULT_FEATURE_GROUP_ID
+                : this.featureGroupId.trim();
     }
 
     /**
@@ -227,23 +247,6 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     /**
      * <p>
-     * 判断 jar 条目是否为被禁用功能对应的可裁剪依赖。
-     * </p>
-     * @param entry jar 条目
-     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
-     * @return 需要移除时返回 {@code true}
-     */
-    private boolean shouldPrune(JarEntry entry, List<String> pruneArtifactIds) {
-        String name = entry.getName();
-        if (!name.startsWith("BOOT-INF/lib/") || !name.endsWith(".jar")) {
-            return false;
-        }
-        String fileName = name.substring("BOOT-INF/lib/".length());
-        return shouldPruneFileName(fileName, pruneArtifactIds);
-    }
-
-    /**
-     * <p>
      * 判断 jar 条目是否为 Spring Boot classpath 或 layer 索引。
      * </p>
      * @param entry jar 条目
@@ -259,25 +262,23 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
      * </p>
      * @param source 原始 jar
      * @param entry 索引条目
-     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
+     * @param pruneEntryNames 已通过 Maven 坐标证明属于 Coco 的完整归档条目名
      * @param target 目标 jar 输出流
-     * @return 索引内容发生变化时返回 {@code true}
      * @throws IOException 索引读写失败时抛出
      */
-    private boolean writeFilteredBootIndex(JarFile source, JarEntry entry, List<String> pruneArtifactIds,
+    private void writeFilteredBootIndex(JarFile source, JarEntry entry, Set<String> pruneEntryNames,
             JarOutputStream target) throws IOException {
         String content;
         try (InputStream inputStream = source.getInputStream(entry)) {
             content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         }
         String filtered = content.lines()
-                .filter(line -> !containsDisabledFeature(line, pruneArtifactIds))
+                .filter(line -> !containsPrunedEntry(line, pruneEntryNames))
                 .collect(Collectors.joining("\n"));
         if (content.endsWith("\n") && !filtered.isEmpty()) {
             filtered = filtered + "\n";
         }
         target.write(filtered.getBytes(StandardCharsets.UTF_8));
-        return !content.equals(filtered);
     }
 
     /**
@@ -285,81 +286,19 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
      * 判断索引行是否引用被禁用功能对应的可裁剪 artifactId。
      * </p>
      * @param line 索引行
-     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
+     * @param pruneEntryNames 已通过 Maven 坐标证明属于 Coco 的完整归档条目名
      * @return 引用禁用功能模块时返回 {@code true}
      */
-    private boolean containsDisabledFeature(String line, List<String> pruneArtifactIds) {
+    private boolean containsPrunedEntry(String line, Set<String> pruneEntryNames) {
         int index = line.indexOf("BOOT-INF/lib/");
         if (index < 0) {
             return false;
         }
-        String fileName = line.substring(index + "BOOT-INF/lib/".length());
-        int endIndex = fileName.indexOf(".jar");
+        int endIndex = line.indexOf(".jar", index);
         if (endIndex < 0) {
             return false;
         }
-        return shouldPruneFileName(fileName.substring(0, endIndex + ".jar".length()), pruneArtifactIds);
-    }
-
-    /**
-     * <p>
-     * 判断 Spring Boot 嵌套 jar 文件名是否匹配可裁剪 artifactId。
-     * </p>
-     * @param fileName 嵌套 jar 文件名
-     * @param pruneArtifactIds 按长度倒序排列的可裁剪 artifactId 列表
-     * @return 需要移除时返回 {@code true}
-     */
-    private boolean shouldPruneFileName(String fileName, List<String> pruneArtifactIds) {
-        return pruneArtifactIds.stream().anyMatch(artifactId -> isArtifactJar(fileName, artifactId));
-    }
-
-    /**
-     * <p>
-     * 判断 jar 文件名是否属于指定 artifactId，避免短 artifactId 误匹配业务扩展 jar。
-     * </p>
-     * @param fileName 嵌套 jar 文件名
-     * @param artifactId Maven artifactId
-     * @return 文件名属于该 artifactId 时返回 {@code true}
-     */
-    private boolean isArtifactJar(String fileName, String artifactId) {
-        String prefix = artifactId + "-";
-        if (!fileName.startsWith(prefix) || !fileName.endsWith(".jar")) {
-            return false;
-        }
-        String version = fileName.substring(prefix.length(), fileName.length() - ".jar".length());
-        return isVersionLike(version);
-    }
-
-    /**
-     * <p>
-     * 判断文件名中的版本片段是否像 Maven 版本，降低短 artifactId 对业务扩展 jar 的误匹配概率。
-     * </p>
-     * @param version 文件名中的版本片段
-     * @return 像 Maven 版本时返回 {@code true}
-     */
-    private boolean isVersionLike(String version) {
-        if (version.isBlank()) {
-            return false;
-        }
-        char first = version.charAt(0);
-        if (Character.isDigit(first) || Character.isUpperCase(first)) {
-            return true;
-        }
-        return (version.length() > 1 && (first == 'v' || first == 'V') && Character.isDigit(version.charAt(1)))
-                || version.equals(version.toUpperCase(Locale.ROOT));
-    }
-
-    /**
-     * <p>
-     * 按 artifactId 长度倒序排列，优先匹配更具体的 artifactId。
-     * </p>
-     * @param pruneArtifactIds 可裁剪 artifactId 集合
-     * @return 排序后的 artifactId 列表
-     */
-    private List<String> sortedPruneArtifactIds(Set<String> pruneArtifactIds) {
-        return pruneArtifactIds.stream()
-                .sorted(Comparator.comparingInt(String::length).reversed())
-                .toList();
+        return pruneEntryNames.contains(line.substring(index, endIndex + ".jar".length()));
     }
 
     /**
@@ -406,5 +345,8 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
         while ((read = inputStream.read(buffer)) >= 0) {
             outputStream.write(buffer, 0, read);
         }
+    }
+
+    record PrunePlan(CocoFeatureManifest manifest, Set<String> artifactIds) {
     }
 }

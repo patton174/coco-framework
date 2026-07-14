@@ -1,0 +1,227 @@
+package io.github.coco.maven;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
+
+import javax.tools.ToolProvider;
+
+import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.feature.model.StandardCocoFeatures;
+import org.apache.maven.artifact.Artifact;
+import org.apache.maven.model.Build;
+import org.apache.maven.model.Model;
+import org.apache.maven.project.MavenProject;
+import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.resolution.ArtifactRequest;
+import org.eclipse.aether.resolution.ArtifactResult;
+import org.eclipse.aether.resolution.DependencyRequest;
+import org.eclipse.aether.resolution.DependencyResult;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.loader.tools.Library;
+import org.springframework.boot.loader.tools.LibraryScope;
+import org.springframework.boot.loader.tools.Repackager;
+
+/**
+ * 功能依赖闭包的真实 Spring Boot 可执行包回归。
+ *
+ * @author patton174
+ * @since 2.0.0
+ */
+class CocoFeatureBootRuntimeFixtureTest {
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void resolvedTransitiveDependencyIsPackagedAndLoadableAtBootRuntime() throws Exception {
+        Path featureJar = emptyJar(this.tempDir.resolve("coco-web-1.0.0-SNAPSHOT.jar"));
+        Path transitiveJar = compileJar("com.example.fixture.TransitiveMarker", """
+                package com.example.fixture;
+
+                public final class TransitiveMarker {
+                    public static String message() {
+                        return "transitive";
+                    }
+                }
+                """, this.tempDir.resolve("feature-runtime-3.2.1.jar"));
+        Path applicationJar = compileJar("com.example.fixture.BootFixtureApplication", """
+                package com.example.fixture;
+
+                public final class BootFixtureApplication {
+                    public static void main(String[] args) throws Exception {
+                        Class<?> marker = Class.forName("com.example.fixture.TransitiveMarker");
+                        Object message = marker.getMethod("message").invoke(null);
+                        System.out.println("BOOT_FIXTURE_OK:" + message);
+                    }
+                }
+                """, this.tempDir.resolve("fixture-app.jar"));
+
+        MavenProject project = project();
+        CocoFeaturesMojo mojo = mojo(project, featureJar, transitiveJar);
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        Repackager repackager = new Repackager(applicationJar.toFile());
+        repackager.setMainClass("com.example.fixture.BootFixtureApplication");
+        repackager.setBackupSource(false);
+        repackager.repackage(callback -> {
+            for (Artifact artifact : project.getArtifacts()) {
+                callback.library(new Library(artifact.getFile(), LibraryScope.RUNTIME));
+            }
+        });
+
+        try (JarFile bootJar = new JarFile(applicationJar.toFile())) {
+            Set<String> entries = bootJar.stream()
+                    .map(JarEntry::getName)
+                    .collect(java.util.stream.Collectors.toSet());
+            assertThat(entries).contains(
+                    "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
+                    "BOOT-INF/lib/feature-runtime-3.2.1.jar");
+        }
+
+        Process process = new ProcessBuilder(javaExecutable(), "-jar", applicationJar.toString())
+                .redirectErrorStream(true)
+                .start();
+        boolean completed = process.waitFor(20, TimeUnit.SECONDS);
+        if (!completed) {
+            process.destroyForcibly();
+        }
+        assertThat(completed).as("Spring Boot fixture process completed").isTrue();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(process.exitValue()).as(output).isZero();
+        assertThat(output).contains("BOOT_FIXTURE_OK:transitive");
+    }
+
+    private CocoFeaturesMojo mojo(MavenProject project, Path featureJar, Path transitiveJar) throws Exception {
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        set(mojo, "repositorySystem", repositorySystem(featureJar, transitiveJar));
+        set(mojo, "repositorySystemSession", repositorySystemSession());
+        set(mojo, "remoteRepositories", List.of());
+        return mojo;
+    }
+
+    private RepositorySystem repositorySystem(Path featureJar, Path transitiveJar) {
+        return (RepositorySystem) Proxy.newProxyInstance(
+                RepositorySystem.class.getClassLoader(), new Class<?>[] {RepositorySystem.class},
+                (proxy, method, arguments) -> {
+                    if ("resolveDependencies".equals(method.getName())) {
+                        DependencyRequest request = (DependencyRequest) arguments[1];
+                        org.eclipse.aether.artifact.Artifact direct = request.getCollectRequest()
+                                .getRoot().getArtifact().setFile(featureJar.toFile());
+                        org.eclipse.aether.artifact.Artifact transitive =
+                                new org.eclipse.aether.artifact.DefaultArtifact(
+                                        "com.example", "feature-runtime", "jar", "3.2.1")
+                                        .setFile(transitiveJar.toFile());
+                        DependencyResult result = new DependencyResult(request);
+                        result.setArtifactResults(List.of(result(direct), result(transitive)));
+                        return result;
+                    }
+                    return objectMethod(proxy, method.getName(), arguments);
+                });
+    }
+
+    private ArtifactResult result(org.eclipse.aether.artifact.Artifact artifact) {
+        return new ArtifactResult(new ArtifactRequest(artifact, List.of(), null)).setArtifact(artifact);
+    }
+
+    private RepositorySystemSession repositorySystemSession() {
+        return (RepositorySystemSession) Proxy.newProxyInstance(
+                RepositorySystemSession.class.getClassLoader(), new Class<?>[] {RepositorySystemSession.class},
+                (proxy, method, arguments) -> objectMethod(proxy, method.getName(), arguments));
+    }
+
+    private Object objectMethod(Object proxy, String methodName, Object[] arguments) {
+        return switch (methodName) {
+            case "toString" -> proxy.getClass().getInterfaces()[0].getSimpleName() + "Proxy";
+            case "hashCode" -> System.identityHashCode(proxy);
+            case "equals" -> proxy == arguments[0];
+            default -> throw new UnsupportedOperationException(methodName);
+        };
+    }
+
+    private MavenProject project() {
+        Model model = new Model();
+        model.setGroupId("com.example");
+        model.setArtifactId("boot-fixture");
+        model.setVersion("99.7.3");
+        Build build = new Build();
+        build.setDirectory(this.tempDir.resolve("target").toString());
+        build.setOutputDirectory(this.tempDir.resolve("target/classes").toString());
+        model.setBuild(build);
+        return new MavenProject(model);
+    }
+
+    private CocoFeaturePlan planWithOnly(CocoFeature feature) {
+        EnumSet<CocoFeature> disabled = EnumSet.allOf(CocoFeature.class);
+        disabled.remove(feature);
+        return new CocoFeaturePlan(Set.of(feature), disabled, StandardCocoFeatures.all());
+    }
+
+    private Path compileJar(String className, String source, Path jarPath) throws Exception {
+        Path sourceRoot = Files.createDirectories(this.tempDir.resolve(jarPath.getFileName() + "-src"));
+        Path classes = Files.createDirectories(this.tempDir.resolve(jarPath.getFileName() + "-classes"));
+        Path sourceFile = sourceRoot.resolve(className.replace('.', '/') + ".java");
+        Files.createDirectories(sourceFile.getParent());
+        Files.writeString(sourceFile, source, StandardCharsets.UTF_8);
+        int result = ToolProvider.getSystemJavaCompiler().run(null, null, null,
+                "-encoding", "UTF-8", "-d", classes.toString(), sourceFile.toString());
+        assertThat(result).isZero();
+        writeClassesJar(classes, jarPath);
+        return jarPath;
+    }
+
+    private void writeClassesJar(Path classes, Path jarPath) throws Exception {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jarPath), manifest);
+                var files = Files.walk(classes)) {
+            for (Path file : files.filter(Files::isRegularFile).toList()) {
+                String name = classes.relativize(file).toString().replace('\\', '/');
+                output.putNextEntry(new JarEntry(name));
+                Files.copy(file, output);
+                output.closeEntry();
+            }
+        }
+    }
+
+    private Path emptyJar(Path jarPath) throws Exception {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        try (JarOutputStream ignored = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
+            // Valid empty feature JAR.
+        }
+        return jarPath;
+    }
+
+    private String javaExecutable() {
+        String executable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? "java.exe"
+                : "java";
+        return Path.of(System.getProperty("java.home"), "bin", executable).toString();
+    }
+
+    private void set(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+}

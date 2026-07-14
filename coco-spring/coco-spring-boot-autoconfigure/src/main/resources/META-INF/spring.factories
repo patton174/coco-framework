@@ -3,6 +3,7 @@ org.springframework.boot.SpringApplicationRunListener=\
 io.github.coco.spring.boot.banner.CocoSpringApplicationRunListener
 
 org.springframework.boot.EnvironmentPostProcessor=\
+io.github.coco.feature.runtime.condition.CocoFeaturePlanEnvironmentPostProcessor,\
 io.github.coco.spring.boot.logging.CocoLoggingEnvironmentPostProcessor
 
 org.springframework.boot.autoconfigure.AutoConfigurationImportFilter=\

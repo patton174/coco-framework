@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.baomidou.mybatisplus.core.plugins.IgnoreStrategy;
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
@@ -25,7 +26,9 @@ import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
 import io.github.coco.feature.tenant.sql.CocoTenantIdExpressionResolver;
 import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreDecision;
 import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreEvent;
+import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreEventPublisher;
 import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreGuard;
+import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreLegacyConfigurationEvent;
 import io.github.coco.feature.tenant.sql.CocoTenantMybatisPlusAutoConfiguration;
 import io.github.coco.feature.tenant.sql.CocoTenantSqlProperties;
 import net.sf.jsqlparser.expression.LongValue;
@@ -40,6 +43,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.PayloadApplicationEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -90,6 +94,13 @@ class CocoTenantAutoConfigurationTest {
             assertEquals("Coco 租户功能消息资源已就绪。", messageService.getMessage("coco.feature.tenant.ready"));
             assertEquals("当前请求缺少租户上下文。",
                     messageService.getMessage("coco.feature.tenant.error.context-missing"));
+            assertEquals("检测到已废弃的租户旁路模式白名单，请迁移到 exact-mapped-statements：com.example.Mapper.*。",
+                    messageService.getMessage("coco.feature.tenant.warn.interceptor-ignore-legacy-patterns",
+                            "com.example.Mapper.*"));
+            assertEquals("租户旁路严格治理不允许使用已废弃的 allowed-mapped-statements：com.example.Mapper.*。",
+                    messageService.getMessage(
+                            "coco.feature.tenant.error.interceptor-ignore-legacy-patterns-strict",
+                            "com.example.Mapper.*"));
         });
     }
 
@@ -125,6 +136,7 @@ class CocoTenantAutoConfigurationTest {
             MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
 
             assertThat(context).hasSingleBean(CocoTenantIdExpressionResolver.class);
+            assertThat(context).hasSingleBean(CocoTenantInterceptorIgnoreEventPublisher.class);
             assertThat(context).hasBean("cocoTenantMybatisPlusInterceptorCustomizer");
             assertThat(interceptor.getInterceptors()).hasSize(3);
             assertThat(interceptor.getInterceptors().get(0)).isInstanceOf(CocoTenantInterceptorIgnoreGuard.class);
@@ -152,7 +164,8 @@ class CocoTenantAutoConfigurationTest {
                         "coco.tenant.sql.ignore-tables[1]=coco_dictionary",
                         "coco.tenant.sql.fail-on-missing-context=false",
                         "coco.tenant.sql.interceptor-ignore.block-unlisted=false",
-                        "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements[0]=com.example.AdminMapper.*")
+                        "coco.tenant.sql.interceptor-ignore.strict-mode=true",
+                        "coco.tenant.sql.interceptor-ignore.exact-mapped-statements[0]=com.example.AdminMapper.selectShared")
                 .run(context -> {
                     CocoTenantProperties properties = context.getBean(CocoTenantProperties.class);
                     TenantLineHandler handler = tenantLineHandler(context);
@@ -162,8 +175,9 @@ class CocoTenantAutoConfigurationTest {
                             "coco_dictionary");
                     assertThat(properties.getSql().isFailOnMissingContext()).isFalse();
                     assertThat(properties.getSql().getInterceptorIgnore().isBlockUnlisted()).isFalse();
-                    assertThat(properties.getSql().getInterceptorIgnore().getAllowedMappedStatements())
-                            .containsExactly("com.example.AdminMapper.*");
+                    assertThat(properties.getSql().getInterceptorIgnore().isStrictMode()).isTrue();
+                    assertThat(properties.getSql().getInterceptorIgnore().getExactMappedStatements())
+                            .containsExactly("com.example.AdminMapper.selectShared");
                     assertThat(handler.getTenantIdColumn()).isEqualTo("org_id");
                     assertThat(handler.ignoreTable("SYS_TENANT")).isTrue();
                     assertThat(handler.ignoreTable("business_order")).isFalse();
@@ -203,9 +217,9 @@ class CocoTenantAutoConfigurationTest {
     }
 
     @Test
-    void allowsAllowlistedTenantInterceptorIgnore() throws Exception {
+    void allowsExactAllowlistedTenantInterceptorIgnore() throws Exception {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getAllowedMappedStatements().add("com.example.AdminMapper.*");
+        properties.getInterceptorIgnore().getExactMappedStatements().add("com.example.AdminMapper.selectShared");
         List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
         CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
         MappedStatement mappedStatement = mappedStatement("com.example.AdminMapper.selectShared",
@@ -217,6 +231,21 @@ class CocoTenantAutoConfigurationTest {
         assertThat(events).singleElement()
                 .extracting(CocoTenantInterceptorIgnoreEvent::decision)
                 .isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void preservesLegacyPatternMatching() throws Exception {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().getAllowedMappedStatements().add("com.example.AdminMapper.*");
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, event -> {
+        });
+        MappedStatement mappedStatement = mappedStatement("com.example.AdminMapper.selectShared",
+                SqlCommandType.SELECT);
+
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThat(guard.willDoQuery(null, mappedStatement, null, RowBounds.DEFAULT, null, null)).isTrue();
     }
 
     @Test
@@ -234,6 +263,75 @@ class CocoTenantAutoConfigurationTest {
         assertThat(events).singleElement()
                 .extracting(CocoTenantInterceptorIgnoreEvent::decision)
                 .isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
+    }
+
+    @Test
+    void strictModeBlocksUnlistedBypassWhenCompatibilityBlockingIsDisabled() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().setBlockUnlisted(false);
+        properties.getInterceptorIgnore().setStrictMode(true);
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, event -> {
+        });
+        MappedStatement mappedStatement = mappedStatement("com.example.ReportMapper.selectAll",
+                SqlCommandType.SELECT);
+
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThatThrownBy(() -> guard.willDoQuery(null, mappedStatement, null, RowBounds.DEFAULT, null, null))
+                .isInstanceOf(CocoForbiddenException.class);
+    }
+
+    @Test
+    void doesNotAllowPrefixOrWildcardMappedStatementIds() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().getExactMappedStatements().add("com.example.AdminMapper.*");
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, event -> {
+        });
+        MappedStatement mappedStatement = mappedStatement("com.example.AdminMapper.selectShared",
+                SqlCommandType.SELECT);
+
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThatThrownBy(() -> guard.willDoQuery(null, mappedStatement, null, RowBounds.DEFAULT, null, null))
+                .isInstanceOf(CocoForbiddenException.class);
+    }
+
+    @Test
+    void publishesStartupEventForDeprecatedLegacyPatterns() {
+        List<CocoTenantInterceptorIgnoreLegacyConfigurationEvent> events = new CopyOnWriteArrayList<>();
+
+        this.mybatisContextRunner
+                .withInitializer(context -> context.addApplicationListener(event -> {
+                    if (event instanceof PayloadApplicationEvent<?> payloadEvent
+                            && payloadEvent.getPayload()
+                            instanceof CocoTenantInterceptorIgnoreLegacyConfigurationEvent legacyEvent) {
+                        events.add(legacyEvent);
+                    }
+                }))
+                .withPropertyValues(
+                        "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements[0]=com.example.AdminMapper.*")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(events).singleElement().satisfies(event -> {
+                        assertThat(event.patterns()).containsExactly("com.example.AdminMapper.*");
+                        assertThat(event.strictMode()).isFalse();
+                    });
+                });
+    }
+
+    @Test
+    void strictModeRejectsDeprecatedLegacyPatternsAtStartup() {
+        this.mybatisContextRunner
+                .withPropertyValues(
+                        "coco.tenant.sql.interceptor-ignore.strict-mode=true",
+                        "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements[0]=com.example.AdminMapper.*")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessage("租户旁路严格治理不允许使用已废弃的 "
+                                    + "allowed-mapped-statements：com.example.AdminMapper.*。");
+                });
     }
 
     @Test

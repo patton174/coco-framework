@@ -1,5 +1,7 @@
 package io.github.coco.feature.audit;
 
+import java.time.Duration;
+
 import io.github.coco.logging.core.CocoLogLevel;
 import io.github.coco.feature.audit.core.CocoAuditFailurePolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -30,6 +32,9 @@ public class CocoAuditProperties {
 
     @NestedConfigurationProperty
     private LoggingProperties logging = new LoggingProperties();
+
+    @NestedConfigurationProperty
+    private AsyncProperties async = new AsyncProperties();
 
     @NestedConfigurationProperty
     private AccessLogProperties accessLog = new AccessLogProperties();
@@ -92,6 +97,26 @@ public class CocoAuditProperties {
      */
     public void setLogging(LoggingProperties logging) {
         this.logging = logging == null ? new LoggingProperties() : logging;
+    }
+
+    /**
+     * <p>
+     * 返回异步审计发布配置。
+     * </p>
+     * @return 异步审计发布配置
+     */
+    public AsyncProperties getAsync() {
+        return this.async;
+    }
+
+    /**
+     * <p>
+     * 设置异步审计发布配置。
+     * </p>
+     * @param async 异步审计发布配置
+     */
+    public void setAsync(AsyncProperties async) {
+        this.async = async == null ? new AsyncProperties() : async;
     }
 
     /**
@@ -203,6 +228,95 @@ public class CocoAuditProperties {
          */
         public void setLevel(CocoLogLevel level) {
             this.level = level == null ? CocoLogLevel.INFO : level;
+        }
+    }
+
+    /**
+     * Coco 异步审计发布配置。
+     * <p>
+     * 异步模式使用进程内有界队列；应用上下文关闭时会在指定时限内排空已接收事件。
+     * </p>
+     *
+     * @author patton174
+     * @since 1.0.0
+     */
+    public static class AsyncProperties {
+
+        /**
+         * 默认队列容量。
+         */
+        public static final int DEFAULT_QUEUE_CAPACITY = 1024;
+
+        /**
+         * 默认关闭排空等待时长。
+         */
+        public static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
+
+        private boolean enabled;
+
+        private int queueCapacity = DEFAULT_QUEUE_CAPACITY;
+
+        private Duration shutdownTimeout = DEFAULT_SHUTDOWN_TIMEOUT;
+
+        /**
+         * <p>
+         * 返回是否启用异步审计发布。
+         * </p>
+         * @return 启用时返回 {@code true}
+         */
+        public boolean isEnabled() {
+            return this.enabled;
+        }
+
+        /**
+         * <p>
+         * 设置是否启用异步审计发布。
+         * </p>
+         * @param enabled 是否启用
+         */
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        /**
+         * <p>
+         * 返回异步审计队列容量。
+         * </p>
+         * @return 队列容量
+         */
+        public int getQueueCapacity() {
+            return this.queueCapacity;
+        }
+
+        /**
+         * <p>
+         * 设置异步审计队列容量。
+         * </p>
+         * @param queueCapacity 队列容量
+         */
+        public void setQueueCapacity(int queueCapacity) {
+            this.queueCapacity = queueCapacity > 0 ? queueCapacity : DEFAULT_QUEUE_CAPACITY;
+        }
+
+        /**
+         * <p>
+         * 返回应用关闭时等待异步队列排空的时长。
+         * </p>
+         * @return 关闭排空等待时长
+         */
+        public Duration getShutdownTimeout() {
+            return this.shutdownTimeout;
+        }
+
+        /**
+         * <p>
+         * 设置应用关闭时等待异步队列排空的时长。
+         * </p>
+         * @param shutdownTimeout 关闭排空等待时长
+         */
+        public void setShutdownTimeout(Duration shutdownTimeout) {
+            this.shutdownTimeout = shutdownTimeout == null || shutdownTimeout.isNegative()
+                    || shutdownTimeout.isZero() ? DEFAULT_SHUTDOWN_TIMEOUT : shutdownTimeout;
         }
     }
 

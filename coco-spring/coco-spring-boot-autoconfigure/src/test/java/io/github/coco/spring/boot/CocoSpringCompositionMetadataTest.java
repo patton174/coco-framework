@@ -64,7 +64,8 @@ class CocoSpringCompositionMetadataTest {
 
         assertEquals("io.github.coco.spring.boot.banner.CocoSpringApplicationRunListener",
                 factories.getProperty("org.springframework.boot.SpringApplicationRunListener"));
-        assertEquals("io.github.coco.spring.boot.logging.CocoLoggingEnvironmentPostProcessor",
+        assertEquals("io.github.coco.feature.runtime.condition.CocoFeaturePlanEnvironmentPostProcessor,"
+                        + "io.github.coco.spring.boot.logging.CocoLoggingEnvironmentPostProcessor",
                 factories.getProperty("org.springframework.boot.EnvironmentPostProcessor"));
         assertEquals("io.github.coco.feature.runtime.autoconfigure.CocoFeatureAutoConfigurationImportFilter",
                 factories.getProperty("org.springframework.boot.autoconfigure.AutoConfigurationImportFilter"));
