@@ -19,12 +19,11 @@ The auto-configuration runs before the Web default store. It registers only when
 ## Reservation Protocol
 
 1. Open one Redis connection.
-2. Read Redis server time with structured `TIME` API in milliseconds.
-3. Subtract the server time from the absolute `expiresAt`. A non-positive TTL returns `false` without a write.
-4. Execute structured single-key `SET` with `PX` TTL and `NX` option on that same connection.
-5. Close the connection.
+2. Execute one structured single-key Lua `EVAL` invocation. The script first enables effects replication, reads Redis `TIME`, rejects an already-expired deadline, and executes `SET` with `PX` TTL and `NX`.
+3. The script declares exactly one key, so in Redis Cluster its time decision and key write execute on the same key-owning node.
+4. Close the connection.
 
-The `SET NX` result is the only reservation result: `true` reserves the key, `false` means an unexpired reservation already exists. Redis itself owns expiry, so no client cleanup task, clock, script, multi-key operation, or command-string construction is used. Single-key operations are valid for Redis Cluster routing.
+The script result is the only reservation result: `1` reserves the key and `0` means an expired deadline or an unexpired reservation already exists. Redis itself owns expiry, so no client cleanup task, client clock, multi-key operation, or command-string construction is used. Decimal-string TTL subtraction avoids Lua floating-point precision loss at the Redis `PX` boundary. Single-key operations are valid for Redis Cluster routing.
 
 Every infrastructure failure, unavailable connection, missing server time, null command result, close failure, or use after store close propagates as an exception. The adapter never converts those conditions into a duplicate result.
 
@@ -34,4 +33,4 @@ Redis keys are exactly `coco:replay:` followed by the lowercase SHA-256 hexadeci
 
 ## Verification
 
-Protocol tests use a strict fake `RedisConnectionFactory`. It permits only `TIME(MILLISECONDS)`, `SET key value PX ttl NX`, and `close`, rejects all other connection operations, and records the exact byte-level command sequence. Tests cover atomic concurrent contention, Redis Cluster single-key routing, expiry, 1ms and maximum TTL boundaries, key material, binary value, TIME failure, SET timeout, connection interruption, close failures, closed-store behavior, custom-store backoff, explicit enablement, and absent Spring Data Redis.
+Protocol tests use a strict fake `RedisConnectionFactory`. It permits only a one-key `EVAL` carrying the fixed script and `close`, rejects all other connection operations, and records the exact byte-level command sequence. Tests cover atomic concurrent contention, Redis Cluster single-key routing, key-node clock skew, expiry, 1ms and maximum TTL boundaries, key material, binary value, script timeout, connection interruption, close failures, closed-store behavior, custom-store backoff, explicit enablement, and absent Spring Data Redis.

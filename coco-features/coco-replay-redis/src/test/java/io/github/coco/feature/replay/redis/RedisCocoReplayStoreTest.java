@@ -25,17 +25,15 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.connection.RedisServerCommands;
-import org.springframework.data.redis.connection.RedisStringCommands;
-import org.springframework.data.redis.connection.SetCondition;
-import org.springframework.data.redis.core.types.Expiration;
+import org.springframework.data.redis.connection.RedisScriptingCommands;
+import org.springframework.data.redis.connection.ReturnType;
 
 class RedisCocoReplayStoreTest {
 
     private static final long BASE_TIME_MILLIS = Instant.parse("2026-01-01T00:00:00Z").toEpochMilli();
 
     @Test
-    void reservesOnceUsingServerTimeAndAtomicSetNxWithTtl() throws Exception {
+    void reservesOnceUsingSingleKeyAtomicScript() throws Exception {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
         RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
         CocoReplayKey key = key("sensitive-nonce");
@@ -43,24 +41,39 @@ class RedisCocoReplayStoreTest {
         assertThat(store.reserve(key, Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000))).isTrue();
         assertThat(store.reserve(key, Instant.ofEpochMilli(BASE_TIME_MILLIS + 120_000))).isFalse();
 
-        List<SetCommand> commands = factory.commands();
+        List<EvalCommand> commands = factory.commands();
         assertThat(commands).hasSize(2);
-        SetCommand firstCommand = commands.get(0);
+        EvalCommand firstCommand = commands.get(0);
         assertThat(firstCommand.key()).isEqualTo(expectedRedisKey(key));
+        assertThat(firstCommand.keyCount()).isOne();
+        assertThat(firstCommand.returnType()).isEqualTo(ReturnType.INTEGER);
+        assertThat(firstCommand.deadline()).isEqualTo(Long.toString(BASE_TIME_MILLIS + 60_000)
+                .getBytes(StandardCharsets.UTF_8));
         assertThat(firstCommand.value()).containsExactly((byte) 1);
         assertThat(firstCommand.ttlMillis()).isEqualTo(60_000);
-        assertThat(firstCommand.condition().getKeyCondition())
-                .isEqualTo(SetCondition.ifAbsent().getKeyCondition());
         assertThat(new String(firstCommand.key(), StandardCharsets.UTF_8))
                 .doesNotContain(key.appId(), key.keyId(), key.timestamp(), key.nonce(), key.method(), key.path());
-        assertThat(factory.events()).containsExactly(
-                ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.SET_NX_PX, ProtocolEvent.CLOSE,
-                ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.SET_NX_PX, ProtocolEvent.CLOSE);
+        assertThat(factory.events()).containsExactly(ProtocolEvent.EVAL_ONE_KEY, ProtocolEvent.CLOSE,
+                ProtocolEvent.EVAL_ONE_KEY, ProtocolEvent.CLOSE);
         assertThat(factory.connectionCloseCount()).isEqualTo(2);
     }
 
     @Test
-    void allowsReservationAfterServerSideExpiration() {
+    void scriptContainsTimeAndSetNxPxWithoutDynamicKeyMaterial() {
+        StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
+        CocoReplayKey key = key("no-script-leak");
+
+        assertThat(new RedisCocoReplayStore(factory).reserve(key,
+                Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000))).isTrue();
+
+        String script = new String(factory.commands().get(0).script(), StandardCharsets.UTF_8);
+        assertThat(script).contains("redis.replicate_commands()", "redis.call('TIME')", "KEYS[1]", "ARGV[1]",
+                "ARGV[2]", "'NX'", "'PX'")
+                .doesNotContain(key.appId(), key.keyId(), key.timestamp(), key.nonce(), key.method(), key.path());
+    }
+
+    @Test
+    void allowsReservationAfterKeyNodeExpiration() {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
         RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
         CocoReplayKey key = key("expired");
@@ -72,15 +85,23 @@ class RedisCocoReplayStoreTest {
     }
 
     @Test
-    void rejectsAlreadyExpiredDeadlineWithoutIssuingSet() {
+    void rejectsAlreadyExpiredDeadlineWithinAtomicScript() {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
         RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
 
         assertThat(store.reserve(key("past"), Instant.ofEpochMilli(BASE_TIME_MILLIS))).isFalse();
 
-        assertThat(factory.commands()).isEmpty();
-        assertThat(factory.events()).containsExactly(ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.CLOSE);
-        assertThat(factory.connectionCloseCount()).isEqualTo(1);
+        assertThat(factory.commands()).hasSize(1);
+        assertThat(factory.events()).containsExactly(ProtocolEvent.EVAL_ONE_KEY, ProtocolEvent.CLOSE);
+    }
+
+    @Test
+    void rejectsNegativeDeadlineWithinAtomicScript() {
+        StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
+
+        assertThat(new RedisCocoReplayStore(factory).reserve(key("negative"), Instant.ofEpochMilli(Long.MIN_VALUE)))
+                .isFalse();
+        assertThat(factory.commands()).hasSize(1);
     }
 
     @Test
@@ -91,24 +112,12 @@ class RedisCocoReplayStoreTest {
         assertThat(store.reserve(key("one-millisecond"), Instant.ofEpochMilli(BASE_TIME_MILLIS + 1))).isTrue();
         assertThat(store.reserve(key("maximum"), Instant.ofEpochMilli(Long.MAX_VALUE))).isTrue();
 
-        assertThat(factory.commands()).extracting(SetCommand::ttlMillis)
+        assertThat(factory.commands()).extracting(EvalCommand::ttlMillis)
                 .containsExactly(1L, Long.MAX_VALUE - BASE_TIME_MILLIS);
     }
 
     @Test
-    void ttlUnderflowFailsClosedWithoutSendingSet() {
-        StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
-        RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
-
-        assertThatThrownBy(() -> store.reserve(key("underflow"), Instant.ofEpochMilli(Long.MIN_VALUE)))
-                .isInstanceOf(ArithmeticException.class);
-
-        assertThat(factory.commands()).isEmpty();
-        assertThat(factory.events()).containsExactly(ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.CLOSE);
-    }
-
-    @Test
-    void usesOneNamespacedHashedKeyForRedisClusterRouting() {
+    void usesExactlyOneNamespacedHashedKeyForRedisClusterRouting() {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
         RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
         CocoReplayKey key = key("cluster-sensitive");
@@ -118,8 +127,21 @@ class RedisCocoReplayStoreTest {
         byte[] redisKey = factory.commands().get(0).key();
         assertThat(new String(redisKey, StandardCharsets.UTF_8)).matches("coco:replay:[0-9a-f]{64}");
         assertThat(redisClusterSlot(redisKey)).isBetween(0, 16_383);
-        assertThat(factory.events()).containsExactly(
-                ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.SET_NX_PX, ProtocolEvent.CLOSE);
+        assertThat(factory.clusterConnectionRequested()).isFalse();
+    }
+
+    @Test
+    void computesTtlFromTheOwningClusterNodeClock() throws Exception {
+        StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
+        CocoReplayKey key = key("node-clock");
+        int slot = redisClusterSlot(expectedRedisKey(key));
+        factory.setServerTimeMillisForSlot(slot, BASE_TIME_MILLIS + 59_000);
+
+        assertThat(new RedisCocoReplayStore(factory).reserve(key,
+                Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000))).isTrue();
+
+        assertThat(factory.commands().get(0).nodeTimeMillis()).isEqualTo(BASE_TIME_MILLIS + 59_000);
+        assertThat(factory.commands().get(0).ttlMillis()).isEqualTo(1_000);
     }
 
     @Test
@@ -159,64 +181,65 @@ class RedisCocoReplayStoreTest {
     void connectionFailuresPropagateAndNeverBecomeDuplicateResults() {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
         factory.failConnectionAcquisition();
-        RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
 
-        assertThatThrownBy(() -> store.reserve(key("connection-failure"),
+        assertThatThrownBy(() -> new RedisCocoReplayStore(factory).reserve(key("connection-failure"),
                 Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
                 .isInstanceOf(DataAccessResourceFailureException.class);
         assertThat(factory.commands()).isEmpty();
         assertThat(factory.events()).isEmpty();
-        assertThat(factory.connectionCloseCount()).isZero();
     }
 
     @Test
-    void serverTimeFailureClosesConnectionAndFailsClosed() {
+    void scriptTimeoutClosesConnectionAndFailsClosed() {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
-        factory.failServerTime(new QueryTimeoutException("Redis TIME timed out"));
-        RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
+        factory.failEval(new QueryTimeoutException("Redis script timed out"));
 
-        assertThatThrownBy(() -> store.reserve(key("time-timeout"), Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
+        assertThatThrownBy(() -> new RedisCocoReplayStore(factory).reserve(key("script-timeout"),
+                Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
                 .isInstanceOf(QueryTimeoutException.class);
-
-        assertThat(factory.commands()).isEmpty();
-        assertThat(factory.events()).containsExactly(ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.CLOSE);
+        assertThat(factory.events()).containsExactly(ProtocolEvent.EVAL_ONE_KEY, ProtocolEvent.CLOSE);
     }
 
     @Test
-    void setTimeoutClosesConnectionAndFailsClosed() {
+    void scriptConnectionInterruptionClosesConnectionAndFailsClosed() {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
-        factory.failSet(new QueryTimeoutException("Redis SET timed out"));
-        RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
+        factory.failEval(new DataAccessResourceFailureException("Redis connection interrupted"));
 
-        assertThatThrownBy(() -> store.reserve(key("set-timeout"), Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
-                .isInstanceOf(QueryTimeoutException.class);
-
-        assertThat(factory.commands()).hasSize(1);
-        assertThat(factory.events()).containsExactly(
-                ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.SET_NX_PX, ProtocolEvent.CLOSE);
-    }
-
-    @Test
-    void setConnectionInterruptionClosesConnectionAndFailsClosed() {
-        StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
-        factory.failSet(new DataAccessResourceFailureException("Redis connection interrupted"));
-        RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
-
-        assertThatThrownBy(() -> store.reserve(key("set-interrupted"),
+        assertThatThrownBy(() -> new RedisCocoReplayStore(factory).reserve(key("script-interrupted"),
                 Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
                 .isInstanceOf(DataAccessResourceFailureException.class);
+        assertThat(factory.events()).containsExactly(ProtocolEvent.EVAL_ONE_KEY, ProtocolEvent.CLOSE);
+    }
 
-        assertThat(factory.events()).containsExactly(
-                ProtocolEvent.TIME_MILLISECONDS, ProtocolEvent.SET_NX_PX, ProtocolEvent.CLOSE);
+    @Test
+    void unexpectedScriptResultFailsClosed() {
+        StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
+        factory.setEvalResult(2L);
+
+        assertThatThrownBy(() -> new RedisCocoReplayStore(factory).reserve(key("unexpected-result"),
+                Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no result");
+    }
+
+    @Test
+    void nullScriptResultFailsClosed() {
+        StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
+        factory.setEvalResult(null);
+
+        assertThatThrownBy(() -> new RedisCocoReplayStore(factory).reserve(key("null-result"),
+                Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no result");
     }
 
     @Test
     void closeFailurePropagatesAfterReservationAttempt() {
         StrictRedisConnectionFactory factory = new StrictRedisConnectionFactory(BASE_TIME_MILLIS);
         factory.failConnectionClose();
-        RedisCocoReplayStore store = new RedisCocoReplayStore(factory);
 
-        assertThatThrownBy(() -> store.reserve(key("close-failure"), Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
+        assertThatThrownBy(() -> new RedisCocoReplayStore(factory).reserve(key("close-failure"),
+                Instant.ofEpochMilli(BASE_TIME_MILLIS + 60_000)))
                 .isInstanceOf(DataAccessResourceFailureException.class);
         assertThat(factory.commands()).hasSize(1);
     }
@@ -257,28 +280,31 @@ class RedisCocoReplayStoreTest {
 
     private enum ProtocolEvent {
 
-        TIME_MILLISECONDS,
-
-        SET_NX_PX,
+        EVAL_ONE_KEY,
 
         CLOSE
     }
 
-    private record SetCommand(byte[] key, byte[] value, long ttlMillis, SetCondition condition) {
+    private record EvalCommand(byte[] script, ReturnType returnType, int keyCount, byte[] key, byte[] deadline,
+            byte[] value, long ttlMillis, long nodeTimeMillis) {
 
-        private SetCommand {
+        private EvalCommand {
+            script = Arrays.copyOf(script, script.length);
             key = Arrays.copyOf(key, key.length);
+            deadline = Arrays.copyOf(deadline, deadline.length);
             value = Arrays.copyOf(value, value.length);
         }
     }
 
     private static final class StrictRedisConnectionFactory implements RedisConnectionFactory {
 
-        private final AtomicLong serverTimeMillis;
+        private final AtomicLong defaultServerTimeMillis;
+
+        private final ConcurrentHashMap<Integer, Long> serverTimesBySlot = new ConcurrentHashMap<>();
 
         private final ConcurrentHashMap<ByteArrayKey, Long> reservations = new ConcurrentHashMap<>();
 
-        private final List<SetCommand> commands = new java.util.concurrent.CopyOnWriteArrayList<>();
+        private final List<EvalCommand> commands = new java.util.concurrent.CopyOnWriteArrayList<>();
 
         private final List<ProtocolEvent> events = new java.util.concurrent.CopyOnWriteArrayList<>();
 
@@ -290,12 +316,16 @@ class RedisCocoReplayStoreTest {
 
         private volatile boolean connectionCloseFails;
 
-        private volatile RuntimeException serverTimeFailure;
+        private volatile RuntimeException evalFailure;
 
-        private volatile RuntimeException setFailure;
+        private volatile Long evalResult;
+
+        private volatile boolean evalResultConfigured;
+
+        private volatile boolean clusterConnectionRequested;
 
         private StrictRedisConnectionFactory(long serverTimeMillis) {
-            this.serverTimeMillis = new AtomicLong(serverTimeMillis);
+            this.defaultServerTimeMillis = new AtomicLong(serverTimeMillis);
         }
 
         @Override
@@ -306,8 +336,7 @@ class RedisCocoReplayStoreTest {
             this.connectionCount.incrementAndGet();
             return (RedisConnection) Proxy.newProxyInstance(RedisConnection.class.getClassLoader(),
                     new Class<?>[] { RedisConnection.class }, (proxy, method, arguments) -> switch (method.getName()) {
-                        case "serverCommands" -> serverCommands();
-                        case "stringCommands" -> stringCommands();
+                        case "scriptingCommands" -> scriptingCommands();
                         case "close" -> {
                             closeConnection();
                             yield null;
@@ -325,6 +354,7 @@ class RedisCocoReplayStoreTest {
 
         @Override
         public org.springframework.data.redis.connection.RedisClusterConnection getClusterConnection() {
+            this.clusterConnectionRequested = true;
             throw new AssertionError("Cluster multi-key connection must not be requested");
         }
 
@@ -338,58 +368,78 @@ class RedisCocoReplayStoreTest {
             return null;
         }
 
-        private RedisServerCommands serverCommands() {
-            return (RedisServerCommands) Proxy.newProxyInstance(RedisServerCommands.class.getClassLoader(),
-                    new Class<?>[] { RedisServerCommands.class }, (proxy, method, arguments) -> {
-                        if (method.getName().equals("time") && arguments != null && arguments.length == 1
-                                && arguments[0] == TimeUnit.MILLISECONDS) {
-                            this.events.add(ProtocolEvent.TIME_MILLISECONDS);
-                            if (this.serverTimeFailure != null) {
-                                throw this.serverTimeFailure;
-                            }
-                            return this.serverTimeMillis.get();
+        private RedisScriptingCommands scriptingCommands() {
+            return (RedisScriptingCommands) Proxy.newProxyInstance(RedisScriptingCommands.class.getClassLoader(),
+                    new Class<?>[] { RedisScriptingCommands.class }, (proxy, method, arguments) -> {
+                        if (!method.getName().equals("eval") || arguments == null || arguments.length != 4) {
+                            throw new AssertionError("Unexpected Redis scripting operation: " + method);
                         }
-                        throw new AssertionError("Unexpected Redis server operation: " + method);
+                        byte[] script = (byte[]) arguments[0];
+                        ReturnType returnType = (ReturnType) arguments[1];
+                        int keyCount = (int) arguments[2];
+                        byte[][] keysAndArgs = (byte[][]) arguments[3];
+                        return eval(script, returnType, keyCount, keysAndArgs);
                     });
         }
 
-        private RedisStringCommands stringCommands() {
-            return (RedisStringCommands) Proxy.newProxyInstance(RedisStringCommands.class.getClassLoader(),
-                    new Class<?>[] { RedisStringCommands.class }, (proxy, method, arguments) -> {
-                        if (!method.getName().equals("set") || arguments == null || arguments.length != 4) {
-                            throw new AssertionError("Unexpected Redis string operation: " + method);
-                        }
-                        byte[] key = (byte[]) arguments[0];
-                        byte[] value = (byte[]) arguments[1];
-                        SetCondition condition = (SetCondition) arguments[2];
-                        Expiration expiration = (Expiration) arguments[3];
-                        if (condition.getKeyCondition() != SetCondition.ifAbsent().getKeyCondition()) {
-                            throw new AssertionError("Redis reservation must use SET NX");
-                        }
-                        long ttlMillis = expiration.getExpirationTimeInMilliseconds();
-                        if (ttlMillis <= 0) {
-                            throw new AssertionError("Redis reservation must use a positive TTL");
-                        }
-                        this.commands.add(new SetCommand(key, value, ttlMillis, condition));
-                        this.events.add(ProtocolEvent.SET_NX_PX);
-                        if (this.setFailure != null) {
-                            throw this.setFailure;
-                        }
-                        return reserve(key, ttlMillis);
-                    });
+        private Long eval(byte[] script, ReturnType returnType, int keyCount, byte[][] keysAndArgs) {
+            if (returnType != ReturnType.INTEGER || keyCount != 1 || keysAndArgs.length != 3) {
+                throw new AssertionError("Redis replay must use one-key EVAL with integer result");
+            }
+            validateScript(script);
+            byte[] key = keysAndArgs[0];
+            byte[] deadline = keysAndArgs[1];
+            byte[] value = keysAndArgs[2];
+            if (!Arrays.equals(value, new byte[] { 1 })) {
+                throw new AssertionError("Redis replay must use the fixed binary reservation value");
+            }
+            long nodeTimeMillis = serverTimeMillis(key);
+            long ttlMillis = ttlMillis(deadline, nodeTimeMillis);
+            this.commands.add(new EvalCommand(script, returnType, keyCount, key, deadline, value, ttlMillis,
+                    nodeTimeMillis));
+            this.events.add(ProtocolEvent.EVAL_ONE_KEY);
+            if (this.evalFailure != null) {
+                throw this.evalFailure;
+            }
+            if (this.evalResultConfigured) {
+                return this.evalResult;
+            }
+            return ttlMillis <= 0 ? 0L : reserve(key, ttlMillis, nodeTimeMillis) ? 1L : 0L;
         }
 
-        private boolean reserve(byte[] key, long ttlMillis) {
+        private static void validateScript(byte[] script) {
+            String source = new String(script, StandardCharsets.UTF_8);
+            if (!source.contains("redis.replicate_commands()") || !source.contains("redis.call('TIME')")
+                    || !source.contains("KEYS[1]")
+                    || !source.contains("ARGV[1]") || !source.contains("ARGV[2]")
+                    || !source.contains("'NX'") || !source.contains("'PX'")) {
+                throw new AssertionError("Redis replay must use the fixed atomic TIME plus SET NX PX script");
+            }
+        }
+
+        private static long ttlMillis(byte[] deadline, long nodeTimeMillis) {
+            long deadlineMillis = Long.parseLong(new String(deadline, StandardCharsets.UTF_8));
+            if (deadlineMillis <= nodeTimeMillis) {
+                return 0;
+            }
+            return Math.subtractExact(deadlineMillis, nodeTimeMillis);
+        }
+
+        private boolean reserve(byte[] key, long ttlMillis, long nodeTimeMillis) {
             ByteArrayKey keyCopy = new ByteArrayKey(key);
-            long expiresAtMillis = Math.addExact(this.serverTimeMillis.get(), ttlMillis);
+            long expiresAtMillis = Math.addExact(nodeTimeMillis, ttlMillis);
             synchronized (this.reservations) {
                 Long currentExpiresAtMillis = this.reservations.get(keyCopy);
-                if (currentExpiresAtMillis != null && currentExpiresAtMillis > this.serverTimeMillis.get()) {
+                if (currentExpiresAtMillis != null && currentExpiresAtMillis > nodeTimeMillis) {
                     return false;
                 }
                 this.reservations.put(keyCopy, expiresAtMillis);
                 return true;
             }
+        }
+
+        private long serverTimeMillis(byte[] key) {
+            return this.serverTimesBySlot.getOrDefault(redisClusterSlot(key), this.defaultServerTimeMillis.get());
         }
 
         private void closeConnection() {
@@ -401,7 +451,11 @@ class RedisCocoReplayStoreTest {
         }
 
         private void setServerTimeMillis(long serverTimeMillis) {
-            this.serverTimeMillis.set(serverTimeMillis);
+            this.defaultServerTimeMillis.set(serverTimeMillis);
+        }
+
+        private void setServerTimeMillisForSlot(int slot, long serverTimeMillis) {
+            this.serverTimesBySlot.put(slot, serverTimeMillis);
         }
 
         private void failConnectionAcquisition() {
@@ -412,15 +466,16 @@ class RedisCocoReplayStoreTest {
             this.connectionCloseFails = true;
         }
 
-        private void failServerTime(RuntimeException failure) {
-            this.serverTimeFailure = failure;
+        private void failEval(RuntimeException failure) {
+            this.evalFailure = failure;
         }
 
-        private void failSet(RuntimeException failure) {
-            this.setFailure = failure;
+        private void setEvalResult(Long result) {
+            this.evalResult = result;
+            this.evalResultConfigured = true;
         }
 
-        private List<SetCommand> commands() {
+        private List<EvalCommand> commands() {
             return this.commands;
         }
 
@@ -434,6 +489,10 @@ class RedisCocoReplayStoreTest {
 
         private int connectionCloseCount() {
             return this.connectionCloseCount.get();
+        }
+
+        private boolean clusterConnectionRequested() {
+            return this.clusterConnectionRequested;
         }
     }
 
