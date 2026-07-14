@@ -16,12 +16,15 @@ import io.github.coco.observability.logging.CocoObservabilityAsyncLogDropListene
 import io.github.coco.observability.actuator.CocoActuatorHealthEndpoint;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.actuate.info.Info;
 import org.springframework.boot.actuate.info.InfoContributor;
@@ -194,8 +197,23 @@ class CocoObservabilityAutoConfigurationTest {
     }
 
     @Test
+    void keepsLegacyLogDropListenerConstructorLinkableAndBehaviorCompatible() throws Throwable {
+        AtomicInteger dropCount = new AtomicInteger();
+        MethodHandle constructor = MethodHandles.publicLookup().findConstructor(
+                CocoObservabilityAsyncLogDropListener.class,
+                MethodType.methodType(void.class, CocoLogOverflowObservation.class));
+        CocoObservabilityAsyncLogDropListener listener = (CocoObservabilityAsyncLogDropListener) constructor.invokeExact(
+                (CocoLogOverflowObservation) dropCount::incrementAndGet);
+
+        listener.onDropped(CocoLogLevel.INFO, "legacy", 1L);
+
+        assertThat(dropCount).hasValue(1);
+    }
+
+    @Test
     void composesWithStandardLoggingAutoConfigurationAndCountsEachRealDropOnce() throws Exception {
         this.standardLoggingContextRunner.run(context -> {
+            assertThat(context).hasSingleBean(CocoAsyncLogDropListener.class);
             CocoAsyncLogDropListener listener = context.getBean(CocoAsyncLogDropListener.class);
             assertThat(listener).isInstanceOf(CocoObservabilityAsyncLogDropListener.class);
 
@@ -229,14 +247,17 @@ class CocoObservabilityAutoConfigurationTest {
     }
 
     @Test
-    void standardLoggingAutoConfigurationKeepsUserLogListenerOverride() {
+    void standardLoggingAutoConfigurationComposesUserLogListenerWithObservation() {
         CustomLogListenerConfiguration.dropCount.set(0);
         this.standardLoggingContextRunner.withUserConfiguration(CustomLogListenerConfiguration.class).run(context -> {
             CocoAsyncLogDropListener listener = context.getBean(CocoAsyncLogDropListener.class);
-            assertThat(listener).isSameAs(CustomLogListenerConfiguration.listener);
+            assertThat(listener).isInstanceOf(CocoObservabilityAsyncLogDropListener.class);
+            assertThat(context.getBeansOfType(CocoAsyncLogDropListener.class)).hasSize(2)
+                    .containsValue(CustomLogListenerConfiguration.listener);
             listener.onDropped(CocoLogLevel.INFO, "custom", 1L);
             assertThat(CustomLogListenerConfiguration.dropCount).hasValue(1);
-            assertThat(context.getBean(SimpleMeterRegistry.class).find("coco.logging.dropped").meters()).isEmpty();
+            assertThat(context.getBean(SimpleMeterRegistry.class).get("coco.logging.dropped")
+                    .tag("outcome", "dropped").counter().count()).isEqualTo(1.0);
         });
     }
 

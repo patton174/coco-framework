@@ -28,9 +28,11 @@ Audit uses the existing `CocoAuditRecorder` composition point. The observability
 auto-configuration so the standard audit recorder remains available; the composite publisher sees both recorders.
 Async logging uses the existing `CocoAsyncLogDropListener` hook and preserves the normal SLF4J overflow diagnostic.
 The logging-only auto-configuration is ordered before `CocoCommonLoggingAutoConfiguration`: with no business listener,
-it becomes the single listener and the standard default backs off. A business supplied listener is discovered first and
-prevents both defaults from being created. The composed listener looks up the metric observation lazily, so it receives
-each confirmed drop once without introducing an auto-configuration ordering cycle.
+its primary composite listener preserves the standard SLF4J diagnostic and the standard default backs off. Business
+listeners remain available as delegates of that primary composite listener, while the metric observation is looked up
+lazily and receives each confirmed drop exactly once without introducing an auto-configuration ordering cycle. The
+public `CocoObservabilityAsyncLogDropListener(CocoLogOverflowObservation)` constructor remains the fixed-observation
+compatibility path and preserves its original diagnostic-plus-observation behavior.
 
 There is no replay result hook and no rate-limiter event source in the baseline. The module therefore provides
 `CocoReplayObservation` and `CocoRateLimitObservation` small adapter SPIs. A replay store/filter or rate limiter must
@@ -56,8 +58,9 @@ replace the status source through `CocoObservabilityStatusProvider`, feature-pla
 - `coco.observability.metrics.audit-enabled`, `replay-enabled`, `rate-limit-enabled`, and `log-overflow-enabled`
   control each binder independently.
 - `coco.observability.health.enabled=false` and `coco.observability.info.enabled=false` disable their endpoints.
-- A user supplied `CocoObservationRecorder`, observation SPI, `CocoAsyncLogDropListener`, status provider, or named
-  endpoint bean replaces the module default for that contract.
+- A user supplied `CocoObservationRecorder`, observation SPI, status provider, or named endpoint bean replaces the module
+  default for that contract. User supplied `CocoAsyncLogDropListener` beans are ordered delegates of the observability
+  composite so custom handling and the bounded drop metric both remain active.
 
 The module does not add automatic HTTP endpoint exposure or management security rules. Operators continue to control
 Actuator endpoint exposure and access using Spring Boot configuration.

@@ -1,5 +1,6 @@
 package io.github.coco.observability;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -24,14 +25,20 @@ public class CocoObservabilityProperties {
         this.enabled = enabled;
     }
 
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Spring Boot nested configuration requires the live mutable JavaBean instance")
     public MetricsProperties getMetrics() {
         return this.metrics;
     }
 
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Spring Boot nested configuration requires the live mutable JavaBean instance")
     public EndpointProperties getHealth() {
         return this.health;
     }
 
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Spring Boot nested configuration requires the live mutable JavaBean instance")
     public EndpointProperties getInfo() {
         return this.info;
     }
