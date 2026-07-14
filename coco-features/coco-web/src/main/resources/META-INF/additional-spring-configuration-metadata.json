@@ -3,13 +3,13 @@
     {
       "name": "coco.web.trace.max-length",
       "type": "java.lang.Integer",
-      "description": "允许从请求头接收的 TraceId 最大长度；超过该长度时 Coco 会丢弃外部 TraceId 并生成新的 TraceId。",
+      "description": "允许从请求头接收的 TraceId 最大长度；超过该长度时 Coco 会以 HTTP 400 拒绝请求，不会回写该外部值。",
       "defaultValue": 128
     },
     {
       "name": "coco.web.trace.allowed-pattern",
       "type": "java.lang.String",
-      "description": "允许从请求头接收的 TraceId 正则表达式；不匹配时 Coco 会丢弃外部 TraceId 并生成新的 TraceId。",
+      "description": "允许从请求头接收的 TraceId 正则表达式；不匹配时 Coco 会以 HTTP 400 拒绝请求。默认模式兼容 UUID 和 W3C 32 位十六进制 TraceId；可通过该属性收紧为应用格式。",
       "defaultValue": "[A-Za-z0-9._:-]+"
     },
     {

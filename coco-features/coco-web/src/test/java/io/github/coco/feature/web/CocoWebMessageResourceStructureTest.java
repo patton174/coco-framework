@@ -45,6 +45,7 @@ class CocoWebMessageResourceStructureTest {
             "coco.web.error.method-not-allowed",
             "coco.web.access-log.parameter-values-all",
             "coco.web.request-body.payload-too-large",
+            "coco.web.trace.invalid-trace-id",
             "coco.web.signature.missing-signature",
             "coco.web.signature.missing-app-id",
             "coco.web.signature.missing-algorithm",
@@ -114,6 +115,8 @@ class CocoWebMessageResourceStructureTest {
                             Locale.SIMPLIFIED_CHINESE));
             assertEquals("Request body exceeds the maximum allowed size.",
                     messageService.getMessage("coco.web.request-body.payload-too-large", Locale.US));
+            assertEquals("Request TraceId is invalid.",
+                    messageService.getMessage("coco.web.trace.invalid-trace-id", Locale.US));
             assertEquals("请求体超过允许的最大大小。",
                     messageService.getMessage("coco.web.request-body.payload-too-large",
                             Locale.SIMPLIFIED_CHINESE));

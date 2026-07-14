@@ -138,6 +138,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
@@ -1189,29 +1190,101 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void replacesInvalidIncomingTraceId() throws Exception {
+    void rejectsInvalidIncomingTraceIdWithoutReflectingIt() throws Exception {
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        this.webContextRunner
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            AtomicBoolean invoked = new AtomicBoolean();
+            String invalidTraceId = "invalid trace id\r\nX-Injected: true";
+            request.addHeader("X-Trace-Id", invalidTraceId);
+
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> invoked.set(true))));
+
+            assertFalse(invoked.get());
+            assertEquals(400, response.getStatus());
+            assertNull(response.getHeader("X-Trace-Id"));
+            assertNull(response.getHeader("Set-Cookie"));
+            assertFalse(response.getContentAsString().contains(invalidTraceId));
+            assertNull(recorder.lastAccessLog());
+            assertTrue(CocoRequestContextHolder.current().isEmpty());
+            assertTrue(CocoTraceContext.currentTraceId().isEmpty());
+            assertNull(MDC.get("traceId"));
+        });
+    }
+
+    @Test
+    void rejectsBlankUnicodeAndOversizedIncomingTraceIds() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                    FilterRegistrationBean.class));
+            for (String invalidTraceId : List.of(" \t ", "trace\u2028separator",
+                    "trace-" + "a".repeat(CocoTraceProperties.DEFAULT_MAX_LENGTH))) {
+                MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                MockHttpServletResponse response = new MockHttpServletResponse();
+                AtomicBoolean invoked = new AtomicBoolean();
+                request.addHeader("X-Trace-Id", invalidTraceId);
+
+                filter.doFilter(request, response,
+                        new MockFilterChain(new TraceCapturingServlet(() -> invoked.set(true))));
+
+                assertFalse(invoked.get(), invalidTraceId);
+                assertEquals(400, response.getStatus(), invalidTraceId);
+                assertNull(response.getHeader("X-Trace-Id"), invalidTraceId);
+                assertFalse(response.getContentAsString().contains(invalidTraceId), invalidTraceId);
+                assertTrue(CocoRequestContextHolder.current().isEmpty(), invalidTraceId);
+                assertTrue(CocoTraceContext.currentTraceId().isEmpty(), invalidTraceId);
+            }
+        });
+    }
+
+    @Test
+    void rejectsConflictingRepeatedTraceHeaders() throws Exception {
         this.webContextRunner.run(context -> {
             CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
                     FilterRegistrationBean.class));
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
             MockHttpServletResponse response = new MockHttpServletResponse();
-            String[] traceId = new String[1];
-            request.addHeader("X-Trace-Id", "invalid trace id");
+            AtomicBoolean invoked = new AtomicBoolean();
+            request.addHeader("X-Trace-Id", "trace-first");
+            request.addHeader("X-Trace-Id", "trace-second");
 
-            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
-                    traceId[0] = CocoTraceContext.currentTraceId().orElseThrow())));
+            filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() -> invoked.set(true))));
 
-            assertNotNull(traceId[0]);
-            assertNotEquals("invalid trace id", traceId[0]);
-            assertTrue(traceId[0].matches(CocoTraceProperties.DEFAULT_ALLOWED_PATTERN));
-            assertEquals(traceId[0], response.getHeader("X-Trace-Id"));
+            assertFalse(invoked.get());
+            assertEquals(400, response.getStatus());
+            assertNull(response.getHeader("X-Trace-Id"));
+            assertTrue(CocoRequestContextHolder.current().isEmpty());
+            assertTrue(CocoTraceContext.currentTraceId().isEmpty());
         });
     }
 
     @Test
-    void customTraceIdValidatorCanAcceptApplicationTraceFormat() throws Exception {
+    void customTraceIdValidatorCanAcceptSafeApplicationTraceFormat() throws Exception {
         this.webContextRunner
-                .withBean(CocoTraceIdValidator.class, () -> traceId -> traceId != null && traceId.startsWith("biz "))
+                .withBean(CocoTraceIdValidator.class, () -> traceId -> traceId != null && traceId.startsWith("biz_"))
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    request.addHeader("X-Trace-Id", "biz_trace");
+
+                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                            assertEquals("biz_trace", CocoTraceContext.currentTraceId().orElseThrow()))));
+
+                    assertEquals("biz_trace", response.getHeader("X-Trace-Id"));
+                });
+    }
+
+    @Test
+    void customTraceIdValidatorCannotRelaxTransportSafety() throws Exception {
+        this.webContextRunner
+                .withBean(CocoTraceIdValidator.class, () -> traceId -> true)
                 .run(context -> {
                     CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
                             FilterRegistrationBean.class));
@@ -1219,10 +1292,32 @@ class CocoWebAutoConfigurationTest {
                     MockHttpServletResponse response = new MockHttpServletResponse();
                     request.addHeader("X-Trace-Id", "biz trace");
 
-                    filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
-                            assertEquals("biz trace", CocoTraceContext.currentTraceId().orElseThrow()))));
+                    filter.doFilter(request, response, new MockFilterChain());
 
-                    assertEquals("biz trace", response.getHeader("X-Trace-Id"));
+                    assertEquals(400, response.getStatus());
+                    assertNull(response.getHeader("X-Trace-Id"));
+                });
+    }
+
+    @Test
+    void acceptsConfiguredW3cAndUuidTraceIds() throws Exception {
+        this.webContextRunner
+                .withPropertyValues("coco.web.trace.allowed-pattern=(?:[0-9a-f]{32}|"
+                        + "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})")
+                .run(context -> {
+                    CocoTraceFilter filter = traceFilter(context.getBean("cocoTraceFilterRegistration",
+                            FilterRegistrationBean.class));
+                    for (String traceId : List.of("4bf92f3577b34da6a3ce929d0e0e4736",
+                            "550e8400-e29b-41d4-a716-446655440000")) {
+                        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                        MockHttpServletResponse response = new MockHttpServletResponse();
+                        request.addHeader("X-Trace-Id", traceId);
+
+                        filter.doFilter(request, response, new MockFilterChain(new TraceCapturingServlet(() ->
+                                assertEquals(traceId, CocoTraceContext.currentTraceId().orElseThrow()))));
+
+                        assertEquals(traceId, response.getHeader("X-Trace-Id"));
+                    }
                 });
     }
 
@@ -1438,6 +1533,8 @@ class CocoWebAutoConfigurationTest {
 
             assertNotNull(traceId[0]);
             assertFalse(traceId[0].isBlank());
+            assertTrue(CocoTraceIdValidator.isTransportSafe(traceId[0]));
+            assertTrue(traceId[0].matches(CocoTraceProperties.DEFAULT_ALLOWED_PATTERN));
             assertEquals(traceId[0], response.getHeader("X-Trace-Id"));
             assertTrue(CocoTraceContext.currentTraceId().isEmpty());
         });

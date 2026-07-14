@@ -4,14 +4,21 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 
+import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadata;
+import io.github.coco.feature.web.trace.CocoTraceIdValidator;
+import io.github.coco.feature.web.trace.CocoTraceIdValidation;
+import io.github.coco.feature.web.trace.CocoTraceProperties;
+import io.github.coco.feature.web.trace.DefaultCocoTraceIdValidator;
 
 /**
  * Coco Web 默认请求规范化器�? * <p>
@@ -28,7 +35,15 @@ import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadat
  */
 public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestCanonicalizer {
 
+    private static final String INVALID_TRACE_ID_CODE = "coco.web.trace.invalid-trace-id";
+
     private final CocoWebRequestCanonicalizationProperties properties;
+
+    private final String traceHeaderName;
+
+    private final int traceMaxLength;
+
+    private final CocoTraceIdValidator traceIdValidator;
 
     /**
      * <p>
@@ -43,7 +58,28 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
      * 创建默认请求规范化器�?     * </p>
      * @param properties 请求规范化配置属�?     */
     public DefaultCocoWebRequestCanonicalizer(CocoWebRequestCanonicalizationProperties properties) {
+        this(properties, null, null);
+    }
+
+    /**
+     * <p>
+     * 创建带 TraceId 输入校验的默认请求规范化器。
+     * </p>
+     * @param properties 请求规范化配置属性
+     * @param traceProperties Trace 配置属性
+     * @param traceIdValidator TraceId 校验器
+     */
+    public DefaultCocoWebRequestCanonicalizer(CocoWebRequestCanonicalizationProperties properties,
+            CocoTraceProperties traceProperties, CocoTraceIdValidator traceIdValidator) {
         this.properties = properties == null ? new CocoWebRequestCanonicalizationProperties() : properties;
+        CocoTraceProperties checkedTraceProperties = traceProperties == null
+                ? new CocoTraceProperties()
+                : traceProperties;
+        this.traceHeaderName = checkedTraceProperties.getHeaderName();
+        this.traceMaxLength = checkedTraceProperties.getMaxLength();
+        this.traceIdValidator = traceIdValidator == null
+                ? new DefaultCocoTraceIdValidator(checkedTraceProperties)
+                : traceIdValidator;
     }
 
     /**
@@ -54,7 +90,8 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         CocoWebRequestCanonicalizationContext checkedContext = context == null
                 ? CocoWebRequestCanonicalizationContext.of(CocoWebRequestSecurityInput.empty())
                 : context;
-        String text = canonicalText(checkedContext);
+        Map<String, List<String>> canonicalHeaders = validatedCanonicalHeaders(checkedContext.securityInput());
+        String text = canonicalText(checkedContext, canonicalHeaders);
         return new CocoWebRequestCanonicalForm(text, sha256(text));
     }
 
@@ -67,7 +104,25 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         return canonicalize(CocoWebRequestCanonicalizationContext.of(checkedInput));
     }
 
-    private String canonicalText(CocoWebRequestCanonicalizationContext context) {
+    private Map<String, List<String>> validatedCanonicalHeaders(CocoWebRequestSecurityInput input) {
+        List<String> traceHeaderValues = input.canonicalHeaderValues(this.traceHeaderName).orElse(null);
+        if (traceHeaderValues == null) {
+            return input.canonicalHeaderValues();
+        }
+        String traceId = CocoTraceIdValidation.resolveHeaderValues(traceHeaderValues, this.traceMaxLength,
+                this.traceIdValidator)
+                .orElseThrow(() -> CocoBusinessExceptions.request(INVALID_TRACE_ID_CODE));
+        List<String> normalizedTraceIds = java.util.Collections.nCopies(traceHeaderValues.size(), traceId);
+        if (normalizedTraceIds.equals(traceHeaderValues)) {
+            return input.canonicalHeaderValues();
+        }
+        Map<String, List<String>> canonicalHeaders = new LinkedHashMap<>(input.canonicalHeaderValues());
+        canonicalHeaders.put(this.traceHeaderName.toLowerCase(Locale.ROOT), normalizedTraceIds);
+        return Map.copyOf(canonicalHeaders);
+    }
+
+    private String canonicalText(CocoWebRequestCanonicalizationContext context,
+            Map<String, List<String>> canonicalHeaders) {
         CocoWebRequestSecurityInput input = Objects.requireNonNull(context.securityInput(),
                 "securityInput must not be null");
         StringBuilder builder = new StringBuilder();
@@ -77,7 +132,7 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         appendLine(builder, "method", input.method(), signature || this.properties.isIncludeMethod());
         appendLine(builder, "path", input.path(), signature || this.properties.isIncludePath());
         appendLine(builder, "query", input.queryString(), signature || this.properties.isIncludeQueryString());
-        appendHeaders(builder, input.canonicalHeaderValues(), signature);
+        appendHeaders(builder, canonicalHeaders, signature);
         appendCookies(builder, input.canonicalCookies(), signature);
         appendParameters(builder, input);
         appendLine(builder, "bodySha256", input.bodySha256(), signature || this.properties.isIncludeBodySha256());
