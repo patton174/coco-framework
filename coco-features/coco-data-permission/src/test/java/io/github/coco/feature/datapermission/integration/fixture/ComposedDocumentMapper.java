@@ -39,6 +39,28 @@ public interface ComposedDocumentMapper extends BaseMapper<ComposedDocument> {
             """)
     List<ComposedDocument> selectByTagSubquery(@Param("tag") String tag);
 
+    @Select("""
+            SELECT "d"."id", "d"."tenant_id", "d"."department_id", "d"."title", "d"."archived"
+            FROM "tenant_a"."documents" "d"
+            JOIN "tenant_a"."document_tags" "t" ON "t"."document_id" = "d"."id"
+            WHERE "t"."tag" = #{tag} AND "d"."archived" = FALSE
+            ORDER BY "d"."id"
+            """)
+    List<ComposedDocument> selectQuotedByTagJoin(@Param("tag") String tag);
+
+    @Select("""
+            SELECT "d"."id", "d"."tenant_id", "d"."department_id", "d"."title", "d"."archived"
+            FROM "tenant_a"."documents" "d"
+            WHERE "d"."archived" = FALSE
+              AND EXISTS (
+                  SELECT 1
+                  FROM "tenant_a"."document_tags" "t"
+                  WHERE "t"."document_id" = "d"."id" AND "t"."tag" = #{tag}
+              )
+            ORDER BY "d"."id"
+            """)
+    List<ComposedDocument> selectQuotedByTagSubquery(@Param("tag") String tag);
+
     @InterceptorIgnore(tenantLine = "true", dataPermission = "false")
     @Select("""
             SELECT id, tenant_id, department_id, title, archived

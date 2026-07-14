@@ -1,10 +1,10 @@
 package io.github.coco.feature.datapermission.sql;
 
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import io.github.coco.context.internal.CocoSqlIdentifierNormalizer;
 /**
  * 基于配置属性的数据权限 SQL 资源解析器。
  * <p>
@@ -41,8 +41,8 @@ public final class PropertyCocoDataPermissionSqlResourceResolver implements Coco
     @Override
     public Optional<String> resolve(CocoDataPermissionSqlResourceContext context) {
         Objects.requireNonNull(context, "context must not be null");
-        String tableName = normalize(context.table().getName());
-        String fullyQualifiedName = normalize(context.table().getFullyQualifiedName());
+        String tableName = CocoSqlIdentifierNormalizer.normalize(context.table().getName());
+        String fullyQualifiedName = CocoSqlIdentifierNormalizer.normalize(context.table().getFullyQualifiedName());
         if (tableName.isEmpty() && fullyQualifiedName.isEmpty()) {
             return Optional.empty();
         }
@@ -60,7 +60,7 @@ public final class PropertyCocoDataPermissionSqlResourceResolver implements Coco
             return false;
         }
         return resource.getTables().stream()
-                .map(PropertyCocoDataPermissionSqlResourceResolver::normalize)
+                .map(CocoSqlIdentifierNormalizer::normalize)
                 .anyMatch(candidate -> !candidate.isEmpty()
                         && (candidate.equals(tableName) || candidate.equals(fullyQualifiedName)));
     }
@@ -69,21 +69,4 @@ public final class PropertyCocoDataPermissionSqlResourceResolver implements Coco
         return value != null && !value.isBlank();
     }
 
-    private static String normalize(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        String normalized = value.trim();
-        normalized = strip(normalized, "`", "`");
-        normalized = strip(normalized, "\"", "\"");
-        normalized = strip(normalized, "[", "]");
-        return normalized.toLowerCase(Locale.ROOT);
-    }
-
-    private static String strip(String value, String prefix, String suffix) {
-        if (value.startsWith(prefix) && value.endsWith(suffix) && value.length() > prefix.length() + suffix.length()) {
-            return value.substring(prefix.length(), value.length() - suffix.length());
-        }
-        return value;
-    }
 }

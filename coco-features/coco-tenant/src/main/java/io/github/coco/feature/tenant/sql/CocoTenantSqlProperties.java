@@ -1,5 +1,6 @@
 package io.github.coco.feature.tenant.sql;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -32,6 +33,28 @@ public class CocoTenantSqlProperties {
     private boolean failOnMissingContext = true;
 
     private CocoTenantInterceptorIgnoreProperties interceptorIgnore = new CocoTenantInterceptorIgnoreProperties();
+
+    public CocoTenantSqlProperties() {
+    }
+
+    public CocoTenantSqlProperties(CocoTenantSqlProperties source) {
+        CocoTenantSqlProperties checkedSource = source == null ? new CocoTenantSqlProperties() : source;
+        this.enabled = checkedSource.enabled;
+        this.tenantIdColumn = checkedSource.tenantIdColumn;
+        this.ignoreTables = new LinkedHashSet<>(checkedSource.ignoreTables);
+        this.failOnMissingContext = checkedSource.failOnMissingContext;
+        this.interceptorIgnore = new CocoTenantInterceptorIgnoreProperties(checkedSource.interceptorIgnore);
+    }
+
+    /**
+     * <p>
+     * 返回供运行时组件持有的深复制配置快照。
+     * </p>
+     * @return 租户 SQL 配置快照
+     */
+    public CocoTenantSqlProperties snapshot() {
+        return new CocoTenantSqlProperties(this);
+    }
 
     /**
      * <p>
@@ -81,6 +104,8 @@ public class CocoTenantSqlProperties {
      * </p>
      * @return 无需追加租户条件的表名集合
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and existing Java "
+            + "configuration add entries through this intentionally live ignore-tables collection.")
     public Set<String> getIgnoreTables() {
         return this.ignoreTables;
     }
@@ -121,6 +146,8 @@ public class CocoTenantSqlProperties {
      * </p>
      * @return 拦截器忽略治理配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and existing Java "
+            + "configuration mutate this intentionally live nested interceptor-ignore bean.")
     public CocoTenantInterceptorIgnoreProperties getInterceptorIgnore() {
         return this.interceptorIgnore;
     }
@@ -134,6 +161,6 @@ public class CocoTenantSqlProperties {
     public void setInterceptorIgnore(CocoTenantInterceptorIgnoreProperties interceptorIgnore) {
         this.interceptorIgnore = interceptorIgnore == null
                 ? new CocoTenantInterceptorIgnoreProperties()
-                : interceptorIgnore;
+                : new CocoTenantInterceptorIgnoreProperties(interceptorIgnore);
     }
 }

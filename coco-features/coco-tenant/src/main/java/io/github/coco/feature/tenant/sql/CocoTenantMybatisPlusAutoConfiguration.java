@@ -103,7 +103,7 @@ public class CocoTenantMybatisPlusAutoConfiguration {
             CocoTenantProperties properties,
             ApplicationEventPublisher applicationEventPublisher,
             CocoMessageService messageService) {
-        return () -> validateLegacyPatterns(properties.getSql().getInterceptorIgnore(),
+        return () -> validateLegacyPatterns(properties.getSqlSnapshot().getInterceptorIgnore(),
                 applicationEventPublisher, messageService);
     }
 
@@ -124,15 +124,18 @@ public class CocoTenantMybatisPlusAutoConfiguration {
             CocoTenantContextResolver contextResolver,
             CocoTenantIdExpressionResolver expressionResolver,
             ObjectProvider<CocoTenantInterceptorIgnoreEventPublisher> eventPublisherProvider) {
+        CocoTenantSqlProperties sqlProperties = properties.getSqlSnapshot();
         CocoTenantInterceptorIgnoreGuard interceptorIgnoreGuard = new CocoTenantInterceptorIgnoreGuard(
-                properties.getSql(),
+                sqlProperties,
                 eventPublisherProvider.getIfAvailable(NoOpCocoTenantInterceptorIgnoreEventPublisher::new));
-        CocoTenantLineHandler tenantLineHandler = new CocoTenantLineHandler(properties.getSql(),
+        CocoTenantLineHandler tenantLineHandler = new CocoTenantLineHandler(sqlProperties,
                 contextResolver, expressionResolver);
-        return interceptor -> {
-            interceptor.addInnerInterceptor(interceptorIgnoreGuard);
-            interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler));
-        };
+        return CocoMybatisPlusInterceptorCustomizer.ordered(
+                CocoMybatisPlusInterceptorCustomizer.TENANT_INTERCEPTOR_IGNORE_GUARD_ORDER,
+                interceptor -> {
+                    interceptor.addInnerInterceptor(interceptorIgnoreGuard);
+                    interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler));
+                });
     }
 
     @SuppressWarnings("deprecation")

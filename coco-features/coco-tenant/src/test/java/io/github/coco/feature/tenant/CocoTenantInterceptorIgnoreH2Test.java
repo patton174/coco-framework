@@ -29,6 +29,7 @@ import io.github.coco.feature.tenant.sql.CocoTenantIdExpressionResolver;
 import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreDecision;
 import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreEvent;
 import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreGuard;
+import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties;
 import io.github.coco.feature.tenant.sql.CocoTenantLineHandler;
 import io.github.coco.feature.tenant.sql.CocoTenantSqlProperties;
 import net.sf.jsqlparser.expression.StringValue;
@@ -84,8 +85,8 @@ class CocoTenantInterceptorIgnoreH2Test {
     @Test
     void allowsExactAllowlistedBypassAndPublishesStructuredEvent() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getExactMappedStatements()
-                .add(TenantRecordMapper.class.getName() + ".selectAllIgnoringTenant");
+        properties.getInterceptorIgnore().getExactMappedStatements().add(
+                TenantRecordMapper.class.getName() + ".selectAllIgnoringTenant");
         List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
         SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
 
@@ -101,8 +102,9 @@ class CocoTenantInterceptorIgnoreH2Test {
     @SuppressWarnings("deprecation")
     void preservesLegacyWildcardBypassCompatibility() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getAllowedMappedStatements()
-                .add(TenantRecordMapper.class.getName() + ".*");
+        CocoTenantInterceptorIgnoreProperties ignore = new CocoTenantInterceptorIgnoreProperties();
+        ignore.setAllowedMappedStatements(java.util.Set.of(TenantRecordMapper.class.getName() + ".*"));
+        properties.setInterceptorIgnore(ignore);
         List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
         SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
 
@@ -133,8 +135,10 @@ class CocoTenantInterceptorIgnoreH2Test {
     @Test
     void publishesSingleEventForExactAllowlistedUpdate() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getExactMappedStatements()
-                .add(TenantRecordMapper.class.getName() + ".updateAllIgnoringTenant");
+        CocoTenantInterceptorIgnoreProperties ignore = new CocoTenantInterceptorIgnoreProperties();
+        ignore.setExactMappedStatements(java.util.Set.of(
+                TenantRecordMapper.class.getName() + ".updateAllIgnoringTenant"));
+        properties.setInterceptorIgnore(ignore);
         List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
         SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
 
@@ -174,7 +178,9 @@ class CocoTenantInterceptorIgnoreH2Test {
     @Test
     void preservesCompatibilityWhenBlockingIsExplicitlyDisabled() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().setBlockUnlisted(false);
+        CocoTenantInterceptorIgnoreProperties ignore = new CocoTenantInterceptorIgnoreProperties();
+        ignore.setBlockUnlisted(false);
+        properties.setInterceptorIgnore(ignore);
         List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
         SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
 

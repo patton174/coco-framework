@@ -1,5 +1,6 @@
 package io.github.coco.feature.tenant;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.tenant.sql.CocoTenantSqlProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -32,8 +33,24 @@ public class CocoTenantProperties {
      * </p>
      * @return 租户 SQL 隔离配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and existing Java "
+            + "configuration use getSql().set... on this intentionally live nested ConfigurationProperties bean.")
     public CocoTenantSqlProperties getSql() {
         return this.sql;
+    }
+
+    /**
+     * <p>
+     * 返回供运行时组件持有的租户 SQL 配置快照。
+     * </p>
+     * <p>
+     * {@link #getSql()} 保留 Spring JavaBean 的可变嵌套配置语义；运行时拦截器应使用本方法，
+     * 避免在启动后受外部配置对象修改影响。
+     * </p>
+     * @return 租户 SQL 配置的深复制快照
+     */
+    public CocoTenantSqlProperties getSqlSnapshot() {
+        return new CocoTenantSqlProperties(this.sql);
     }
 
     /**
@@ -43,6 +60,6 @@ public class CocoTenantProperties {
      * @param sql 租户 SQL 隔离配置
      */
     public void setSql(CocoTenantSqlProperties sql) {
-        this.sql = sql == null ? new CocoTenantSqlProperties() : sql;
+        this.sql = sql == null ? new CocoTenantSqlProperties() : new CocoTenantSqlProperties(sql);
     }
 }

@@ -92,6 +92,8 @@ public class CocoDataPermissionMybatisPlusAutoConfiguration {
         CocoDataPermissionSqlProperties sqlProperties = properties.getSql();
         CocoMybatisPlusDataPermissionHandler handler = new CocoMybatisPlusDataPermissionHandler(sqlProperties,
                 contextResolver, resourceResolver, predicateProvider);
-        return interceptor -> interceptor.addInnerInterceptor(new DataPermissionInterceptor(handler));
+        return CocoMybatisPlusInterceptorCustomizer.ordered(
+                CocoMybatisPlusInterceptorCustomizer.DATA_PERMISSION_ORDER,
+                interceptor -> interceptor.addInnerInterceptor(new DataPermissionInterceptor(handler)));
     }
 }

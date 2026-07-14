@@ -1,12 +1,12 @@
 package io.github.coco.feature.tenant.sql;
 
-import java.util.Locale;
 import java.util.Objects;
 
 import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import io.github.coco.feature.tenant.CocoTenantErrorCode;
 import io.github.coco.feature.tenant.context.CocoTenantContext;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
+import io.github.coco.context.internal.CocoSqlIdentifierNormalizer;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.NullValue;
 
@@ -77,10 +77,10 @@ public final class CocoTenantLineHandler implements TenantLineHandler {
         if (tableName == null || tableName.isBlank()) {
             return false;
         }
-        String normalizedTableName = normalize(tableName);
+        String normalizedTableName = CocoSqlIdentifierNormalizer.normalize(tableName);
         return this.properties.getIgnoreTables().stream()
                 .filter(Objects::nonNull)
-                .map(CocoTenantLineHandler::normalize)
+                .map(CocoSqlIdentifierNormalizer::normalize)
                 .anyMatch(normalizedTableName::equals);
     }
 
@@ -96,7 +96,4 @@ public final class CocoTenantLineHandler implements TenantLineHandler {
         return new NullValue();
     }
 
-    private static String normalize(String value) {
-        return value.trim().toLowerCase(Locale.ROOT);
-    }
 }

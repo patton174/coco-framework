@@ -1,5 +1,6 @@
 package io.github.coco.feature.tenant.sql;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -30,6 +31,28 @@ public class CocoTenantInterceptorIgnoreProperties {
     private Set<String> allowedMappedStatements = new LinkedHashSet<>();
 
     private boolean strictMode;
+
+    public CocoTenantInterceptorIgnoreProperties() {
+    }
+
+    public CocoTenantInterceptorIgnoreProperties(CocoTenantInterceptorIgnoreProperties source) {
+        CocoTenantInterceptorIgnoreProperties checkedSource = source == null
+                ? new CocoTenantInterceptorIgnoreProperties() : source;
+        this.blockUnlisted = checkedSource.blockUnlisted;
+        this.exactMappedStatements = new LinkedHashSet<>(checkedSource.exactMappedStatements);
+        this.allowedMappedStatements = new LinkedHashSet<>(checkedSource.allowedMappedStatements);
+        this.strictMode = checkedSource.strictMode;
+    }
+
+    /**
+     * <p>
+     * 返回拦截器忽略配置的深复制快照。
+     * </p>
+     * @return 拦截器忽略配置快照
+     */
+    public CocoTenantInterceptorIgnoreProperties snapshot() {
+        return new CocoTenantInterceptorIgnoreProperties(this);
+    }
 
     /**
      * <p>
@@ -63,6 +86,8 @@ public class CocoTenantInterceptorIgnoreProperties {
      * </p>
      * @return 允许跳过租户隔离的完整 MappedStatement ID 精确白名单
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and existing Java "
+            + "configuration add exact bypass IDs through this intentionally live compatibility collection.")
     public Set<String> getExactMappedStatements() {
         return this.exactMappedStatements;
     }
@@ -98,6 +123,8 @@ public class CocoTenantInterceptorIgnoreProperties {
     @DeprecatedConfigurationProperty(
             replacement = "coco.tenant.sql.interceptor-ignore.exact-mapped-statements",
             reason = "通配模式授权范围过宽，请迁移到完整 MappedStatement ID 精确白名单。")
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and legacy Java "
+            + "configuration add wildcard bypass IDs through this intentionally live compatibility collection.")
     public Set<String> getAllowedMappedStatements() {
         return this.allowedMappedStatements;
     }

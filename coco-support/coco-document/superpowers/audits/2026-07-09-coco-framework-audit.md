@@ -460,9 +460,9 @@ macOS 矩阵中执行。
 | D6 | architecture | architecture | 8 个 `Coco*Feature.java` marker 类是 23-24 行纯文档，与 AGENTS.md "avoid opaque switches" 相悖 |
 | D7 | architecture | maintainability | `coco-common-i18n` 模块名但拥有 `CocoCommonAutoConfiguration` 与 `CocoCommonProperties` |
 | D8 | architecture | api-design | `CocoOpenApiAutoConfiguration` 的 `@AutoConfigureAfter` 同时绑 web 与 security |
-| D9 | data-sql | correctness | `PaginationInnerInterceptor` 追加在最后，依赖 customizer 注册顺序保证租户 / 数据权限先于分页 |
-| D10 | data-sql | security | `CocoTenantSqlProperties.ignoreTables` 归一化小写，但 `TenantLineInnerInterceptor` 内部也小写；跨方言在带引号标识符下分歧 |
-| D11 | data-sql | correctness | `DataPermissionInterceptor` 早于 `TenantLineInnerInterceptor`（字母序），`TenantLineHandler.ignoreTable` 不考虑 schema-qualified，子查询可能被双重改写 |
+| D9 | data-sql | resolved | 已由 `CocoMybatisPlusInterceptorCustomizer` 稳定阶段顺序修复：数据权限、tenant guard、tenant line、用户定制器，随后保持 SQL guard 和分页最终位置 |
+| D10 | data-sql | resolved | 已由共享逐段 quoted identifier 归一化修复，覆盖 ANSI 双引号、MySQL backtick、SQL Server bracket、schema-qualified 标识符及合法转义 |
+| D11 | data-sql | resolved | 数据权限与 tenant 阶段不再依赖 Bean 注册顺序；H2 组合 SQL 覆盖 join、subquery 与 quoted schema 表 |
 | D12 | data-sql | api-design | `CocoDataPermissionSqlPredicateContext.resourceProperties()` 在 cache miss 时返回新空对象，谓词 provider 拿不到稳定引用 |
 | D13 | dx-docs | developer-experience | sample 的 `application.yml` 硬编码 Windows 风格 `node` 路径，macOS / Linux runner 上静默失败 |
 | D14 | dx-docs | developer-experience | sample 声明两个 i18n bundle（messages, coco-messages）但都未从框架 ship，首用者会看到混乱的 bundle 解析顺序 |
