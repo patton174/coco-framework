@@ -44,5 +44,5 @@ coco:
     node-renderer:
       enabled: true
       jar-only: false
-      command: "D:\\Program Files\\nodejs\\node.exe"
+      command: "${COCO_NODE_COMMAND:node}"
       color: always
