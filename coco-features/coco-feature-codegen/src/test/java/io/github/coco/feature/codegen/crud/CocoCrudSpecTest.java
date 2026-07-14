@@ -98,10 +98,21 @@ class CocoCrudSpecTest {
     }
 
     @Test
-    void rejectsJava17ReservedNamesBeforeRenderingTemplates() {
-        for (String name : List.of("_", "record", "sealed", "var", "yield")) {
+    void validatesIdentifiersWithSourceVersionAndSupportsSupplementaryUnicode() {
+        String supplementaryLowercaseLetter = "\uD801\uDC28";
+        String supplementaryUppercaseLetter = "\uD801\uDC00";
+        CocoCrudSpec spec = CocoCrudSpec.builder("com.example." + supplementaryLowercaseLetter,
+                        supplementaryLowercaseLetter + "product", "sample")
+                .id("id", "id", "Long", CocoCrudIdStrategy.AUTO)
+                .field(supplementaryLowercaseLetter + "name", "sample_name", "String", false)
+                .build();
+
+        assertThat(spec.basePackage()).isEqualTo("com.example." + supplementaryLowercaseLetter);
+        assertThat(spec.resourceName()).isEqualTo(supplementaryUppercaseLetter + "product");
+
+        for (String name : List.of("_", "class", "bad-name")) {
             assertThatThrownBy(() -> validSpecBuilder("Product")
-                    .field(name, "sample_" + name.replace('-', '_'), "String", false))
+                    .field(name, "sample_name", "String", false))
                     .as(name)
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("valid Java identifier");

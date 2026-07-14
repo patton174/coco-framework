@@ -1,6 +1,9 @@
 package io.github.coco.feature.codegen.core;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.StandardCharsets;
@@ -8,21 +11,26 @@ import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import io.github.coco.feature.codegen.internal.CocoGeneratedPathValidator;
 
 /**
  * Coco 生成文件安全写入器。
  * <p>
- * 写入器在产生任何磁盘变更前完成全部路径、重复输出、父路径和已有文件碰撞预检。
- * 默认拒绝覆盖，且 dry-run 不会创建目录或文件。
+ * 写入器在独占输出根锁内完成路径校验、碰撞预检、暂存、提交和可捕获异常回滚。
+ * 默认拒绝覆盖，且 dry-run 不会创建目录或文件。普通文件系统无法保证 JVM 或机器崩溃时的多文件绝对原子性；
+ * 此类会在提交前持久化恢复标记，异常终止或回滚不完整后拒绝继续生成，并保留业务文件备份供人工恢复。
  * </p>
  * <p>
  * 项目信息：
@@ -104,8 +112,12 @@ public final class CocoGeneratedFileWriter {
         List<PlannedFile> plannedFiles = plan(root, checkedResult.files());
 
         if (!checkedOptions.dryRun()) {
-            preflight(root, plannedFiles, checkedOptions.overwrite());
-            writeAll(root, plannedFiles);
+            try (CocoOutputRootLock outputRootLock = CocoOutputRootLock.acquire(root)) {
+                outputRootLock.requireNoRecoveryMarker();
+                preflight(root, outputRootLock.canonicalRoot(), plannedFiles, checkedOptions.overwrite());
+                writeAll(root, outputRootLock.canonicalRoot(), outputRootLock.recoveryMarker(),
+                        plannedFiles, checkedOptions.overwrite());
+            }
         }
         return plannedFiles.stream().map(PlannedFile::target).toList();
     }
@@ -127,21 +139,26 @@ public final class CocoGeneratedFileWriter {
         return List.copyOf(plannedFiles.values());
     }
 
-    private static void preflight(Path root, List<PlannedFile> plannedFiles, boolean overwrite) {
-        if (Files.isSymbolicLink(root)) {
-            throw new CocoCodegenException("output directory must not be a symbolic link: " + root);
-        }
-        if (Files.exists(root, LinkOption.NOFOLLOW_LINKS) && !Files.isDirectory(root)) {
-            throw new CocoCodegenException("output directory is not a directory: " + root);
+    private static void preflight(Path root, Path canonicalRoot, List<PlannedFile> plannedFiles,
+            boolean overwrite) {
+        if (Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
+            BasicFileAttributes rootAttributes = CocoOutputRootLock.readAttributes(root);
+            if (CocoOutputRootLock.isReparsePoint(rootAttributes) || !rootAttributes.isDirectory()) {
+                throw new CocoCodegenException("output directory is not a safe directory: " + root);
+            }
         }
         List<Path> collisions = new ArrayList<>();
         for (PlannedFile plannedFile : plannedFiles) {
             Path target = plannedFile.target;
             validateParents(root, target.getParent());
+            if (Files.exists(root, LinkOption.NOFOLLOW_LINKS)
+                    && Files.exists(target.getParent(), LinkOption.NOFOLLOW_LINKS)) {
+                CocoOutputRootLock.validateContainment(root, canonicalRoot, target.getParent());
+            }
             if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-                if (Files.isSymbolicLink(target)
-                        || Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)
-                        || !overwrite) {
+                BasicFileAttributes targetAttributes = CocoOutputRootLock.readAttributes(target);
+                if (CocoOutputRootLock.isReparsePoint(targetAttributes)
+                        || !targetAttributes.isRegularFile() || !overwrite) {
                     collisions.add(target);
                 }
             }
@@ -154,12 +171,12 @@ public final class CocoGeneratedFileWriter {
     private static void validateParents(Path root, Path parent) {
         Path current = parent;
         while (current != null && current.startsWith(root)) {
-            if (Files.isSymbolicLink(current)) {
-                throw new CocoCodegenException("generated file parent must not be a symbolic link: " + current);
-            }
-            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)
-                    && !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) {
-                throw new CocoCodegenException("generated file parent is not a directory: " + current);
+            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+                BasicFileAttributes attributes = CocoOutputRootLock.readAttributes(current);
+                if (CocoOutputRootLock.isReparsePoint(attributes) || !attributes.isDirectory()) {
+                    throw new CocoCodegenException(
+                            "generated file parent must be a directory without reparse points: " + current);
+                }
             }
             if (current.equals(root)) {
                 return;
@@ -168,45 +185,29 @@ public final class CocoGeneratedFileWriter {
         }
     }
 
-    private void writeAll(Path root, List<PlannedFile> plannedFiles) {
+    private void writeAll(Path root, Path canonicalRoot, Path recoveryMarker,
+            List<PlannedFile> plannedFiles, boolean overwrite) {
         Path stagingDirectory = createStagingDirectory(root);
-        List<Path> createdDirectories = new ArrayList<>();
-        List<CommittedFile> committedFiles = new ArrayList<>();
+        Transaction transaction = null;
         try {
             List<StagedFile> stagedFiles = stage(plannedFiles, stagingDirectory);
-            for (StagedFile stagedFile : stagedFiles) {
-                createTargetDirectories(root, stagedFile.target().getParent(), createdDirectories);
-                Path backup = stagingDirectory.resolve("backup").resolve(Integer.toString(stagedFile.index()));
-                CommittedFile committedFile = new CommittedFile(stagedFile.target(), backup,
-                        Files.exists(stagedFile.target(), LinkOption.NOFOLLOW_LINKS));
-                committedFiles.add(committedFile);
-                if (committedFile.existed()) {
-                    Files.createDirectories(backup.getParent());
-                    this.move(stagedFile.target(), backup);
-                }
-                this.move(stagedFile.staged(), stagedFile.target());
-            }
+            transaction = prepareTransaction(stagedFiles, stagingDirectory, recoveryMarker, overwrite);
+            createRecoveryMarker(root, canonicalRoot, transaction);
+            transaction.markerCreated = true;
+            commit(root, canonicalRoot, transaction);
+            Files.delete(recoveryMarker);
+            transaction.markerCreated = false;
         }
         catch (IOException ex) {
-            try {
-                rollback(committedFiles, createdDirectories);
-            }
-            catch (CocoCodegenException rollbackFailure) {
-                ex.addSuppressed(rollbackFailure);
-            }
-            throw new CocoCodegenException("failed to write generated files", ex);
+            throw recoverOrMark(transaction, ex);
         }
         catch (CocoCodegenException ex) {
-            try {
-                rollback(committedFiles, createdDirectories);
-            }
-            catch (CocoCodegenException rollbackFailure) {
-                ex.addSuppressed(rollbackFailure);
-            }
-            throw ex;
+            throw recoverOrMark(transaction, ex);
         }
         finally {
-            deleteRecursively(stagingDirectory);
+            if (transaction == null || !transaction.markerCreated) {
+                deleteRecursively(stagingDirectory);
+            }
         }
     }
 
@@ -218,9 +219,101 @@ public final class CocoGeneratedFileWriter {
             Files.createDirectories(staged.getParent());
             Files.writeString(staged, plannedFile.file.content(), this.encoding,
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-            stagedFiles.add(new StagedFile(index, staged, plannedFile.target));
+            stagedFiles.add(new StagedFile(index, staged, plannedFile.target, digest(staged)));
         }
         return stagedFiles;
+    }
+
+    private static Transaction prepareTransaction(List<StagedFile> stagedFiles, Path stagingDirectory,
+            Path recoveryMarker, boolean overwrite) {
+        List<TransactionFile> transactionFiles = new ArrayList<>(stagedFiles.size());
+        for (StagedFile stagedFile : stagedFiles) {
+            boolean originalExists = Files.exists(stagedFile.target(), LinkOption.NOFOLLOW_LINKS);
+            if (originalExists) {
+                BasicFileAttributes attributes = CocoOutputRootLock.readAttributes(stagedFile.target());
+                if (CocoOutputRootLock.isReparsePoint(attributes) || !attributes.isRegularFile() || !overwrite) {
+                    throw new CocoCodegenException("generated file collision during commit: " + stagedFile.target());
+                }
+            }
+            Path backup = stagingDirectory.resolve("backup").resolve(Integer.toString(stagedFile.index()));
+            transactionFiles.add(new TransactionFile(stagedFile, backup, originalExists));
+        }
+        return new Transaction(stagingDirectory, recoveryMarker, transactionFiles);
+    }
+
+    private void commit(Path root, Path canonicalRoot, Transaction transaction) throws IOException {
+        for (TransactionFile transactionFile : transaction.files) {
+            createTargetDirectories(root, transactionFile.stagedFile.target().getParent(),
+                    transaction.createdDirectories);
+            CocoOutputRootLock.validateContainment(root, canonicalRoot,
+                    transactionFile.stagedFile.target().getParent());
+            if (transactionFile.originalExists) {
+                Files.createDirectories(transactionFile.backup.getParent());
+                this.move(transactionFile.stagedFile.target(), transactionFile.backup);
+                transactionFile.state = CommitState.BACKED_UP;
+            }
+            this.move(transactionFile.stagedFile.staged(), transactionFile.stagedFile.target());
+            transactionFile.state = CommitState.REPLACED;
+        }
+    }
+
+    private CocoCodegenException recoverOrMark(Transaction transaction, Exception failure) {
+        if (transaction == null || !transaction.markerCreated) {
+            return failure instanceof CocoCodegenException codegenException
+                    ? codegenException : new CocoCodegenException("failed to write generated files", failure);
+        }
+        try {
+            rollback(transaction);
+            Files.deleteIfExists(transaction.recoveryMarker);
+            transaction.markerCreated = false;
+        }
+        catch (IOException | CocoCodegenException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+            return new CocoCodegenException("generated-file rollback is incomplete; recovery marker retained at "
+                    + transaction.recoveryMarker, failure);
+        }
+        return failure instanceof CocoCodegenException codegenException
+                ? codegenException : new CocoCodegenException("failed to write generated files", failure);
+    }
+
+    private static void createRecoveryMarker(Path root, Path canonicalRoot, Transaction transaction)
+            throws IOException {
+        Properties properties = new Properties();
+        properties.setProperty("contract", "catchable-exception-rollback-only");
+        properties.setProperty("outputRoot", root.toString());
+        properties.setProperty("canonicalOutputRoot", canonicalRoot.toString());
+        properties.setProperty("stagingDirectory", transaction.stagingDirectory.toString());
+        properties.setProperty("file.count", Integer.toString(transaction.files.size()));
+        for (int index = 0; index < transaction.files.size(); index++) {
+            TransactionFile transactionFile = transaction.files.get(index);
+            String prefix = "file." + index + ".";
+            properties.setProperty(prefix + "target", transactionFile.stagedFile.target().toString());
+            properties.setProperty(prefix + "backup", transactionFile.backup.toString());
+            properties.setProperty(prefix + "originalExists", Boolean.toString(transactionFile.originalExists));
+            properties.setProperty(prefix + "generatedSha256", transactionFile.stagedFile.digest());
+        }
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        properties.store(output, "Coco generated-file recovery marker");
+        try {
+            try (FileChannel channel = FileChannel.open(transaction.recoveryMarker,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                ByteBuffer buffer = ByteBuffer.wrap(output.toByteArray());
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
+                channel.force(true);
+            }
+        }
+        catch (IOException ex) {
+            try {
+                Files.deleteIfExists(transaction.recoveryMarker);
+            }
+            catch (IOException cleanupFailure) {
+                ex.addSuppressed(cleanupFailure);
+            }
+            throw ex;
+        }
     }
 
     private static Path createStagingDirectory(Path root) {
@@ -256,7 +349,8 @@ public final class CocoGeneratedFileWriter {
         if (current == null || (rootParent != null && !current.startsWith(rootParent))) {
             throw new CocoCodegenException("generated file parent escapes output directory: " + targetParent);
         }
-        if (Files.isSymbolicLink(current) || !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) {
+        BasicFileAttributes attributes = CocoOutputRootLock.readAttributes(current);
+        if (CocoOutputRootLock.isReparsePoint(attributes) || !attributes.isDirectory()) {
             throw new CocoCodegenException("generated file parent is not a directory: " + current);
         }
         for (int index = missingDirectories.size() - 1; index >= 0; index--) {
@@ -271,31 +365,22 @@ public final class CocoGeneratedFileWriter {
     }
 
     private static void moveFile(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        }
-        catch (java.nio.file.AtomicMoveNotSupportedException ex) {
-            Files.move(source, target);
-        }
+        Files.move(source, target);
     }
 
-    private void rollback(List<CommittedFile> committedFiles, List<Path> createdDirectories) {
+    private void rollback(Transaction transaction) {
         IOException failure = null;
-        for (int index = committedFiles.size() - 1; index >= 0; index--) {
-            CommittedFile committedFile = committedFiles.get(index);
+        for (int index = transaction.files.size() - 1; index >= 0; index--) {
             try {
-                Files.deleteIfExists(committedFile.target());
-                if (committedFile.existed() && Files.exists(committedFile.backup())) {
-                    move(committedFile.backup(), committedFile.target());
-                }
+                rollback(transaction.files.get(index));
             }
-            catch (IOException ex) {
-                failure = appendFailure(failure, ex);
+            catch (IOException | CocoCodegenException ex) {
+                failure = appendFailure(failure, asIOException(ex));
             }
         }
-        for (int index = createdDirectories.size() - 1; index >= 0; index--) {
+        for (int index = transaction.createdDirectories.size() - 1; index >= 0; index--) {
             try {
-                Files.deleteIfExists(createdDirectories.get(index));
+                Files.deleteIfExists(transaction.createdDirectories.get(index));
             }
             catch (IOException ex) {
                 failure = appendFailure(failure, ex);
@@ -306,12 +391,62 @@ public final class CocoGeneratedFileWriter {
         }
     }
 
+    private void rollback(TransactionFile transactionFile) throws IOException {
+        if (transactionFile.state == CommitState.REPLACED) {
+            Path target = transactionFile.stagedFile.target();
+            if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                BasicFileAttributes attributes = CocoOutputRootLock.readAttributes(target);
+                if (CocoOutputRootLock.isReparsePoint(attributes) || !attributes.isRegularFile()
+                        || !transactionFile.stagedFile.digest().equals(digest(target))) {
+                    throw new IOException("generated target changed before rollback; preserving target and backup: "
+                            + target);
+                }
+                Files.delete(target);
+            }
+            transactionFile.state = transactionFile.originalExists ? CommitState.BACKED_UP : CommitState.PLANNED;
+        }
+        if (transactionFile.state == CommitState.BACKED_UP) {
+            Path target = transactionFile.stagedFile.target();
+            if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("target appeared before backup restoration; preserving target and backup: "
+                        + target);
+            }
+            if (!Files.exists(transactionFile.backup, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("generated-file backup is missing: " + transactionFile.backup);
+            }
+            this.move(transactionFile.backup, target);
+            transactionFile.state = CommitState.PLANNED;
+        }
+    }
+
+    private static String digest(Path path) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (var input = Files.newInputStream(path)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        }
+        catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is not available", ex);
+        }
+    }
+
     private static IOException appendFailure(IOException previous, IOException next) {
         if (previous == null) {
             return next;
         }
         previous.addSuppressed(next);
         return previous;
+    }
+
+    private static IOException asIOException(Exception failure) {
+        return failure instanceof IOException ioException
+                ? ioException : new IOException(failure.getMessage(), failure);
     }
 
     private static void deleteRecursively(Path path) {
@@ -348,10 +483,52 @@ public final class CocoGeneratedFileWriter {
     private record PlannedFile(Path target, CocoGeneratedFile file) {
     }
 
-    private record StagedFile(int index, Path staged, Path target) {
+    private record StagedFile(int index, Path staged, Path target, String digest) {
     }
 
-    private record CommittedFile(Path target, Path backup, boolean existed) {
+    private static final class Transaction {
+
+        private final Path stagingDirectory;
+
+        private final Path recoveryMarker;
+
+        private final List<TransactionFile> files;
+
+        private final List<Path> createdDirectories = new ArrayList<>();
+
+        private boolean markerCreated;
+
+        private Transaction(Path stagingDirectory, Path recoveryMarker, List<TransactionFile> files) {
+            this.stagingDirectory = stagingDirectory;
+            this.recoveryMarker = recoveryMarker;
+            this.files = files;
+        }
+    }
+
+    private static final class TransactionFile {
+
+        private final StagedFile stagedFile;
+
+        private final Path backup;
+
+        private final boolean originalExists;
+
+        private CommitState state = CommitState.PLANNED;
+
+        private TransactionFile(StagedFile stagedFile, Path backup, boolean originalExists) {
+            this.stagedFile = stagedFile;
+            this.backup = backup;
+            this.originalExists = originalExists;
+        }
+    }
+
+    private enum CommitState {
+
+        PLANNED,
+
+        BACKED_UP,
+
+        REPLACED
     }
 
     @FunctionalInterface

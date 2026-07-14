@@ -12,6 +12,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
+import javax.lang.model.SourceVersion;
+
 import io.github.coco.feature.codegen.core.CocoCodegenRequest;
 
 /**
@@ -42,16 +44,6 @@ public final class CocoCrudSpec {
     private static final Pattern SQL_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     private static final Pattern API_PATH = Pattern.compile("/(?:[A-Za-z0-9][A-Za-z0-9_-]*)(?:/[A-Za-z0-9][A-Za-z0-9_-]*)*");
-
-    private static final Set<String> JAVA_KEYWORDS = Set.of(
-            "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class",
-            "const", "continue", "default", "do", "double", "else", "enum", "extends", "final",
-            "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int",
-            "_", "exports", "module", "non-sealed", "open", "opens", "permits", "provides", "record",
-            "requires", "sealed", "to", "transitive", "uses", "var", "with", "yield",
-            "interface", "long", "native", "new", "package", "private", "protected", "public", "return",
-            "short", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
-            "transient", "try", "void", "volatile", "while", "true", "false", "null");
 
     private static final Set<String> PRIMITIVE_TYPE_NAMES = Set.of(
             "long", "int", "short", "byte", "boolean", "double", "float", "char");
@@ -302,21 +294,20 @@ public final class CocoCrudSpec {
 
     private static String normalizeResourceName(String value) {
         String normalized = requireJavaIdentifier(requireText(value, "resourceName"), "resourceName");
-        if (!Character.isLetter(normalized.charAt(0))) {
+        int firstCodePoint = normalized.codePointAt(0);
+        if (!Character.isLetter(firstCodePoint)) {
             throw new IllegalArgumentException("resourceName must start with a letter");
         }
-        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
+        return new StringBuilder(normalized.length())
+                .appendCodePoint(Character.toUpperCase(firstCodePoint))
+                .append(normalized.substring(Character.charCount(firstCodePoint)))
+                .toString();
     }
 
     private static String requireJavaIdentifier(String value, String name) {
         String normalized = requireText(value, name);
-        if (JAVA_KEYWORDS.contains(normalized) || !Character.isJavaIdentifierStart(normalized.charAt(0))) {
+        if (!SourceVersion.isIdentifier(normalized) || SourceVersion.isKeyword(normalized)) {
             throw new IllegalArgumentException(name + " must be a valid Java identifier: " + normalized);
-        }
-        for (int index = 1; index < normalized.length(); index++) {
-            if (!Character.isJavaIdentifierPart(normalized.charAt(index))) {
-                throw new IllegalArgumentException(name + " must be a valid Java identifier: " + normalized);
-            }
         }
         return normalized;
     }
