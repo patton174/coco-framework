@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.exception;
 
+import java.util.IdentityHashMap;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -59,6 +60,8 @@ import org.springframework.web.util.DisconnectedClientHelper;
  */
 @RestControllerAdvice
 public class CocoWebExceptionHandler {
+
+    private static final int MAX_LOCALIZED_FAILURE_DEPTH = 32;
 
     private static final String BAD_REQUEST_MESSAGE_CODE = "coco.web.error.bad-request";
 
@@ -361,17 +364,28 @@ public class CocoWebExceptionHandler {
     }
 
     private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale) {
+        return localizedFailure(exception, resolvedMessage, locale, new IdentityHashMap<>(), 0);
+    }
+
+    private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale,
+            IdentityHashMap<Throwable, Boolean> visited, int depth) {
         if (!(exception instanceof CocoException cocoException)) {
             return exception;
+        }
+        if (depth >= MAX_LOCALIZED_FAILURE_DEPTH || visited.put(cocoException, Boolean.TRUE) != null) {
+            return null;
         }
         String message = resolvedMessage == null || resolvedMessage.isBlank()
                 ? resolveMessage(cocoException, locale)
                 : resolvedMessage;
-        Throwable localizedCause = localizedFailure(cocoException.getCause(), null, locale);
+        Throwable localizedCause = localizedFailure(cocoException.getCause(), null, locale, visited, depth + 1);
         CocoException localizedException = copyCocoException(cocoException, message, localizedCause);
         localizedException.setStackTrace(cocoException.getStackTrace());
         for (Throwable suppressed : cocoException.getSuppressed()) {
-            localizedException.addSuppressed(localizedFailure(suppressed, null, locale));
+            Throwable localizedSuppressed = localizedFailure(suppressed, null, locale, visited, depth + 1);
+            if (localizedSuppressed != null) {
+                localizedException.addSuppressed(localizedSuppressed);
+            }
         }
         return localizedException;
     }

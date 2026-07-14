@@ -124,6 +124,8 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -480,6 +482,76 @@ class CocoWebAutoConfigurationTest {
                     Throwable failure = record.failure().orElseThrow();
                     assertEquals(CocoException.class, failure.getClass());
                     assertEquals("服务器内部错误", failure.getMessage());
+                });
+    }
+
+    @Test
+    void boundsDeepCocoExceptionCauseChainsInLocalizedFailureLogs() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoException exception = deepCocoException(128);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/deep-error");
+
+                    handler.handleCocoException(exception, new ServletWebRequest(request));
+                    handler.handleCocoException(exception, new ServletWebRequest(request));
+
+                    assertEquals(2, sink.records().size());
+                    List<String> first = causeMessages(sink.records().get(0).failure().orElseThrow());
+                    List<String> second = causeMessages(sink.records().get(1).failure().orElseThrow());
+                    assertEquals(32, first.size());
+                    assertEquals(first, second);
+                    Throwable firstFailure = sink.records().get(0).failure().orElseThrow();
+                    Throwable secondFailure = sink.records().get(1).failure().orElseThrow();
+                    assertNull(lastCause(firstFailure).getCause());
+                    assertEquals(renderStackTrace(firstFailure), renderStackTrace(secondFailure));
+                });
+    }
+
+    @Test
+    void cutsCocoExceptionCauseCyclesInLocalizedFailureLogs() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoException first = new CocoException("coco.error.internal-error", "first");
+        CocoException second = new CocoException("coco.error.internal-error", "second", first);
+        first.initCause(second);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+
+                    handler.handleCocoException(first, new ServletWebRequest(new MockHttpServletRequest()));
+                    handler.handleCocoException(first, new ServletWebRequest(new MockHttpServletRequest()));
+
+                    Throwable failure = sink.records().get(0).failure().orElseThrow();
+                    Throwable repeatedFailure = sink.records().get(1).failure().orElseThrow();
+                    assertEquals(2, causeMessages(failure).size());
+                    assertNull(lastCause(failure).getCause());
+                    assertEquals(renderStackTrace(failure), renderStackTrace(repeatedFailure));
+                });
+    }
+
+    @Test
+    void cutsCocoExceptionSuppressedCyclesInLocalizedFailureLogs() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoException first = new CocoException("coco.error.internal-error", "first");
+        CocoException second = new CocoException("coco.error.internal-error", "second");
+        first.addSuppressed(second);
+        second.addSuppressed(first);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+
+                    handler.handleCocoException(first, new ServletWebRequest(new MockHttpServletRequest()));
+                    handler.handleCocoException(first, new ServletWebRequest(new MockHttpServletRequest()));
+
+                    Throwable failure = sink.records().get(0).failure().orElseThrow();
+                    Throwable repeatedFailure = sink.records().get(1).failure().orElseThrow();
+                    assertEquals(1, failure.getSuppressed().length);
+                    assertEquals(0, failure.getSuppressed()[0].getSuppressed().length);
+                    assertEquals(renderStackTrace(failure), renderStackTrace(repeatedFailure));
                 });
     }
 
@@ -5705,6 +5777,42 @@ class CocoWebAutoConfigurationTest {
         CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
         CocoLogHandles.registerDefaults(registry);
         return new CocoLogManager(registry, sink);
+    }
+
+    private static CocoException deepCocoException(int depth) {
+        CocoException exception = null;
+        for (int index = 0; index < depth; index++) {
+            exception = new CocoException("coco.error.internal-error", "deep-" + index, exception);
+        }
+        return exception;
+    }
+
+    private static List<String> causeMessages(Throwable exception) {
+        List<String> messages = new ArrayList<>();
+        Throwable current = exception;
+        for (int index = 0; current != null && index < 256; index++) {
+            messages.add(current.getClass().getName() + ":" + current.getMessage());
+            current = current.getCause();
+        }
+        return messages;
+    }
+
+    private static Throwable lastCause(Throwable exception) {
+        Throwable current = exception;
+        for (int index = 0; index < 256; index++) {
+            Throwable cause = current.getCause();
+            if (cause == null) {
+                return current;
+            }
+            current = cause;
+        }
+        throw new AssertionError("localized failure cause chain must be finite");
+    }
+
+    private static String renderStackTrace(Throwable exception) {
+        StringWriter output = new StringWriter();
+        exception.printStackTrace(new PrintWriter(output));
+        return output.toString();
     }
 
     private static MethodParameter methodParameter(String methodName) throws NoSuchMethodException {
