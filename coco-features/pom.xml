@@ -24,6 +24,7 @@
         <module>coco-tenant</module>
         <module>coco-data-permission</module>
         <module>coco-openapi</module>
+        <module>coco-rate-limit</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>
