@@ -26,7 +26,8 @@ import io.github.coco.api.feature.CocoFeature;
 public record CocoFeaturePlan(
         Set<CocoFeature> enabledFeatures,
         Set<CocoFeature> disabledFeatures,
-        List<CocoFeatureDefinition> definitions) {
+        List<CocoFeatureDefinition> definitions,
+        Set<CocoFeature> explicitlyDisabledFeatures) {
 
     /**
      * <p>
@@ -35,11 +36,31 @@ public record CocoFeaturePlan(
      * @param enabledFeatures 最终启用的功能集合
      * @param disabledFeatures 最终禁用的功能集合
      * @param definitions 标准功能定义列表
+     * @param explicitlyDisabledFeatures 显式禁用的功能集合
      */
     public CocoFeaturePlan {
         enabledFeatures = Set.copyOf(Objects.requireNonNull(enabledFeatures, "enabledFeatures must not be null"));
         disabledFeatures = Set.copyOf(Objects.requireNonNull(disabledFeatures, "disabledFeatures must not be null"));
         definitions = List.copyOf(Objects.requireNonNull(definitions, "definitions must not be null"));
+        explicitlyDisabledFeatures = Set.copyOf(Objects.requireNonNull(explicitlyDisabledFeatures,
+                "explicitlyDisabledFeatures must not be null"));
+    }
+
+    /**
+     * <p>
+     * 创建不包含显式禁用来源信息的功能启用计划。
+     * </p>
+     * <p>
+     * 保留该构造入口以兼容 2.0.1 及更早版本。使用此入口创建的计划无法区分显式禁用和依赖传播禁用，
+     * 诊断结果保持原有推导行为。
+     * </p>
+     * @param enabledFeatures 最终启用的功能集合
+     * @param disabledFeatures 最终禁用的功能集合
+     * @param definitions 标准功能定义列表
+     */
+    public CocoFeaturePlan(Set<CocoFeature> enabledFeatures, Set<CocoFeature> disabledFeatures,
+            List<CocoFeatureDefinition> definitions) {
+        this(enabledFeatures, disabledFeatures, definitions, Set.of());
     }
 
     /**
@@ -58,7 +79,8 @@ public record CocoFeaturePlan(
      * 返回因依赖功能未启用而无法启用的功能集合。
      * </p>
      * <p>
-     * 该结果从最终计划和标准功能依赖表派生，用于启动日志、构建日志和诊断输出，帮助定位功能被依赖传播禁用的原因。
+     * 该结果从最终计划、显式禁用来源和标准功能依赖表派生，用于启动日志、构建日志和诊断输出，
+     * 帮助定位功能被依赖传播禁用的原因。
      * </p>
      * @return 因依赖不完整而禁用的功能集合
      */
@@ -66,6 +88,7 @@ public record CocoFeaturePlan(
         EnumSet<CocoFeature> disabledByDependency = EnumSet.noneOf(CocoFeature.class);
         for (CocoFeatureDefinition definition : this.definitions) {
             if (this.disabledFeatures.contains(definition.feature())
+                    && !this.explicitlyDisabledFeatures.contains(definition.feature())
                     && !this.enabledFeatures.containsAll(definition.dependencies())) {
                 disabledByDependency.add(definition.feature());
             }

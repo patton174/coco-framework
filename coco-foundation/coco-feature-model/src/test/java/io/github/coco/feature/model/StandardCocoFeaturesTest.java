@@ -2,6 +2,7 @@ package io.github.coco.feature.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -139,6 +140,16 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
+    void excludesExplicitlyDisabledFeatureFromDependencyDiagnostics() {
+        CocoFeaturePlan plan = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS)));
+
+        assertEquals(Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS), plan.explicitlyDisabledFeatures());
+        assertEquals(Set.of(CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
+                plan.disabledByDependencyFeatures());
+    }
+
+    @Test
     void explicitDisableWithSatisfiedDependenciesIsNotDependencyDisabled() {
         CocoFeaturePlan plan = StandardCocoFeatures.resolve(
                 CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.OPENAPI)));
@@ -186,7 +197,7 @@ class StandardCocoFeaturesTest {
     @Test
     void writesAndReadsFeatureManifest() {
         CocoFeaturePlan plan = StandardCocoFeatures.resolve(
-                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION)));
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS)));
 
         String json = CocoFeatureManifestLoader.write(StandardCocoFeatures.toManifest(plan, "test"));
         CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(
@@ -195,8 +206,10 @@ class StandardCocoFeaturesTest {
 
         assertEquals(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, manifest.schemaVersion());
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.TENANT));
-        assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.DATA_PERMISSION));
+        assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.MYBATIS_PLUS));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
+        assertEquals(plan.explicitlyDisabledFeatures(), loadedPlan.explicitlyDisabledFeatures());
+        assertEquals(plan.disabledByDependencyFeatures(), loadedPlan.disabledByDependencyFeatures());
         assertEquals(List.of(
                 "coco-feature-mybatis-plus",
                 "coco-mybatis-plus"), manifest.features().stream()
@@ -209,6 +222,20 @@ class StandardCocoFeaturesTest {
                 .findFirst()
                 .orElseThrow()
                 .artifactId());
+    }
+
+    @Test
+    void preservesLegacyPlanAndManifestConstructors() {
+        CocoFeaturePlan plan = new CocoFeaturePlan(
+                Set.of(CocoFeature.WEB),
+                Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.TENANT),
+                StandardCocoFeatures.all());
+        CocoFeatureManifest manifest = new CocoFeatureManifest("1.1", "test",
+                StandardCocoFeatures.toManifest(plan, "test").features());
+
+        assertEquals(Set.of(), plan.explicitlyDisabledFeatures());
+        assertEquals(Set.of(CocoFeature.TENANT), plan.disabledByDependencyFeatures());
+        assertNull(manifest.explicitlyDisabledFeatureIds());
     }
 
     @Test

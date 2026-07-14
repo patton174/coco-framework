@@ -13,7 +13,10 @@ import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureSelection;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -89,6 +92,25 @@ class CocoConfigAutoConfigurationTest {
                     assertFalse(manager.isEnabled(CocoFeature.TENANT));
                     assertFalse(plan.enabledFeatures().contains(CocoFeature.TENANT));
                 });
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void runtimeConfigurationKeepsExplicitDisableOutOfDependencyDiagnostics(CapturedOutput output) {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.features.disabled[0]=tenant",
+                        "coco.features.disabled[1]=mybatis-plus")
+                .run(context -> {
+                    CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
+
+                    assertEquals(java.util.Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS),
+                            plan.explicitlyDisabledFeatures());
+                    assertEquals(java.util.Set.of(CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
+                            plan.disabledByDependencyFeatures());
+                });
+
+        assertTrue(output.getAll().contains("disabledByDependency=[codegen, data-permission]"));
     }
 
     @Test
