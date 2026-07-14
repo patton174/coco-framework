@@ -4,28 +4,30 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** 输出根目录的进程内和跨进程独占锁。 */
+/**
+ * 输出根目录的进程内和跨进程独占锁。
+ * <p>持久 lock file 不得在释放时删除，否则 Unix 上已打开文件被 unlink 后会形成新的锁 inode。</p>
+ */
 final class CocoOutputRootLock implements AutoCloseable {
 
     private static final ConcurrentMap<Path, ReentrantLock> PROCESS_LOCKS = new ConcurrentHashMap<>();
 
-    private static final String STATE_DIRECTORY_NAME = "coco-codegen-state";
+    private static final String STATE_DIRECTORY_NAME = ".coco-codegen";
+
+    private static final String LOCK_FILE_NAME = "writer.lock";
+
+    private static final String RECOVERY_MARKER_NAME = "recovery.properties";
 
     private final Path canonicalRoot;
 
@@ -59,9 +61,10 @@ final class CocoOutputRootLock implements AutoCloseable {
         FileChannel channel = null;
         FileLock fileLock = null;
         try {
-            StatePaths statePaths = statePaths(canonicalRoot);
+            StatePaths statePaths = statePaths(root, canonicalRoot);
+            validateLockFile(statePaths.lockFile());
             channel = FileChannel.open(statePaths.lockFile(),
-                    StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
             try {
                 fileLock = channel.tryLock();
             }
@@ -102,11 +105,17 @@ final class CocoOutputRootLock implements AutoCloseable {
     }
 
     static Path lockFilePath(Path root) {
-        return statePaths(canonicalize(root)).lockFile();
+        Path canonicalRoot = canonicalize(root);
+        return statePaths(root, canonicalRoot).lockFile();
     }
 
     static Path recoveryMarkerPath(Path root) {
-        return statePaths(canonicalize(root)).recoveryMarker();
+        Path canonicalRoot = canonicalize(root);
+        return statePaths(root, canonicalRoot).recoveryMarker();
+    }
+
+    static boolean isStatePath(Path root, Path target) {
+        return target.startsWith(root.resolve(STATE_DIRECTORY_NAME));
     }
 
     static void validateExistingPath(Path path) {
@@ -207,36 +216,39 @@ final class CocoOutputRootLock implements AutoCloseable {
         }
     }
 
-    private static StatePaths statePaths(Path canonicalRoot) {
+    private static StatePaths statePaths(Path root, Path canonicalRoot) {
         try {
-            Path stateDirectory = Path.of(System.getProperty("java.io.tmpdir"), STATE_DIRECTORY_NAME)
-                    .toAbsolutePath().normalize();
+            Files.createDirectories(root);
+            validateExistingPath(root);
+            Path realRoot = root.toRealPath();
+            if (!realRoot.equals(canonicalRoot)) {
+                throw new CocoCodegenException("output root changed while acquiring its lock: " + root);
+            }
+            Path stateDirectory = realRoot.resolve(STATE_DIRECTORY_NAME);
             Files.createDirectories(stateDirectory);
             BasicFileAttributes attributes = readAttributes(stateDirectory);
             if (!attributes.isDirectory() || isReparsePoint(attributes)) {
                 throw new CocoCodegenException("codegen state directory is not a safe directory: " + stateDirectory);
             }
             Path realStateDirectory = stateDirectory.toRealPath();
-            String key = rootKey(canonicalRoot);
-            return new StatePaths(realStateDirectory.resolve(key + ".lock"),
-                    realStateDirectory.resolve(key + ".recovery"));
+            if (!realStateDirectory.startsWith(realRoot)) {
+                throw new CocoCodegenException("codegen state directory escapes output root: " + stateDirectory);
+            }
+            return new StatePaths(realStateDirectory.resolve(LOCK_FILE_NAME),
+                    realStateDirectory.resolve(RECOVERY_MARKER_NAME));
         }
         catch (IOException ex) {
             throw new CocoCodegenException("failed to prepare codegen lock state directory", ex);
         }
     }
 
-    private static String rootKey(Path canonicalRoot) {
-        String value = canonicalRoot.toString();
-        if (canonicalRoot.getFileSystem().getSeparator().equals("\\")) {
-            value = value.toLowerCase(Locale.ROOT);
+    private static void validateLockFile(Path lockFile) {
+        if (!Files.exists(lockFile, LinkOption.NOFOLLOW_LINKS)) {
+            return;
         }
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        }
-        catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is not available", ex);
+        BasicFileAttributes attributes = readAttributes(lockFile);
+        if (!attributes.isRegularFile() || isReparsePoint(attributes)) {
+            throw new CocoCodegenException("codegen lock file is not a safe regular file: " + lockFile);
         }
     }
 

@@ -344,21 +344,27 @@ public final class CocoCrudSpec {
 
     private static String toKebabCase(String value) {
         StringBuilder result = new StringBuilder();
-        for (int index = 0; index < value.length(); index++) {
-            char current = value.charAt(index);
+        int[] codePoints = value.codePoints().toArray();
+        for (int index = 0; index < codePoints.length; index++) {
+            int current = codePoints[index];
             if (Character.isUpperCase(current) && index > 0
-                    && (Character.isLowerCase(value.charAt(index - 1))
-                    || (index + 1 < value.length() && Character.isLowerCase(value.charAt(index + 1))))) {
+                    && (Character.isLowerCase(codePoints[index - 1])
+                    || (index + 1 < codePoints.length && Character.isLowerCase(codePoints[index + 1])))) {
                 result.append('-');
             }
-            result.append(Character.toLowerCase(current));
+            result.appendCodePoint(Character.toLowerCase(current));
         }
         return result.toString();
     }
 
     private static String pluralize(String value) {
-        if (value.endsWith("y") && value.length() > 1 && !isVowel(value.charAt(value.length() - 2))) {
-            return value.substring(0, value.length() - 1) + "ies";
+        int codePointCount = value.codePointCount(0, value.length());
+        if (value.endsWith("y") && codePointCount > 1) {
+            int yIndex = value.offsetByCodePoints(value.length(), -1);
+            int previousIndex = value.offsetByCodePoints(yIndex, -1);
+            if (!isVowel(value.codePointAt(previousIndex))) {
+                return value.substring(0, yIndex) + "ies";
+            }
         }
         if (value.endsWith("s") || value.endsWith("x") || value.endsWith("z")
                 || value.endsWith("ch") || value.endsWith("sh")) {
@@ -367,7 +373,7 @@ public final class CocoCrudSpec {
         return value + "s";
     }
 
-    private static boolean isVowel(char value) {
+    private static boolean isVowel(int value) {
         return value == 'a' || value == 'e' || value == 'i' || value == 'o' || value == 'u';
     }
 
@@ -399,7 +405,11 @@ public final class CocoCrudSpec {
     }
 
     private static String decapitalize(String value) {
-        return Character.toLowerCase(value.charAt(0)) + value.substring(1);
+        int firstCodePoint = value.codePointAt(0);
+        return new StringBuilder(value.length())
+                .appendCodePoint(Character.toLowerCase(firstCodePoint))
+                .append(value.substring(Character.charCount(firstCodePoint)))
+                .toString();
     }
 
     private static Map<String, String> commonTypeNames() {

@@ -190,6 +190,42 @@ class CocoCodegenYamlParserTest {
     }
 
     @Test
+    void rejectsSupplementaryCaseVariantsThatNormalizeToTheSameName() throws Exception {
+        String uppercase = "\uD801\uDC00";
+        String lowercase = "\uD801\uDC28";
+        Path duplicateResources = write("duplicate-supplementary-resources.yml", """
+                base-package: com.example.catalog
+                resources:
+                  - name: %sProduct
+                    table: active_product
+                    id:
+                      name: id
+                      column: id
+                      type: Long
+                      strategy: AUTO
+                    fields:
+                      - name: sku
+                        column: sku
+                        type: String
+                  - name: %sProduct
+                    table: archived_product
+                    id:
+                      name: id
+                      column: id
+                      type: Long
+                      strategy: AUTO
+                    fields:
+                      - name: legacyCode
+                        column: legacy_code
+                        type: String
+                """.formatted(uppercase, lowercase));
+
+        assertThatThrownBy(() -> new CocoCodegenYamlParser().parse(duplicateResources, StandardCharsets.UTF_8))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("$.resources[1].name duplicates resource");
+    }
+
+    @Test
     void rejectsJava17ForbiddenRecordComponentNames() throws Exception {
         for (String forbiddenName : RECORD_COMPONENT_FORBIDDEN_NAMES) {
             Path invalidId = write("invalid-id-" + forbiddenName + ".yml", validSpec().replace(

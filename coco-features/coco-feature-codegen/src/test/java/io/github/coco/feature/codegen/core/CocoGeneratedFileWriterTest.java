@@ -172,35 +172,51 @@ class CocoGeneratedFileWriterTest {
     }
 
     @Test
-    void reportsLockHeldByAnotherJvm() throws Exception {
+    void reportsLockHeldByAnotherJvmWithDifferentTempDirectories() throws Exception {
         Path output = this.tempDirectory.resolve("cross-process-lock");
         Path ready = this.tempDirectory.resolve("cross-process.ready");
         Path release = this.tempDirectory.resolve("cross-process.release");
-        String javaExecutable = Path.of(System.getProperty("java.home"), "bin",
-                System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java").toString();
-        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
-        Process process = new ProcessBuilder(javaExecutable, "-cp", classpath,
-                CocoOutputRootLockProcess.class.getName(), output.toString(), ready.toString(), release.toString())
-                .redirectErrorStream(true)
-                .start();
+        Path firstTemp = Files.createDirectories(this.tempDirectory.resolve("jvm-temp-a"));
+        Path secondTemp = Files.createDirectories(this.tempDirectory.resolve("jvm-temp-b"));
+        Process holder = startLockProcess(firstTemp, "hold", output.toString(),
+                ready.toString(), release.toString());
         try {
-            assertThat(awaitExists(ready, process, 10, TimeUnit.SECONDS))
-                    .withFailMessage(() -> readProcessOutput(process))
+            assertThat(awaitExists(ready, holder, 10, TimeUnit.SECONDS))
+                    .withFailMessage(() -> readProcessOutput(holder))
                     .isTrue();
 
-            assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(output,
-                    CocoCodegenResult.of(List.of(new CocoGeneratedFile("value.txt", "value")))))
-                    .isInstanceOf(CocoCodegenException.class)
-                    .hasMessageContaining("locked by another process");
+            Process contender = startLockProcess(secondTemp, "try", output.toString());
+            assertThat(contender.waitFor(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(contender.exitValue()).isEqualTo(2);
+            assertThat(readProcessOutput(contender)).contains("locked by another process");
         }
         finally {
             Files.writeString(release, "release");
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                process.waitFor(10, TimeUnit.SECONDS);
+            if (!holder.waitFor(10, TimeUnit.SECONDS)) {
+                holder.destroyForcibly();
+                holder.waitFor(10, TimeUnit.SECONDS);
             }
         }
-        assertThat(process.exitValue()).isZero();
+        assertThat(holder.exitValue()).isZero();
+        assertThat(CocoOutputRootLock.lockFilePath(output)).exists();
+    }
+
+    @Test
+    void recoveryMarkerIsVisibleToJvmWithDifferentTempDirectory() throws Exception {
+        Path output = this.tempDirectory.resolve("cross-temp-recovery");
+        Path foreignTemp = Files.createDirectories(this.tempDirectory.resolve("foreign-jvm-temp"));
+        Path marker = CocoOutputRootLock.recoveryMarkerPath(output);
+        Files.writeString(marker, "recovery-required");
+        try {
+            Process checker = startLockProcess(foreignTemp, "check-marker", output.toString());
+            assertThat(checker.waitFor(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(checker.exitValue()).isEqualTo(3);
+            assertThat(readProcessOutput(checker)).contains("recovery is required");
+            assertThat(marker).startsWith(output.resolve(".coco-codegen"));
+        }
+        finally {
+            Files.deleteIfExists(marker);
+        }
     }
 
     @Test
@@ -313,6 +329,13 @@ class CocoGeneratedFileWriterTest {
                 new CocoGeneratedFileWriteOptions(false, true)))
                 .isInstanceOf(CocoCodegenException.class)
                 .hasMessageContaining("duplicate generated output");
+
+        CocoCodegenResult reservedState = CocoCodegenResult.of(List.of(
+                new CocoGeneratedFile(".coco-codegen/owned.txt", "value")));
+        assertThatThrownBy(() -> writer.write(this.tempDirectory, reservedState,
+                new CocoGeneratedFileWriteOptions(false, true)))
+                .isInstanceOf(CocoCodegenException.class)
+                .hasMessageContaining("reserved for codegen state");
     }
 
     private static Properties loadProperties(Path path) throws IOException {
@@ -345,5 +368,19 @@ class CocoGeneratedFileWriterTest {
         catch (IOException ex) {
             return ex.toString();
         }
+    }
+
+    private static Process startLockProcess(Path tempDirectory, String... arguments) throws IOException {
+        String javaExecutable = Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java").toString();
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        List<String> command = new java.util.ArrayList<>();
+        command.add(javaExecutable);
+        command.add("-Djava.io.tmpdir=" + tempDirectory);
+        command.add("-cp");
+        command.add(classpath);
+        command.add(CocoOutputRootLockProcess.class.getName());
+        command.addAll(List.of(arguments));
+        return new ProcessBuilder(command).redirectErrorStream(true).start();
     }
 }

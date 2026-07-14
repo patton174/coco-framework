@@ -95,6 +95,23 @@ class FreeMarkerCocoCodeGeneratorTest {
         assertCompilesWithJava17(result);
     }
 
+    @Test
+    void derivesSupplementaryUnicodeVariablesApiAndSourcePaths() {
+        String uppercase = "\uD801\uDC00";
+        String lowercase = "\uD801\uDC28";
+        CocoCrudSpec spec = CocoCrudSpec.builder("com.example", lowercase + "Product", "sample_product")
+                .id("id", "id", Long.class, CocoCrudIdStrategy.AUTO)
+                .field("name", "name", String.class, true)
+                .build();
+
+        CocoCodegenResult result = builtInGenerator().generate(spec.toRequest());
+
+        assertThat(spec.resourceName()).isEqualTo(uppercase + "Product");
+        assertThat(spec.apiPath()).isEqualTo("/" + lowercase + "-products");
+        assertThat(result.files()).extracting(CocoGeneratedFile::path)
+                .contains("com/example/domain/" + lowercase + "product/" + uppercase + "Product.java");
+    }
+
     private void assertCompilesWithJava17(CocoCodegenResult result) throws IOException {
         Path sourceDirectory = this.tempDirectory.resolve("sources");
         Path classesDirectory = this.tempDirectory.resolve("classes");
