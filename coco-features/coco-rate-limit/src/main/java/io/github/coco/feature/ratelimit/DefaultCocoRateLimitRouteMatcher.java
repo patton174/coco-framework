@@ -1,5 +1,6 @@
 package io.github.coco.feature.ratelimit;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -24,7 +25,7 @@ public final class DefaultCocoRateLimitRouteMatcher implements CocoRateLimitRout
     public DefaultCocoRateLimitRouteMatcher(CocoRateLimitProperties properties,
             CocoWebRequestMatcher requestMatcher) {
         CocoRateLimitProperties checkedProperties = properties == null ? new CocoRateLimitProperties() : properties;
-        this.routes = List.copyOf(checkedProperties.getRoutes());
+        this.routes = snapshotRoutes(checkedProperties.getRoutes());
         this.requestMatcher = Objects.requireNonNull(requestMatcher, "requestMatcher must not be null");
         this.routes.forEach(DefaultCocoRateLimitRouteMatcher::validate);
     }
@@ -49,5 +50,13 @@ public final class DefaultCocoRateLimitRouteMatcher implements CocoRateLimitRout
         if (route == null || !route.valid()) {
             throw new IllegalStateException("Each coco.rate-limit.routes entry needs id, matcher, positive limit and window-seconds");
         }
+    }
+
+    private static List<CocoRateLimitRoute> snapshotRoutes(List<CocoRateLimitRoute> routes) {
+        List<CocoRateLimitRoute> snapshot = new ArrayList<>();
+        for (CocoRateLimitRoute route : routes) {
+            snapshot.add(CocoRateLimitRoute.copyOf(route));
+        }
+        return List.copyOf(snapshot);
     }
 }

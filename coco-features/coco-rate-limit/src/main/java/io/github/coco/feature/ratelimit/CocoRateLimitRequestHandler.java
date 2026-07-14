@@ -64,7 +64,8 @@ public final class CocoRateLimitRequestHandler {
      */
     public boolean handle(CocoRateLimitRoute route, HttpServletRequest request, HttpServletResponse response)
             throws IOException {
-        CocoRateLimitRoute checkedRoute = Objects.requireNonNull(route, "route must not be null");
+        CocoRateLimitRoute checkedRoute = CocoRateLimitRoute.copyOf(
+                Objects.requireNonNull(route, "route must not be null"));
         Instant now = this.clock.instant();
         Instant resetAt = fallbackResetAt(now);
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);

@@ -57,6 +57,42 @@ class CocoRateLimitFilterMvcIntegrationTest {
     }
 
     @Test
+    void linksAndRunsARelease17ConsumerUsingThe24116LiveJavaBeanContract(@TempDir Path outputDirectory)
+            throws Exception {
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        assertThat(compiler).as("JDK compiler is required for the linkage probe").isNotNull();
+        Path sourceFile = outputDirectory.resolve("LegacyRateLimitPropertiesConsumer.java");
+        java.nio.file.Files.writeString(sourceFile, """
+                package legacy;
+                import java.util.Set;
+                import io.github.coco.feature.ratelimit.CocoRateLimitProperties;
+                import io.github.coco.feature.ratelimit.CocoRateLimitRoute;
+                public final class LegacyRateLimitPropertiesConsumer {
+                    public static boolean link() {
+                        CocoRateLimitProperties properties = new CocoRateLimitProperties();
+                        properties.getInMemory().setMaxEntries(17);
+                        CocoRateLimitRoute route = new CocoRateLimitRoute();
+                        route.getMatcher().setPathPatterns(Set.of("/legacy/**"));
+                        properties.getRoutes().add(route);
+                        return properties.getInMemory().getMaxEntries() == 17
+                                && properties.getRoutes().size() == 1
+                                && properties.getRoutes().get(0).getMatcher().getPathPatterns()
+                                        .equals(Set.of("/legacy/**"));
+                    }
+                }
+                """);
+        int exitCode = compiler.run(null, null, null, "--release", "17", "-classpath",
+                System.getProperty("java.class.path"), "-d", outputDirectory.toString(), sourceFile.toString());
+        assertThat(exitCode).isZero();
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[] { outputDirectory.toUri().toURL() },
+                CocoRateLimitProperties.class.getClassLoader())) {
+            Class<?> consumer = classLoader.loadClass("legacy.LegacyRateLimitPropertiesConsumer");
+            assertThat(consumer.getMethod("link").invoke(null)).isEqualTo(true);
+        }
+    }
+
+    @Test
     void pathFilterWinsAndPreventsMvcFromTakingTheSameQuotaTwice() throws Exception {
         CocoRateLimitRoute route = route("path-route");
         CocoRateLimitRequestHandler requestHandler = CocoRateLimitRequestHandlerTest.handler(

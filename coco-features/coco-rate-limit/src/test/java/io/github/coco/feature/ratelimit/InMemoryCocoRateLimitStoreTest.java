@@ -70,6 +70,20 @@ class InMemoryCocoRateLimitStoreTest {
     }
 
     @Test
+    void capturesInMemorySettingsAtStoreConstruction() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        CocoRateLimitProperties properties = properties(1, 60);
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties, clock, false)) {
+            properties.getInMemory().setMaxEntries(2);
+            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(60));
+            CocoRateLimitPermit second = permit("api", "203.0.113.11", 1, clock.instant().plusSeconds(60));
+
+            assertThat(store.acquire(first).allowed()).isTrue();
+            assertThat(store.acquire(second).capacityExhausted()).isTrue();
+        }
+    }
+
+    @Test
     void isolatesConcurrentCountsAcrossDifferentKeys() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(10, 60), clock, false)) {

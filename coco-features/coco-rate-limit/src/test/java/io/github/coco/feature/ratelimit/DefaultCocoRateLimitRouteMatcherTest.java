@@ -67,7 +67,7 @@ class DefaultCocoRateLimitRouteMatcherTest {
     }
 
     @Test
-    void keepsConfigurationSnapshotsIndependentFromCallerMutations() {
+    void keepsSetterSnapshotsIndependentFromCallerMutationsAndLiveChildrenStable() {
         CocoRateLimitRoute route = route("orders", "/api/orders");
         CocoRateLimitProperties.InMemory inMemory = new CocoRateLimitProperties.InMemory();
         inMemory.setMaxEntries(32);
@@ -75,16 +75,55 @@ class DefaultCocoRateLimitRouteMatcherTest {
         properties.setRoutes(List.of(route));
         properties.setInMemory(inMemory);
 
+        List<CocoRateLimitRoute> cachedRoutes = properties.getRoutes();
+        CocoRateLimitProperties.InMemory cachedInMemory = properties.getInMemory();
+        CocoRateLimitRoute configuredRoute = cachedRoutes.get(0);
+        assertThat(properties.getRoutes()).isSameAs(cachedRoutes);
+        assertThat(properties.getInMemory()).isSameAs(cachedInMemory);
+        assertThat(configuredRoute.getMatcher()).isSameAs(configuredRoute.getMatcher());
+
         route.setLimit(99);
         inMemory.setMaxEntries(99);
-        CocoRateLimitRoute routeSnapshot = properties.getRoutes().get(0);
-        routeSnapshot.setLimit(88);
-        routeSnapshot.getMatcher().setPathPatterns(Set.of("/changed"));
+        assertThat(configuredRoute.getLimit()).isEqualTo(10);
+        assertThat(configuredRoute.getMatcher().getPathPatterns()).containsExactly("/api/orders");
+        assertThat(cachedInMemory.getMaxEntries()).isEqualTo(32);
 
-        assertThat(properties.getRoutes().get(0).getLimit()).isEqualTo(10);
-        assertThat(properties.getRoutes().get(0).getMatcher().getPathPatterns()).containsExactly("/api/orders");
-        assertThat(properties.getInMemory().getMaxEntries()).isEqualTo(32);
-        assertThatThrownBy(() -> properties.getRoutes().add(route)).isInstanceOf(UnsupportedOperationException.class);
+        configuredRoute.getMatcher().setPathPatterns(Set.of("/changed"));
+        cachedInMemory.setMaxEntries(48);
+        assertThat(properties.getRoutes().get(0).getMatcher().getPathPatterns()).containsExactly("/changed");
+        assertThat(properties.getInMemory().getMaxEntries()).isEqualTo(48);
+
+        CocoRateLimitRoute first = route("first", "/first");
+        CocoRateLimitRoute second = route("second", "/second");
+        properties.setRoutes(List.of(first, second));
+        assertThat(cachedRoutes).extracting(CocoRateLimitRoute::getId).containsExactly("first", "second");
+        first.setLimit(99);
+        assertThat(cachedRoutes.get(0).getLimit()).isEqualTo(10);
+
+        properties.setRoutes(cachedRoutes);
+        assertThat(cachedRoutes).extracting(CocoRateLimitRoute::getId).containsExactly("first", "second");
+
+        properties.setRoutes(null);
+        properties.setInMemory(null);
+        assertThat(cachedRoutes).isEmpty();
+        assertThat(cachedInMemory.getMaxEntries()).isEqualTo(10_000);
+        assertThat(cachedInMemory.getCleanupIntervalSeconds()).isEqualTo(60);
+    }
+
+    @Test
+    void capturesDeepRouteSnapshotsAtMatcherConstruction() {
+        CocoRateLimitRoute route = route("orders", "/api/orders");
+        CocoRateLimitProperties properties = new CocoRateLimitProperties();
+        properties.getRoutes().add(route);
+        DefaultCocoRateLimitRouteMatcher matcher = new DefaultCocoRateLimitRouteMatcher(properties,
+                new DefaultCocoWebRequestMatcher());
+
+        route.setId("changed");
+        route.getMatcher().setPathPatterns(Set.of("/changed"));
+        properties.getRoutes().clear();
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+        assertThat(matcher.resolve(request)).map(CocoRateLimitRoute::getId).contains("orders");
     }
 
     @Test

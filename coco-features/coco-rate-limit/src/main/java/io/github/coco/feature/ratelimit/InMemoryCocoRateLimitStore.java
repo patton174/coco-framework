@@ -50,9 +50,8 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
     }
 
     InMemoryCocoRateLimitStore(CocoRateLimitProperties properties, Clock clock, boolean backgroundCleanupEnabled) {
-        CocoRateLimitProperties.InMemory inMemory = properties == null
-                ? new CocoRateLimitProperties().getInMemory()
-                : properties.getInMemory();
+        CocoRateLimitProperties.InMemory inMemory = CocoRateLimitProperties.InMemory.copyOf(
+                properties == null ? null : properties.getInMemory());
         this.maxEntries = positive(inMemory.getMaxEntries(), "coco.rate-limit.in-memory.max-entries");
         int cleanupIntervalSeconds = positive(inMemory.getCleanupIntervalSeconds(),
                 "coco.rate-limit.in-memory.cleanup-interval-seconds");
