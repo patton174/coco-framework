@@ -5,6 +5,9 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadata;
@@ -48,7 +51,39 @@ public final class CocoSpringDocOpenApiCustomizerFactoryBean implements FactoryB
      */
     public static final String INFO_CLASS = "io.swagger.v3.oas.models.info.Info";
 
+    /**
+     * Swagger Components 模型类名。
+     */
+    public static final String COMPONENTS_CLASS = "io.swagger.v3.oas.models.Components";
+
+    /**
+     * Swagger Schema 模型类名。
+     */
+    public static final String SCHEMA_CLASS = "io.swagger.v3.oas.models.media.Schema";
+
+    /**
+     * Swagger 对象 Schema 模型类名。
+     */
+    public static final String OBJECT_SCHEMA_CLASS = "io.swagger.v3.oas.models.media.ObjectSchema";
+
+    /**
+     * Swagger 布尔 Schema 模型类名。
+     */
+    public static final String BOOLEAN_SCHEMA_CLASS = "io.swagger.v3.oas.models.media.BooleanSchema";
+
+    /**
+     * Swagger 整数 Schema 模型类名。
+     */
+    public static final String INTEGER_SCHEMA_CLASS = "io.swagger.v3.oas.models.media.IntegerSchema";
+
+    /**
+     * Swagger 字符串 Schema 模型类名。
+     */
+    public static final String STRING_SCHEMA_CLASS = "io.swagger.v3.oas.models.media.StringSchema";
+
     private final CocoOpenApiMetadataProvider metadataProvider;
+
+    private final boolean responseSchemasEnabled;
 
     private ClassLoader beanClassLoader = ClassUtils.getDefaultClassLoader();
 
@@ -59,7 +94,20 @@ public final class CocoSpringDocOpenApiCustomizerFactoryBean implements FactoryB
      * @param metadataProvider Coco OpenAPI 元数据提供器
      */
     public CocoSpringDocOpenApiCustomizerFactoryBean(CocoOpenApiMetadataProvider metadataProvider) {
+        this(metadataProvider, true);
+    }
+
+    /**
+     * <p>
+     * 创建 SpringDoc OpenAPI 定制器工厂。
+     * </p>
+     * @param metadataProvider Coco OpenAPI 元数据提供器
+     * @param responseSchemasEnabled 是否发布 Coco 统一响应和异常响应组件
+     */
+    public CocoSpringDocOpenApiCustomizerFactoryBean(CocoOpenApiMetadataProvider metadataProvider,
+            boolean responseSchemasEnabled) {
         this.metadataProvider = Objects.requireNonNull(metadataProvider, "metadataProvider must not be null");
+        this.responseSchemasEnabled = responseSchemasEnabled;
     }
 
     /**
@@ -78,8 +126,16 @@ public final class CocoSpringDocOpenApiCustomizerFactoryBean implements FactoryB
         Class<?> customizerType = requiredClass(OPEN_API_CUSTOMIZER_CLASS);
         Class<?> openApiType = requiredClass(OPEN_API_CLASS);
         Class<?> infoType = requiredClass(INFO_CLASS);
+        Class<?> componentsType = requiredClass(COMPONENTS_CLASS);
+        Class<?> schemaType = requiredClass(SCHEMA_CLASS);
+        Class<?> objectSchemaType = requiredClass(OBJECT_SCHEMA_CLASS);
+        Class<?> booleanSchemaType = requiredClass(BOOLEAN_SCHEMA_CLASS);
+        Class<?> integerSchemaType = requiredClass(INTEGER_SCHEMA_CLASS);
+        Class<?> stringSchemaType = requiredClass(STRING_SCHEMA_CLASS);
         InvocationHandler handler =
-                new SpringDocOpenApiCustomizerInvocationHandler(this.metadataProvider, openApiType, infoType);
+                new SpringDocOpenApiCustomizerInvocationHandler(this.metadataProvider, this.responseSchemasEnabled,
+                        openApiType, infoType, componentsType, schemaType, objectSchemaType, booleanSchemaType,
+                        integerSchemaType, stringSchemaType);
         return Proxy.newProxyInstance(customizerType.getClassLoader(), new Class<?>[] { customizerType }, handler);
     }
 
@@ -117,15 +173,38 @@ public final class CocoSpringDocOpenApiCustomizerFactoryBean implements FactoryB
 
         private final CocoOpenApiMetadataProvider metadataProvider;
 
+        private final boolean responseSchemasEnabled;
+
         private final Class<?> openApiType;
 
         private final Class<?> infoType;
 
+        private final Class<?> componentsType;
+
+        private final Class<?> schemaType;
+
+        private final Class<?> objectSchemaType;
+
+        private final Class<?> booleanSchemaType;
+
+        private final Class<?> integerSchemaType;
+
+        private final Class<?> stringSchemaType;
+
         private SpringDocOpenApiCustomizerInvocationHandler(CocoOpenApiMetadataProvider metadataProvider,
-                Class<?> openApiType, Class<?> infoType) {
+                boolean responseSchemasEnabled, Class<?> openApiType, Class<?> infoType, Class<?> componentsType,
+                Class<?> schemaType, Class<?> objectSchemaType, Class<?> booleanSchemaType, Class<?> integerSchemaType,
+                Class<?> stringSchemaType) {
             this.metadataProvider = metadataProvider;
+            this.responseSchemasEnabled = responseSchemasEnabled;
             this.openApiType = openApiType;
             this.infoType = infoType;
+            this.componentsType = componentsType;
+            this.schemaType = schemaType;
+            this.objectSchemaType = objectSchemaType;
+            this.booleanSchemaType = booleanSchemaType;
+            this.integerSchemaType = integerSchemaType;
+            this.stringSchemaType = stringSchemaType;
         }
 
         @Override
@@ -165,6 +244,9 @@ public final class CocoSpringDocOpenApiCustomizerFactoryBean implements FactoryB
                 invokeSetter(info, "setDescription", String.class, metadata.description());
             }
             invokeSetter(openApi, "setInfo", this.infoType, info);
+            if (this.responseSchemasEnabled) {
+                registerResponseSchemas(openApi);
+            }
         }
 
         private Object currentInfo(Object openApi) throws ReflectiveOperationException {
@@ -173,8 +255,70 @@ public final class CocoSpringDocOpenApiCustomizerFactoryBean implements FactoryB
                 return info;
             }
             Constructor<?> constructor = this.infoType.getDeclaredConstructor();
-            constructor.setAccessible(true);
             return constructor.newInstance();
+        }
+
+        private void registerResponseSchemas(Object openApi) throws ReflectiveOperationException {
+            Object components = invokeNoArgs(openApi, "getComponents");
+            if (components == null) {
+                components = this.componentsType.getDeclaredConstructor().newInstance();
+                invokeSetter(openApi, "setComponents", this.componentsType, components);
+            }
+            Map<String, Object> schemas = schemas(components);
+            schemas.putIfAbsent("CocoApiResponse", responseSchema());
+            schemas.putIfAbsent("CocoApiErrorResponse", errorResponseSchema());
+        }
+
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> schemas(Object components) throws ReflectiveOperationException {
+            Object currentSchemas = invokeNoArgs(components, "getSchemas");
+            if (currentSchemas instanceof Map<?, ?> schemas) {
+                return (Map<String, Object>) schemas;
+            }
+            Map<String, Object> schemas = new LinkedHashMap<>();
+            invokeSetter(components, "setSchemas", Map.class, schemas);
+            return schemas;
+        }
+
+        private Object responseSchema() throws ReflectiveOperationException {
+            Object response = newInstance(this.objectSchemaType);
+            addProperty(response, "success", newInstance(this.booleanSchemaType));
+            addProperty(response, "code", newInstance(this.integerSchemaType));
+            addProperty(response, "message", newInstance(this.stringSchemaType));
+            addProperty(response, "data", nullableSchema());
+            required(response, List.of("success", "code", "message"));
+            return response;
+        }
+
+        private Object errorResponseSchema() throws ReflectiveOperationException {
+            Object response = newInstance(this.objectSchemaType);
+            Object success = newInstance(this.booleanSchemaType);
+            invokeSetter(success, "setDefault", Object.class, Boolean.FALSE);
+            addProperty(response, "success", success);
+            addProperty(response, "code", newInstance(this.integerSchemaType));
+            addProperty(response, "message", newInstance(this.stringSchemaType));
+            addProperty(response, "data", nullableSchema());
+            required(response, List.of("success", "code", "message"));
+            return response;
+        }
+
+        private Object nullableSchema() throws ReflectiveOperationException {
+            Object schema = newInstance(this.schemaType);
+            invokeSetter(schema, "setNullable", Boolean.class, Boolean.TRUE);
+            return schema;
+        }
+
+        private void addProperty(Object schema, String name, Object property) throws ReflectiveOperationException {
+            Method method = schema.getClass().getMethod("addProperty", String.class, this.schemaType);
+            invokeReflective(schema, method, name, property);
+        }
+
+        private static void required(Object schema, List<String> properties) throws ReflectiveOperationException {
+            invokeSetter(schema, "setRequired", List.class, properties);
+        }
+
+        private static Object newInstance(Class<?> type) throws ReflectiveOperationException {
+            return type.getDeclaredConstructor().newInstance();
         }
 
         private static Object invokeNoArgs(Object target, String name) throws ReflectiveOperationException {

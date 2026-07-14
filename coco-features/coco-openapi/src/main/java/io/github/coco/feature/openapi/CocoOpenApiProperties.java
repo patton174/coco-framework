@@ -196,6 +196,8 @@ public class CocoOpenApiProperties {
 
         private boolean enabled = true;
 
+        private boolean responseSchemasEnabled = true;
+
         /**
          * <p>
          * 返回是否启用 SpringDoc 元数据适配。
@@ -214,6 +216,29 @@ public class CocoOpenApiProperties {
          */
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        /**
+         * <p>
+         * 返回是否发布 Coco OpenAPI 统一响应和异常响应组件模型。
+         * </p>
+         * <p>
+         * 组件不包含链路、请求路径、租户、用户或凭据等运行时上下文。
+         * </p>
+         * @return 启用时返回 {@code true}
+         */
+        public boolean isResponseSchemasEnabled() {
+            return this.responseSchemasEnabled;
+        }
+
+        /**
+         * <p>
+         * 设置是否发布 Coco 统一响应和异常响应组件模型。
+         * </p>
+         * @param responseSchemasEnabled 是否启用
+         */
+        public void setResponseSchemasEnabled(boolean responseSchemasEnabled) {
+            this.responseSchemasEnabled = responseSchemasEnabled;
         }
     }
 }
