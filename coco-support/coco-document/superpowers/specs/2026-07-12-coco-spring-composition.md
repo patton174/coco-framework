@@ -133,3 +133,9 @@ Its `spring.factories` preserves the existing Spring application listener and en
 - JDK 21 `mvn -B clean verify` passes with Java 17 bytecode target so duplicate classes and resources cannot survive from an incremental build.
 - The release-profile smoke build passes with GPG skipped.
 - `codegraph sync .`, README drift validation, and governance tests pass before the PR is opened.
+
+## Verification Ownership
+
+Governance policy-routing tests use `collect_policy()` to prove deterministic path-to-spec routing, complete policy loading, omission handling, and the `48000`-character budget. Their migration-path fixtures may include a planned physical location. They do not prove that a candidate module exists, compiles, resolves an old coordinate, or runs an existing consumer.
+
+Canonical integration owns those executable claims: the tracked current facade POMs and sample consumers are built by the reactor Maven install and sample Maven verification in `reusable-tests.yml`, and the resulting Boot archives are inspected by `verify_sample_feature_coordinates.py`. A physical compatibility-module move must update that canonical Maven/Python integration in the same implementation PR; it must not be represented as an implemented module solely by a governance routing fixture.

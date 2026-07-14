@@ -270,7 +270,8 @@ class FakeDeferredClient:
 
 
 class AgentReviewTests(unittest.TestCase):
-    def test_repository_config_resolves_complete_jury(self) -> None:
+    def test_repository_config_resolves_complete_jury_and_policy_routes(self) -> None:
+        """Check routing and tracked integration inputs, not module behavior."""
         path = Path(__file__).resolve().parents[1] / "agent-review/config.json"
         value = review.load_config(path)
         self.assertEqual(
@@ -379,7 +380,7 @@ class AgentReviewTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(governance_spec, mapped_specs(path))
-        for path in (
+        module_layout_policy_candidates = (
             "coco-parent/pom.xml",
             "coco-build/coco-parent/pom.xml",
             "coco-api/pom.xml",
@@ -393,15 +394,17 @@ class AgentReviewTests(unittest.TestCase):
             "coco-support/coco-test/pom.xml",
             "coco-support/coco-test-support/pom.xml",
             "coco-build/coco-compatibility/coco-test/pom.xml",
-        ):
+        )
+        for path in module_layout_policy_candidates:
             with self.subTest(path=path):
                 self.assertIn(module_layout_spec, mapped_specs(path))
-        for path in (
+        test_support_policy_candidates = (
             "coco-support/coco-test/pom.xml",
             "coco-support/coco-test-support/pom.xml",
             "coco-build/coco-compatibility/coco-test/pom.xml",
-        ):
-            with self.subTest(test_support_path=path):
+        )
+        for path in test_support_policy_candidates:
+            with self.subTest(test_support_policy_candidate=path):
                 self.assertEqual({module_layout_spec}, mapped_specs(path))
         i18n_specs = {module_layout_spec, api_i18n_spec, common_i18n_spec}
         web_specs = {
@@ -415,7 +418,7 @@ class AgentReviewTests(unittest.TestCase):
             audit_logging_spec,
             audit_independence_spec,
         }
-        module_policy_contracts = {
+        module_policy_routes = {
             ("coco-api", "coco-foundation/coco-api"): i18n_specs,
             (
                 "coco-common/coco-common-i18n",
@@ -455,12 +458,11 @@ class AgentReviewTests(unittest.TestCase):
                 codegen_spec,
             },
         }
-        for migration_paths, expected_specs in module_policy_contracts.items():
-            self.assertTrue(
-                any((repository_root / path).is_dir() for path in migration_paths),
-                f"No active module path exists for {migration_paths}",
-            )
-            for module_root in migration_paths:
+        # Candidate paths intentionally include future physical locations. This
+        # loop asserts only config routing; Maven integration owns materialized
+        # modules, compilation, and compatibility-consumer execution.
+        for candidate_paths, expected_specs in module_policy_routes.items():
+            for candidate_root in candidate_paths:
                 for relative_path in (
                     "pom.xml",
                     "README.md",
@@ -468,12 +470,12 @@ class AgentReviewTests(unittest.TestCase):
                     "src/main/resources/example.properties",
                 ):
                     with self.subTest(
-                        module_root=module_root,
+                        policy_candidate=candidate_root,
                         relative_path=relative_path,
                     ):
                         self.assertEqual(
                             expected_specs,
-                            mapped_specs(f"{module_root}/{relative_path}"),
+                            mapped_specs(f"{candidate_root}/{relative_path}"),
                         )
         self.assertEqual(
             {governance_spec},
@@ -491,12 +493,14 @@ class AgentReviewTests(unittest.TestCase):
                 for child in path.iterdir()
             )
         }
-        test_support_directories = {"coco-test", "coco-test-support"}
-        active_test_support_directories = support_directories & test_support_directories
+        test_support_source_directories = {"coco-test", "coco-test-support"}
+        active_test_support_directories = (
+            support_directories & test_support_source_directories
+        )
         self.assertEqual(
             1,
             len(active_test_support_directories),
-            "Exactly one old or canonical test-support source path must be active.",
+            "Exactly one test-support source directory must be active.",
         )
         support_directory_layout_policy = {
             "coco-document": False,
@@ -519,6 +523,46 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("coco-support/**", serialized_mappings)
         self.assertNotIn("update-readme-insights.yml", serialized_mappings)
         self.assertNotIn(".github/README.md", serialized_mappings)
+
+        # The routing fixtures above can name planned paths. Keep physical
+        # compatibility evidence in the canonical integration inputs instead.
+        required_paths = {
+            "coco-spring/coco-config/pom.xml",
+            "coco-features/coco-feature-runtime/pom.xml",
+            "coco-samples/coco-sample-basic/pom.xml",
+            "coco-samples/coco-sample-full/pom.xml",
+            ".github/scripts/verify_sample_feature_coordinates.py",
+        }
+        try:
+            tracked = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repository_root),
+                    "ls-files",
+                    "--error-unmatch",
+                    *sorted(required_paths),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            self.fail(f"Unable to verify canonical integration inputs: {exc}")
+        self.assertEqual(0, tracked.returncode, tracked.stderr)
+        self.assertTrue(required_paths.issubset(set(tracked.stdout.splitlines())))
+
+        workflow = (repository_root / ".github/workflows/reusable-tests.yml").read_text(
+            encoding="utf-8"
+        )
+        for command in (
+            "run: mvn -B -ntp install",
+            "run: mvn -B -ntp -f coco-samples/coco-sample-basic/pom.xml verify",
+            "run: mvn -B -ntp -f coco-samples/coco-sample-full/pom.xml verify",
+            "python .github/scripts/verify_sample_feature_coordinates.py",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, workflow)
 
     def test_agent_open_pr_workflow_uses_protected_app_identity(self) -> None:
         workflow = (
@@ -570,7 +614,8 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("permission-checks:", workflow)
         self.assertNotIn("permission-statuses:", workflow)
 
-    def test_repository_module_migration_policy_fits_each_batch(self) -> None:
+    def test_policy_routing_covers_migration_batches_within_budget(self) -> None:
+        """Exercise collect_policy() only; this does not compile or run modules."""
         repository_root = Path(__file__).resolve().parents[2]
         config_path = repository_root / ".github/agent-review/config.json"
         value = review.load_config(config_path)
@@ -647,7 +692,9 @@ class AgentReviewTests(unittest.TestCase):
                         review.normalized_limits(value)["policy_chars"],
                     )
 
-        spring_cutover_batches = {
+        # These are deterministic routing inputs, including planned relocation
+        # paths. They are not evidence that those paths exist or compile.
+        spring_cutover_policy_batches = {
             "starter-and-core-features": [
                 "coco-config/pom.xml",
                 "coco-spring/coco-config/pom.xml",
@@ -693,7 +740,7 @@ class AgentReviewTests(unittest.TestCase):
         }
         scheduled_consumer_poms = [
             path
-            for paths in spring_cutover_batches.values()
+            for paths in spring_cutover_policy_batches.values()
             for path in paths
             if path in expected_consumer_poms
         ]
@@ -705,8 +752,8 @@ class AgentReviewTests(unittest.TestCase):
             "audit": base_policy | audit_specs,
             "codegen": base_policy | {codegen_spec},
         }
-        for name, changed_paths in spring_cutover_batches.items():
-            with self.subTest(spring_cutover_batch=name):
+        for name, changed_paths in spring_cutover_policy_batches.items():
+            with self.subTest(spring_cutover_policy_batch=name):
                 omissions = []
                 sources = review.collect_policy(
                     repository_root,
