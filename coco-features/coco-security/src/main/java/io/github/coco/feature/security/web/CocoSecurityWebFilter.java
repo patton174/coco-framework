@@ -7,6 +7,7 @@ import java.util.concurrent.Callable;
 
 import io.github.coco.context.CocoContextScope;
 import io.github.coco.context.CocoContextSnapshot;
+import io.github.coco.context.CocoContextSnapshotRegistry;
 import io.github.coco.feature.security.context.CocoSecurityContext;
 import io.github.coco.feature.security.context.CocoSecurityContextHolder;
 import jakarta.servlet.DispatcherType;
@@ -39,6 +40,8 @@ import org.springframework.web.context.request.async.WebAsyncUtils;
 public final class CocoSecurityWebFilter implements Filter {
 
     private static final String ASYNC_CONTEXT_INTERCEPTOR_KEY = CocoSecurityWebFilter.class.getName() + ".context";
+
+    private static final String ASYNC_CONTEXT_SNAPSHOT_KEY = CocoSecurityWebFilter.class.getName();
 
     private final CocoWebSecurityContextResolver resolver;
 
@@ -92,8 +95,20 @@ public final class CocoSecurityWebFilter implements Filter {
 
     private static void registerAsyncContextInterceptor(HttpServletRequest request) {
         CocoContextSnapshot contextSnapshot = CocoSecurityContextHolder.capture();
+        asyncContextSnapshots(request).register(ASYNC_CONTEXT_SNAPSHOT_KEY, contextSnapshot);
         WebAsyncUtils.getAsyncManager(request).registerCallableInterceptor(
                 ASYNC_CONTEXT_INTERCEPTOR_KEY, new SecurityCallableProcessingInterceptor(contextSnapshot));
+    }
+
+    private static CocoContextSnapshotRegistry asyncContextSnapshots(HttpServletRequest request) {
+        String attributeName = CocoContextSnapshotRegistry.class.getName();
+        Object existing = request.getAttribute(attributeName);
+        if (existing instanceof CocoContextSnapshotRegistry registry) {
+            return registry;
+        }
+        CocoContextSnapshotRegistry registry = new CocoContextSnapshotRegistry();
+        request.setAttribute(attributeName, registry);
+        return registry;
     }
 
     private static final class SecurityCallableProcessingInterceptor implements CallableProcessingInterceptor {

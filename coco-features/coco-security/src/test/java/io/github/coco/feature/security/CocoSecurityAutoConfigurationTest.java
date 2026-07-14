@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.EnumSet;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
@@ -20,6 +21,7 @@ import io.github.coco.feature.security.context.CocoSecurityContextResolver;
 import io.github.coco.feature.security.context.CocoSecurityPrincipal;
 import io.github.coco.feature.security.web.CocoSecurityWebFilter;
 import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
+import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -105,7 +107,9 @@ class CocoSecurityAutoConfigurationTest {
             FilterRegistrationBean<?> registration = context.getBean("cocoSecurityWebFilterRegistration",
                     FilterRegistrationBean.class);
             assertTrue(registration.getFilter() instanceof CocoSecurityWebFilter);
-            assertEquals(Ordered.HIGHEST_PRECEDENCE + 5, registration.getOrder());
+            assertEquals(Ordered.HIGHEST_PRECEDENCE + 6, registration.getOrder());
+            assertEquals(EnumSet.of(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR),
+                    registration.determineDispatcherTypes());
         });
     }
 

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.context.CocoContextScope;
 import io.github.coco.context.CocoContextSnapshot;
+import io.github.coco.context.CocoContextSnapshotRegistry;
 import io.github.coco.context.CocoRequestContext;
 import io.github.coco.context.CocoRequestContextHolder;
 import io.github.coco.logging.access.CocoAccessLog;
@@ -61,6 +62,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     private static final String ASYNC_CONTEXT_INTERCEPTOR_KEY = CocoTraceFilter.class.getName() + ".context";
 
     private static final String REQUEST_STATE_ATTRIBUTE = CocoTraceFilter.class.getName() + ".state";
+
+    private static final String ASYNC_CONTEXT_SNAPSHOT_KEY = CocoTraceFilter.class.getName();
 
     private final String headerName;
 
@@ -186,11 +189,11 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
-        RequestState state = requestState(request);
-        CocoWebRequestSnapshot requestSnapshot = state.requestSnapshot();
         Optional<CocoRequestContext> previousRequestContext = CocoRequestContextHolder.current();
         Optional<String> previousTraceId = CocoTraceContext.currentTraceId();
         String previousMdcValue = MDC.get(this.mdcKey);
+        RequestState state = requestState(request);
+        CocoWebRequestSnapshot requestSnapshot = state.requestSnapshot();
         CocoRequestContext requestContext = requestSnapshot.toRequestContext();
         CocoRequestContextHolder.set(requestContext);
         MDC.put(this.mdcKey, requestSnapshot.traceId());
@@ -332,7 +335,7 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             return;
         }
         if (dispatchFailure != null && request.getDispatcherType() != DispatcherType.ERROR) {
-            return;
+            state.awaitErrorDispatch();
         }
         completeRequest(request, response, state);
     }
@@ -344,20 +347,17 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            asyncContext.addListener(new TraceAsyncListener(request, response, state, captureAsyncContext()));
+            asyncContext.addListener(new TraceAsyncListener(request, response, state, captureAsyncContext(request)));
         }
         catch (IllegalStateException ex) {
-            if (!request.isAsyncStarted()) {
-                completeRequest(request, response, state);
-            }
-            else {
-                throw ex;
-            }
+            state.recordFailure(ex);
+            completeRequest(request, response, state);
         }
     }
 
     private void completeRequest(HttpServletRequest request, HttpServletResponse response, RequestState state) {
         if (!state.complete()) {
+            clearRequestState(request);
             return;
         }
         Throwable failure = state.failure();
@@ -367,18 +367,37 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         }
         recordAccessLog(latestRequestSnapshot(request, state.requestSnapshot()), status,
                 elapsedMillis(state.startNanos()), failure);
-        request.removeAttribute(REQUEST_STATE_ATTRIBUTE);
+        if (!state.isAwaitingErrorDispatch() || request.getDispatcherType() == DispatcherType.ERROR) {
+            clearRequestState(request);
+        }
     }
 
     private static void registerAsyncContextInterceptor(HttpServletRequest request) {
         CocoContextSnapshot contextSnapshot = CocoContextSnapshot.compose(
                 CocoRequestContextHolder.capture(), CocoMdcContext.capture());
+        asyncContextSnapshots(request).register(ASYNC_CONTEXT_SNAPSHOT_KEY, contextSnapshot);
         WebAsyncUtils.getAsyncManager(request).registerCallableInterceptor(
                 ASYNC_CONTEXT_INTERCEPTOR_KEY, new ContextCallableProcessingInterceptor(contextSnapshot));
     }
 
-    private static CocoContextSnapshot captureAsyncContext() {
-        return CocoContextSnapshot.compose(CocoRequestContextHolder.capture(), CocoMdcContext.capture());
+    private static CocoContextSnapshot captureAsyncContext(HttpServletRequest request) {
+        return asyncContextSnapshots(request).snapshot();
+    }
+
+    private static CocoContextSnapshotRegistry asyncContextSnapshots(HttpServletRequest request) {
+        String attributeName = CocoContextSnapshotRegistry.class.getName();
+        Object existing = request.getAttribute(attributeName);
+        if (existing instanceof CocoContextSnapshotRegistry registry) {
+            return registry;
+        }
+        CocoContextSnapshotRegistry registry = new CocoContextSnapshotRegistry();
+        request.setAttribute(attributeName, registry);
+        return registry;
+    }
+
+    private static void clearRequestState(HttpServletRequest request) {
+        request.removeAttribute(REQUEST_STATE_ATTRIBUTE);
+        request.removeAttribute(CocoContextSnapshotRegistry.class.getName());
     }
 
     private static final class ContextCallableProcessingInterceptor implements CallableProcessingInterceptor {
@@ -455,8 +474,14 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
             withRequestContext(() -> {
                 AsyncContext asyncContext = event.getAsyncContext();
                 if (this.state.registerAsyncContext(asyncContext)) {
-                    asyncContext.addListener(new TraceAsyncListener(this.request, this.response, this.state,
-                            this.contextSnapshot));
+                    try {
+                        asyncContext.addListener(new TraceAsyncListener(this.request, this.response, this.state,
+                                this.contextSnapshot));
+                    }
+                    catch (IllegalStateException ex) {
+                        this.state.recordFailure(ex);
+                        completeRequest(eventRequest(event), eventResponse(event), this.state);
+                    }
                 }
             });
         }
@@ -492,6 +517,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
         private final AtomicBoolean completed = new AtomicBoolean();
 
+        private final AtomicBoolean awaitingErrorDispatch = new AtomicBoolean();
+
         private RequestState(long startNanos, CocoWebRequestSnapshot requestSnapshot) {
             this.startNanos = startNanos;
             this.requestSnapshot = requestSnapshot;
@@ -517,6 +544,14 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
         private boolean registerAsyncContext(AsyncContext asyncContext) {
             return this.registeredAsyncContext.getAndSet(asyncContext) != asyncContext;
+        }
+
+        private void awaitErrorDispatch() {
+            this.awaitingErrorDispatch.set(true);
+        }
+
+        private boolean isAwaitingErrorDispatch() {
+            return this.awaitingErrorDispatch.get();
         }
 
         private boolean complete() {

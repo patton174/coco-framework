@@ -1,6 +1,7 @@
 package io.github.coco.feature.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -115,6 +116,8 @@ import io.github.coco.feature.web.trace.CocoTraceProperties;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.Cookie;
@@ -149,6 +152,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpOutputMessage;
@@ -267,6 +271,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(replayRequestShapeRegistration.getOrder() < signatureRegistration.getOrder());
             assertTrue(signatureRegistration.getOrder() < encryptionRegistration.getOrder());
             assertTrue(encryptionRegistration.getOrder() < replayRegistration.getOrder());
+            assertEquals(Ordered.HIGHEST_PRECEDENCE + 5, replayRegistration.getOrder());
         });
     }
 
@@ -4939,6 +4944,13 @@ class CocoWebAutoConfigurationTest {
                     assertEquals("/api/fail", accessLog.path().orElseThrow());
                     assertFalse(accessLog.success());
                     assertEquals(ServletException.class.getName(), accessLog.exceptionType().orElseThrow());
+                    assertEquals(1, recorder.recordCount());
+
+                    request.setDispatcherType(DispatcherType.ERROR);
+                    request.setAttribute(RequestDispatcher.ERROR_REQUEST_URI, "/api/fail");
+                    assertDoesNotThrow(() -> filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+                    }));
+                    assertEquals(1, recorder.recordCount());
                 });
     }
 
@@ -5549,13 +5561,20 @@ class CocoWebAutoConfigurationTest {
 
         private final AtomicReference<CocoAccessLog> lastAccessLog = new AtomicReference<>();
 
+        private final AtomicInteger recordCount = new AtomicInteger();
+
         @Override
         public void record(CocoAccessLog accessLog) {
             this.lastAccessLog.set(accessLog);
+            this.recordCount.incrementAndGet();
         }
 
         private CocoAccessLog lastAccessLog() {
             return this.lastAccessLog.get();
+        }
+
+        private int recordCount() {
+            return this.recordCount.get();
         }
     }
 

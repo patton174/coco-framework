@@ -98,7 +98,7 @@ public class CocoSecurityAutoConfiguration {
         FilterRegistrationBean<CocoSecurityWebFilter> registration = new FilterRegistrationBean<>(
                 new CocoSecurityWebFilter(resolver));
         registration.setName("cocoSecurityWebFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 6);
         registration.setAsyncSupported(true);
         registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
         return registration;

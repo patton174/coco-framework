@@ -5,6 +5,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.context.CocoRequestContextHolder;
 import io.github.coco.context.trace.CocoTraceContext;
@@ -25,6 +26,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -106,6 +108,52 @@ class CocoTraceFilterServletAsyncLifecycleTest {
         assertEquals(new ContextView(TRACE_ID, TRACE_ID, TRACE_ID), fixture.callbackContexts().get(0));
     }
 
+    @Test
+    void generatedTraceIdDoesNotLeakAcrossReusedRequestThread() throws Exception {
+        CocoTraceProperties properties = new CocoTraceProperties();
+        CocoTraceFilter filter = new CocoTraceFilter(properties);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            GeneratedTraceResult result = worker.submit(() -> {
+                MockHttpServletRequest request = new MockHttpServletRequest("GET", "/generated-trace");
+                MockHttpServletResponse response = new MockHttpServletResponse();
+                AtomicReference<String> traceInChain = new AtomicReference<>();
+
+                filter.doFilter(request, response, (servletRequest, servletResponse) ->
+                        traceInChain.set(CocoTraceContext.currentTraceId().orElseThrow()));
+
+                return new GeneratedTraceResult(traceInChain.get(), response.getHeader(properties.getHeaderName()),
+                        currentContext(properties));
+            }).get();
+
+            assertNotNull(result.traceId());
+            assertEquals(result.traceId(), result.responseTraceId());
+            assertEmpty(result.threadContext());
+            assertEmpty(worker.submit(() -> currentContext(properties)).get());
+        }
+        finally {
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
+    void listenerRegistrationRaceRecordsFailureAndCompletesExactlyOnce() throws Exception {
+        Fixture fixture = startAsyncRequest();
+
+        ControllableAsyncContext rejectedContext = fixture.asyncContext()
+                .startNextAsyncCycleWithRejectedListenerRegistration();
+
+        assertThreadContextCleared(fixture.properties());
+        assertEquals(1, fixture.accessLogs().size());
+        CocoAccessLog accessLog = fixture.accessLogs().get(0);
+        assertEquals(500, accessLog.status());
+        assertEquals(IllegalStateException.class, accessLog.failure().orElseThrow().getClass());
+        assertEquals(new ContextView(TRACE_ID, TRACE_ID, TRACE_ID), fixture.callbackContexts().get(0));
+
+        rejectedContext.complete();
+        assertEquals(1, fixture.accessLogs().size());
+    }
+
     private static Fixture startAsyncRequest() throws Exception {
         CocoTraceProperties properties = new CocoTraceProperties();
         CopyOnWriteArrayList<CocoAccessLog> accessLogs = new CopyOnWriteArrayList<>();
@@ -170,6 +218,9 @@ class CocoTraceFilterServletAsyncLifecycleTest {
     }
 
     private record ContextView(String traceId, String requestTraceId, String mdcTraceId) {
+    }
+
+    private record GeneratedTraceResult(String traceId, String responseTraceId, ContextView threadContext) {
     }
 
     private static final class ControllableAsyncRequest extends MockHttpServletRequest {
@@ -237,6 +288,8 @@ class CocoTraceFilterServletAsyncLifecycleTest {
 
         private long timeout;
 
+        private boolean rejectListenerRegistration;
+
         private ControllableAsyncContext(ControllableAsyncRequest request, MockHttpServletResponse response) {
             this.request = request;
             this.response = response;
@@ -293,7 +346,16 @@ class CocoTraceFilterServletAsyncLifecycleTest {
         }
 
         private ControllableAsyncContext startNextAsyncCycle() {
+            return startNextAsyncCycle(false);
+        }
+
+        private ControllableAsyncContext startNextAsyncCycleWithRejectedListenerRegistration() {
+            return startNextAsyncCycle(true);
+        }
+
+        private ControllableAsyncContext startNextAsyncCycle(boolean rejectListenerRegistration) {
             ControllableAsyncContext next = new ControllableAsyncContext(this.request, this.response);
+            next.rejectListenerRegistration = rejectListenerRegistration;
             this.request.useAsyncContext(next);
             notifyListeners((listener, event) -> listener.onStartAsync(event), null,
                     new AsyncEvent(next, this.suppliedRequest, this.suppliedResponse));
@@ -312,6 +374,9 @@ class CocoTraceFilterServletAsyncLifecycleTest {
 
         @Override
         public void addListener(AsyncListener listener, ServletRequest request, ServletResponse response) {
+            if (this.rejectListenerRegistration) {
+                throw new IllegalStateException("async listener registration is no longer allowed");
+            }
             this.listeners.add(new ListenerRegistration(listener, request, response));
         }
 
