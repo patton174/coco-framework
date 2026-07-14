@@ -2,6 +2,7 @@ package io.github.coco.feature.web.trace;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Objects;
@@ -242,25 +243,9 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         if (headerValues == null || !headerValues.hasMoreElements()) {
             return TraceIdResolution.accepted(newServerTraceId());
         }
-        String traceId = null;
-        while (headerValues.hasMoreElements()) {
-            String candidate = CocoTraceIdValidator.normalizeHeaderValue(headerValues.nextElement());
-            if (!isAcceptedExternalTraceId(candidate)) {
-                return TraceIdResolution.rejected();
-            }
-            if (traceId != null && !traceId.equals(candidate)) {
-                return TraceIdResolution.rejected();
-            }
-            traceId = candidate;
-        }
-        return TraceIdResolution.accepted(traceId);
-    }
-
-    private boolean isAcceptedExternalTraceId(String traceId) {
-        return traceId != null
-                && traceId.length() <= this.maxLength
-                && CocoTraceIdValidator.isTransportSafe(traceId)
-                && this.traceIdValidator.isValid(traceId);
+        return this.traceIdValidator.resolveHeaderValues(Collections.list(headerValues), this.maxLength)
+                .map(TraceIdResolution::accepted)
+                .orElseGet(TraceIdResolution::rejected);
     }
 
     private static String newServerTraceId() {

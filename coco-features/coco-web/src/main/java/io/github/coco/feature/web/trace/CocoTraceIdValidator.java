@@ -1,5 +1,8 @@
 package io.github.coco.feature.web.trace;
 
+import java.util.List;
+import java.util.Optional;
+
 /**
  * Coco TraceId 校验器。
  * <p>
@@ -18,6 +21,40 @@ package io.github.coco.feature.web.trace;
  */
 @FunctionalInterface
 public interface CocoTraceIdValidator {
+
+    /**
+     * <p>
+     * 解析并校验同一 HTTP 请求头的全部 TraceId 值。
+     * </p>
+     * <p>
+     * 每个值先按 HTTP 可选空白规则规范化，再执行长度、传输字符和业务格式校验；重复同值可接受，
+     * 空白、非法值或重复冲突值返回空结果。调用方应在请求头实际存在但返回空结果时拒绝请求。
+     * </p>
+     * @param headerValues 同一 TraceId 请求头的全部值
+     * @param maxLength 允许接收的 TraceId 最大长度
+     * @return 唯一且可安全传播的 TraceId；不存在合法唯一值时为空
+     */
+    default Optional<String> resolveHeaderValues(List<String> headerValues, int maxLength) {
+        if (headerValues == null || headerValues.isEmpty()) {
+            return Optional.empty();
+        }
+        int effectiveMaxLength = maxLength <= 0 ? CocoTraceProperties.DEFAULT_MAX_LENGTH : maxLength;
+        String resolvedTraceId = null;
+        for (String headerValue : headerValues) {
+            String candidate = normalizeHeaderValue(headerValue);
+            if (candidate == null
+                    || candidate.length() > effectiveMaxLength
+                    || !isTransportSafe(candidate)
+                    || !isValid(candidate)) {
+                return Optional.empty();
+            }
+            if (resolvedTraceId != null && !resolvedTraceId.equals(candidate)) {
+                return Optional.empty();
+            }
+            resolvedTraceId = candidate;
+        }
+        return Optional.ofNullable(resolvedTraceId);
+    }
 
     /**
      * <p>

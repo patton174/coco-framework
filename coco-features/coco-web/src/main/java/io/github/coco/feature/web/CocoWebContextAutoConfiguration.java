@@ -28,6 +28,7 @@ import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityInputRe
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadataResolver;
 import io.github.coco.feature.web.request.metadata.DefaultCocoWebRequestSecurityInputResolver;
 import io.github.coco.feature.web.request.metadata.DefaultCocoWebRequestSecurityMetadataResolver;
+import io.github.coco.feature.web.trace.CocoTraceIdValidator;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -139,10 +140,16 @@ public class CocoWebContextAutoConfiguration {
 
     /**
      * <p>
-     * 创建默认 Coco Web 请求安全输入解析器�?     * </p>
-     * @param properties Coco Web 配置属�?     * @param requestHeaderResolver 请求头解析器
-     * @param requestCookieResolver 请求 Cookie 解析�?     * @param requestParameterResolver 请求参数解析�?     * @param requestBodyResolver 请求体解析器
-     * @return Web 请求安全输入解析�?     */
+     * 创建默认 Coco Web 请求安全输入解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver 请求 Cookie 解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param requestBodyResolver 请求体解析器
+     * @param traceIdValidator TraceId 校验器
+     * @return Web 请求安全输入解析器
+     */
     @Bean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
@@ -150,10 +157,34 @@ public class CocoWebContextAutoConfiguration {
             CocoRequestHeaderResolver requestHeaderResolver,
             CocoRequestCookieResolver requestCookieResolver,
             CocoRequestParameterResolver requestParameterResolver,
-            CocoRequestBodyResolver requestBodyResolver) {
+            CocoRequestBodyResolver requestBodyResolver,
+            CocoTraceIdValidator traceIdValidator) {
         return new DefaultCocoWebRequestSecurityInputResolver(properties.getContext(), requestHeaderResolver,
                 requestCookieResolver, requestParameterResolver, properties.getSignature(), properties.getEncryption(),
-                properties.getReplay(), requestBodyResolver);
+                properties.getReplay(), requestBodyResolver, properties.getTrace(), traceIdValidator);
+    }
+
+    /**
+     * <p>
+     * 使用默认 TraceId 校验器创建 Web 请求安全输入解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver 请求 Cookie 解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param requestBodyResolver 请求体解析器
+     * @return Web 请求安全输入解析器
+     */
+    public CocoWebRequestSecurityInputResolver cocoWebRequestSecurityInputResolver(CocoWebProperties properties,
+            CocoRequestHeaderResolver requestHeaderResolver,
+            CocoRequestCookieResolver requestCookieResolver,
+            CocoRequestParameterResolver requestParameterResolver,
+            CocoRequestBodyResolver requestBodyResolver) {
+        CocoWebProperties checkedProperties = properties == null ? new CocoWebProperties() : properties;
+        return new DefaultCocoWebRequestSecurityInputResolver(checkedProperties.getContext(), requestHeaderResolver,
+                requestCookieResolver, requestParameterResolver, checkedProperties.getSignature(),
+                checkedProperties.getEncryption(), checkedProperties.getReplay(), requestBodyResolver,
+                checkedProperties.getTrace(), null);
     }
 
     /**
@@ -198,13 +229,31 @@ public class CocoWebContextAutoConfiguration {
 
     /**
      * <p>
-     * 创建默认 Coco Web 请求规范化器�?     * </p>
-     * @param properties Coco Web 配置属�?     * @return Coco Web 请求规范化器
+     * 创建默认 Coco Web 请求规范化器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param traceIdValidator TraceId 校验器
+     * @return Coco Web 请求规范化器
      */
     @Bean
     @ConditionalOnMissingBean
+    public CocoWebRequestCanonicalizer cocoWebRequestCanonicalizer(CocoWebProperties properties,
+            CocoTraceIdValidator traceIdValidator) {
+        return new DefaultCocoWebRequestCanonicalizer(properties.getContext().getCanonicalization(),
+                properties.getTrace(), traceIdValidator);
+    }
+
+    /**
+     * <p>
+     * 使用默认 TraceId 校验器创建 Coco Web 请求规范化器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @return Coco Web 请求规范化器
+     */
     public CocoWebRequestCanonicalizer cocoWebRequestCanonicalizer(CocoWebProperties properties) {
-        return new DefaultCocoWebRequestCanonicalizer(properties.getContext().getCanonicalization());
+        CocoWebProperties checkedProperties = properties == null ? new CocoWebProperties() : properties;
+        return new DefaultCocoWebRequestCanonicalizer(checkedProperties.getContext().getCanonicalization(),
+                checkedProperties.getTrace(), null);
     }
 
     /**

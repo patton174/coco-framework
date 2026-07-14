@@ -1,5 +1,7 @@
 package io.github.coco.feature.web.request.metadata;
 
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -8,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.body.CocoRequestBodyResolver;
 import io.github.coco.feature.web.body.CocoResolvedRequestBody;
@@ -24,6 +27,9 @@ import io.github.coco.feature.web.context.DefaultCocoRequestParameterResolver;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
+import io.github.coco.feature.web.trace.CocoTraceIdValidator;
+import io.github.coco.feature.web.trace.CocoTraceProperties;
+import io.github.coco.feature.web.trace.DefaultCocoTraceIdValidator;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -41,6 +47,8 @@ import jakarta.servlet.http.HttpServletRequest;
  */
 public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWebRequestSecurityInputResolver {
 
+    private static final String INVALID_TRACE_ID_CODE = "coco.web.trace.invalid-trace-id";
+
     private final Set<String> securityHeaderNames;
 
     private final Set<String> canonicalHeaderNames;
@@ -54,6 +62,12 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
     private final CocoRequestParameterResolver requestParameterResolver;
 
     private final CocoRequestBodyResolver requestBodyResolver;
+
+    private final String traceHeaderName;
+
+    private final int traceMaxLength;
+
+    private final CocoTraceIdValidator traceIdValidator;
 
     /**
      * <p>
@@ -114,6 +128,31 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
             CocoRequestParameterResolver requestParameterResolver, CocoSignatureProperties signatureProperties,
             CocoEncryptionProperties encryptionProperties, CocoReplayProperties replayProperties,
             CocoRequestBodyResolver requestBodyResolver) {
+        this(properties, requestHeaderResolver, requestCookieResolver, requestParameterResolver, signatureProperties,
+                encryptionProperties, replayProperties, requestBodyResolver, null, null);
+    }
+
+    /**
+     * <p>
+     * 创建带原始 TraceId 输入校验的默认请求安全输入解析器。
+     * </p>
+     * @param properties Web 请求上下文配置属性
+     * @param requestHeaderResolver 请求头解析器
+     * @param requestCookieResolver 请求 Cookie 解析器
+     * @param requestParameterResolver 请求参数解析器
+     * @param signatureProperties 请求签名配置属性
+     * @param encryptionProperties 请求加密配置属性
+     * @param replayProperties 防重放配置属性
+     * @param requestBodyResolver 请求体解析器
+     * @param traceProperties Trace 配置属性
+     * @param traceIdValidator TraceId 校验器
+     */
+    public DefaultCocoWebRequestSecurityInputResolver(CocoWebContextProperties properties,
+            CocoRequestHeaderResolver requestHeaderResolver, CocoRequestCookieResolver requestCookieResolver,
+            CocoRequestParameterResolver requestParameterResolver, CocoSignatureProperties signatureProperties,
+            CocoEncryptionProperties encryptionProperties, CocoReplayProperties replayProperties,
+            CocoRequestBodyResolver requestBodyResolver, CocoTraceProperties traceProperties,
+            CocoTraceIdValidator traceIdValidator) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
         this.securityHeaderNames = securityHeaderNames(contextProperties, signatureProperties, encryptionProperties,
                 replayProperties);
@@ -132,6 +171,14 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         this.requestBodyResolver = requestBodyResolver == null
                 ? new DefaultCocoRequestBodyResolver()
                 : requestBodyResolver;
+        CocoTraceProperties checkedTraceProperties = traceProperties == null
+                ? new CocoTraceProperties()
+                : traceProperties;
+        this.traceHeaderName = checkedTraceProperties.getHeaderName();
+        this.traceMaxLength = checkedTraceProperties.getMaxLength();
+        this.traceIdValidator = traceIdValidator == null
+                ? new DefaultCocoTraceIdValidator(checkedTraceProperties)
+                : traceIdValidator;
     }
 
     /**
@@ -140,6 +187,7 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
     @Override
     public CocoWebRequestSecurityInput resolve(HttpServletRequest request, String method, String path) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
+        validateRawTraceId(checkedRequest);
         CocoWebRequestParameters rawParameterSnapshot = this.requestParameterResolver.resolveRawParameterSnapshot(
                 checkedRequest);
         Map<String, String> securityHeaders = this.requestHeaderResolver.resolveSelectedHeaders(checkedRequest,
@@ -161,6 +209,17 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
                 rawParameterSnapshot.payloadParameters(), securityHeaders, canonicalHeaders, cachedBody.sha256(),
                 cachedBody.cached() ? cachedBody.length() : null, cachedBody.cached(),
                 canonicalHeaderValues, canonicalCookies, rawParameterSnapshot.payloadSource());
+    }
+
+    private void validateRawTraceId(HttpServletRequest request) {
+        Enumeration<String> traceHeaderValues = request.getHeaders(this.traceHeaderName);
+        if (traceHeaderValues == null || !traceHeaderValues.hasMoreElements()) {
+            return;
+        }
+        if (this.traceIdValidator.resolveHeaderValues(Collections.list(traceHeaderValues), this.traceMaxLength)
+                .isEmpty()) {
+            throw CocoBusinessExceptions.request(INVALID_TRACE_ID_CODE);
+        }
     }
 
     private static Set<String> securityHeaderNames(CocoWebContextProperties properties,
