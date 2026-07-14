@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 /**
  * Coco Web 请求参数快照。
  * <p>
@@ -75,6 +76,27 @@ public record CocoWebRequestParameters(String queryString, Map<String, List<Stri
      */
     public static CocoWebRequestParameters empty() {
         return new CocoWebRequestParameters(null, Map.of(), Map.of(), Map.of(), CocoWebParameterSource.NONE);
+    }
+
+    @Override
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Canonical constructor deep-copies nested lists and exposes only unmodifiable snapshots.")
+    public Map<String, List<String>> parameters() {
+        return this.parameters;
+    }
+
+    @Override
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Canonical constructor deep-copies nested lists and exposes only unmodifiable snapshots.")
+    public Map<String, List<String>> queryParameters() {
+        return this.queryParameters;
+    }
+
+    @Override
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Canonical constructor deep-copies nested lists and exposes only unmodifiable snapshots.")
+    public Map<String, List<String>> payloadParameters() {
+        return this.payloadParameters;
     }
 
     /**

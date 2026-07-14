@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.web.context.CocoWebParameterSource;
 
 /**
@@ -55,6 +56,13 @@ public record CocoWebPayloadParseResult(Map<String, List<String>> parameters, Co
      */
     public static CocoWebPayloadParseResult empty(CocoWebPayloadParseStatus status, CocoWebParameterSource source) {
         return new CocoWebPayloadParseResult(Map.of(), status, source);
+    }
+
+    @Override
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Canonical constructor deep-copies nested lists and exposes only an unmodifiable snapshot.")
+    public Map<String, List<String>> parameters() {
+        return this.parameters;
     }
 
     /**
