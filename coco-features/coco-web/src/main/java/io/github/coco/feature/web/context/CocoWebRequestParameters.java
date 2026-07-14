@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
  * @author patton174
  * @since 1.0.0
  */
+@SuppressWarnings("EI_EXPOSE_REP")
 public record CocoWebRequestParameters(String queryString, Map<String, List<String>> parameters,
         Map<String, List<String>> queryParameters, Map<String, List<String>> payloadParameters,
         CocoWebParameterSource payloadSource) {

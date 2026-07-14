@@ -28,6 +28,7 @@ import io.github.coco.feature.web.context.CocoWebParameterSource;
  * @author patton174
  * @since 1.0.0
  */
+@SuppressWarnings("EI_EXPOSE_REP")
 public record CocoWebPayloadParseResult(Map<String, List<String>> parameters, CocoWebPayloadParseStatus status,
         CocoWebParameterSource source) {
 
