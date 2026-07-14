@@ -1,9 +1,18 @@
 package io.github.coco.logging.core;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+
+import org.slf4j.MDC;
+
+import io.github.coco.context.CocoContextScope;
+import io.github.coco.context.CocoContextSnapshot;
+import io.github.coco.context.trace.CocoTraceContext;
 
 /**
  * Coco 异步日志输出器。
@@ -28,11 +37,9 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
 
     private static final long POLL_TIMEOUT_MILLIS = 100L;
 
-    private static final long CLOSE_TIMEOUT_MILLIS = 1000L;
-
     private final CocoLogSink delegate;
 
-    private final ArrayBlockingQueue<CocoLogRecord> queue;
+    private final ArrayBlockingQueue<AsyncLogEnvelope> queue;
 
     private final CocoAsyncLogDropListener dropListener;
 
@@ -44,7 +51,7 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
 
     private final Thread worker;
 
-    private volatile boolean running = true;
+    private boolean accepting = true;
 
     /**
      * <p>
@@ -83,22 +90,17 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
     @Override
     public void log(CocoLogRecord record) {
         CocoLogRecord checkedRecord = Objects.requireNonNull(record, "record must not be null");
-        if (requiresSynchronousWrite(checkedRecord)) {
-            this.delegate.log(checkedRecord);
-            return;
-        }
         boolean writeSynchronously;
         synchronized (this.lifecycleMonitor) {
-            writeSynchronously = !this.running;
-            if (!writeSynchronously && this.queue.offer(checkedRecord)) {
+            if (!this.accepting) {
+                throw new IllegalStateException("AsyncCocoLogSink is closed");
+            }
+            writeSynchronously = requiresSynchronousWrite(checkedRecord);
+            if (!writeSynchronously && this.queue.offer(capture(checkedRecord))) {
                 return;
             }
         }
-        if (writeSynchronously) {
-            this.delegate.log(checkedRecord);
-            return;
-        }
-        if (isImportant(checkedRecord.level())) {
+        if (writeSynchronously || isImportant(checkedRecord.level())) {
             this.delegate.log(checkedRecord);
             return;
         }
@@ -119,17 +121,20 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
 
     /**
      * <p>
-     * 关闭异步输出器，并尽量刷完队列中的日志记录。
+     * 停止接收新的日志记录，并刷完关闭前已接受的日志记录。
      * </p>
      */
     @Override
     public void close() {
         synchronized (this.lifecycleMonitor) {
-            this.running = false;
+            this.accepting = false;
         }
         this.worker.interrupt();
+        if (Thread.currentThread() == this.worker) {
+            return;
+        }
         try {
-            this.worker.join(CLOSE_TIMEOUT_MILLIS);
+            this.worker.join();
         }
         catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -137,21 +142,52 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
     }
 
     private void drain() {
-        while (this.running || !this.queue.isEmpty()) {
+        while (isAccepting() || !this.queue.isEmpty()) {
             try {
-                CocoLogRecord record = this.queue.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
-                if (record != null) {
-                    this.delegate.log(record);
+                AsyncLogEnvelope envelope = this.queue.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+                if (envelope != null) {
+                    writeAsync(envelope);
                 }
             }
             catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                break;
+                // close() wakes the poller so it can observe the closed state and drain promptly.
             }
         }
-        CocoLogRecord record;
-        while ((record = this.queue.poll()) != null) {
-            this.delegate.log(record);
+    }
+
+    private boolean isAccepting() {
+        synchronized (this.lifecycleMonitor) {
+            return this.accepting;
+        }
+    }
+
+    private static AsyncLogEnvelope capture(CocoLogRecord record) {
+        Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+        Map<String, String> copiedMdcContext = mdcContext == null || mdcContext.isEmpty()
+                ? Map.of()
+                : Collections.unmodifiableMap(new HashMap<>(mdcContext));
+        return new AsyncLogEnvelope(record, copiedMdcContext, CocoTraceContext.capture());
+    }
+
+    private void writeAsync(AsyncLogEnvelope envelope) {
+        restoreMdc(envelope.mdcContext());
+        try (CocoContextScope ignored = CocoTraceContext.restore(envelope.traceContext())) {
+            this.delegate.log(envelope.record());
+        }
+        catch (RuntimeException ignored) {
+            // A failing delegate must not strand later accepted records in the worker queue.
+        }
+        finally {
+            MDC.clear();
+        }
+    }
+
+    private static void restoreMdc(Map<String, String> context) {
+        if (context == null || context.isEmpty()) {
+            MDC.clear();
+        }
+        else {
+            MDC.setContextMap(context);
         }
     }
 
@@ -186,5 +222,9 @@ public final class AsyncCocoLogSink implements CocoLogSink, AutoCloseable {
         finally {
             this.notifyingDropListener.remove();
         }
+    }
+
+    private record AsyncLogEnvelope(CocoLogRecord record, Map<String, String> mdcContext,
+            CocoContextSnapshot traceContext) {
     }
 }
