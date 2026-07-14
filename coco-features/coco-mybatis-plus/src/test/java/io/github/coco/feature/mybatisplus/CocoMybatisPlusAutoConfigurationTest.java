@@ -150,6 +150,34 @@ class CocoMybatisPlusAutoConfigurationTest {
     }
 
     @Test
+    void prioritizesExplicitCustomizerOrderOverBeanOrderWhenProvidedBySpring() {
+        this.contextRunner
+                .withUserConfiguration(ExplicitOrderCustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class, BlockAttackInnerInterceptor.class,
+                                    PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void preservesOrderedCustomizerOrderWhenProvidedBySpring() {
+        this.contextRunner
+                .withUserConfiguration(SpringOrderedCustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class, BlockAttackInnerInterceptor.class,
+                                    PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
     void sortsManuallySuppliedSpringOrderedCustomizersByTheirOrder() {
         CocoMybatisPlusProperties properties = new CocoMybatisPlusProperties();
         properties.getPagination().setEnabled(false);
@@ -379,6 +407,34 @@ class CocoMybatisPlusAutoConfigurationTest {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    static class ExplicitOrderCustomizerConfiguration {
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer defaultCustomizer() {
+            return new AlphaDefaultCustomizer();
+        }
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer explicitCustomizer() {
+            return new ExplicitOrderCustomizer();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class SpringOrderedCustomizerConfiguration {
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer defaultCustomizer() {
+            return new AlphaDefaultCustomizer();
+        }
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer orderedCustomizer() {
+            return new ZetaOrderedCustomizer();
+        }
+    }
+
     @Order(-10)
     private static final class AlphaCustomizer implements CocoMybatisPlusInterceptorCustomizer {
 
@@ -413,6 +469,20 @@ class CocoMybatisPlusAutoConfigurationTest {
     }
 
     private static final class ZetaOrderedCustomizer implements CocoMybatisPlusInterceptorCustomizer, Ordered {
+
+        @Override
+        public int getOrder() {
+            return -10;
+        }
+
+        @Override
+        public void customize(MybatisPlusInterceptor interceptor) {
+            interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+        }
+    }
+
+    @Order(-100)
+    private static final class ExplicitOrderCustomizer implements CocoMybatisPlusInterceptorCustomizer {
 
         @Override
         public int getOrder() {

@@ -98,6 +98,10 @@ public final class CocoMybatisPlusInterceptorFactory {
         if (this.sortCustomizers) {
             customizerStream = customizerStream.sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator());
         }
+        else {
+            customizerStream = customizerStream.sorted(
+                    CocoMybatisPlusInterceptorCustomizer.springOrderComparator());
+        }
         customizerStream.forEach(customizer -> customizer.customize(interceptor));
         CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.getSqlGuard();
         logSqlGuardProductionRecommendation(sqlGuard);

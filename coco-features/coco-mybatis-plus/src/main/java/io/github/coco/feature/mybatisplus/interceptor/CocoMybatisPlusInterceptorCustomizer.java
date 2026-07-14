@@ -63,6 +63,12 @@ public interface CocoMybatisPlusInterceptorCustomizer {
      * 定制器之后追加。该默认方法保持既有 lambda 和已编译实现的二进制兼容，应用可覆写该方法或使用
      * {@link org.springframework.core.annotation.Order @Order} 覆盖默认顺序。
      * </p>
+     * <p>
+     * 顺序优先级为显式覆写的 {@code getOrder()}（包括 {@link Ordered} 和 {@link #ordered(int,
+     * CocoMybatisPlusInterceptorCustomizer)}）、Spring 的 {@code @Order}（包括 {@code @Bean}
+     * 工厂方法）和 {@link #USER_ORDER}。同一优先级内按数值升序；Spring 提供器中的未显式覆写实例保留
+     * {@link org.springframework.beans.factory.ObjectProvider#orderedStream()} 的稳定顺序。
+     * </p>
      * @return 定制器执行顺序
      */
     default int getOrder() {
@@ -101,6 +107,43 @@ public interface CocoMybatisPlusInterceptorCustomizer {
     static Comparator<CocoMybatisPlusInterceptorCustomizer> orderComparator() {
         return Comparator.comparingInt(CocoMybatisPlusInterceptorCustomizer::getOrder)
                 .thenComparing(CocoMybatisPlusInterceptorCustomizer::getOrderKey);
+    }
+
+    /**
+     * <p>
+     * 返回 Spring 提供器使用的排序器。
+     * </p>
+     * <p>
+     * Spring 已经在输入流中解析了类级和 {@code @Bean} 方法级 {@code @Order}。显式覆写
+     * {@code getOrder()} 的实例优先于该 Spring 元数据；未显式覆写的实例返回零比较结果，保持输入流顺序。
+     * </p>
+     * @return Spring customizer 排序器
+     */
+    static Comparator<CocoMybatisPlusInterceptorCustomizer> springOrderComparator() {
+        return (left, right) -> {
+            boolean leftExplicit = hasExplicitOrder(left);
+            boolean rightExplicit = hasExplicitOrder(right);
+            if (leftExplicit != rightExplicit) {
+                return leftExplicit ? -1 : 1;
+            }
+            if (!leftExplicit) {
+                return 0;
+            }
+            return orderComparator().compare(left, right);
+        };
+    }
+
+    private static boolean hasExplicitOrder(CocoMybatisPlusInterceptorCustomizer customizer) {
+        if (customizer instanceof Ordered) {
+            return true;
+        }
+        try {
+            return customizer.getClass().getMethod("getOrder").getDeclaringClass()
+                    != CocoMybatisPlusInterceptorCustomizer.class;
+        }
+        catch (NoSuchMethodException ex) {
+            return false;
+        }
     }
 
     final class OrderedCustomizer implements CocoMybatisPlusInterceptorCustomizer, Ordered {
