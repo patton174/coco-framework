@@ -43,6 +43,12 @@ class CocoTenantConfigurationMetadataTest {
                 "java.lang.Boolean", "true");
         assertProperty(metadata, "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements",
                 "java.util.Set<java.lang.String>", null);
+        assertProperty(metadata, "coco.tenant.sql.interceptor-ignore.exact-mapped-statements",
+                "java.util.Set<java.lang.String>", null);
+        assertProperty(metadata, "coco.tenant.sql.interceptor-ignore.strict-mode",
+                "java.lang.Boolean", "false");
+        assertDeprecation(metadata, "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements",
+                "coco.tenant.sql.interceptor-ignore.exact-mapped-statements");
     }
 
     private JsonNode configurationMetadata() throws IOException {
@@ -68,5 +74,13 @@ class CocoTenantConfigurationMetadataTest {
             }
         }
         return null;
+    }
+
+    private static void assertDeprecation(JsonNode metadata, String name, String replacement) {
+        JsonNode property = findNamedNode(metadata.path("properties"), name);
+        assertNotNull(property, "missing property: " + name);
+        assertEquals("warning", property.path("deprecation").path("level").asText());
+        assertEquals(replacement, property.path("deprecation").path("replacement").asText());
+        assertTrue(property.path("deprecation").path("reason").asText().length() > 0);
     }
 }

@@ -26,13 +26,29 @@
     {
       "name": "coco.tenant.sql.interceptor-ignore.block-unlisted",
       "type": "java.lang.Boolean",
-      "description": "当 MyBatis-Plus @InterceptorIgnore(tenantLine = true) 或线程级忽略策略命中租户隔离时，是否阻断未进入白名单的 Mapper 语句。",
+      "description": "当 MyBatis-Plus @InterceptorIgnore(tenantLine = true) 或线程级忽略策略命中租户隔离时，是否阻断未进入白名单的 Mapper 语句；strict-mode=true 时始终阻断。",
       "defaultValue": true
     },
     {
       "name": "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements",
       "type": "java.util.Set<java.lang.String>",
-      "description": "允许跳过租户 SQL 隔离的完整 MyBatis MappedStatement ID 集合，必须精确匹配，例如 com.example.AdminMapper.selectShared；不支持通配符或前缀匹配。"
+      "description": "兼容旧版本的 MyBatis MappedStatement ID 模式白名单，继续支持 Spring 简单通配符；配置后会产生启动废弃警告。",
+      "deprecation": {
+        "level": "warning",
+        "reason": "通配模式授权范围过宽，请迁移到完整 MappedStatement ID 精确白名单。",
+        "replacement": "coco.tenant.sql.interceptor-ignore.exact-mapped-statements"
+      }
+    },
+    {
+      "name": "coco.tenant.sql.interceptor-ignore.exact-mapped-statements",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "允许跳过租户 SQL 隔离的完整 MyBatis MappedStatement ID 精确白名单，例如 com.example.AdminMapper.selectShared；不支持通配符或前缀匹配。"
+    },
+    {
+      "name": "coco.tenant.sql.interceptor-ignore.strict-mode",
+      "type": "java.lang.Boolean",
+      "description": "是否启用严格治理；启用后应用启动时拒绝已废弃的 allowed-mapped-statements，强制阻断未授权旁路，并且运行时只接受精确白名单。",
+      "defaultValue": false
     }
   ]
 }

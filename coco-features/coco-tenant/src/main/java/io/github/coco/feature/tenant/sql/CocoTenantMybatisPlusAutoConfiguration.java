@@ -1,5 +1,10 @@
 package io.github.coco.feature.tenant.sql;
 
+import java.util.LinkedHashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration;
@@ -8,7 +13,11 @@ import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.tenant.CocoTenantAutoConfiguration;
 import io.github.coco.feature.tenant.CocoTenantProperties;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
+import io.github.coco.i18n.CocoMessageService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -39,6 +48,14 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "coco.tenant.sql", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(CocoTenantProperties.class)
 public class CocoTenantMybatisPlusAutoConfiguration {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CocoTenantMybatisPlusAutoConfiguration.class);
+
+    private static final String LEGACY_PATTERNS_WARNING =
+            "coco.feature.tenant.warn.interceptor-ignore-legacy-patterns";
+
+    private static final String LEGACY_PATTERNS_STRICT_ERROR =
+            "coco.feature.tenant.error.interceptor-ignore-legacy-patterns-strict";
 
     /**
      * <p>
@@ -71,6 +88,27 @@ public class CocoTenantMybatisPlusAutoConfiguration {
 
     /**
      * <p>
+     * 创建旧模式白名单启动校验器。
+     * </p>
+     * <p>
+     * 兼容模式下发布结构化事件并记录废弃警告；严格模式下在应用完成启动前拒绝旧配置。
+     * </p>
+     * @param properties 租户功能配置
+     * @param applicationEventPublisher Spring 应用事件发布器
+     * @param messageService Coco 消息服务
+     * @return 启动校验回调
+     */
+    @Bean
+    public SmartInitializingSingleton cocoTenantInterceptorIgnoreLegacyConfigurationValidator(
+            CocoTenantProperties properties,
+            ApplicationEventPublisher applicationEventPublisher,
+            CocoMessageService messageService) {
+        return () -> validateLegacyPatterns(properties.getSql().getInterceptorIgnore(),
+                applicationEventPublisher, messageService);
+    }
+
+    /**
+     * <p>
      * 创建 MyBatis-Plus 租户拦截器定制器。
      * </p>
      * @param properties 租户功能配置
@@ -95,5 +133,29 @@ public class CocoTenantMybatisPlusAutoConfiguration {
             interceptor.addInnerInterceptor(interceptorIgnoreGuard);
             interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler));
         };
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void validateLegacyPatterns(CocoTenantInterceptorIgnoreProperties properties,
+            ApplicationEventPublisher applicationEventPublisher, CocoMessageService messageService) {
+        Set<String> patterns = properties.getAllowedMappedStatements().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(pattern -> !pattern.isEmpty())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (patterns.isEmpty()) {
+            return;
+        }
+
+        boolean strictMode = properties.isStrictMode();
+        applicationEventPublisher.publishEvent(
+                new CocoTenantInterceptorIgnoreLegacyConfigurationEvent(patterns, strictMode));
+        String messageCode = strictMode ? LEGACY_PATTERNS_STRICT_ERROR : LEGACY_PATTERNS_WARNING;
+        String message = messageService.getMessage(messageCode, String.join(", ", patterns));
+        LOGGER.warn("event=coco_tenant_legacy_interceptor_ignore_configuration strictMode={} patterns={} message={}",
+                strictMode, patterns, message);
+        if (strictMode) {
+            throw new IllegalStateException(message);
+        }
     }
 }

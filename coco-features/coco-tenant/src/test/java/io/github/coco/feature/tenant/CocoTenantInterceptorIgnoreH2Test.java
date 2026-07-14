@@ -32,7 +32,9 @@ import io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreGuard;
 import io.github.coco.feature.tenant.sql.CocoTenantLineHandler;
 import io.github.coco.feature.tenant.sql.CocoTenantSqlProperties;
 import net.sf.jsqlparser.expression.StringValue;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.exceptions.PersistenceException;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.SqlSession;
@@ -82,7 +84,7 @@ class CocoTenantInterceptorIgnoreH2Test {
     @Test
     void allowsExactAllowlistedBypassAndPublishesStructuredEvent() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        properties.getInterceptorIgnore().getAllowedMappedStatements()
+        properties.getInterceptorIgnore().getExactMappedStatements()
                 .add(TenantRecordMapper.class.getName() + ".selectAllIgnoringTenant");
         List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
         SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
@@ -91,6 +93,55 @@ class CocoTenantInterceptorIgnoreH2Test {
         assertThat(events).singleElement().satisfies(event -> {
             assertThat(event.mappedStatementId())
                     .isEqualTo(TenantRecordMapper.class.getName() + ".selectAllIgnoringTenant");
+            assertThat(event.decision()).isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
+        });
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void preservesLegacyWildcardBypassCompatibility() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().getAllowedMappedStatements()
+                .add(TenantRecordMapper.class.getName() + ".*");
+        List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
+        SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
+
+        assertThat(selectAllIgnoringTenant(sqlSessionFactory)).containsExactly("A", "B");
+        assertThat(events).singleElement()
+                .extracting(CocoTenantInterceptorIgnoreEvent::decision)
+                .isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
+    }
+
+    @Test
+    void blocksUnallowlistedUpdateAndDeleteBeforeOpeningJdbcConnection() {
+        JdbcDataSource dataSource = initializedDataSource();
+        CountingDataSource countingDataSource = new CountingDataSource(dataSource);
+        List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
+        SqlSessionFactory sqlSessionFactory = sqlSessionFactory(countingDataSource,
+                new CocoTenantSqlProperties(), events);
+
+        assertTenantBypassBlocked(() -> updateAllIgnoringTenant(sqlSessionFactory));
+        assertTenantBypassBlocked(() -> deleteAllIgnoringTenant(sqlSessionFactory));
+
+        assertThat(countingDataSource.connectionRequests()).isZero();
+        assertThat(events).extracting(CocoTenantInterceptorIgnoreEvent::mappedStatementId)
+                .containsExactly(
+                        TenantRecordMapper.class.getName() + ".updateAllIgnoringTenant",
+                        TenantRecordMapper.class.getName() + ".deleteAllIgnoringTenant");
+    }
+
+    @Test
+    void publishesSingleEventForExactAllowlistedUpdate() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().getExactMappedStatements()
+                .add(TenantRecordMapper.class.getName() + ".updateAllIgnoringTenant");
+        List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
+        SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
+
+        assertThat(updateAllIgnoringTenant(sqlSessionFactory)).isEqualTo(2);
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.mappedStatementId())
+                    .isEqualTo(TenantRecordMapper.class.getName() + ".updateAllIgnoringTenant");
             assertThat(event.decision()).isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
         });
     }
@@ -175,6 +226,25 @@ class CocoTenantInterceptorIgnoreH2Test {
         }
     }
 
+    private static int updateAllIgnoringTenant(SqlSessionFactory sqlSessionFactory) {
+        try (SqlSession sqlSession = sqlSessionFactory.openSession()) {
+            return sqlSession.getMapper(TenantRecordMapper.class).updateAllIgnoringTenant();
+        }
+    }
+
+    private static int deleteAllIgnoringTenant(SqlSessionFactory sqlSessionFactory) {
+        try (SqlSession sqlSession = sqlSessionFactory.openSession()) {
+            return sqlSession.getMapper(TenantRecordMapper.class).deleteAllIgnoringTenant();
+        }
+    }
+
+    private static void assertTenantBypassBlocked(Runnable invocation) {
+        assertThatThrownBy(invocation::run)
+                .isInstanceOf(PersistenceException.class)
+                .hasRootCauseInstanceOf(CocoForbiddenException.class)
+                .hasRootCauseMessage("coco.feature.tenant.error.interceptor-ignore-blocked");
+    }
+
     interface TenantRecordMapper {
 
         @Select("select name from tenant_record order by id")
@@ -183,6 +253,14 @@ class CocoTenantInterceptorIgnoreH2Test {
         @InterceptorIgnore(tenantLine = "true")
         @Select("select name from tenant_record order by id")
         List<String> selectAllIgnoringTenant();
+
+        @InterceptorIgnore(tenantLine = "true")
+        @Update("update tenant_record set name = concat(name, '!')")
+        int updateAllIgnoringTenant();
+
+        @InterceptorIgnore(tenantLine = "true")
+        @Delete("delete from tenant_record")
+        int deleteAllIgnoringTenant();
     }
 
     private static final class CountingDataSource implements DataSource {
