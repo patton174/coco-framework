@@ -34,4 +34,4 @@ Redis keys are exactly `coco:replay:` followed by the lowercase SHA-256 hexadeci
 
 ## Verification
 
-Protocol tests use a strict fake `RedisConnectionFactory`. It permits only `TIME(MILLISECONDS)`, `SET key value PX ttl NX`, and `close`, and rejects all other connection operations. Tests cover atomic concurrent contention, expiry, TTL boundary, key material, binary value, connection failures, close failures, closed-store behavior, custom-store backoff, explicit enablement, and absent Spring Data Redis.
+Protocol tests use a strict fake `RedisConnectionFactory`. It permits only `TIME(MILLISECONDS)`, `SET key value PX ttl NX`, and `close`, rejects all other connection operations, and records the exact byte-level command sequence. Tests cover atomic concurrent contention, Redis Cluster single-key routing, expiry, 1ms and maximum TTL boundaries, key material, binary value, TIME failure, SET timeout, connection interruption, close failures, closed-store behavior, custom-store backoff, explicit enablement, and absent Spring Data Redis.

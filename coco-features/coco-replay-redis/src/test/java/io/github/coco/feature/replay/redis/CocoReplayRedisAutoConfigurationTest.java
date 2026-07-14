@@ -83,6 +83,21 @@ class CocoReplayRedisAutoConfigurationTest {
                 });
     }
 
+    @Test
+    void customStoreStillStartsWhenSpringDataRedisIsAbsent() {
+        CocoReplayStore customStore = (key, expiresAt) -> true;
+        this.contextRunner
+                .withClassLoader(new FilteredClassLoader(RedisConnectionFactory.class))
+                .withPropertyValues("coco.web.replay.redis.enabled=true")
+                .withBean(CocoReplayStore.class, () -> customStore)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(CocoReplayStore.class);
+                    assertThat(context.getBean(CocoReplayStore.class)).isSameAs(customStore);
+                    assertThat(context).doesNotHaveBean(RedisCocoReplayStore.class);
+                });
+    }
+
     private static RedisConnectionFactory connectionFactory() {
         return new RedisConnectionFactory() {
 
