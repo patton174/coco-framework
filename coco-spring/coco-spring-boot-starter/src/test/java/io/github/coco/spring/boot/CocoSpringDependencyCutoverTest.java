@@ -159,7 +159,7 @@ class CocoSpringDependencyCutoverTest {
             Path module = projectRoot.resolve(facade.modulePath());
             Path pom = module.resolve("pom.xml");
             assertThat(pom).isRegularFile();
-            assertThat(directDependencyArtifactIds(readPom(pom)))
+            assertThat(directProductionDependencyArtifactIds(readPom(pom)))
                     .as("direct dependencies in %s", facade.modulePath())
                     .isEqualTo(Set.of(facade.canonicalArtifactId()));
             assertThat(regularFiles(module.resolve("src/main")))
@@ -307,6 +307,26 @@ class CocoSpringDependencyCutoverTest {
 
     private static Set<String> directDependencyArtifactIds(Document document) {
         return dependencyArtifactIds(directChild(document.getDocumentElement(), "dependencies"));
+    }
+
+    private static Set<String> directProductionDependencyArtifactIds(Document document) {
+        Element dependencies = directChild(document.getDocumentElement(), "dependencies");
+        if (dependencies == null) {
+            return Set.of();
+        }
+        Set<String> artifactIds = new LinkedHashSet<>();
+        for (Element dependency : directChildren(dependencies, "dependency")) {
+            Element scope = directChild(dependency, "scope");
+            String scopeValue = scope == null ? "" : scope.getTextContent().trim();
+            if ("test".equals(scopeValue) || "provided".equals(scopeValue)) {
+                continue;
+            }
+            Element artifactId = directChild(dependency, "artifactId");
+            if (artifactId != null) {
+                artifactIds.add(artifactId.getTextContent().trim());
+            }
+        }
+        return Set.copyOf(artifactIds);
     }
 
     private static Set<String> dependencyArtifactIds(Element dependencies) {
