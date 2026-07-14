@@ -28,8 +28,8 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.encryption.CocoEncryptionAssociatedData;
-import io.github.coco.feature.web.signature.CocoSignatureVerificationContext;
 import io.github.coco.feature.web.signature.CocoSignatureVerifier;
+import io.github.coco.feature.web.signature.HmacSha256CocoSignatureVerifier;
 import jakarta.servlet.Filter;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
@@ -65,6 +65,45 @@ class CocoWebCryptoFilterChainIntegrationTest {
 
     private static final byte[] IV = "123456789012".getBytes(StandardCharsets.UTF_8);
 
+    private static final String FIXED_TIMESTAMP = "1700000000000";
+
+    private static final byte[] FIXED_PLAINTEXT = "{\"amount\":128,\"currency\":\"CNY\"}"
+            .getBytes(StandardCharsets.UTF_8);
+
+    private static final String FIXED_CANONICAL_TEXT = """
+            version=coco-v2
+            purpose=SIGNATURE
+            method=POST
+            path=/api/crypto
+            query=
+            headers
+            content-type#1
+            content-type[0]=16:application/json
+            x-coco-algorithm#1
+            x-coco-algorithm[0]=7:AES-GCM
+            x-coco-app-id#1
+            x-coco-app-id[0]=13:crypto-client
+            x-coco-iv#1
+            x-coco-iv[0]=16:MTIzNDU2Nzg5MDEy
+            x-coco-nonce#1
+            x-coco-nonce[0]=12:crypto-nonce
+            x-coco-sign-algorithm#1
+            x-coco-sign-algorithm[0]=11:HMAC-SHA256
+            x-coco-timestamp#1
+            x-coco-timestamp[0]=13:1700000000000
+            queryParameters
+            payloadParameters
+            amount#1
+            amount[0]=3:128
+            currency#1
+            currency[0]=3:CNY
+            bodySha256=8aeb14a63387374d50de51bd73488ac77b70ffea40d7fcad8181707c99cc6679
+            bodyLength=31
+            """;
+
+    private static final String FIXED_SIGNATURE =
+            "8262db5daca3d6f69242a7f6006a9a5ca190089ff332f7ff7e44576a97ed4882";
+
     private final WebApplicationContextRunner contextRunner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
@@ -89,37 +128,31 @@ class CocoWebCryptoFilterChainIntegrationTest {
     }
 
     @Test
-    void decryptsCachedBodyAndVerifiesCanonicalPlaintextThroughRealFilterChain() {
-        AtomicReference<CocoSignatureVerificationContext> verification = new AtomicReference<>();
-        CocoSignatureVerifier capturingVerifier = context -> {
-            verification.set(context);
-            return true;
-        };
+    void decryptsCachedBodyAndVerifiesIndependentCanonicalHmacVectorThroughRealFilterChain() {
+        cryptoContext().run(context -> {
+            assertThat(context.getBean(CocoSignatureVerifier.class))
+                    .isInstanceOf(HmacSha256CocoSignatureVerifier.class);
+            assertThat(hmacSha256Hex(FIXED_CANONICAL_TEXT, SECRET_V1)).isEqualTo(FIXED_SIGNATURE);
+            ProtectedRequest protectedRequest = fixedProtectedRequest();
+            MockHttpServletRequest canonicalRequest = requestWithSecurityHeaders(
+                    Base64.getEncoder().encodeToString(IV), FIXED_TIMESTAMP, null);
+            canonicalRequest.setContent(protectedRequest.transportBody());
+            assertThat(canonicalText(context, canonicalRequest, FIXED_PLAINTEXT))
+                    .isEqualTo(FIXED_CANONICAL_TEXT);
+            CapturingServlet servlet = new CapturingServlet();
 
-        cryptoContext()
-                .withBean(CocoSignatureVerifier.class, () -> capturingVerifier)
-                .run(context -> {
-                    byte[] plaintext = "{\"amount\":128,\"currency\":\"CNY\"}"
-                            .getBytes(StandardCharsets.UTF_8);
-                    ProtectedRequest protectedRequest = protectedRequest(
-                            context, plaintext, KEY_V1, SECRET_V1, null);
-                    CapturingServlet servlet = new CapturingServlet();
+            MockHttpServletResponse response = executeCryptoChain(
+                    context, protectedRequest.request(), servlet);
 
-                    MockHttpServletResponse response = executeCryptoChain(
-                            context, protectedRequest.request(), servlet);
-
-                    assertThat(response.getStatus()).isEqualTo(204);
-                    assertThat(servlet.calls()).isEqualTo(1);
-                    assertThat(servlet.body()).containsExactly(plaintext);
-                    assertThat(servlet.context().requestDecrypted()).isTrue();
-                    assertThat(servlet.context().signatureVerified()).isTrue();
-                    assertThat(verification.get()).isNotNull();
-                    assertThat(verification.get().request().canonicalText())
-                            .isEqualTo(protectedRequest.canonicalText());
-                    assertThat(verification.get().request().canonicalText())
-                            .contains(sha256(plaintext))
-                            .doesNotContain(sha256(protectedRequest.transportBody()));
-                });
+            assertThat(response.getStatus()).isEqualTo(204);
+            assertThat(servlet.calls()).isEqualTo(1);
+            assertThat(servlet.body()).containsExactly(FIXED_PLAINTEXT);
+            assertThat(servlet.context().requestDecrypted()).isTrue();
+            assertThat(servlet.context().signatureVerified()).isTrue();
+            assertThat(FIXED_CANONICAL_TEXT)
+                    .contains(sha256(FIXED_PLAINTEXT))
+                    .doesNotContain(sha256(protectedRequest.transportBody()));
+        });
     }
 
     @Test
@@ -211,18 +244,94 @@ class CocoWebCryptoFilterChainIntegrationTest {
     }
 
     @Test
-    void rejectsDuplicateSignatureHeaderInsteadOfUsingFirstValue() {
+    void rejectsDuplicateSignatureHeaderEvenWhenValuesMatch() {
         cryptoContext().run(context -> {
             ProtectedRequest protectedRequest = protectedRequest(
                     context, "{\"duplicate\":\"signature\"}".getBytes(StandardCharsets.UTF_8),
                     KEY_V1, SECRET_V1, null);
-            protectedRequest.request().addHeader("X-Coco-Sign", "invalid-second-signature");
+            protectedRequest.request().addHeader("X-Coco-Sign",
+                    protectedRequest.request().getHeader("X-Coco-Sign"));
             CapturingServlet servlet = new CapturingServlet();
 
             MockHttpServletResponse response = executeCryptoChain(context, protectedRequest.request(), servlet);
 
             assertUnauthorized(response);
             assertThat(servlet.calls()).isZero();
+        });
+    }
+
+    @Test
+    void acceptsMatchingPrimaryAndFallbackSignatureHeadersRegardlessOfOrder() {
+        cryptoContext().run(context -> {
+            for (boolean fallbackFirst : List.of(false, true)) {
+                ProtectedRequest protectedRequest = fixedProtectedRequest();
+                setSignatureAliases(protectedRequest.request(), FIXED_SIGNATURE, FIXED_SIGNATURE, fallbackFirst);
+                CapturingServlet servlet = new CapturingServlet();
+
+                MockHttpServletResponse response = executeCryptoChain(context, protectedRequest.request(), servlet);
+
+                assertThat(response.getStatus()).isEqualTo(204);
+                assertThat(servlet.calls()).isEqualTo(1);
+                assertThat(servlet.body()).containsExactly(FIXED_PLAINTEXT);
+            }
+        });
+    }
+
+    @Test
+    void rejectsConflictingPrimaryAndFallbackSignatureHeadersRegardlessOfOrder() {
+        cryptoContext().run(context -> {
+            for (boolean fallbackFirst : List.of(false, true)) {
+                ProtectedRequest protectedRequest = fixedProtectedRequest();
+                setSignatureAliases(protectedRequest.request(), FIXED_SIGNATURE, "conflicting-signature",
+                        fallbackFirst);
+                CapturingServlet servlet = new CapturingServlet();
+
+                MockHttpServletResponse response = executeCryptoChain(context, protectedRequest.request(), servlet);
+
+                assertUnauthorized(response);
+                assertThat(servlet.calls()).isZero();
+            }
+        });
+    }
+
+    @Test
+    void rejectsRepeatedFallbackSignatureHeaderEvenWhenValuesMatch() {
+        cryptoContext().run(context -> {
+            ProtectedRequest protectedRequest = fixedProtectedRequest();
+            protectedRequest.request().removeHeader("X-Coco-Sign");
+            protectedRequest.request().addHeader("X-Coco-Signature", FIXED_SIGNATURE);
+            protectedRequest.request().addHeader("X-Coco-Signature", FIXED_SIGNATURE);
+            CapturingServlet servlet = new CapturingServlet();
+
+            MockHttpServletResponse response = executeCryptoChain(context, protectedRequest.request(), servlet);
+
+            assertUnauthorized(response);
+            assertThat(servlet.calls()).isZero();
+        });
+    }
+
+    @Test
+    void acceptsBlankSignatureAliasWhenOtherAliasIsValid() {
+        cryptoContext().run(context -> {
+            ProtectedRequest fallbackRequest = fixedProtectedRequest();
+            setSignatureAliases(fallbackRequest.request(), "   ", FIXED_SIGNATURE, false);
+            CapturingServlet fallbackServlet = new CapturingServlet();
+
+            MockHttpServletResponse fallbackResponse = executeCryptoChain(
+                    context, fallbackRequest.request(), fallbackServlet);
+
+            assertThat(fallbackResponse.getStatus()).isEqualTo(204);
+            assertThat(fallbackServlet.calls()).isEqualTo(1);
+
+            ProtectedRequest primaryRequest = fixedProtectedRequest();
+            setSignatureAliases(primaryRequest.request(), FIXED_SIGNATURE, "   ", true);
+            CapturingServlet primaryServlet = new CapturingServlet();
+
+            MockHttpServletResponse primaryResponse = executeCryptoChain(
+                    context, primaryRequest.request(), primaryServlet);
+
+            assertThat(primaryResponse.getStatus()).isEqualTo(204);
+            assertThat(primaryServlet.calls()).isEqualTo(1);
         });
     }
 
@@ -277,7 +386,21 @@ class CocoWebCryptoFilterChainIntegrationTest {
                 "coco.web.encryption.required=true",
                 "coco.web.encryption.keys." + APP_ID + "=" + Base64.getEncoder().encodeToString(KEY_V1),
                 "coco.web.signature.required=true",
+                "coco.web.signature.max-clock-skew-seconds=3155760000",
                 "coco.web.signature.secrets." + APP_ID + "=" + SECRET_V1);
+    }
+
+    private static ProtectedRequest fixedProtectedRequest() {
+        String encodedIv = Base64.getEncoder().encodeToString(IV);
+        byte[] associatedData = CocoEncryptionAssociatedData.from(
+                APP_ID, null, encodedIv, "AES-GCM", true, "POST", PATH, null,
+                FIXED_TIMESTAMP, "crypto-nonce");
+        byte[] transportBody = Base64.getEncoder().encode(
+                aesGcmEncrypt(FIXED_PLAINTEXT, KEY_V1, IV, associatedData));
+        MockHttpServletRequest request = requestWithSecurityHeaders(encodedIv, FIXED_TIMESTAMP, null);
+        request.setContent(transportBody);
+        request.addHeader("X-Coco-Sign", FIXED_SIGNATURE);
+        return new ProtectedRequest(request, transportBody, FIXED_CANONICAL_TEXT);
     }
 
     private static ProtectedRequest protectedRequest(ApplicationContext context, byte[] plaintext,
@@ -337,6 +460,19 @@ class CocoWebCryptoFilterChainIntegrationTest {
         request.addHeader("X-Coco-Nonce", "crypto-nonce");
         request.addHeader("X-Coco-Sign-Algorithm", "HMAC-SHA256");
         return request;
+    }
+
+    private static void setSignatureAliases(MockHttpServletRequest request, String signature,
+            String fallbackSignature, boolean fallbackFirst) {
+        request.removeHeader("X-Coco-Sign");
+        request.removeHeader("X-Coco-Signature");
+        if (fallbackFirst) {
+            request.addHeader("X-Coco-Signature", fallbackSignature);
+            request.addHeader("X-Coco-Sign", signature);
+            return;
+        }
+        request.addHeader("X-Coco-Sign", signature);
+        request.addHeader("X-Coco-Signature", fallbackSignature);
     }
 
     private static MockHttpServletResponse executeCryptoChain(ApplicationContext context,

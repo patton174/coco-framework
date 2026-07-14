@@ -3,6 +3,7 @@ package io.github.coco.feature.web.request.metadata;
 import java.util.Objects;
 import java.util.Optional;
 
+import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
@@ -107,10 +108,36 @@ public final class DefaultCocoWebRequestSecurityMetadataResolver
 
     private Optional<String> signatureHeader(CocoWebRequestSecurityInput input) {
         CocoWebSecurityMetadataSource source = this.signatureProperties.getMetadataSource();
+        validateSignatureHeaderAliases(input, source);
         return read(input, source, this.signatureProperties.getSignatureHeaderName(),
                 this.signatureProperties.getSignatureParameterName())
                 .or(() -> read(input, source, this.signatureProperties.getSignatureFallbackHeaderName(),
                         this.signatureProperties.getSignatureFallbackParameterName()));
+    }
+
+    private void validateSignatureHeaderAliases(CocoWebRequestSecurityInput input,
+            CocoWebSecurityMetadataSource source) {
+        CocoWebSecurityMetadataSource metadataSource = source == null
+                ? CocoWebSecurityMetadataSource.HEADER
+                : source;
+        if (!metadataSource.supportsHeader()) {
+            return;
+        }
+        Optional<String> signature = input.securityHeader(this.signatureProperties.getSignatureHeaderName());
+        Optional<String> fallbackSignature = input.securityHeader(
+                this.signatureProperties.getSignatureFallbackHeaderName());
+        boolean conflictingAliases = signature.isPresent() && fallbackSignature.isPresent()
+                && !signature.get().equals(fallbackSignature.get());
+        if (signature.filter(DefaultCocoWebRequestSecurityMetadataResolver::hasMultipleHeaderValues).isPresent()
+                || fallbackSignature.filter(
+                        DefaultCocoWebRequestSecurityMetadataResolver::hasMultipleHeaderValues).isPresent()
+                || conflictingAliases) {
+            throw CocoBusinessExceptions.unauthorized("coco.web.signature.invalid");
+        }
+    }
+
+    private static boolean hasMultipleHeaderValues(String value) {
+        return value != null && value.indexOf(',') >= 0;
     }
 
     private String signatureAlgorithm(CocoWebRequestSecurityInput input) {
