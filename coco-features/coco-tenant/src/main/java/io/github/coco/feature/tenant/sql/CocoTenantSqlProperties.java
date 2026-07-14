@@ -1,5 +1,6 @@
 package io.github.coco.feature.tenant.sql;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -103,7 +104,8 @@ public class CocoTenantSqlProperties {
      * </p>
      * @return 无需追加租户条件的表名集合
      */
-    @SuppressWarnings("EI_EXPOSE_REP")
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and existing Java "
+            + "configuration add entries through this intentionally live ignore-tables collection.")
     public Set<String> getIgnoreTables() {
         return this.ignoreTables;
     }
@@ -144,7 +146,8 @@ public class CocoTenantSqlProperties {
      * </p>
      * @return 拦截器忽略治理配置
      */
-    @SuppressWarnings("EI_EXPOSE_REP")
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and existing Java "
+            + "configuration mutate this intentionally live nested interceptor-ignore bean.")
     public CocoTenantInterceptorIgnoreProperties getInterceptorIgnore() {
         return this.interceptorIgnore;
     }

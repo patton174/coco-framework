@@ -1,5 +1,6 @@
 package io.github.coco.feature.tenant;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.tenant.sql.CocoTenantSqlProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -32,6 +33,8 @@ public class CocoTenantProperties {
      * </p>
      * @return 租户 SQL 隔离配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring Binder and existing Java "
+            + "configuration use getSql().set... on this intentionally live nested ConfigurationProperties bean.")
     public CocoTenantSqlProperties getSql() {
         return this.sql;
     }
