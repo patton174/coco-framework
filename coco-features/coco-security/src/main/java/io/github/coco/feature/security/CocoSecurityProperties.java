@@ -26,6 +26,9 @@ public class CocoSecurityProperties {
     @NestedConfigurationProperty
     private CocoSecurityWebProperties web = new CocoSecurityWebProperties();
 
+    public CocoSecurityProperties() {
+    }
+
     /**
      * <p>
      * 返回 Web 安全上下文桥接配置。
@@ -33,7 +36,7 @@ public class CocoSecurityProperties {
      * @return Web 安全上下文桥接配置
      */
     public CocoSecurityWebProperties getWeb() {
-        return this.web;
+        return new CocoSecurityWebProperties(this.web);
     }
 
     /**
@@ -43,6 +46,6 @@ public class CocoSecurityProperties {
      * @param web Web 安全上下文桥接配置
      */
     public void setWeb(CocoSecurityWebProperties web) {
-        this.web = web == null ? new CocoSecurityWebProperties() : web;
+        this.web = web == null ? new CocoSecurityWebProperties() : new CocoSecurityWebProperties(web);
     }
 }

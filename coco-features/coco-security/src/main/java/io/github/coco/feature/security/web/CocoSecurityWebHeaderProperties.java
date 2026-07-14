@@ -48,6 +48,18 @@ public class CocoSecurityWebHeaderProperties {
      */
     private String authorityDelimiter = ",";
 
+    public CocoSecurityWebHeaderProperties() {
+    }
+
+    public CocoSecurityWebHeaderProperties(CocoSecurityWebHeaderProperties source) {
+        this.enabled = source.enabled;
+        this.principalIdHeaderName = source.principalIdHeaderName;
+        this.principalNameHeaderName = source.principalNameHeaderName;
+        this.rolesHeaderName = source.rolesHeaderName;
+        this.permissionsHeaderName = source.permissionsHeaderName;
+        this.authorityDelimiter = source.authorityDelimiter;
+    }
+
     /**
      * <p>
      * 返回是否启用可信请求头安全上下文适配。

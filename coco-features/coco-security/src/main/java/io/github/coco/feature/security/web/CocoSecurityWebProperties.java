@@ -28,6 +28,14 @@ public class CocoSecurityWebProperties {
     @NestedConfigurationProperty
     private CocoSecurityWebHeaderProperties header = new CocoSecurityWebHeaderProperties();
 
+    public CocoSecurityWebProperties() {
+    }
+
+    public CocoSecurityWebProperties(CocoSecurityWebProperties source) {
+        this.enabled = source.enabled;
+        this.header = new CocoSecurityWebHeaderProperties(source.header);
+    }
+
     /**
      * <p>
      * 返回是否注册 Web 安全上下文桥接过滤器。
@@ -55,7 +63,7 @@ public class CocoSecurityWebProperties {
      * @return 可信请求头安全上下文适配配置
      */
     public CocoSecurityWebHeaderProperties getHeader() {
-        return this.header;
+        return new CocoSecurityWebHeaderProperties(this.header);
     }
 
     /**
@@ -65,6 +73,8 @@ public class CocoSecurityWebProperties {
      * @param header 可信请求头安全上下文适配配置
      */
     public void setHeader(CocoSecurityWebHeaderProperties header) {
-        this.header = header == null ? new CocoSecurityWebHeaderProperties() : header;
+        this.header = header == null
+                ? new CocoSecurityWebHeaderProperties()
+                : new CocoSecurityWebHeaderProperties(header);
     }
 }
