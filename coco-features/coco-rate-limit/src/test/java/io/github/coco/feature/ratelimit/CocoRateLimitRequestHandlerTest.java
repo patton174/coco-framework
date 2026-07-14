@@ -69,9 +69,35 @@ class CocoRateLimitRequestHandlerTest {
         assertThat(response.getContentAsString()).contains("42900");
     }
 
+    @Test
+    void failsClosedWhenAProgrammaticRouteUsesAnUnsupportedWindow() throws Exception {
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "key"));
+        CocoRateLimitRoute route = route();
+        route.setWindowSeconds(Long.MAX_VALUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThat(handler.handle(route, request(Locale.US, "en-US"), response)).isFalse();
+        assertThat(response.getStatus()).isEqualTo(429);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("1");
+    }
+
+    @Test
+    void failsClosedWhenTheClockIsAtTheLatestRepresentableInstant() throws Exception {
+        CocoRateLimitRequestHandler handler = handler(Instant.MAX,
+                (snapshot, route) -> new CocoRateLimitKey("api", "key"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThat(handler.handle(route(), request(Locale.US, "en-US"), response)).isFalse();
+        assertThat(response.getStatus()).isEqualTo(429);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("1");
+    }
+
     static CocoRateLimitRequestHandler handler(Instant now, CocoRateLimitKeyResolver keyResolver) {
         CocoRateLimitProperties properties = new CocoRateLimitProperties();
-        properties.getInMemory().setMaxEntries(10);
+        CocoRateLimitProperties.InMemory inMemory = new CocoRateLimitProperties.InMemory();
+        inMemory.setMaxEntries(10);
+        properties.setInMemory(inMemory);
         InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties,
                 Clock.fixed(now, ZoneOffset.UTC), false);
         CocoWebExceptionHandler exceptionHandler = new CocoWebExceptionHandler(new TestMessageService(),

@@ -3,11 +3,18 @@ package io.github.coco.feature.ratelimit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.tools.JavaCompiler;
+import javax.tools.ToolProvider;
+
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
@@ -16,6 +23,38 @@ import org.springframework.web.method.HandlerMethod;
  * Filter 与 MVC 注解后备交互测试。
  */
 class CocoRateLimitFilterMvcIntegrationTest {
+
+    @Test
+    void linksAndRunsARelease17ConsumerCompiledAgainstTheLegacyConstructor(@TempDir Path outputDirectory)
+            throws Exception {
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        assertThat(compiler).as("JDK compiler is required for the linkage probe").isNotNull();
+        Path sourceFile = outputDirectory.resolve("LegacyRateLimitFilterConsumer.java");
+        java.nio.file.Files.writeString(sourceFile, """
+                package legacy;
+                import io.github.coco.feature.ratelimit.CocoRateLimitFilter;
+                public final class LegacyRateLimitFilterConsumer {
+                    public static boolean link() {
+                        try {
+                            new CocoRateLimitFilter(null, null, null, null, null);
+                            return false;
+                        }
+                        catch (NullPointerException expected) {
+                            return true;
+                        }
+                    }
+                }
+                """);
+        int exitCode = compiler.run(null, null, null, "--release", "17", "-classpath",
+                System.getProperty("java.class.path"), "-d", outputDirectory.toString(), sourceFile.toString());
+        assertThat(exitCode).isZero();
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[] { outputDirectory.toUri().toURL() },
+                CocoRateLimitFilter.class.getClassLoader())) {
+            Class<?> consumer = classLoader.loadClass("legacy.LegacyRateLimitFilterConsumer");
+            assertThat(consumer.getMethod("link").invoke(null)).isEqualTo(true);
+        }
+    }
 
     @Test
     void pathFilterWinsAndPreventsMvcFromTakingTheSameQuotaTwice() throws Exception {

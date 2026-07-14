@@ -1,8 +1,10 @@
 package io.github.coco.feature.ratelimit;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.util.Objects;
 
+import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +32,23 @@ public final class CocoRateLimitFilter extends OncePerRequestFilter {
     public CocoRateLimitFilter(CocoRateLimitRouteMatcher routeMatcher, CocoRateLimitRequestHandler requestHandler) {
         this.routeMatcher = Objects.requireNonNull(routeMatcher, "routeMatcher must not be null");
         this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler must not be null");
+    }
+
+    /**
+     * <p>
+     * 创建兼容早期公开构造器的 Coco 限流过滤器。
+     * </p>
+     * @param routeMatcher 限流路由匹配器
+     * @param keyResolver 限流键解析器
+     * @param store 限流原子存储
+     * @param requestContextResolver Coco Web 请求上下文解析器
+     * @param responseWriter 限流拒绝响应写出器
+     */
+    public CocoRateLimitFilter(CocoRateLimitRouteMatcher routeMatcher, CocoRateLimitKeyResolver keyResolver,
+            CocoRateLimitStore store, CocoWebRequestContextResolver requestContextResolver,
+            CocoRateLimitResponseWriter responseWriter) {
+        this(routeMatcher, new CocoRateLimitRequestHandler(keyResolver, store, requestContextResolver,
+                responseWriter, Clock.systemUTC()));
     }
 
     private final CocoRateLimitRequestHandler requestHandler;
