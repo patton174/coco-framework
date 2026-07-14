@@ -55,7 +55,7 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
         properties.getResources().put("sample-order", resource("`tenant_a`.\"sample_order\""));
         PropertyCocoDataPermissionSqlResourceResolver resolver =
                 new PropertyCocoDataPermissionSqlResourceResolver(properties);
-        Select select = (Select) CCJSqlParserUtil.parse("SELECT * FROM [TENANT_A].\"SAMPLE_ORDER\"");
+        Select select = (Select) CCJSqlParserUtil.parse("SELECT id FROM \"TENANT_A\".\"SAMPLE_ORDER\"");
         Table table = (Table) select.getPlainSelect().getFromItem();
 
         assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(table,
