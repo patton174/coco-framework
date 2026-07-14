@@ -250,19 +250,105 @@ public final class StandardCocoFeatures {
         return resolve(buildAvailability.merge(requestedSelection));
     }
 
-    private static void validateManifest(CocoFeatureManifest manifest) {
+    /**
+     * <p>
+     * 校验功能清单的 schema、唯一性、标准元数据和启用依赖闭包。
+     * </p>
+     * <p>
+     * 当前 schema 必须包含全部标准功能；1.0 清单继续允许稀疏条目，但已出现的条目仍必须与当前
+     * old/canonical 等价坐标和稳定 FQCN 一致。
+     * </p>
+     * @param manifest 待校验的功能清单
+     * @throws IllegalArgumentException 清单不完整或与标准功能定义不一致时抛出
+     */
+    public static void validateManifest(CocoFeatureManifest manifest) {
+        Objects.requireNonNull(manifest, "manifest must not be null");
         if (!CocoFeatureManifest.SUPPORTED_SCHEMA_VERSIONS.contains(manifest.schemaVersion())) {
             throw new IllegalArgumentException("Unsupported Coco feature manifest schema version '"
                     + manifest.schemaVersion() + "'. Supported schema versions: "
                     + CocoFeatureManifest.SUPPORTED_SCHEMA_VERSIONS + ".");
         }
+        Map<CocoFeature, CocoFeatureDefinition> definitions = allByFeature();
         Set<String> featureIds = new HashSet<>();
+        Map<CocoFeature, CocoFeatureManifestEntry> entriesByFeature = new java.util.EnumMap<>(CocoFeature.class);
         for (CocoFeatureManifestEntry entry : manifest.features()) {
-            requireManifestFeature(entry.id());
+            CocoFeature feature = requireManifestFeature(entry.id());
             if (!featureIds.add(entry.id())) {
                 throw new IllegalArgumentException("Duplicate Coco feature manifest entry '" + entry.id() + "'.");
             }
+            CocoFeatureDefinition definition = definitions.get(feature);
+            validateManifestEntry(entry, definition);
+            entriesByFeature.put(feature, entry);
         }
+        if (CocoFeatureManifest.CURRENT_SCHEMA_VERSION.equals(manifest.schemaVersion())
+                && entriesByFeature.size() != FEATURES.size()) {
+            Set<String> missing = FEATURES.stream()
+                    .map(CocoFeatureDefinition::feature)
+                    .filter(feature -> !entriesByFeature.containsKey(feature))
+                    .map(CocoFeature::id)
+                    .collect(Collectors.toCollection(java.util.TreeSet::new));
+            throw new IllegalArgumentException("Coco feature manifest schema '"
+                    + CocoFeatureManifest.CURRENT_SCHEMA_VERSION + "' is missing standard features: "
+                    + String.join(", ", missing) + ".");
+        }
+        for (Map.Entry<CocoFeature, CocoFeatureManifestEntry> manifestEntry : entriesByFeature.entrySet()) {
+            if (!manifestEntry.getValue().enabled()) {
+                continue;
+            }
+            for (CocoFeature dependency : definitions.get(manifestEntry.getKey()).dependencies()) {
+                CocoFeatureManifestEntry dependencyEntry = entriesByFeature.get(dependency);
+                if (dependencyEntry == null || !dependencyEntry.enabled()) {
+                    throw new IllegalArgumentException("Enabled Coco feature manifest entry '"
+                            + manifestEntry.getKey().id() + "' requires enabled feature '"
+                            + dependency.id() + "'.");
+                }
+            }
+        }
+    }
+
+    private static void validateManifestEntry(CocoFeatureManifestEntry entry,
+            CocoFeatureDefinition definition) {
+        Set<String> equivalentArtifactIds = equivalentArtifactIds(definition);
+        if (!equivalentArtifactIds.contains(entry.artifactId())) {
+            throw inconsistentManifestEntry(entry.id(), "artifactId", entry.artifactId(), equivalentArtifactIds);
+        }
+        if (!definition.autoConfigurationClassName().equals(entry.autoConfigurationClassName())) {
+            throw inconsistentManifestEntry(entry.id(), "autoConfigurationClassName",
+                    entry.autoConfigurationClassName(), Set.of(definition.autoConfigurationClassName()));
+        }
+        if (definition.defaultEnabled() != entry.defaultEnabled()) {
+            throw inconsistentManifestEntry(entry.id(), "defaultEnabled", entry.defaultEnabled(),
+                    Set.of(definition.defaultEnabled()));
+        }
+        Set<String> expectedDependencies = definition.dependencies().stream()
+                .map(CocoFeature::id)
+                .collect(Collectors.toUnmodifiableSet());
+        Set<String> actualDependencies = uniqueManifestValues(entry.id(), "dependencies", entry.dependencies());
+        if (!expectedDependencies.equals(actualDependencies)) {
+            throw inconsistentManifestEntry(entry.id(), "dependencies", actualDependencies, expectedDependencies);
+        }
+        Set<String> pruneArtifactIds = uniqueManifestValues(entry.id(), "pruneArtifactIds",
+                entry.pruneArtifactIds());
+        if (!pruneArtifactIds.contains(entry.artifactId())
+                || !equivalentArtifactIds.containsAll(pruneArtifactIds)) {
+            throw inconsistentManifestEntry(entry.id(), "pruneArtifactIds", pruneArtifactIds,
+                    equivalentArtifactIds);
+        }
+    }
+
+    private static Set<String> uniqueManifestValues(String featureId, String fieldName, List<String> values) {
+        Set<String> uniqueValues = new HashSet<>(values);
+        if (uniqueValues.size() != values.size()) {
+            throw new IllegalArgumentException("Duplicate value in Coco feature manifest entry '"
+                    + featureId + "' field '" + fieldName + "'.");
+        }
+        return Set.copyOf(uniqueValues);
+    }
+
+    private static IllegalArgumentException inconsistentManifestEntry(String featureId, String fieldName,
+            Object actual, Set<?> expected) {
+        return new IllegalArgumentException("Coco feature manifest entry '" + featureId + "' has inconsistent "
+                + fieldName + " '" + actual + "'; expected " + expected + ".");
     }
 
     private static CocoFeature requireManifestFeature(String featureId) {

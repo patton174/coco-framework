@@ -358,4 +358,77 @@ class StandardCocoFeaturesTest {
 
         assertEquals("Duplicate Coco feature manifest entry 'web'.", exception.getMessage());
     }
+
+    @Test
+    void rejectsIncompleteCurrentFeatureManifest() {
+        CocoFeatureManifest manifest = new CocoFeatureManifest(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, "test",
+                List.of(new CocoFeatureManifestEntry("web", "coco-web",
+                        "io.github.coco.feature.web.CocoWebAutoConfiguration", true, true, List.of(),
+                        List.of("coco-web"))));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> StandardCocoFeatures.validateManifest(manifest));
+
+        assertTrue(exception.getMessage().contains("missing standard features"));
+        assertTrue(exception.getMessage().contains("mybatis-plus"));
+    }
+
+    @Test
+    void rejectsManifestMetadataOutsideCanonicalAndLegacyDefinitions() {
+        CocoFeatureManifest valid = StandardCocoFeatures.toManifest(
+                StandardCocoFeatures.resolve(CocoFeatureSelection.empty()), "test");
+        CocoFeatureManifestEntry web = valid.features().stream()
+                .filter(entry -> "web".equals(entry.id()))
+                .findFirst()
+                .orElseThrow();
+        CocoFeatureManifestEntry unsafeWeb = new CocoFeatureManifestEntry(web.id(), web.artifactId(),
+                web.autoConfigurationClassName(), web.defaultEnabled(), web.enabled(), web.dependencies(),
+                List.of("coco-web", "business-library"));
+        List<CocoFeatureManifestEntry> entries = valid.features().stream()
+                .map(entry -> "web".equals(entry.id()) ? unsafeWeb : entry)
+                .toList();
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> StandardCocoFeatures.validateManifest(new CocoFeatureManifest(
+                        CocoFeatureManifest.CURRENT_SCHEMA_VERSION, "test", entries)));
+
+        assertTrue(exception.getMessage().contains("web"));
+        assertTrue(exception.getMessage().contains("pruneArtifactIds"));
+        assertTrue(exception.getMessage().contains("business-library"));
+    }
+
+    @Test
+    void rejectsEnabledManifestFeatureWithDisabledDependency() {
+        CocoFeatureManifest valid = StandardCocoFeatures.toManifest(
+                StandardCocoFeatures.resolve(CocoFeatureSelection.empty()), "test");
+        List<CocoFeatureManifestEntry> entries = valid.features().stream()
+                .map(entry -> "web".equals(entry.id())
+                        ? new CocoFeatureManifestEntry(entry.id(), entry.artifactId(),
+                                entry.autoConfigurationClassName(), entry.defaultEnabled(), false,
+                                entry.dependencies(), entry.pruneArtifactIds())
+                        : entry)
+                .toList();
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> StandardCocoFeatures.validateManifest(new CocoFeatureManifest(
+                        CocoFeatureManifest.CURRENT_SCHEMA_VERSION, "test", entries)));
+
+        assertTrue(exception.getMessage().contains("openapi"));
+        assertTrue(exception.getMessage().contains("web"));
+    }
+
+    @Test
+    void rejectsUnknownJsonFieldsInSupportedManifestSchema() {
+        java.io.UncheckedIOException exception = assertThrows(java.io.UncheckedIOException.class,
+                () -> CocoFeatureManifestLoader.read(new java.io.ByteArrayInputStream("""
+                        {
+                          "schemaVersion": "1.1",
+                          "generatedBy": "test",
+                          "features": [],
+                          "unexpected": true
+                        }
+                        """.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+
+        assertTrue(exception.getMessage().contains("Failed to parse Coco feature manifest"));
+    }
 }
