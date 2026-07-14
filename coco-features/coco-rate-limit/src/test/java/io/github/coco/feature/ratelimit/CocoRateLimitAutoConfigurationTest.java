@@ -47,6 +47,13 @@ class CocoRateLimitAutoConfigurationTest {
                     assertThat(context).hasSingleBean(CocoRateLimitKeyResolver.class);
                     assertThat(context).hasSingleBean(CocoRateLimitRouteMatcher.class);
                     assertThat(context).hasSingleBean(CocoMessageBundleRegistrar.class);
+                    CocoRateLimitProperties properties = context.getBean(CocoRateLimitProperties.class);
+                    assertThat(properties.getRoutes()).singleElement().satisfies(route -> {
+                        assertThat(route.getId()).isEqualTo("public-api");
+                        assertThat(route.getMatcher().getPathPatterns()).containsExactly("/api/**");
+                        assertThat(route.getLimit()).isEqualTo(5);
+                        assertThat(route.getWindowSeconds()).isEqualTo(60);
+                    });
                 });
     }
 

@@ -44,10 +44,47 @@ class DefaultCocoRateLimitRouteMatcherTest {
     @Test
     void rejectsInvalidConfiguredRoutesAtConstructionTime() {
         CocoRateLimitProperties properties = new CocoRateLimitProperties();
-        properties.getRoutes().add(new CocoRateLimitRoute());
+        properties.setRoutes(List.of(new CocoRateLimitRoute()));
 
         assertThatThrownBy(() -> new DefaultCocoRateLimitRouteMatcher(properties,
                 new DefaultCocoWebRequestMatcher())).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void rejectsWindowDurationsBeyondTheSafeFixedWindowBound() {
+        CocoRateLimitRoute route = route("orders", "/api/orders");
+        route.setWindowSeconds(Long.MAX_VALUE);
+        CocoRateLimitProperties properties = new CocoRateLimitProperties();
+        properties.setRoutes(List.of(route));
+
+        assertThatThrownBy(() -> new DefaultCocoRateLimitRouteMatcher(properties,
+                new DefaultCocoWebRequestMatcher())).isInstanceOf(IllegalStateException.class);
+
+        route.setWindowSeconds(CocoRateLimitRoute.MAX_WINDOW_SECONDS);
+        properties.setRoutes(List.of(route));
+        assertThat(new DefaultCocoRateLimitRouteMatcher(properties,
+                new DefaultCocoWebRequestMatcher())).isNotNull();
+    }
+
+    @Test
+    void keepsConfigurationSnapshotsIndependentFromCallerMutations() {
+        CocoRateLimitRoute route = route("orders", "/api/orders");
+        CocoRateLimitProperties.InMemory inMemory = new CocoRateLimitProperties.InMemory();
+        inMemory.setMaxEntries(32);
+        CocoRateLimitProperties properties = new CocoRateLimitProperties();
+        properties.setRoutes(List.of(route));
+        properties.setInMemory(inMemory);
+
+        route.setLimit(99);
+        inMemory.setMaxEntries(99);
+        CocoRateLimitRoute routeSnapshot = properties.getRoutes().get(0);
+        routeSnapshot.setLimit(88);
+        routeSnapshot.getMatcher().setPathPatterns(Set.of("/changed"));
+
+        assertThat(properties.getRoutes().get(0).getLimit()).isEqualTo(10);
+        assertThat(properties.getRoutes().get(0).getMatcher().getPathPatterns()).containsExactly("/api/orders");
+        assertThat(properties.getInMemory().getMaxEntries()).isEqualTo(32);
+        assertThatThrownBy(() -> properties.getRoutes().add(route)).isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -64,7 +101,7 @@ class DefaultCocoRateLimitRouteMatcherTest {
 
     private static DefaultCocoRateLimitRouteMatcher matcher(CocoRateLimitRoute... routes) {
         CocoRateLimitProperties properties = new CocoRateLimitProperties();
-        properties.getRoutes().addAll(List.of(routes));
+        properties.setRoutes(List.of(routes));
         return new DefaultCocoRateLimitRouteMatcher(properties, new DefaultCocoWebRequestMatcher());
     }
 

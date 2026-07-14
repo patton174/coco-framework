@@ -7,6 +7,9 @@ import io.github.coco.feature.web.context.CocoWebRequestMatchRule;
  */
 public class CocoRateLimitRoute {
 
+    /** 最大支持 366 天的固定窗口。 */
+    static final long MAX_WINDOW_SECONDS = 366L * 24 * 60 * 60;
+
     private String id;
 
     private CocoWebRequestMatchRule matcher = new CocoWebRequestMatchRule();
@@ -36,7 +39,7 @@ public class CocoRateLimitRoute {
      * @return Web 匹配规则
      */
     public CocoWebRequestMatchRule getMatcher() {
-        return this.matcher;
+        return copyMatcher(this.matcher);
     }
 
     /**
@@ -44,7 +47,7 @@ public class CocoRateLimitRoute {
      * @param matcher Web 匹配规则
      */
     public void setMatcher(CocoWebRequestMatchRule matcher) {
-        this.matcher = matcher == null ? new CocoWebRequestMatchRule() : matcher;
+        this.matcher = copyMatcher(matcher);
     }
 
     /**
@@ -81,6 +84,32 @@ public class CocoRateLimitRoute {
 
     boolean valid() {
         return this.id != null && !this.id.isBlank() && this.matcher != null && !this.matcher.isEmpty()
-                && this.limit > 0 && this.windowSeconds > 0;
+                && this.limit > 0 && isSupportedWindowSeconds(this.windowSeconds);
+    }
+
+    static boolean isSupportedWindowSeconds(long windowSeconds) {
+        return windowSeconds > 0 && windowSeconds <= MAX_WINDOW_SECONDS;
+    }
+
+    static CocoRateLimitRoute copyOf(CocoRateLimitRoute source) {
+        if (source == null) {
+            return null;
+        }
+        CocoRateLimitRoute copy = new CocoRateLimitRoute();
+        copy.setId(source.getId());
+        copy.setMatcher(source.getMatcher());
+        copy.setLimit(source.getLimit());
+        copy.setWindowSeconds(source.getWindowSeconds());
+        return copy;
+    }
+
+    private static CocoWebRequestMatchRule copyMatcher(CocoWebRequestMatchRule source) {
+        CocoWebRequestMatchRule copy = new CocoWebRequestMatchRule();
+        if (source == null) {
+            return copy;
+        }
+        copy.setMethods(source.getMethods());
+        copy.setPathPatterns(source.getPathPatterns());
+        return copy;
     }
 }

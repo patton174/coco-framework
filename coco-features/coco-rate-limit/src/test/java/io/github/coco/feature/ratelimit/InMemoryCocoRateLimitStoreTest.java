@@ -173,8 +173,10 @@ class InMemoryCocoRateLimitStoreTest {
 
     private static CocoRateLimitProperties properties(int maxEntries, int cleanupIntervalSeconds) {
         CocoRateLimitProperties properties = new CocoRateLimitProperties();
-        properties.getInMemory().setMaxEntries(maxEntries);
-        properties.getInMemory().setCleanupIntervalSeconds(cleanupIntervalSeconds);
+        CocoRateLimitProperties.InMemory inMemory = new CocoRateLimitProperties.InMemory();
+        inMemory.setMaxEntries(maxEntries);
+        inMemory.setCleanupIntervalSeconds(cleanupIntervalSeconds);
+        properties.setInMemory(inMemory);
         return properties;
     }
 

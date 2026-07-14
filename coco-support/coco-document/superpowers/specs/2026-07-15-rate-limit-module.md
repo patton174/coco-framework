@@ -6,7 +6,7 @@
 
 ## Configuration and Matching
 
-The module has no implicit global rule. `coco.rate-limit.routes` defines an ordered list of route identifiers, Coco Web method/path matchers, per-window limits, and fixed-window durations. The first matching route is applied. Invalid configured routes fail application startup rather than silently broadening or disabling protection.
+The module has no implicit global rule. `coco.rate-limit.routes` defines an ordered list of route identifiers, Coco Web method/path matchers, per-window limits, and fixed-window durations. A fixed window must be between one second and 366 days. The first matching route is applied. Invalid configured routes fail application startup rather than silently broadening or disabling protection.
 
 `@CocoRateLimited("route-id")` declares a configured route as a handler fallback. A matching path route always wins and is applied once in the Servlet Filter; only a request with no path-route match reaches the MVC fallback interceptor. On a handler, a method annotation wins over a class annotation. An annotation never creates a route, reads a business identity, or enters a business transaction.
 

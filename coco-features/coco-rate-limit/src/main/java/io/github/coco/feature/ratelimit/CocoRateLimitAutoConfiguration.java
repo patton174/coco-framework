@@ -156,12 +156,21 @@ public class CocoRateLimitAutoConfiguration {
     @ConditionalOnMissingBean(name = "cocoRateLimitMvcConfigurer")
     public WebMvcConfigurer cocoRateLimitMvcConfigurer(CocoRateLimitRouteMatcher routeMatcher,
             CocoRateLimitRequestHandler requestHandler) {
-        CocoRateLimitMvcInterceptor interceptor = new CocoRateLimitMvcInterceptor(routeMatcher, requestHandler);
-        return new WebMvcConfigurer() {
-            @Override
-            public void addInterceptors(InterceptorRegistry registry) {
-                registry.addInterceptor(interceptor).order(Ordered.HIGHEST_PRECEDENCE);
-            }
-        };
+        return new CocoRateLimitWebMvcConfigurer(routeMatcher, requestHandler);
+    }
+
+    private static final class CocoRateLimitWebMvcConfigurer implements WebMvcConfigurer {
+
+        private final CocoRateLimitMvcInterceptor interceptor;
+
+        private CocoRateLimitWebMvcConfigurer(CocoRateLimitRouteMatcher routeMatcher,
+                CocoRateLimitRequestHandler requestHandler) {
+            this.interceptor = new CocoRateLimitMvcInterceptor(routeMatcher, requestHandler);
+        }
+
+        @Override
+        public void addInterceptors(InterceptorRegistry registry) {
+            registry.addInterceptor(this.interceptor).order(Ordered.HIGHEST_PRECEDENCE);
+        }
     }
 }

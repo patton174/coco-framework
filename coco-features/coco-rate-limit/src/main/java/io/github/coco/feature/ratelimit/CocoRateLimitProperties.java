@@ -1,6 +1,7 @@
 package io.github.coco.feature.ratelimit;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -17,9 +18,9 @@ public class CocoRateLimitProperties {
 
     private boolean enabled;
 
-    private final List<CocoRateLimitRoute> routes = new ArrayList<>();
+    private List<CocoRateLimitRoute> routes = new ArrayList<>();
 
-    private final InMemory inMemory = new InMemory();
+    private InMemory inMemory = new InMemory();
 
     /**
      * 是否启用限流。
@@ -42,7 +43,17 @@ public class CocoRateLimitProperties {
      * @return 显式限流路由
      */
     public List<CocoRateLimitRoute> getRoutes() {
-        return this.routes;
+        return Collections.unmodifiableList(copyRoutes(this.routes));
+    }
+
+    /**
+     * <p>
+     * 设置限流路由。
+     * </p>
+     * @param routes 显式限流路由
+     */
+    public void setRoutes(List<CocoRateLimitRoute> routes) {
+        this.routes = copyRoutes(routes);
     }
 
     /**
@@ -50,7 +61,25 @@ public class CocoRateLimitProperties {
      * @return 进程内存储配置
      */
     public InMemory getInMemory() {
-        return this.inMemory;
+        return InMemory.copyOf(this.inMemory);
+    }
+
+    /**
+     * <p>
+     * 设置进程内参考存储配置。
+     * </p>
+     * @param inMemory 进程内存储配置
+     */
+    public void setInMemory(InMemory inMemory) {
+        this.inMemory = InMemory.copyOf(inMemory);
+    }
+
+    private static List<CocoRateLimitRoute> copyRoutes(List<CocoRateLimitRoute> routes) {
+        List<CocoRateLimitRoute> copy = new ArrayList<>();
+        if (routes != null) {
+            routes.forEach(route -> copy.add(CocoRateLimitRoute.copyOf(route)));
+        }
+        return copy;
     }
 
     /**
@@ -92,6 +121,16 @@ public class CocoRateLimitProperties {
          */
         public void setCleanupIntervalSeconds(int cleanupIntervalSeconds) {
             this.cleanupIntervalSeconds = cleanupIntervalSeconds;
+        }
+
+        static InMemory copyOf(InMemory source) {
+            InMemory copy = new InMemory();
+            if (source == null) {
+                return copy;
+            }
+            copy.setMaxEntries(source.getMaxEntries());
+            copy.setCleanupIntervalSeconds(source.getCleanupIntervalSeconds());
+            return copy;
         }
     }
 }

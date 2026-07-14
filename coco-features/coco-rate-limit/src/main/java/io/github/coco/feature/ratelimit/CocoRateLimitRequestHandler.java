@@ -2,6 +2,7 @@ package io.github.coco.feature.ratelimit;
 
 import java.io.IOException;
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
@@ -65,9 +66,10 @@ public final class CocoRateLimitRequestHandler {
             throws IOException {
         CocoRateLimitRoute checkedRoute = Objects.requireNonNull(route, "route must not be null");
         Instant now = this.clock.instant();
-        Instant resetAt = resetAt(now, checkedRoute.getWindowSeconds());
+        Instant resetAt = fallbackResetAt(now);
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
         try {
+            resetAt = resetAt(now, checkedRoute.getWindowSeconds());
             CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
             CocoRateLimitKey key = this.keyResolver.resolve(snapshot, checkedRoute);
             CocoRateLimitDecision decision = this.store.acquire(
@@ -98,8 +100,18 @@ public final class CocoRateLimitRequestHandler {
     }
 
     static Instant resetAt(Instant now, long windowSeconds) {
+        Objects.requireNonNull(now, "now must not be null");
+        if (!CocoRateLimitRoute.isSupportedWindowSeconds(windowSeconds)) {
+            throw new IllegalArgumentException("windowSeconds must be between 1 and "
+                    + CocoRateLimitRoute.MAX_WINDOW_SECONDS);
+        }
         long windowStart = Math.floorDiv(now.getEpochSecond(), windowSeconds) * windowSeconds;
-        return Instant.ofEpochSecond(Math.addExact(windowStart, windowSeconds));
+        try {
+            return Instant.ofEpochSecond(Math.addExact(windowStart, windowSeconds));
+        }
+        catch (DateTimeException exception) {
+            return Instant.MAX;
+        }
     }
 
     static void writeRateLimitHeaders(HttpServletResponse response, CocoRateLimitDecision decision, Instant now) {
@@ -124,5 +136,9 @@ public final class CocoRateLimitRequestHandler {
             return 0;
         }
         return Math.addExact(remaining.getSeconds(), remaining.getNano() == 0 ? 0 : 1);
+    }
+
+    private static Instant fallbackResetAt(Instant now) {
+        return now.getEpochSecond() < Instant.MAX.getEpochSecond() ? now.plusSeconds(1) : Instant.MAX;
     }
 }
