@@ -3,10 +3,17 @@ package io.github.coco.exception;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 
 import io.github.coco.exception.type.CocoConflictException;
 import io.github.coco.exception.type.CocoForbiddenException;
@@ -191,6 +198,29 @@ class CocoExceptionTest {
     }
 
     @Test
+    void legacyConstructorsRetainPublicDescriptors() throws NoSuchMethodException {
+        assertNotNull(CocoException.class.getConstructor(CocoErrorCode.class, Object[].class));
+        assertNotNull(CocoException.class.getConstructor(CocoErrorCode.class, Throwable.class, Object[].class));
+        assertNotNull(CocoException.class.getConstructor(CocoBusinessCode.class, Object[].class));
+        assertNotNull(CocoException.class.getConstructor(CocoBusinessCode.class, Throwable.class, Object[].class));
+        assertNotNull(CocoException.class.getConstructor(String.class));
+        assertNotNull(CocoException.class.getConstructor(String.class, String.class));
+        assertNotNull(CocoException.class.getConstructor(String.class, String.class, Object[].class));
+        assertNotNull(CocoException.class.getConstructor(String.class, String.class, Throwable.class));
+        assertNotNull(CocoException.class.getConstructor(String.class, String.class, Throwable.class, Object[].class));
+    }
+
+    @Test
+    void constructorsRetainFailFastValidationForInvalidInputs() {
+        assertMissingErrorCode(() -> new CocoException((CocoErrorCode) null));
+        assertMissingErrorCode(() -> new CocoException((CocoErrorCode) null, new IllegalStateException("cause")));
+        assertMissingErrorCode(() -> new CocoException((CocoBusinessCode) null));
+        assertMissingErrorCode(() -> new CocoException((CocoBusinessCode) null, new IllegalStateException("cause")));
+        assertMissingMessageCode(() -> new CocoException(" ", "default"));
+        assertMissingMessageCode(() -> new CocoException(" ", "default", new IllegalStateException("cause")));
+    }
+
+    @Test
     void staticFactoryRejectsNullErrorCodeWithCocoRequestException() {
         CocoRequestException exception = assertThrows(CocoRequestException.class,
                 () -> CocoExceptions.conflict(null));
@@ -218,6 +248,51 @@ class CocoExceptionTest {
         assertEquals("coco.error.invalid-argument", message.code());
         assertEquals("参数 {0} 不合法", message.defaultMessage());
         assertArrayEquals(new Object[] {"name"}, message.args());
+    }
+
+    @Test
+    void serializesAndRestoresExceptionState() throws IOException, ClassNotFoundException {
+        IllegalStateException cause = new IllegalStateException("database unavailable");
+        CocoException exception = new CocoException(TestBusinessCode.ORDER_NOT_FOUND, cause, "ORD-1001");
+
+        CocoException restored = deserialize(serialize(exception));
+
+        assertEquals(1001, restored.businessCode().orElseThrow());
+        assertEquals("sample.order.not-found", restored.code());
+        assertEquals("sample.order.not-found", restored.defaultMessage());
+        assertArrayEquals(new Object[] {"ORD-1001"}, restored.args());
+        assertInstanceOf(IllegalStateException.class, restored.getCause());
+        assertEquals("database unavailable", restored.getCause().getMessage());
+    }
+
+    private static void assertMissingErrorCode(ThrowingRunnable invocation) {
+        CocoRequestException exception = assertThrows(CocoRequestException.class, invocation::run);
+        assertEquals("coco.error.missing-error-code", exception.code());
+    }
+
+    private static void assertMissingMessageCode(ThrowingRunnable invocation) {
+        CocoRequestException exception = assertThrows(CocoRequestException.class, invocation::run);
+        assertEquals("coco.error.missing-message-code", exception.code());
+    }
+
+    private static byte[] serialize(CocoException exception) throws IOException {
+        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                ObjectOutputStream output = new ObjectOutputStream(bytes)) {
+            output.writeObject(exception);
+            return bytes.toByteArray();
+        }
+    }
+
+    private static CocoException deserialize(byte[] serialized) throws IOException, ClassNotFoundException {
+        try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(serialized))) {
+            return (CocoException) input.readObject();
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+
+        void run();
     }
 
     private enum TestBusinessCode implements CocoBusinessCode {

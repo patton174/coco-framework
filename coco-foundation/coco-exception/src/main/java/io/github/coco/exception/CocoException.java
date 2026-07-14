@@ -3,6 +3,7 @@ package io.github.coco.exception;
 import java.util.Arrays;
 import java.util.OptionalInt;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.i18n.CocoMessage;
 
 /**
@@ -50,6 +51,8 @@ public class CocoException extends RuntimeException {
      * @param errorCode 异常编码契约
      * @param args 消息格式化参数
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The public constructor must fail fast with CocoRequestException for an invalid error code.")
     public CocoException(CocoErrorCode errorCode, Object... args) {
         this(null, code(errorCode), defaultMessage(errorCode), args);
     }
@@ -62,6 +65,8 @@ public class CocoException extends RuntimeException {
      * @param cause 异常原因
      * @param args 消息格式化参数
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The public constructor must fail fast with CocoRequestException for an invalid error code.")
     public CocoException(CocoErrorCode errorCode, Throwable cause, Object... args) {
         this(null, code(errorCode), defaultMessage(errorCode), cause, args);
     }
@@ -73,6 +78,8 @@ public class CocoException extends RuntimeException {
      * @param businessCode 业务码契约
      * @param args 消息格式化参数
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The public constructor must fail fast with CocoRequestException for an invalid business code.")
     public CocoException(CocoBusinessCode businessCode, Object... args) {
         this(responseCode(businessCode), messageCode(businessCode), defaultMessage(businessCode), args);
     }
@@ -85,6 +92,8 @@ public class CocoException extends RuntimeException {
      * @param cause 异常原因
      * @param args 消息格式化参数
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The public constructor must fail fast with CocoRequestException for an invalid business code.")
     public CocoException(CocoBusinessCode businessCode, Throwable cause, Object... args) {
         this(responseCode(businessCode), messageCode(businessCode), defaultMessage(businessCode), cause, args);
     }
@@ -118,6 +127,8 @@ public class CocoException extends RuntimeException {
      * @param defaultMessage 默认消息文本
      * @param args 消息格式化参数
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The public constructor must fail fast with CocoRequestException for a blank message code.")
     public CocoException(String code, String defaultMessage, Object... args) {
         this(null, code, defaultMessage, args);
     }
@@ -143,10 +154,14 @@ public class CocoException extends RuntimeException {
      * @param cause 异常原因
      * @param args 消息格式化参数
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The public constructor must fail fast with CocoRequestException for a blank message code.")
     public CocoException(String code, String defaultMessage, Throwable cause, Object... args) {
         this(null, code, defaultMessage, cause, args);
     }
 
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The shared constructor enforces the required message-code invariant before state is assigned.")
     private CocoException(Integer businessCode, String code, String defaultMessage, Object... args) {
         super(messageOrCode(code, defaultMessage));
         this.businessCode = businessCode;
@@ -155,6 +170,8 @@ public class CocoException extends RuntimeException {
         this.args = args == null ? new Object[0] : Arrays.copyOf(args, args.length);
     }
 
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW",
+            justification = "The shared constructor enforces the required message-code invariant before state is assigned.")
     private CocoException(Integer businessCode, String code, String defaultMessage, Throwable cause, Object... args) {
         super(messageOrCode(code, defaultMessage), cause);
         this.businessCode = businessCode;
