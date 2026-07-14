@@ -126,6 +126,23 @@ class CocoSpringDocRealIntegrationTest {
     }
 
     @Test
+    void customizesMetadataWithoutSchemaClassesWhenResponseSchemasAreDisabled() {
+        this.contextRunner
+                .withPropertyValues("coco.openapi.springdoc.response-schemas-enabled=false")
+                .withClassLoader(new FilteredClassLoader(ObjectSchema.class))
+                .run(context -> {
+                    OpenApiCustomizer customizer = context.getBean(
+                            "cocoSpringDocOpenApiCustomizer", OpenApiCustomizer.class);
+                    OpenAPI openApi = new OpenAPI();
+
+                    customizer.customise(openApi);
+
+                    assertThat(openApi.getInfo().getTitle()).isEqualTo("Coco API");
+                    assertThat(openApi.getComponents()).isNull();
+                });
+    }
+
+    @Test
     void backsOffWhenApplicationDefinesNamedSpringDocCustomizer() {
         this.contextRunner
                 .withUserConfiguration(CustomSpringDocCustomizerConfiguration.class)

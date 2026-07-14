@@ -1,5 +1,6 @@
 package io.github.coco.feature.openapi;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -56,6 +57,7 @@ public class CocoOpenApiProperties {
      * </p>
      * @return OpenAPI 文档信息配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Configuration binders require a live nested object.")
     public InfoProperties getInfo() {
         return this.info;
     }
@@ -76,6 +78,7 @@ public class CocoOpenApiProperties {
      * </p>
      * @return SpringDoc 适配配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Configuration binders require a live nested object.")
     public SpringdocProperties getSpringdoc() {
         return this.springdoc;
     }

@@ -4,7 +4,6 @@ import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.aot.hint.TypeReference;
-import org.springframework.util.ClassUtils;
 
 /**
  * SpringDoc 反射和动态代理运行时提示。
@@ -22,7 +21,7 @@ public final class SpringDocOpenApiRuntimeHints implements RuntimeHintsRegistrar
      */
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
-        if (!isCompatibleClasspath(classLoader)) {
+        if (!SpringDocOpenApiCustomizerCondition.isCompatible(classLoader, false)) {
             return;
         }
         hints.proxies().registerJdkProxy(TypeReference.of(
@@ -31,30 +30,20 @@ public final class SpringDocOpenApiRuntimeHints implements RuntimeHintsRegistrar
                 MemberCategory.INVOKE_PUBLIC_METHODS);
         registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.INFO_CLASS,
                 MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
-        registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.COMPONENTS_CLASS,
-                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
-        registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.SCHEMA_CLASS,
-                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
-        registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.OBJECT_SCHEMA_CLASS,
-                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
-        registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.BOOLEAN_SCHEMA_CLASS,
-                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
-        registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.INTEGER_SCHEMA_CLASS,
-                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
-        registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.STRING_SCHEMA_CLASS,
-                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
-    }
-
-    private static boolean isCompatibleClasspath(ClassLoader classLoader) {
-        return ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CUSTOMIZER_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.INFO_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.COMPONENTS_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.SCHEMA_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.OBJECT_SCHEMA_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.BOOLEAN_SCHEMA_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.INTEGER_SCHEMA_CLASS, classLoader)
-                && ClassUtils.isPresent(CocoSpringDocOpenApiCustomizerFactoryBean.STRING_SCHEMA_CLASS, classLoader);
+        if (SpringDocOpenApiCustomizerCondition.isCompatible(classLoader, true)) {
+            registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.COMPONENTS_CLASS,
+                    MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.SCHEMA_CLASS,
+                    MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.OBJECT_SCHEMA_CLASS,
+                    MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.BOOLEAN_SCHEMA_CLASS,
+                    MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.INTEGER_SCHEMA_CLASS,
+                    MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            registerType(hints, CocoSpringDocOpenApiCustomizerFactoryBean.STRING_SCHEMA_CLASS,
+                    MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+        }
     }
 
     private static void registerType(RuntimeHints hints, String className, MemberCategory... memberCategories) {

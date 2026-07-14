@@ -26,26 +26,44 @@ public final class SpringDocOpenApiCustomizerCondition extends SpringBootConditi
     @Override
     public ConditionOutcome getMatchOutcome(ConditionContext context, AnnotatedTypeMetadata metadata) {
         ClassLoader classLoader = context.getClassLoader();
+        boolean responseSchemasEnabled = responseSchemasEnabled(context);
+        if (isCompatible(classLoader, responseSchemasEnabled)) {
+            return ConditionOutcome.match("compatible SpringDoc OpenApiCustomizer is available");
+        }
+        return ConditionOutcome.noMatch("compatible SpringDoc OpenApiCustomizer is not available");
+    }
+
+    static boolean isCompatible(ClassLoader classLoader, boolean responseSchemasEnabled) {
         try {
             Class<?> customizerType = ClassUtils.forName(
                     CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CUSTOMIZER_CLASS, classLoader);
             Class<?> openApiType = ClassUtils.forName(
                     CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CLASS, classLoader);
             ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.INFO_CLASS, classLoader);
-            ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.COMPONENTS_CLASS, classLoader);
-            ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.SCHEMA_CLASS, classLoader);
-            ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.OBJECT_SCHEMA_CLASS, classLoader);
-            ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.BOOLEAN_SCHEMA_CLASS, classLoader);
-            ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.INTEGER_SCHEMA_CLASS, classLoader);
-            ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.STRING_SCHEMA_CLASS, classLoader);
             Method customize = customizerType.getMethod("customise", openApiType);
-            if (customize.getReturnType() != Void.TYPE) {
-                return ConditionOutcome.noMatch("SpringDoc OpenApiCustomizer.customise(OpenAPI) must return void");
+            if (!customizerType.isInterface() || customize.getReturnType() != Void.TYPE) {
+                return false;
             }
-            return ConditionOutcome.match("compatible SpringDoc OpenApiCustomizer is available");
+            return !responseSchemasEnabled || responseSchemasAvailable(classLoader);
         }
         catch (ReflectiveOperationException | LinkageError ex) {
-            return ConditionOutcome.noMatch("compatible SpringDoc OpenApiCustomizer is not available");
+            return false;
         }
+    }
+
+    private static boolean responseSchemasEnabled(ConditionContext context) {
+        String configured = context.getEnvironment()
+                .getProperty("coco.openapi.springdoc.response-schemas-enabled");
+        return configured == null || Boolean.parseBoolean(configured);
+    }
+
+    private static boolean responseSchemasAvailable(ClassLoader classLoader) throws ClassNotFoundException {
+        ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.COMPONENTS_CLASS, classLoader);
+        ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.SCHEMA_CLASS, classLoader);
+        ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.OBJECT_SCHEMA_CLASS, classLoader);
+        ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.BOOLEAN_SCHEMA_CLASS, classLoader);
+        ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.INTEGER_SCHEMA_CLASS, classLoader);
+        ClassUtils.forName(CocoSpringDocOpenApiCustomizerFactoryBean.STRING_SCHEMA_CLASS, classLoader);
+        return true;
     }
 }

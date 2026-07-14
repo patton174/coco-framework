@@ -83,7 +83,27 @@ public class CocoOpenApiAutoConfiguration {
             matchIfMissing = true)
     public CocoSpringDocOpenApiCustomizerFactoryBean cocoSpringDocOpenApiCustomizer(
             CocoOpenApiMetadataProvider metadataProvider, CocoOpenApiProperties properties) {
-        return new CocoSpringDocOpenApiCustomizerFactoryBean(metadataProvider,
+        return springDocOpenApiCustomizer(metadataProvider,
                 properties.getSpringdoc().isResponseSchemasEnabled());
+    }
+
+    /**
+     * <p>
+     * 创建默认 SpringDoc OpenAPI 定制器。
+     * </p>
+     * <p>
+     * 保留该公开重载以兼容已编译的业务配置代码；通过此入口创建的定制器沿用历史默认行为并发布响应组件模型。
+     * </p>
+     * @param metadataProvider Coco OpenAPI 元数据提供器
+     * @return SpringDoc OpenAPI 定制器工厂
+     */
+    public CocoSpringDocOpenApiCustomizerFactoryBean cocoSpringDocOpenApiCustomizer(
+            CocoOpenApiMetadataProvider metadataProvider) {
+        return springDocOpenApiCustomizer(metadataProvider, true);
+    }
+
+    private CocoSpringDocOpenApiCustomizerFactoryBean springDocOpenApiCustomizer(
+            CocoOpenApiMetadataProvider metadataProvider, boolean responseSchemasEnabled) {
+        return new CocoSpringDocOpenApiCustomizerFactoryBean(metadataProvider, responseSchemasEnabled);
     }
 }
