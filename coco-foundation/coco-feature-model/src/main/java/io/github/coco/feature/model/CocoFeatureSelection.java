@@ -37,6 +37,26 @@ public record CocoFeatureSelection(Set<CocoFeature> enabled, Set<CocoFeature> di
 
     /**
      * <p>
+     * 返回显式启用的功能集合副本。
+     * </p>
+     * @return 显式启用的功能集合
+     */
+    public Set<CocoFeature> enabled() {
+        return Set.copyOf(this.enabled);
+    }
+
+    /**
+     * <p>
+     * 返回显式禁用的功能集合副本。
+     * </p>
+     * @return 显式禁用的功能集合
+     */
+    public Set<CocoFeature> disabled() {
+        return Set.copyOf(this.disabled);
+    }
+
+    /**
+     * <p>
      * 创建不包含任何显式启用或禁用声明的选择。
      * </p>
      * @return 空功能选择

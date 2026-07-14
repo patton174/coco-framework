@@ -184,6 +184,37 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
+    void exposesImmutableFeatureSelectionSnapshots() {
+        Set<CocoFeature> enabled = EnumSet.of(CocoFeature.WEB);
+        Set<CocoFeature> disabled = EnumSet.of(CocoFeature.TENANT);
+
+        CocoFeatureSelection selection = new CocoFeatureSelection(enabled, disabled);
+        enabled.add(CocoFeature.AUDIT);
+        disabled.add(CocoFeature.DATA_PERMISSION);
+
+        assertEquals(Set.of(CocoFeature.WEB), selection.enabled());
+        assertEquals(Set.of(CocoFeature.TENANT), selection.disabled());
+        assertThrows(UnsupportedOperationException.class, () -> selection.enabled().add(CocoFeature.AUDIT));
+        assertThrows(UnsupportedOperationException.class, () -> selection.disabled().add(CocoFeature.DATA_PERMISSION));
+    }
+
+    @Test
+    void preservesPublishedFeatureSelectionRecordApi() throws ReflectiveOperationException {
+        Class<?> selectionType = Class.forName("io.github.coco.feature.model.CocoFeatureSelection");
+
+        assertTrue(selectionType.isRecord());
+        assertEquals(List.of("enabled", "disabled"), java.util.Arrays.stream(selectionType.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList());
+        assertEquals(List.of(Set.class, Set.class), java.util.Arrays.stream(selectionType.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getType)
+                .toList());
+        assertEquals(CocoFeatureSelection.class, selectionType.getConstructor(Set.class, Set.class).getDeclaringClass());
+        assertEquals(Set.class, selectionType.getMethod("enabled").getReturnType());
+        assertEquals(Set.class, selectionType.getMethod("disabled").getReturnType());
+    }
+
+    @Test
     void writesAndReadsFeatureManifest() {
         CocoFeaturePlan plan = StandardCocoFeatures.resolve(
                 CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION)));
