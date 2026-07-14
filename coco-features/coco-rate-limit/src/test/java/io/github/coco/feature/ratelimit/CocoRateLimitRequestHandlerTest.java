@@ -6,6 +6,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -91,6 +93,24 @@ class CocoRateLimitRequestHandlerTest {
         assertThat(handler.handle(route(), request(Locale.US, "en-US"), response)).isFalse();
         assertThat(response.getStatus()).isEqualTo(429);
         assertThat(response.getHeader("Retry-After")).isEqualTo("1");
+    }
+
+    @Test
+    void snapshotsProgrammaticRouteBeforeCallingTheKeyResolver() throws Exception {
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        AtomicReference<CocoRateLimitRoute> resolvedRoute = new AtomicReference<>();
+        CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> {
+            resolvedRoute.set(route);
+            route.setLimit(99);
+            route.getMatcher().setPathPatterns(Set.of("/changed"));
+            return new CocoRateLimitKey("api", "key");
+        });
+        CocoRateLimitRoute route = route();
+
+        assertThat(handler.handle(route, request(Locale.US, "en-US"), new MockHttpServletResponse())).isTrue();
+        assertThat(resolvedRoute.get()).isNotSameAs(route);
+        assertThat(route.getLimit()).isEqualTo(1);
+        assertThat(route.getMatcher().getPathPatterns()).isEmpty();
     }
 
     static CocoRateLimitRequestHandler handler(Instant now, CocoRateLimitKeyResolver keyResolver) {

@@ -1,5 +1,6 @@
 package io.github.coco.feature.ratelimit;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.web.context.CocoWebRequestMatchRule;
 
 /**
@@ -12,7 +13,7 @@ public class CocoRateLimitRoute {
 
     private String id;
 
-    private CocoWebRequestMatchRule matcher = new CocoWebRequestMatchRule();
+    private final CocoWebRequestMatchRule matcher = new CocoWebRequestMatchRule();
 
     private long limit = 100;
 
@@ -38,8 +39,9 @@ public class CocoRateLimitRoute {
      * 返回 Web 匹配规则。
      * @return Web 匹配规则
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "The established JavaBean API intentionally exposes a live matcher; runtime consumers take deep route snapshots.")
     public CocoWebRequestMatchRule getMatcher() {
-        return copyMatcher(this.matcher);
+        return this.matcher;
     }
 
     /**
@@ -47,7 +49,9 @@ public class CocoRateLimitRoute {
      * @param matcher Web 匹配规则
      */
     public void setMatcher(CocoWebRequestMatchRule matcher) {
-        this.matcher = copyMatcher(matcher);
+        CocoWebRequestMatchRule copy = copyMatcher(matcher);
+        this.matcher.setMethods(copy.getMethods());
+        this.matcher.setPathPatterns(copy.getPathPatterns());
     }
 
     /**

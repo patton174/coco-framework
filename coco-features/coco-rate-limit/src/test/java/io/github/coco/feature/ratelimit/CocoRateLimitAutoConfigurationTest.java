@@ -54,6 +54,12 @@ class CocoRateLimitAutoConfigurationTest {
                         assertThat(route.getLimit()).isEqualTo(5);
                         assertThat(route.getWindowSeconds()).isEqualTo(60);
                     });
+                    CocoRateLimitRoute boundRoute = properties.getRoutes().get(0);
+                    assertThat(properties.getRoutes()).isSameAs(properties.getRoutes());
+                    assertThat(boundRoute.getMatcher()).isSameAs(boundRoute.getMatcher());
+                    boundRoute.getMatcher().setPathPatterns(java.util.Set.of("/bound/**"));
+                    assertThat(properties.getRoutes().get(0).getMatcher().getPathPatterns())
+                            .containsExactly("/bound/**");
                 });
     }
 

@@ -1,9 +1,9 @@
 package io.github.coco.feature.ratelimit;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -18,9 +18,9 @@ public class CocoRateLimitProperties {
 
     private boolean enabled;
 
-    private List<CocoRateLimitRoute> routes = new ArrayList<>();
+    private final List<CocoRateLimitRoute> routes = new ArrayList<>();
 
-    private InMemory inMemory = new InMemory();
+    private final InMemory inMemory = new InMemory();
 
     /**
      * 是否启用限流。
@@ -42,8 +42,9 @@ public class CocoRateLimitProperties {
      * 返回限流路由。
      * @return 显式限流路由
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "The established JavaBean API intentionally exposes a live routes list; runtime matchers take deep snapshots.")
     public List<CocoRateLimitRoute> getRoutes() {
-        return Collections.unmodifiableList(copyRoutes(this.routes));
+        return this.routes;
     }
 
     /**
@@ -53,15 +54,18 @@ public class CocoRateLimitProperties {
      * @param routes 显式限流路由
      */
     public void setRoutes(List<CocoRateLimitRoute> routes) {
-        this.routes = copyRoutes(routes);
+        List<CocoRateLimitRoute> copy = copyRoutes(routes);
+        this.routes.clear();
+        this.routes.addAll(copy);
     }
 
     /**
      * 返回进程内参考存储配置。
      * @return 进程内存储配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "The established JavaBean API intentionally exposes a live nested property; stores take a snapshot at construction.")
     public InMemory getInMemory() {
-        return InMemory.copyOf(this.inMemory);
+        return this.inMemory;
     }
 
     /**
@@ -71,7 +75,9 @@ public class CocoRateLimitProperties {
      * @param inMemory 进程内存储配置
      */
     public void setInMemory(InMemory inMemory) {
-        this.inMemory = InMemory.copyOf(inMemory);
+        InMemory copy = InMemory.copyOf(inMemory);
+        this.inMemory.setMaxEntries(copy.getMaxEntries());
+        this.inMemory.setCleanupIntervalSeconds(copy.getCleanupIntervalSeconds());
     }
 
     private static List<CocoRateLimitRoute> copyRoutes(List<CocoRateLimitRoute> routes) {
