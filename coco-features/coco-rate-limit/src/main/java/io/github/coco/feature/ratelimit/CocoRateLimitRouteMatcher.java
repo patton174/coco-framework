@@ -16,4 +16,13 @@ public interface CocoRateLimitRouteMatcher {
      * @return 命中的路由；未命中时为空
      */
     Optional<CocoRateLimitRoute> resolve(HttpServletRequest request);
+
+    /**
+     * 按标识返回已配置路由，供显式注解意图后备使用。
+     * @param routeId 路由标识
+     * @return 已配置路由；不存在时为空
+     */
+    default Optional<CocoRateLimitRoute> resolve(String routeId) {
+        return Optional.empty();
+    }
 }

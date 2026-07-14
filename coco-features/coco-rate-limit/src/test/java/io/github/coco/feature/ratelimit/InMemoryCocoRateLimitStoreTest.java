@@ -13,7 +13,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 /**
  * 进程内限流存储测试。
@@ -61,6 +66,108 @@ class InMemoryCocoRateLimitStoreTest {
             CocoRateLimitPermit nextWindow = permit("api", "203.0.113.11", 1, clock.instant().plusSeconds(5));
             assertThat(store.acquire(nextWindow).allowed()).isTrue();
             assertThat(store.size()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void isolatesConcurrentCountsAcrossDifferentKeys() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(10, 60), clock, false)) {
+            ExecutorService executor = Executors.newFixedThreadPool(12);
+            try {
+                List<Callable<CocoRateLimitDecision>> tasks = new ArrayList<>();
+                for (int key = 0; key < 3; key++) {
+                    CocoRateLimitPermit permit = permit("api", "203.0.113." + key, 10,
+                            clock.instant().plusSeconds(60));
+                    for (int request = 0; request < 40; request++) {
+                        tasks.add(() -> store.acquire(permit));
+                    }
+                }
+                long allowed = executor.invokeAll(tasks).stream().filter(result -> get(result).allowed()).count();
+                assertThat(allowed).isEqualTo(30);
+                assertThat(store.size()).isEqualTo(3);
+            }
+            finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    void reusesTheSameKeyAfterItsWindowExpires() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false)) {
+            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(2));
+            assertThat(store.acquire(first).allowed()).isTrue();
+            assertThat(store.acquire(first).allowed()).isFalse();
+
+            clock.advanceSeconds(2);
+            CocoRateLimitPermit next = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(2));
+            assertThat(store.acquire(next).allowed()).isTrue();
+        }
+    }
+
+    @Test
+    void rejectsAWindowThatHasAlreadyExpiredAtTheInjectedClock() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false)) {
+            CocoRateLimitDecision decision = store.acquire(
+                    permit("api", "203.0.113.10", 2, clock.instant()));
+            assertThat(decision.allowed()).isFalse();
+            assertThat(decision.capacityExhausted()).isTrue();
+            assertThat(store.size()).isZero();
+        }
+    }
+
+    @Test
+    void failsClosedAfterTheStoreIsClosed() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false);
+        store.close();
+
+        CocoRateLimitDecision decision = store.acquire(
+                permit("api", "203.0.113.10", 2, clock.instant().plusSeconds(60)));
+        assertThat(decision.allowed()).isFalse();
+        assertThat(decision.capacityExhausted()).isTrue();
+    }
+
+    @Test
+    void reportsRemainingQuotaForEachSuccessfulAcquire() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false)) {
+            CocoRateLimitPermit permit = permit("api", "203.0.113.10", 2, clock.instant().plusSeconds(60));
+            assertThat(store.acquire(permit).remaining()).isEqualTo(1);
+            assertThat(store.acquire(permit).remaining()).isZero();
+            assertThat(store.acquire(permit).remaining()).isZero();
+        }
+    }
+
+    @Test
+    void logsTheProcessLocalStorageWarningOnlyOnce() {
+        InMemoryCocoRateLimitStore.resetClusterWarningForTests();
+        Logger logger = (Logger) LoggerFactory.getLogger(InMemoryCocoRateLimitStore.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            CocoRateLimitProperties properties = properties(2, 60);
+            try (InMemoryCocoRateLimitStore first = new InMemoryCocoRateLimitStore(properties,
+                    Clock.systemUTC(), false);
+                    InMemoryCocoRateLimitStore second = new InMemoryCocoRateLimitStore(properties,
+                            Clock.systemUTC(), false)) {
+                assertThat(first.size()).isZero();
+                assertThat(second.size()).isZero();
+            }
+            long warnings = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .filter(event -> event.getFormattedMessage().contains("process-local storage"))
+                    .count();
+            assertThat(warnings).isOne();
+        }
+        finally {
+            logger.detachAppender(appender);
+            appender.stop();
+            InMemoryCocoRateLimitStore.resetClusterWarningForTests();
         }
     }
 

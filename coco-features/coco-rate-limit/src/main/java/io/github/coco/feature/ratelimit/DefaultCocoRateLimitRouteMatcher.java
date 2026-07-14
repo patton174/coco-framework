@@ -37,6 +37,14 @@ public final class DefaultCocoRateLimitRouteMatcher implements CocoRateLimitRout
                 .findFirst();
     }
 
+    @Override
+    public Optional<CocoRateLimitRoute> resolve(String routeId) {
+        if (routeId == null || routeId.isBlank()) {
+            return Optional.empty();
+        }
+        return this.routes.stream().filter(route -> routeId.trim().equals(route.getId())).findFirst();
+    }
+
     private static void validate(CocoRateLimitRoute route) {
         if (route == null || !route.valid()) {
             throw new IllegalStateException("Each coco.rate-limit.routes entry needs id, matcher, positive limit and window-seconds");

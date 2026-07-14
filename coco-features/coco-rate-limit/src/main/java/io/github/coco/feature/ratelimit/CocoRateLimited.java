@@ -6,6 +6,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import org.springframework.core.annotation.AliasFor;
+
 /**
  * 标记 Controller 或处理方法预期由指定的限流路由保护。
  * <p>
@@ -19,8 +21,16 @@ import java.lang.annotation.Target;
 public @interface CocoRateLimited {
 
     /**
+     * {@link #route()} 的简写。
+     * @return 限流路由标识
+     */
+    @AliasFor("route")
+    String value() default "";
+
+    /**
      * 对应 {@code coco.rate-limit.routes} 中路由的标识。
      * @return 限流路由标识
      */
-    String route();
+    @AliasFor("value")
+    String route() default "";
 }
