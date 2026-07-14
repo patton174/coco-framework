@@ -98,6 +98,34 @@ class InMemoryCocoReplayStoreTest {
     }
 
     @Test
+    void usesSharedCapacitySubjectForUntrustedReplayOnlyIdentities() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 10, 1);
+
+        assertTrue(store.reserve(key("forged-app-1", "nonce-1"), BASE_TIME.plusSeconds(60),
+                "coco-replay-anonymous"));
+
+        CocoReplayCapacityExceededException exception = assertThrows(CocoReplayCapacityExceededException.class,
+                () -> store.reserve(key("forged-app-2", "nonce-2"), BASE_TIME.plusSeconds(60),
+                        "coco-replay-anonymous"));
+        assertEquals(CocoReplayCapacityExceededException.Scope.APP_ID, exception.scope());
+        assertEquals(1, store.reservedKeyCountForAppId("coco-replay-anonymous"));
+        assertEquals(0, store.reservedKeyCountForAppId("forged-app-1"));
+    }
+
+    @Test
+    void isolatesCapacityByTrustedSubjectsEvenWhenReplayAppIdDiffers() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 10, 1);
+
+        assertTrue(store.reserve(key("replay-app-1", "nonce-1"), BASE_TIME.plusSeconds(60), "signed-app-1"));
+        assertTrue(store.reserve(key("replay-app-2", "nonce-2"), BASE_TIME.plusSeconds(60), "signed-app-2"));
+
+        assertEquals(1, store.reservedKeyCountForAppId("signed-app-1"));
+        assertEquals(1, store.reservedKeyCountForAppId("signed-app-2"));
+    }
+
+    @Test
     void reclaimsExpiredKeysBeforeReportingCapacityExhaustion() {
         MutableClock clock = new MutableClock(BASE_TIME);
         InMemoryCocoReplayStore store = newStore(clock, 1, 1);
@@ -136,6 +164,20 @@ class InMemoryCocoReplayStoreTest {
         assertEquals(8, reserved);
         assertEquals(8, store.reservedKeyCount());
         assertEquals(8, store.reservedKeyCountForAppId("app-1"));
+    }
+
+    @Test
+    void enforcesSharedAnonymousCapacityUnderConcurrentReservations() throws Exception {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 64, 8);
+
+        int reserved = reserveConcurrently(store, 64,
+                index -> key("forged-app-" + index, "nonce-" + index),
+                "coco-replay-anonymous", CocoReplayCapacityExceededException.Scope.APP_ID);
+
+        assertEquals(8, reserved);
+        assertEquals(8, store.reservedKeyCount());
+        assertEquals(8, store.reservedKeyCountForAppId("coco-replay-anonymous"));
     }
 
     @Test
@@ -203,6 +245,12 @@ class InMemoryCocoReplayStoreTest {
     private static int reserveConcurrently(InMemoryCocoReplayStore store, int attempts,
             IntFunction<CocoReplayKey> keyFactory, CocoReplayCapacityExceededException.Scope expectedScope)
             throws Exception {
+        return reserveConcurrently(store, attempts, keyFactory, null, expectedScope);
+    }
+
+    private static int reserveConcurrently(InMemoryCocoReplayStore store, int attempts,
+            IntFunction<CocoReplayKey> keyFactory, String capacitySubject,
+            CocoReplayCapacityExceededException.Scope expectedScope) throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(Math.min(attempts, 16));
         CountDownLatch start = new CountDownLatch(1);
         List<Future<Boolean>> futures = new ArrayList<>(attempts);
@@ -212,7 +260,9 @@ class InMemoryCocoReplayStoreTest {
                 futures.add(executor.submit(() -> {
                     start.await();
                     try {
-                        return store.reserve(replayKey, BASE_TIME.plusSeconds(60));
+                        return capacitySubject == null
+                                ? store.reserve(replayKey, BASE_TIME.plusSeconds(60))
+                                : store.reserve(replayKey, BASE_TIME.plusSeconds(60), capacitySubject);
                     }
                     catch (CocoReplayCapacityExceededException exception) {
                         if (expectedScope == null) {

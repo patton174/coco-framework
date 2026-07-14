@@ -47,6 +47,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 public final class CocoReplayFilter extends OncePerRequestFilter {
 
+    private static final String ANONYMOUS_CAPACITY_SUBJECT = "coco-replay-anonymous";
+
     private final CocoReplayProperties properties;
 
     private final CocoReplayStore replayStore;
@@ -173,7 +175,7 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.expired");
         }
         Instant expiresAt = now.plus(ttl);
-        if (!this.replayStore.reserve(replayKey, expiresAt)) {
+        if (!this.replayStore.reserve(replayKey, expiresAt, capacitySubject(snapshot, metadata))) {
             throw CocoBusinessExceptions.unauthorized("coco.web.replay.detected");
         }
         publishVerifiedSnapshot(request, snapshot, metadata, replayKey, expiresAt);
@@ -202,6 +204,23 @@ public final class CocoReplayFilter extends OncePerRequestFilter {
         if (value != null && !value.isBlank()) {
             attributes.put(name, value);
         }
+    }
+
+    private static String capacitySubject(CocoWebRequestSnapshot snapshot,
+            CocoWebRequestSecurityMetadata metadata) {
+        if (metadata.signed() && trusted(snapshot, CocoRequestContextAttributes.SIGNATURE_VERIFIED)
+                && metadata.signatureAppId() != null) {
+            return metadata.signatureAppId();
+        }
+        if (metadata.encrypted() && trusted(snapshot, CocoRequestContextAttributes.REQUEST_DECRYPTED)
+                && metadata.encryptionAppId() != null) {
+            return metadata.encryptionAppId();
+        }
+        return ANONYMOUS_CAPACITY_SUBJECT;
+    }
+
+    private static boolean trusted(CocoWebRequestSnapshot snapshot, String attributeName) {
+        return snapshot != null && Boolean.parseBoolean(snapshot.contextAttributes().get(attributeName));
     }
 
     private static String sha256(String value) {

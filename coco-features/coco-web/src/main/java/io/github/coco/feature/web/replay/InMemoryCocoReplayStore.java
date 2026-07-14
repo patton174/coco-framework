@@ -100,12 +100,20 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
      */
     @Override
     public boolean reserve(CocoReplayKey key, Instant expiresAt) {
+        return reserve(key, expiresAt, key == null ? null : key.appId());
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean reserve(CocoReplayKey key, Instant expiresAt, String capacitySubject) {
         CocoReplayKey checkedKey = Objects.requireNonNull(key, "key must not be null");
         Instant checkedExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
         startCleanupTaskIfNecessary();
         Instant now = this.clock.instant();
         String storageKey = checkedKey.value();
-        String appId = checkedKey.appId();
+        String appId = normalizeCapacitySubject(capacitySubject);
         CocoReplayCapacityExceededException rejected = null;
         this.reservationLock.lock();
         try {
@@ -169,7 +177,7 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
     }
 
     int reservedKeyCountForAppId(String appId) {
-        String normalizedAppId = appId == null || appId.isBlank() ? null : appId.trim();
+        String normalizedAppId = normalizeCapacitySubject(appId);
         this.reservationLock.lock();
         try {
             return this.reservedKeyCountsByAppId.getOrDefault(normalizedAppId, 0);
@@ -189,6 +197,10 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
                     CocoReplayCapacityExceededException.Scope.APP_ID, this.maxEntriesPerAppId);
         }
         return null;
+    }
+
+    private static String normalizeCapacitySubject(String capacitySubject) {
+        return capacitySubject == null || capacitySubject.isBlank() ? null : capacitySubject.trim();
     }
 
     private CocoReplayCapacityExceededException recordCapacityRejection(

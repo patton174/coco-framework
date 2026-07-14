@@ -37,4 +37,21 @@ public interface CocoReplayStore {
      * @throws RuntimeException 存储不可用、超时或其他基础设施操作失败时抛出
      */
     boolean reserve(CocoReplayKey key, Instant expiresAt);
+
+    /**
+     * <p>
+     * 尝试占用防重放键，并指定容量隔离主体。
+     * </p>
+     * <p>
+     * 默认实现保留原有存储契约。需要按调用方隔离容量的存储可以覆盖此方法；
+     * 容量主体仅用于配额归属，不改变 {@link CocoReplayKey} 的去重语义。
+     * </p>
+     * @param key 防重放键
+     * @param expiresAt 键的绝对过期时间
+     * @param capacitySubject 由服务端可信证据确定的容量主体
+     * @return 占用成功时返回 {@code true}
+     */
+    default boolean reserve(CocoReplayKey key, Instant expiresAt, String capacitySubject) {
+        return reserve(key, expiresAt);
+    }
 }

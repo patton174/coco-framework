@@ -9,6 +9,7 @@ import io.github.coco.exception.type.CocoForbiddenException;
 import io.github.coco.exception.type.CocoNotFoundException;
 import io.github.coco.exception.type.CocoRequestException;
 import io.github.coco.exception.type.CocoSystemException;
+import io.github.coco.feature.web.replay.CocoReplayCapacityExceededException;
 import io.github.coco.exception.type.CocoUnauthorizedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -54,6 +55,9 @@ public final class DefaultCocoExceptionHttpStatusResolver implements CocoExcepti
         }
         if (checkedException instanceof CocoConflictException) {
             return HttpStatus.CONFLICT;
+        }
+        if (checkedException instanceof CocoReplayCapacityExceededException) {
+            return HttpStatus.SERVICE_UNAVAILABLE;
         }
         if (checkedException instanceof CocoSystemException) {
             return HttpStatus.INTERNAL_SERVER_ERROR;
