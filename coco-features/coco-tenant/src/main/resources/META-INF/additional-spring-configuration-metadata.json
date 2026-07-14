@@ -32,7 +32,7 @@
     {
       "name": "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements",
       "type": "java.util.Set<java.lang.String>",
-      "description": "允许跳过租户 SQL 隔离的 MyBatis MappedStatement ID 模式集合，支持 Spring 简单通配符，例如 com.example.AdminMapper.*。"
+      "description": "允许跳过租户 SQL 隔离的完整 MyBatis MappedStatement ID 集合，必须精确匹配，例如 com.example.AdminMapper.selectShared；不支持通配符或前缀匹配。"
     }
   ]
 }

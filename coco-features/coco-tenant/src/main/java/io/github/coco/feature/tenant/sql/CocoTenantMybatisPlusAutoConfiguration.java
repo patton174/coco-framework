@@ -14,6 +14,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -53,13 +54,30 @@ public class CocoTenantMybatisPlusAutoConfiguration {
 
     /**
      * <p>
+     * 创建租户 SQL 隔离旁路治理事件发布器。
+     * </p>
+     * <p>
+     * 默认将结构化事件交给 Spring 应用事件总线，业务可以通过同类型 Bean 替换为审计、告警或指标实现。
+     * </p>
+     * @param applicationEventPublisher Spring 应用事件发布器
+     * @return 租户 SQL 隔离旁路治理事件发布器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoTenantInterceptorIgnoreEventPublisher cocoTenantInterceptorIgnoreEventPublisher(
+            ApplicationEventPublisher applicationEventPublisher) {
+        return applicationEventPublisher::publishEvent;
+    }
+
+    /**
+     * <p>
      * 创建 MyBatis-Plus 租户拦截器定制器。
      * </p>
      * @param properties 租户功能配置
      * @param contextResolver 租户上下文解析器
      * @param expressionResolver 租户 ID SQL 表达式解析器
      * @param eventPublisherProvider 拦截器忽略治理事件发布器提供器
-     * @return MyBatis-Plus 拦截器定制器
+     * @return MyBatis-Plus 租户拦截器定制器
      */
     @Bean
     @ConditionalOnMissingBean(name = "cocoTenantMybatisPlusInterceptorCustomizer")

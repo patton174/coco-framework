@@ -17,7 +17,6 @@ import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.util.PatternMatchUtils;
 
 /**
  * Coco 租户拦截器忽略治理 guard。
@@ -100,11 +99,7 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
     }
 
     private boolean isAllowed(String mappedStatementId) {
-        return this.properties.getInterceptorIgnore().getAllowedMappedStatements().stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(pattern -> !pattern.isEmpty())
-                .anyMatch(pattern -> PatternMatchUtils.simpleMatch(pattern, mappedStatementId));
+        return this.properties.getInterceptorIgnore().getAllowedMappedStatements().contains(mappedStatementId);
     }
 
     private void publish(MappedStatement mappedStatement, CocoTenantInterceptorIgnoreDecision decision) {
@@ -113,9 +108,8 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
     }
 
     private static void warn(MappedStatement mappedStatement, CocoTenantInterceptorIgnoreDecision decision) {
-        LOGGER.warn("Coco tenant SQL isolation bypass {} for mapped statement [{}] command [{}].",
-                decision.name().toLowerCase(java.util.Locale.ROOT),
-                mappedStatement.getId(),
+        LOGGER.warn("event=coco_tenant_sql_bypass decision={} mappedStatementId={} commandType={}",
+                decision.name().toLowerCase(java.util.Locale.ROOT), mappedStatement.getId(),
                 mappedStatement.getSqlCommandType());
     }
 }

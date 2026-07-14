@@ -47,9 +47,9 @@ public class CocoTenantInterceptorIgnoreProperties {
 
     /**
      * <p>
-     * 返回允许跳过租户隔离的 MyBatis MappedStatement ID 模式集合。
+     * 返回允许跳过租户隔离的完整 MyBatis MappedStatement ID 集合。
      * </p>
-     * @return 允许跳过租户隔离的 MappedStatement ID 模式集合
+     * @return 允许跳过租户隔离的完整 MappedStatement ID 集合
      */
     public Set<String> getAllowedMappedStatements() {
         return this.allowedMappedStatements;
@@ -57,9 +57,13 @@ public class CocoTenantInterceptorIgnoreProperties {
 
     /**
      * <p>
-     * 设置允许跳过租户隔离的 MyBatis MappedStatement ID 模式集合。
+     * 设置允许跳过租户隔离的完整 MyBatis MappedStatement ID 集合。
+     * <p>
+     * 每项必须与实际执行的语句 ID 完全相等，例如
+     * {@code com.example.AdminMapper.selectShared}。该配置不支持通配符、前缀或包级授权。
      * </p>
-     * @param allowedMappedStatements 允许跳过租户隔离的 MappedStatement ID 模式集合
+     * </p>
+     * @param allowedMappedStatements 允许跳过租户隔离的完整 MappedStatement ID 集合
      */
     public void setAllowedMappedStatements(Set<String> allowedMappedStatements) {
         this.allowedMappedStatements = allowedMappedStatements == null
