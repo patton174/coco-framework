@@ -99,10 +99,10 @@ public final class CocoMybatisPlusInterceptorFactory {
             customizerStream = customizerStream.sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator());
         }
         customizerStream.forEach(customizer -> customizer.customize(interceptor));
-        CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.getSqlGuard();
+        CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.sqlGuardSnapshot();
         logSqlGuardProductionRecommendation(sqlGuard);
         addSqlGuardInnerInterceptors(interceptor, sqlGuard);
-        CocoMybatisPlusPaginationProperties pagination = this.properties.getPagination();
+        CocoMybatisPlusPaginationProperties pagination = this.properties.paginationSnapshot();
         if (pagination.isEnabled()) {
             interceptor.addInnerInterceptor(createPaginationInnerInterceptor(pagination));
         }
