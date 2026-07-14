@@ -1,16 +1,21 @@
 package io.github.coco.feature.datapermission.sql;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 import io.github.coco.feature.datapermission.context.CocoDataPermissionRule;
+import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.InExpression;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 
@@ -76,22 +81,74 @@ public final class DefaultCocoDataPermissionSqlPredicateProvider implements Coco
     }
 
     private static Optional<Expression> valueExpression(String value, CocoDataPermissionSqlColumnType columnType) {
-        if (columnType == CocoDataPermissionSqlColumnType.LONG) {
-            return longValueExpression(value).map(Expression.class::cast);
-        }
-        return Optional.of(new StringValue(value));
+        return switch (columnType) {
+            case STRING -> stringValueExpression(value).map(Expression.class::cast);
+            case LONG -> longValueExpression(value).map(Expression.class::cast);
+            case INTEGER -> integerValueExpression(value).map(Expression.class::cast);
+            case DECIMAL -> decimalValueExpression(value).map(Expression.class::cast);
+            case BOOLEAN -> booleanValueExpression(value);
+        };
+    }
+
+    private static Optional<StringValue> stringValueExpression(String value) {
+        return hasText(value) ? Optional.of(new StringValue(value.replace("'", "''"))) : Optional.empty();
     }
 
     private static Optional<LongValue> longValueExpression(String value) {
-        if (value == null || value.isBlank()) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null) {
             return Optional.empty();
         }
         try {
-            return Optional.of(new LongValue(Long.parseLong(value.trim())));
+            return Optional.of(new LongValue(Long.parseLong(normalizedValue)));
         }
         catch (NumberFormatException ex) {
             return Optional.empty();
         }
+    }
+
+    private static Optional<LongValue> integerValueExpression(String value) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new LongValue(Integer.parseInt(normalizedValue)));
+        }
+        catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<DoubleValue> decimalValueExpression(String value) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new DoubleValue(new BigDecimal(normalizedValue).toPlainString()));
+        }
+        catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<Expression> booleanValueExpression(String value) {
+        String normalizedValue = normalize(value);
+        if (normalizedValue == null
+                || (!"true".equalsIgnoreCase(normalizedValue) && !"false".equalsIgnoreCase(normalizedValue))) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(CCJSqlParserUtil.parseExpression(normalizedValue.toUpperCase(Locale.ROOT)));
+        }
+        catch (JSQLParserException ex) {
+            throw new IllegalStateException("Unable to create a boolean SQL literal", ex);
+        }
+    }
+
+    private static String normalize(String value) {
+        return hasText(value) ? value.trim() : null;
     }
 
     private static boolean hasText(String value) {
