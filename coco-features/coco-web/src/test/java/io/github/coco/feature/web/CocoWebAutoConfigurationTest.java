@@ -604,6 +604,57 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
+    void boundsRawThrowableCauseAndSuppressedGraphsWithTheSameGlobalBudget() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        RuntimeException root = new RuntimeException("raw-root");
+        RuntimeException cause = new RuntimeException("raw-cause");
+        root.initCause(cause);
+        for (int index = 0; index < 4096; index++) {
+            cause.addSuppressed(new RuntimeException("raw-suppressed-" + index));
+        }
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<Object> response = handler.handleUnhandledException(root,
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/raw-wide")));
+                    handler.handleUnhandledException(root,
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/raw-wide")));
+
+                    assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+                    assertEquals(2, sink.records().size());
+                    Throwable failure = sink.records().get(0).failure().orElseThrow();
+                    Throwable repeatedFailure = sink.records().get(1).failure().orElseThrow();
+                    assertNotEquals(root, failure);
+                    assertEquals("raw-root", failure.getMessage());
+                    assertEquals("raw-cause", failure.getCause().getMessage());
+                    assertEquals(126, failure.getCause().getSuppressed().length);
+                    assertEquals(128, exceptionGraphNodeCount(failure));
+                    assertEquals(renderStackTrace(failure), renderStackTrace(repeatedFailure));
+                });
+    }
+
+    @Test
+    void enforcesExactRawThrowableGraphBudgetAtTheBoundary() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    for (int suppressedCount : List.of(126, 127, 128, 129)) {
+                        handler.handleUnhandledException(highFanOutRawException(suppressedCount),
+                                new ServletWebRequest(new MockHttpServletRequest("GET", "/api/raw-boundary")));
+                    }
+
+                    assertEquals(4, sink.records().size());
+                    assertEquals(127, exceptionGraphNodeCount(sink.records().get(0).failure().orElseThrow()));
+                    assertEquals(128, exceptionGraphNodeCount(sink.records().get(1).failure().orElseThrow()));
+                    assertEquals(128, exceptionGraphNodeCount(sink.records().get(2).failure().orElseThrow()));
+                    assertEquals(128, exceptionGraphNodeCount(sink.records().get(3).failure().orElseThrow()));
+                });
+    }
+
+    @Test
     void preservesTheCauseDepthBoundaryBeforeTruncatingLaterNodes() {
         CapturingCocoLogSink sink = new CapturingCocoLogSink();
         this.webContextRunner
@@ -721,7 +772,8 @@ class CocoWebAutoConfigurationTest {
 
     @Test
     void preservesUnhandledResponsesWhenRawThrowableRenderingIsHostile() {
-        for (HostileThrowableAccessor accessor : List.of(HostileThrowableAccessor.TO_STRING,
+        for (HostileThrowableAccessor accessor : List.of(HostileThrowableAccessor.CAUSE,
+                HostileThrowableAccessor.MESSAGE, HostileThrowableAccessor.TO_STRING,
                 HostileThrowableAccessor.STACK_TRACE)) {
             CocoLogSink sink = record -> {
                 Throwable failure = record.failure().orElseThrow();
@@ -746,6 +798,56 @@ class CocoWebAutoConfigurationTest {
                         assertEquals(500, body.code());
                     });
         }
+    }
+
+    @Test
+    void preservesResponsesWhenTheLogSinkThrowsAssertionError() {
+        CocoLogSink sink = record -> {
+            throw new AssertionError("sink failed");
+        };
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<Object> badRequest = handler.handleCocoException(
+                            CocoCommonErrorCode.INVALID_ARGUMENT.exception("name"),
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/bad")));
+                    ResponseEntity<Object> internalError = handler.handleUnhandledException(
+                            new RuntimeException("boom"),
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/error")));
+
+                    assertEquals(HttpStatus.BAD_REQUEST, badRequest.getStatusCode());
+                    assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, internalError.getStatusCode());
+                });
+    }
+
+    @Test
+    void keepsRawThrowableGraphsBoundAndResponsesStableWhenHandledConcurrently() throws Exception {
+        ConcurrentCocoLogSink sink = new ConcurrentCocoLogSink();
+        RuntimeException exception = highFanOutRawException(4096);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ExecutorService executor = Executors.newFixedThreadPool(8);
+                    try {
+                        List<Future<ResponseEntity<Object>>> responses = new ArrayList<>();
+                        for (int index = 0; index < 16; index++) {
+                            responses.add(executor.submit(() -> handler.handleUnhandledException(exception,
+                                    new ServletWebRequest(new MockHttpServletRequest("GET", "/api/raw-concurrent")))));
+                        }
+                        for (Future<ResponseEntity<Object>> response : responses) {
+                            assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.get().getStatusCode());
+                        }
+                        assertEquals(16, sink.records().size());
+                        for (CocoLogRecord record : sink.records()) {
+                            assertEquals(128, exceptionGraphNodeCount(record.failure().orElseThrow()));
+                        }
+                    }
+                    finally {
+                        executor.shutdownNow();
+                    }
+                });
     }
 
     @Test
@@ -5988,6 +6090,14 @@ class CocoWebAutoConfigurationTest {
         return exception;
     }
 
+    private static RuntimeException highFanOutRawException(int suppressedCount) {
+        RuntimeException exception = new RuntimeException("raw-wide");
+        for (int index = 0; index < suppressedCount; index++) {
+            exception.addSuppressed(new RuntimeException("raw-leaf-" + index));
+        }
+        return exception;
+    }
+
     private static int exceptionGraphNodeCount(Throwable exception) {
         IdentityHashMap<Throwable, Boolean> visited = new IdentityHashMap<>();
         List<Throwable> pending = new ArrayList<>();
@@ -6309,7 +6419,7 @@ class CocoWebAutoConfigurationTest {
 
         private void failWhen(HostileThrowableAccessor expected) {
             if (this.accessor == expected) {
-                throw new IllegalStateException("hostile " + expected);
+                throw new AssertionError("hostile " + expected);
             }
         }
     }
@@ -6320,6 +6430,18 @@ class CocoWebAutoConfigurationTest {
 
         private HostileRawException(HostileThrowableAccessor accessor) {
             this.accessor = accessor;
+        }
+
+        @Override
+        public synchronized Throwable getCause() {
+            failWhen(HostileThrowableAccessor.CAUSE);
+            return super.getCause();
+        }
+
+        @Override
+        public String getMessage() {
+            failWhen(HostileThrowableAccessor.MESSAGE);
+            return super.getMessage();
         }
 
         @Override
@@ -6336,7 +6458,7 @@ class CocoWebAutoConfigurationTest {
 
         private void failWhen(HostileThrowableAccessor expected) {
             if (this.accessor == expected) {
-                throw new IllegalStateException("hostile " + expected);
+                throw new AssertionError("hostile " + expected);
             }
         }
     }
