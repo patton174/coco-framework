@@ -122,21 +122,25 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
                 if (current.expiresAt().isAfter(now)) {
                     return false;
                 }
-                this.reservedKeys.put(storageKey, new Reservation(checkedExpiresAt, current.appId()));
-                return true;
-            }
-            CocoReplayCapacityExceededException capacityFailure = capacityFailure(appId);
-            if (capacityFailure != null) {
-                cleanupExpiredKeysLocked(now);
-                capacityFailure = capacityFailure(appId);
-            }
-            if (capacityFailure != null) {
-                rejected = capacityFailure;
+                rejected = replaceExpiredReservationLocked(storageKey, current, checkedExpiresAt, appId);
+                if (rejected == null) {
+                    return true;
+                }
             }
             else {
-                this.reservedKeys.put(storageKey, new Reservation(checkedExpiresAt, appId));
-                this.reservedKeyCountsByAppId.merge(appId, 1, Integer::sum);
-                return true;
+                CocoReplayCapacityExceededException capacityFailure = capacityFailure(appId);
+                if (capacityFailure != null) {
+                    cleanupExpiredKeysLocked(now);
+                    capacityFailure = capacityFailure(appId);
+                }
+                if (capacityFailure != null) {
+                    rejected = capacityFailure;
+                }
+                else {
+                    this.reservedKeys.put(storageKey, new Reservation(checkedExpiresAt, appId));
+                    incrementAppIdCount(appId);
+                    return true;
+                }
             }
         }
         finally {
@@ -199,8 +203,28 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
         return null;
     }
 
+    private CocoReplayCapacityExceededException replaceExpiredReservationLocked(String storageKey,
+            Reservation current, Instant expiresAt, String appId) {
+        if (Objects.equals(current.appId(), appId)) {
+            this.reservedKeys.put(storageKey, new Reservation(expiresAt, appId));
+            return null;
+        }
+        if (this.reservedKeyCountsByAppId.getOrDefault(appId, 0) >= this.maxEntriesPerAppId) {
+            return new CocoReplayCapacityExceededException(
+                    CocoReplayCapacityExceededException.Scope.APP_ID, this.maxEntriesPerAppId);
+        }
+        decrementAppIdCount(current.appId());
+        incrementAppIdCount(appId);
+        this.reservedKeys.put(storageKey, new Reservation(expiresAt, appId));
+        return null;
+    }
+
     private static String normalizeCapacitySubject(String capacitySubject) {
         return capacitySubject == null || capacitySubject.isBlank() ? null : capacitySubject.trim();
+    }
+
+    private void incrementAppIdCount(String appId) {
+        this.reservedKeyCountsByAppId.merge(appId, 1, Integer::sum);
     }
 
     private CocoReplayCapacityExceededException recordCapacityRejection(

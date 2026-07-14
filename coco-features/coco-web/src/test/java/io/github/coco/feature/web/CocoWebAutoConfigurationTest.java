@@ -4421,7 +4421,7 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void replayReservationExpiresFromServerReceiveTime() throws Exception {
+    void replayReservationExpiresFromServerReceiveTimeAtClockSkewBoundaries() throws Exception {
         this.webContextRunner.run(context -> {
             Instant now = Instant.parse("2026-07-09T12:00:00Z");
             CocoReplayProperties properties = new CocoReplayProperties();
@@ -4436,16 +4436,20 @@ class CocoWebAutoConfigurationTest {
                     context.getBean(CocoFilterExceptionResponseWriter.class),
                     context.getBean(CocoWebRequestMatcher.class),
                     Clock.fixed(now, ZoneOffset.UTC));
-            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
-            request.addHeader("X-Coco-App-Id", "sample-app");
-            request.addHeader("X-Coco-Key-Id", "key-1001");
-            request.addHeader("X-Coco-Timestamp", Long.toString(now.minusSeconds(60).toEpochMilli()));
-            request.addHeader("X-Coco-Nonce", "nonce-server-expiry");
-            MockHttpServletResponse response = new MockHttpServletResponse();
+            MockHttpServletRequest pastBoundary = replayRequest(now.minusSeconds(300),
+                    "nonce-server-expiry-past");
+            MockHttpServletResponse pastResponse = new MockHttpServletResponse();
+            replayFilter.doFilter(pastBoundary, pastResponse, new MockFilterChain());
 
-            replayFilter.doFilter(request, response, new MockFilterChain());
+            assertEquals(200, pastResponse.getStatus(), pastResponse.getContentAsString());
+            assertEquals(now.plusSeconds(120), replayStore.expiresAt.get());
 
-            assertEquals(200, response.getStatus());
+            MockHttpServletRequest futureBoundary = replayRequest(now.plusSeconds(300),
+                    "nonce-server-expiry-future");
+            MockHttpServletResponse futureResponse = new MockHttpServletResponse();
+            replayFilter.doFilter(futureBoundary, futureResponse, new MockFilterChain());
+
+            assertEquals(200, futureResponse.getStatus(), futureResponse.getContentAsString());
             assertEquals(now.plusSeconds(120), replayStore.expiresAt.get());
             assertEquals("coco-replay-anonymous", replayStore.capacitySubject.get());
         });
@@ -5218,6 +5222,15 @@ class CocoWebAutoConfigurationTest {
     private static MockHttpServletRequest signedRequest(org.springframework.context.ApplicationContext context,
             String traceId, String secret) {
         return signedRequest(context, traceId, secret, String.valueOf(System.currentTimeMillis()), "nonce-1001");
+    }
+
+    private static MockHttpServletRequest replayRequest(Instant timestamp, String nonce) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders");
+        request.addHeader("X-Coco-App-Id", "sample-app");
+        request.addHeader("X-Coco-Key-Id", "key-1001");
+        request.addHeader("X-Coco-Timestamp", Long.toString(timestamp.toEpochMilli()));
+        request.addHeader("X-Coco-Nonce", nonce);
+        return request;
     }
 
     private static MockHttpServletRequest signedRequest(org.springframework.context.ApplicationContext context,

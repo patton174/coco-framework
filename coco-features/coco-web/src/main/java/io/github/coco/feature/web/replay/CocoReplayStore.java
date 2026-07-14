@@ -31,7 +31,7 @@ public interface CocoReplayStore {
      * 尝试占用防重放键。
      * </p>
      * @param key 防重放键
-     * @param expiresAt 键的绝对过期时间
+     * @param expiresAt 基于服务端入站时间计算的键绝对过期时间；实现不得从 {@code key.timestamp()} 重新推导
      * @return 占用成功时返回 {@code true}；同一键仍处于有效占用期时返回 {@code false}
      * @throws CocoReplayCapacityExceededException 存储达到容量硬上限时抛出
      * @throws RuntimeException 存储不可用、超时或其他基础设施操作失败时抛出
@@ -47,7 +47,7 @@ public interface CocoReplayStore {
      * 容量主体仅用于配额归属，不改变 {@link CocoReplayKey} 的去重语义。
      * </p>
      * @param key 防重放键
-     * @param expiresAt 键的绝对过期时间
+     * @param expiresAt 基于服务端入站时间计算的键绝对过期时间；实现不得从 {@code key.timestamp()} 重新推导
      * @param capacitySubject 由服务端可信证据确定的容量主体
      * @return 占用成功时返回 {@code true}
      */

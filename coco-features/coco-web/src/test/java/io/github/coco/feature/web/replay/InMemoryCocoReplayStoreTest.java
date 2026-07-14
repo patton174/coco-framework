@@ -41,6 +41,22 @@ class InMemoryCocoReplayStoreTest {
     }
 
     @Test
+    void clientTimestampDoesNotControlCleanupDeadline() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 2, 2);
+        Instant serverExpiresAt = BASE_TIME.plusSeconds(60);
+
+        assertTrue(store.reserve(key("future", BASE_TIME.plusSeconds(300)), serverExpiresAt));
+        assertTrue(store.reserve(key("past", BASE_TIME.minusSeconds(300)), serverExpiresAt));
+        clock.set(serverExpiresAt.minusMillis(1));
+        assertEquals(0, store.cleanupExpiredKeys());
+
+        clock.set(serverExpiresAt);
+        assertEquals(2, store.cleanupExpiredKeys());
+        assertEquals(0, store.reservedKeyCount());
+    }
+
+    @Test
     void expiredSameKeyCanBeReservedAgainWithoutCleanup() {
         MutableClock clock = new MutableClock(BASE_TIME);
         InMemoryCocoReplayStore store = newStore(clock);
@@ -51,6 +67,68 @@ class InMemoryCocoReplayStoreTest {
 
         assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(60)));
         assertEquals(1, store.reservedKeyCount());
+    }
+
+    @Test
+    void migratesExpiredSameKeyFromAnonymousToTrustedSubject() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 1, 1);
+        CocoReplayKey replayKey = key("same");
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(1), "coco-replay-anonymous"));
+        clock.set(BASE_TIME.plusSeconds(2));
+
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(60), "trusted-app"));
+
+        assertEquals(1, store.reservedKeyCount());
+        assertEquals(0, store.reservedKeyCountForAppId("coco-replay-anonymous"));
+        assertEquals(1, store.reservedKeyCountForAppId("trusted-app"));
+    }
+
+    @Test
+    void migratesExpiredSameKeyFromTrustedToAnonymousSubject() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 1, 1);
+        CocoReplayKey replayKey = key("same");
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(1), "trusted-app"));
+        clock.set(BASE_TIME.plusSeconds(2));
+
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(60), "coco-replay-anonymous"));
+
+        assertEquals(1, store.reservedKeyCount());
+        assertEquals(0, store.reservedKeyCountForAppId("trusted-app"));
+        assertEquals(1, store.reservedKeyCountForAppId("coco-replay-anonymous"));
+    }
+
+    @Test
+    void reusesExpiredSameKeyWithinSameSubjectWithoutChangingCount() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 1, 1);
+        CocoReplayKey replayKey = key("same");
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(1), "trusted-app"));
+        clock.set(BASE_TIME.plusSeconds(2));
+
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(60), "trusted-app"));
+
+        assertEquals(1, store.reservedKeyCount());
+        assertEquals(1, store.reservedKeyCountForAppId("trusted-app"));
+    }
+
+    @Test
+    void preservesSubjectCountsWhenExpiredSameKeyMigrationExceedsCapacity() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 2, 1);
+        CocoReplayKey replayKey = key("same");
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(1), "coco-replay-anonymous"));
+        assertTrue(store.reserve(key("other-app", "other"), BASE_TIME.plusSeconds(60), "trusted-app"));
+        clock.set(BASE_TIME.plusSeconds(2));
+
+        CocoReplayCapacityExceededException exception = assertThrows(CocoReplayCapacityExceededException.class,
+                () -> store.reserve(replayKey, BASE_TIME.plusSeconds(60), "trusted-app"));
+
+        assertEquals(CocoReplayCapacityExceededException.Scope.APP_ID, exception.scope());
+        assertEquals(2, store.reservedKeyCount());
+        assertEquals(1, store.reservedKeyCountForAppId("coco-replay-anonymous"));
+        assertEquals(1, store.reservedKeyCountForAppId("trusted-app"));
     }
 
     @Test
@@ -222,6 +300,23 @@ class InMemoryCocoReplayStoreTest {
         }
     }
 
+    @Test
+    void concurrentExpiredSameKeyReuseMigratesCapacitySubjectExactlyOnce() throws Exception {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 1, 1);
+        CocoReplayKey replayKey = key("same");
+        assertTrue(store.reserve(replayKey, BASE_TIME.plusSeconds(1), "coco-replay-anonymous"));
+        clock.set(BASE_TIME.plusSeconds(2));
+
+        int reserved = reserveConcurrently(store, 32, index -> replayKey,
+                "trusted-app", null);
+
+        assertEquals(1, reserved);
+        assertEquals(1, store.reservedKeyCount());
+        assertEquals(0, store.reservedKeyCountForAppId("coco-replay-anonymous"));
+        assertEquals(1, store.reservedKeyCountForAppId("trusted-app"));
+    }
+
     private static InMemoryCocoReplayStore newStore(Clock clock) {
         return newStore(clock, 100, 100);
     }
@@ -236,6 +331,10 @@ class InMemoryCocoReplayStoreTest {
 
     private static CocoReplayKey key(String nonce) {
         return key("app-1", nonce);
+    }
+
+    private static CocoReplayKey key(String nonce, Instant timestamp) {
+        return new CocoReplayKey("app-1", "key-1", timestamp.toString(), nonce, "POST", "/api/orders");
     }
 
     private static CocoReplayKey key(String appId, String nonce) {
