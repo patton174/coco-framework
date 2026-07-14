@@ -13,10 +13,6 @@
     <name>Coco OpenAPI</name>
     <description>OpenAPI metadata and optional SpringDoc integration.</description>
 
-    <properties>
-        <springdoc-openapi.version>3.0.3</springdoc-openapi.version>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -48,7 +44,6 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-common</artifactId>
-            <version>${springdoc-openapi.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
