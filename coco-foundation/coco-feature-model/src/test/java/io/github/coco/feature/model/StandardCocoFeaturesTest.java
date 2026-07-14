@@ -147,7 +147,7 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
-    void resolvesSelectionWithHigherPriorityOverrides() {
+    void keepsFeatureDisabledWhenAnotherSourceEnablesIt() {
         CocoFeatureSelection applicationSelection = CocoFeatureSelection.of(
                 Set.of(),
                 Set.of(CocoFeature.TENANT));
@@ -157,7 +157,8 @@ class StandardCocoFeaturesTest {
 
         CocoFeaturePlan plan = StandardCocoFeatures.resolve(applicationSelection.merge(codeSelection));
 
-        assertTrue(plan.enabledFeatures().contains(CocoFeature.TENANT));
+        assertFalse(plan.enabledFeatures().contains(CocoFeature.TENANT));
+        assertTrue(plan.disabledFeatures().contains(CocoFeature.TENANT));
     }
 
     @Test

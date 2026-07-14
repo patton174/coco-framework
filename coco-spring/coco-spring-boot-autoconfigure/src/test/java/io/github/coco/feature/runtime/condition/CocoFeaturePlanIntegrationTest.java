@@ -55,7 +55,7 @@ class CocoFeaturePlanIntegrationTest {
     void activeProfileCanDisableFeatureAvailableInManifest() throws Exception {
         try (URLClassLoader classLoader = manifestClassLoader(StandardCocoFeatures.resolve(CocoFeatureSelection.empty()),
                 Map.of("application-feature-plan.properties", "coco.features.disabled=web\n"));
-                ConfigurableApplicationContext context = run(RuntimeConfigurationApplication.class, classLoader,
+                ConfigurableApplicationContext context = run(CodeEnabledApplication.class, classLoader,
                         "--spring.profiles.active=feature-plan")) {
             assertWebDisabledByTheSinglePlan(context);
         }
@@ -67,7 +67,7 @@ class CocoFeaturePlanIntegrationTest {
         Files.writeString(external, "coco.features.disabled=web\n", StandardCharsets.UTF_8);
         try (URLClassLoader classLoader = manifestClassLoader(StandardCocoFeatures.resolve(CocoFeatureSelection.empty()),
                 Map.of());
-                ConfigurableApplicationContext context = run(RuntimeConfigurationApplication.class, classLoader,
+                ConfigurableApplicationContext context = run(CodeEnabledApplication.class, classLoader,
                         "--spring.config.additional-location=" + external.toUri())) {
             assertWebDisabledByTheSinglePlan(context);
         }
@@ -77,7 +77,7 @@ class CocoFeaturePlanIntegrationTest {
     void commandLineCanDisableFeatureAvailableInManifest() throws Exception {
         try (URLClassLoader classLoader = manifestClassLoader(StandardCocoFeatures.resolve(CocoFeatureSelection.empty()),
                 Map.of());
-                ConfigurableApplicationContext context = run(RuntimeConfigurationApplication.class, classLoader,
+                ConfigurableApplicationContext context = run(CodeEnabledApplication.class, classLoader,
                         "--coco.features.disabled=web")) {
             assertWebDisabledByTheSinglePlan(context);
         }
@@ -226,6 +226,18 @@ class CocoFeaturePlanIntegrationTest {
     @EnableAutoConfiguration
     @CocoFeatures(disabled = CocoFeature.WEB)
     static class CodeSelectedApplication {
+
+        @Bean
+        @ConditionalOnCocoFeature(CocoFeature.WEB)
+        String webFeatureBean() {
+            return "web";
+        }
+    }
+
+    @SpringBootConfiguration(proxyBeanMethods = false)
+    @EnableAutoConfiguration
+    @CocoFeatures(enabled = CocoFeature.WEB)
+    static class CodeEnabledApplication {
 
         @Bean
         @ConditionalOnCocoFeature(CocoFeature.WEB)

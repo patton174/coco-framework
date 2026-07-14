@@ -1,6 +1,5 @@
 package io.github.coco.feature.model;
 
-import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Set;
 
@@ -97,51 +96,43 @@ public record CocoFeatureSelection(Set<CocoFeature> enabled, Set<CocoFeature> di
 
     /**
      * <p>
-     * 合并两个不同优先级的功能选择声明。
+     * 合并两个功能选择声明。
      * </p>
      * <p>
-     * 高优先级声明会覆盖低优先级声明；在同一选择内部，禁用声明会覆盖启用声明。
+     * 禁用是安全性收缩操作：无论声明来源和合并顺序如何，同一功能同时出现启用与禁用时始终以禁用为准。
+     * 因此 profile、外部配置或命令行中的显式禁用不会被代码或注解的启用声明重新打开。
      * </p>
-     * @param lowerPriority 低优先级选择
-     * @param higherPriority 高优先级选择
+     * @param first 第一个选择
+     * @param second 第二个选择
      * @return 合并后的功能选择
      */
-    public static CocoFeatureSelection merge(CocoFeatureSelection lowerPriority,
-            CocoFeatureSelection higherPriority) {
-        EnumMap<CocoFeature, Boolean> directives = new EnumMap<>(CocoFeature.class);
-        apply(directives, lowerPriority);
-        apply(directives, higherPriority);
-
+    public static CocoFeatureSelection merge(CocoFeatureSelection first,
+            CocoFeatureSelection second) {
         EnumSet<CocoFeature> mergedEnabled = EnumSet.noneOf(CocoFeature.class);
         EnumSet<CocoFeature> mergedDisabled = EnumSet.noneOf(CocoFeature.class);
-        directives.forEach((feature, enabled) -> {
-            if (Boolean.TRUE.equals(enabled)) {
-                mergedEnabled.add(feature);
-            }
-            else {
-                mergedDisabled.add(feature);
-            }
-        });
+        addAll(mergedEnabled, first == null ? null : first.enabled());
+        addAll(mergedEnabled, second == null ? null : second.enabled());
+        addAll(mergedDisabled, first == null ? null : first.disabled());
+        addAll(mergedDisabled, second == null ? null : second.disabled());
+        mergedEnabled.removeAll(mergedDisabled);
         return new CocoFeatureSelection(mergedEnabled, mergedDisabled);
     }
 
     /**
      * <p>
-     * 将当前选择与更高优先级选择合并。
+     * 将当前选择与另一选择合并，冲突时禁用优先。
      * </p>
-     * @param higherPriority 高优先级选择
+     * @param other 另一选择
      * @return 合并后的功能选择
      */
-    public CocoFeatureSelection merge(CocoFeatureSelection higherPriority) {
-        return merge(this, higherPriority);
+    public CocoFeatureSelection merge(CocoFeatureSelection other) {
+        return merge(this, other);
     }
 
-    private static void apply(EnumMap<CocoFeature, Boolean> directives, CocoFeatureSelection selection) {
-        if (selection == null) {
-            return;
+    private static void addAll(EnumSet<CocoFeature> target, Set<CocoFeature> source) {
+        if (source != null) {
+            target.addAll(source);
         }
-        selection.enabled().forEach(feature -> directives.put(feature, true));
-        selection.disabled().forEach(feature -> directives.put(feature, false));
     }
 
     private static Set<CocoFeature> copy(Set<CocoFeature> source) {

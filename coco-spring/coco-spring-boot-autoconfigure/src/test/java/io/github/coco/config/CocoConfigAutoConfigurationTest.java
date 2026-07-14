@@ -78,7 +78,7 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
-    void codeConfigurationCanOverrideApplicationProperties() {
+    void propertyDisableWinsOverCodeEnable() {
         this.contextRunner
                 .withUserConfiguration(AnnotatedCocoConfiguration.class)
                 .withPropertyValues("coco.features.disabled[0]=tenant")
@@ -86,8 +86,8 @@ class CocoConfigAutoConfigurationTest {
                     CocoFeatureManager manager = context.getBean(CocoFeatureManager.class);
                     CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
 
-                    assertTrue(manager.isEnabled(CocoFeature.TENANT));
-                    assertTrue(plan.enabledFeatures().contains(CocoFeature.TENANT));
+                    assertFalse(manager.isEnabled(CocoFeature.TENANT));
+                    assertFalse(plan.enabledFeatures().contains(CocoFeature.TENANT));
                 });
     }
 
