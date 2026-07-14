@@ -95,7 +95,7 @@ final class CocoCodegenYamlParser {
         validateKeys(resource, RESOURCE_KEYS, location);
         String name = requiredText(resource, "name", location);
         validateJavaIdentifier(name, location + ".name");
-        if (!Character.isLetter(name.charAt(0))) {
+        if (!Character.isLetter(name.codePointAt(0))) {
             throw validation(location + ".name must start with a letter");
         }
         String table = requiredText(resource, "table", location);
@@ -252,7 +252,11 @@ final class CocoCodegenYamlParser {
     }
 
     private static String normalizeResourceName(String value) {
-        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+        int firstCodePoint = value.codePointAt(0);
+        return new StringBuilder(value.length())
+                .appendCodePoint(Character.toUpperCase(firstCodePoint))
+                .append(value.substring(Character.charCount(firstCodePoint)))
+                .toString();
     }
 
     private static void validateJavaIdentifier(String value, String location) {
