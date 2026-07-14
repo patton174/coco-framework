@@ -7,6 +7,8 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -20,7 +22,9 @@ import java.util.jar.Manifest;
 import javax.tools.ToolProvider;
 
 import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.feature.model.CocoFeatureSelection;
 import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.model.Build;
@@ -108,6 +112,58 @@ class CocoFeatureBootRuntimeFixtureTest {
         assertThat(output).contains("BOOT_FIXTURE_OK:transitive");
     }
 
+    @Test
+    void pruneKeepsFullyExecutableBootLaunchScriptAndRuntime() throws Exception {
+        Path applicationJar = compileJar("com.example.fixture.PrunedBootApplication", """
+                package com.example.fixture;
+
+                public final class PrunedBootApplication {
+                    public static void main(String[] args) {
+                        System.out.println("PRUNED_BOOT_FIXTURE_OK");
+                    }
+                }
+                """, this.tempDir.resolve("target/demo.jar"));
+        Path webJar = cocoFeatureJar("coco-web", this.tempDir.resolve("coco-web-1.0.0-SNAPSHOT.jar"));
+        Path auditJar = cocoFeatureJar("coco-audit", this.tempDir.resolve("coco-audit-1.0.0-SNAPSHOT.jar"));
+        Repackager repackager = new Repackager(applicationJar.toFile());
+        repackager.setMainClass("com.example.fixture.PrunedBootApplication");
+        repackager.setBackupSource(false);
+        repackager.repackage(callback -> {
+            callback.library(new Library(webJar.toFile(), LibraryScope.RUNTIME));
+            callback.library(new Library(auditJar.toFile(), LibraryScope.RUNTIME));
+        });
+
+        byte[] launchScript = ("#!/bin/sh\n# PK magic decoy: " + (char) 3 + (char) 4 + "\nexec \""
+                + javaExecutable() + "\" -jar \"$0\" \"$@\"\n").getBytes(StandardCharsets.ISO_8859_1);
+        Files.write(applicationJar, concat(launchScript, Files.readAllBytes(applicationJar)));
+        CocoExecutableArchive.relocateOffsets(applicationJar, launchScript.length);
+        setExecutablePermissionsWhenSupported(applicationJar);
+
+        Path classesDirectory = Files.createDirectories(this.tempDir.resolve("target/classes"));
+        writeManifest(classesDirectory, Set.of(CocoFeature.WEB));
+        MavenProject project = project();
+        CocoPackagePruneMojo mojo = new CocoPackagePruneMojo();
+        set(mojo, "project", project);
+        set(mojo, "classesDirectory", classesDirectory.toFile());
+        set(mojo, "buildDirectory", this.tempDir.resolve("target").toFile());
+        set(mojo, "finalName", "demo");
+
+        mojo.execute();
+
+        byte[] pruned = Files.readAllBytes(applicationJar);
+        assertThat(pruned).startsWith(launchScript);
+        try (JarFile jarFile = new JarFile(applicationJar.toFile())) {
+            assertThat(jarFile.getEntry("BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar")).isNull();
+            assertThat(jarFile.getEntry("BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar")).isNotNull();
+        }
+        assertProcessSucceeds(new ProcessBuilder(javaExecutable(), "-jar", applicationJar.toString()),
+                "PRUNED_BOOT_FIXTURE_OK");
+        if (Files.getFileAttributeView(applicationJar, PosixFileAttributeView.class) != null) {
+            assertThat(Files.getPosixFilePermissions(applicationJar)).contains(PosixFilePermission.OWNER_EXECUTE);
+            assertProcessSucceeds(new ProcessBuilder(applicationJar.toString()), "PRUNED_BOOT_FIXTURE_OK");
+        }
+    }
+
     private CocoFeaturesMojo mojo(MavenProject project, Path featureJar, Path transitiveJar) throws Exception {
         CocoFeaturesMojo mojo = new CocoFeaturesMojo();
         set(mojo, "project", project);
@@ -167,7 +223,17 @@ class CocoFeatureBootRuntimeFixtureTest {
         build.setDirectory(this.tempDir.resolve("target").toString());
         build.setOutputDirectory(this.tempDir.resolve("target/classes").toString());
         model.setBuild(build);
+        build.setFinalName("demo");
         return new MavenProject(model);
+    }
+
+    private void writeManifest(Path classesDirectory, Set<CocoFeature> disabledFeatures) throws Exception {
+        Path manifest = classesDirectory.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
+        Files.createDirectories(manifest.getParent());
+        Files.writeString(manifest,
+                CocoFeatureManifestLoader.write(StandardCocoFeatures.toManifest(
+                        StandardCocoFeatures.resolve(CocoFeatureSelection.ofDisabled(disabledFeatures)), "test")),
+                StandardCharsets.UTF_8);
     }
 
     private CocoFeaturePlan planWithOnly(CocoFeature feature) {
@@ -177,6 +243,7 @@ class CocoFeatureBootRuntimeFixtureTest {
     }
 
     private Path compileJar(String className, String source, Path jarPath) throws Exception {
+        Files.createDirectories(jarPath.getParent());
         Path sourceRoot = Files.createDirectories(this.tempDir.resolve(jarPath.getFileName() + "-src"));
         Path classes = Files.createDirectories(this.tempDir.resolve(jarPath.getFileName() + "-classes"));
         Path sourceFile = sourceRoot.resolve(className.replace('.', '/') + ".java");
@@ -210,6 +277,44 @@ class CocoFeatureBootRuntimeFixtureTest {
             // Valid empty feature JAR.
         }
         return jarPath;
+    }
+
+    private Path cocoFeatureJar(String artifactId, Path jarPath) throws Exception {
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jarPath))) {
+            JarEntry entry = new JarEntry("META-INF/maven/io.github.patton174/" + artifactId + "/pom.properties");
+            output.putNextEntry(entry);
+            output.write(("groupId=io.github.patton174\nartifactId=" + artifactId
+                    + "\nversion=1.0.0-SNAPSHOT\n").getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
+        }
+        return jarPath;
+    }
+
+    private void setExecutablePermissionsWhenSupported(Path archivePath) throws Exception {
+        if (Files.getFileAttributeView(archivePath, PosixFileAttributeView.class) != null) {
+            Files.setPosixFilePermissions(archivePath, Set.of(
+                    PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE,
+                    PosixFilePermission.GROUP_READ, PosixFilePermission.GROUP_EXECUTE));
+        }
+    }
+
+    private void assertProcessSucceeds(ProcessBuilder processBuilder, String marker) throws Exception {
+        Process process = processBuilder.redirectErrorStream(true).start();
+        boolean completed = process.waitFor(20, TimeUnit.SECONDS);
+        if (!completed) {
+            process.destroyForcibly();
+        }
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(completed).as(output).isTrue();
+        assertThat(process.exitValue()).as(output).isZero();
+        assertThat(output).contains(marker);
+    }
+
+    private byte[] concat(byte[] first, byte[] second) {
+        byte[] result = new byte[first.length + second.length];
+        System.arraycopy(first, 0, result, 0, first.length);
+        System.arraycopy(second, 0, result, first.length, second.length);
+        return result;
     }
 
     private String javaExecutable() {

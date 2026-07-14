@@ -135,7 +135,7 @@ Runtime auto-CRUD is out of scope for the core framework because it hides API de
 
 Implemented or partially implemented foundations:
 
-- `coco-parent` binds Spring Boot packaging, feature assembly, and package pruning.
+- `coco-parent` binds Spring Boot packaging, feature assembly, and package pruning. Package pruning preserves a fully executable archive's launch-script prefix byte-for-byte, retains POSIX permissions where available, validates the temporary archive before replacement, and fails closed without changing the original jar.
 - `coco-spring-boot-starter` provides the single dependency entry point.
 - `coco-config` merges properties, `CocoConfigurer`, annotation selections, and build manifest state.
 - `coco-maven-plugin` writes feature manifests and prunes disabled feature artifacts.

@@ -405,7 +405,7 @@ collection / environment 保持 secret、IV 和密文槽位为空；本地生成
 
 ### C18.【构建 / 中】`CocoPackagePruneMojo` 的测试断言文件存在但未断言结果是可运行的 Spring Boot jar
 
-**处理状态：** 已在 PR12 扩展裁剪测试 fixture，生成带 Spring Boot launcher、manifest 和 `BOOT-INF` 结构的测试 jar，并断言裁剪后仍保留可执行 Boot jar 关键结构。
+**处理状态：** 已在 PR12 扩展裁剪测试 fixture，生成带 Spring Boot launcher、manifest 和 `BOOT-INF` 结构的测试 jar，并断言裁剪后仍保留可执行 Boot jar 关键结构。随后 P1 加固要求 `prune-package` 对 fully executable jar 通过 EOCD/Zip64 中央目录结构定位前置 launch script，逐字节保留 prefix 并重定位 ZIP 偏移；在支持 POSIX 权限的平台保留原权限。临时产物在替换前必须可被 `JarFile` 打开，备份成功后以原子替换优先完成提交，替换失败时从备份回滚，原始 jar 不得被破坏。
 
 ---
 
@@ -471,7 +471,7 @@ macOS 矩阵中执行。
 | D17 | feature-mechanism | maintainability | 同一个"启用 / 禁用"概念有 3 个独立数据载体 |
 | D18 | feature-mechanism | api-design | `@ConditionalOnCocoFeature` 没有 `matchIfMissing` / 反义 / 多 feature 支持 |
 | D19 | feature-mechanism | build-release | `CocoPackagePruneMojo` 在 PACKAGE 阶段就地改写 boot jar，作废后续任何 jar 签名（与 C12 重叠） |
-| D20 | feature-mechanism | testing | prune-package 测试断言文件存在但未断言结果可运行（与 C18 重叠） |
+| D20 | feature-mechanism | testing | prune-package 测试断言文件存在但未断言结果可运行（与 C18 重叠，已由真实 Boot launcher 与 `java -jar` 烟测覆盖） |
 | D21 | quality-test | testing | `SQL-rewriter missing-rule IGNORE policy` 未测试（与 C20 重叠） |
 | D22 | quality-test | testing | `coco-test` 模块的 `CocoTestSupport` 未被任何模块引用（与 C22 重叠） |
 | D23 | quality-test | build-release | `maven-failsafe-plugin` 声明但未绑定（与 C21 重叠） |
