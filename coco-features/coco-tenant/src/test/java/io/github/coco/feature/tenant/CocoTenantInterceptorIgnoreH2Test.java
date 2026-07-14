@@ -85,10 +85,8 @@ class CocoTenantInterceptorIgnoreH2Test {
     @Test
     void allowsExactAllowlistedBypassAndPublishesStructuredEvent() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
-        CocoTenantInterceptorIgnoreProperties ignore = new CocoTenantInterceptorIgnoreProperties();
-        ignore.setExactMappedStatements(java.util.Set.of(
-                TenantRecordMapper.class.getName() + ".selectAllIgnoringTenant"));
-        properties.setInterceptorIgnore(ignore);
+        properties.getInterceptorIgnore().getExactMappedStatements().add(
+                TenantRecordMapper.class.getName() + ".selectAllIgnoringTenant");
         List<CocoTenantInterceptorIgnoreEvent> events = new CopyOnWriteArrayList<>();
         SqlSessionFactory sqlSessionFactory = sqlSessionFactory(initializedDataSource(), properties, events);
 

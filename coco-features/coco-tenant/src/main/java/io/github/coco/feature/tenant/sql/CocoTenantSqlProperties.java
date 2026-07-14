@@ -1,6 +1,5 @@
 package io.github.coco.feature.tenant.sql;
 
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -44,6 +43,16 @@ public class CocoTenantSqlProperties {
         this.ignoreTables = new LinkedHashSet<>(checkedSource.ignoreTables);
         this.failOnMissingContext = checkedSource.failOnMissingContext;
         this.interceptorIgnore = new CocoTenantInterceptorIgnoreProperties(checkedSource.interceptorIgnore);
+    }
+
+    /**
+     * <p>
+     * 返回供运行时组件持有的深复制配置快照。
+     * </p>
+     * @return 租户 SQL 配置快照
+     */
+    public CocoTenantSqlProperties snapshot() {
+        return new CocoTenantSqlProperties(this);
     }
 
     /**
@@ -94,8 +103,9 @@ public class CocoTenantSqlProperties {
      * </p>
      * @return 无需追加租户条件的表名集合
      */
+    @SuppressWarnings("EI_EXPOSE_REP")
     public Set<String> getIgnoreTables() {
-        return Collections.unmodifiableSet(new LinkedHashSet<>(this.ignoreTables));
+        return this.ignoreTables;
     }
 
     /**
@@ -134,8 +144,9 @@ public class CocoTenantSqlProperties {
      * </p>
      * @return 拦截器忽略治理配置
      */
+    @SuppressWarnings("EI_EXPOSE_REP")
     public CocoTenantInterceptorIgnoreProperties getInterceptorIgnore() {
-        return new CocoTenantInterceptorIgnoreProperties(this.interceptorIgnore);
+        return this.interceptorIgnore;
     }
 
     /**

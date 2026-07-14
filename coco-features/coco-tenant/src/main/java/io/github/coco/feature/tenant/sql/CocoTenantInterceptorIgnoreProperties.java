@@ -1,6 +1,5 @@
 package io.github.coco.feature.tenant.sql;
 
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -46,6 +45,16 @@ public class CocoTenantInterceptorIgnoreProperties {
 
     /**
      * <p>
+     * 返回拦截器忽略配置的深复制快照。
+     * </p>
+     * @return 拦截器忽略配置快照
+     */
+    public CocoTenantInterceptorIgnoreProperties snapshot() {
+        return new CocoTenantInterceptorIgnoreProperties(this);
+    }
+
+    /**
+     * <p>
      * 返回是否阻断未进入白名单的租户隔离绕过。
      * </p>
      * <p>
@@ -76,8 +85,9 @@ public class CocoTenantInterceptorIgnoreProperties {
      * </p>
      * @return 允许跳过租户隔离的完整 MappedStatement ID 精确白名单
      */
+    @SuppressWarnings("EI_EXPOSE_REP")
     public Set<String> getExactMappedStatements() {
-        return Collections.unmodifiableSet(new LinkedHashSet<>(this.exactMappedStatements));
+        return this.exactMappedStatements;
     }
 
     /**
@@ -111,8 +121,9 @@ public class CocoTenantInterceptorIgnoreProperties {
     @DeprecatedConfigurationProperty(
             replacement = "coco.tenant.sql.interceptor-ignore.exact-mapped-statements",
             reason = "通配模式授权范围过宽，请迁移到完整 MappedStatement ID 精确白名单。")
+    @SuppressWarnings("EI_EXPOSE_REP")
     public Set<String> getAllowedMappedStatements() {
-        return Collections.unmodifiableSet(new LinkedHashSet<>(this.allowedMappedStatements));
+        return this.allowedMappedStatements;
     }
 
     /**

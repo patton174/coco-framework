@@ -193,31 +193,42 @@ class CocoTenantAutoConfigurationTest {
     }
 
     @Test
-    void exposesDefensiveSnapshotsWithoutChangingConfiguredSqlValues() {
+    void preservesLiveJavaBeanConfigurationAndProvidesDeepRuntimeSnapshots() {
         CocoTenantProperties properties = new CocoTenantProperties();
         CocoTenantSqlProperties sql = new CocoTenantSqlProperties();
-        sql.setIgnoreTables(java.util.Set.of("shared_table"));
+        java.util.LinkedHashSet<String> ignoreTables = new java.util.LinkedHashSet<>();
+        ignoreTables.add("shared_table");
+        ignoreTables.add(null);
+        ignoreTables.add("audit_table");
+        sql.setIgnoreTables(ignoreTables);
         io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
                 new io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties();
-        ignore.setExactMappedStatements(java.util.Set.of("com.example.Mapper.selectShared"));
+        ignore.getExactMappedStatements().add("com.example.Mapper.selectShared");
         sql.setInterceptorIgnore(ignore);
         properties.setSql(sql);
 
         assertThat(properties.getSql()).isNotSameAs(sql);
-        assertThat(properties.getSql().getIgnoreTables()).containsExactly("shared_table");
-        assertThat(properties.getSql().getInterceptorIgnore()).isNotSameAs(ignore);
+        properties.getSql().setTenantIdColumn("org_id");
+        properties.getSql().getIgnoreTables().add("runtime_table");
+        properties.getSql().getInterceptorIgnore().setBlockUnlisted(false);
+        properties.getSql().getInterceptorIgnore().getExactMappedStatements()
+                .add("com.example.Mapper.selectRuntime");
+        CocoTenantSqlProperties snapshot = properties.getSqlSnapshot();
+
+        assertThat(properties.getSql().getTenantIdColumn()).isEqualTo("org_id");
+        assertThat(properties.getSql().getIgnoreTables())
+                .containsExactly("shared_table", null, "audit_table", "runtime_table");
+        assertThat(properties.getSql().getInterceptorIgnore().isBlockUnlisted()).isFalse();
         assertThat(properties.getSql().getInterceptorIgnore().getExactMappedStatements())
-                .containsExactly("com.example.Mapper.selectShared");
-        sql.setIgnoreTables(java.util.Set.of("changed_after_set"));
-        ignore.setExactMappedStatements(java.util.Set.of("changed_after_set"));
-        assertThat(properties.getSql().getIgnoreTables()).containsExactly("shared_table");
-        assertThat(properties.getSql().getInterceptorIgnore().getExactMappedStatements())
-                .containsExactly("com.example.Mapper.selectShared");
-        assertThatThrownBy(() -> properties.getSql().getIgnoreTables().add("not_configured"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> properties.getSql().getInterceptorIgnore().getExactMappedStatements()
-                .add("not_configured"))
-                .isInstanceOf(UnsupportedOperationException.class);
+                .containsExactly("com.example.Mapper.selectShared", "com.example.Mapper.selectRuntime");
+        properties.getSql().getIgnoreTables().add("changed_after_snapshot");
+        properties.getSql().getInterceptorIgnore().getExactMappedStatements()
+                .add("com.example.Mapper.changedAfterSnapshot");
+
+        assertThat(snapshot.getIgnoreTables())
+                .containsExactly("shared_table", null, "audit_table", "runtime_table");
+        assertThat(snapshot.getInterceptorIgnore().getExactMappedStatements())
+                .containsExactly("com.example.Mapper.selectShared", "com.example.Mapper.selectRuntime");
     }
 
     @Test
