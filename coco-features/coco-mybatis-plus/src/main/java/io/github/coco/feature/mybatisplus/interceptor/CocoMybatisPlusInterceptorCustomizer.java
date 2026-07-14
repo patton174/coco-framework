@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.Objects;
 
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.OrderUtils;
 
@@ -72,7 +73,7 @@ public interface CocoMybatisPlusInterceptorCustomizer {
      * @return 定制器执行顺序
      */
     default int getOrder() {
-        Integer annotatedOrder = OrderUtils.getOrder(getClass());
+        Integer annotatedOrder = OrderUtils.getOrder(resolveUserClass(this));
         return annotatedOrder == null ? USER_ORDER : annotatedOrder;
     }
 
@@ -83,7 +84,7 @@ public interface CocoMybatisPlusInterceptorCustomizer {
      * @return 稳定排序键
      */
     default String getOrderKey() {
-        return getClass().getName();
+        return resolveUserClass(this).getName();
     }
 
     /**
@@ -120,30 +121,25 @@ public interface CocoMybatisPlusInterceptorCustomizer {
      * @return Spring customizer 排序器
      */
     static Comparator<CocoMybatisPlusInterceptorCustomizer> springOrderComparator() {
-        return (left, right) -> {
-            boolean leftExplicit = hasExplicitOrder(left);
-            boolean rightExplicit = hasExplicitOrder(right);
-            if (leftExplicit != rightExplicit) {
-                return leftExplicit ? -1 : 1;
-            }
-            if (!leftExplicit) {
-                return 0;
-            }
-            return orderComparator().compare(left, right);
-        };
+        return orderComparator();
     }
 
-    private static boolean hasExplicitOrder(CocoMybatisPlusInterceptorCustomizer customizer) {
+    static boolean hasExplicitOrder(CocoMybatisPlusInterceptorCustomizer customizer) {
         if (customizer instanceof Ordered) {
             return true;
         }
         try {
-            return customizer.getClass().getMethod("getOrder").getDeclaringClass()
+            return resolveUserClass(customizer).getMethod("getOrder").getDeclaringClass()
                     != CocoMybatisPlusInterceptorCustomizer.class;
         }
         catch (NoSuchMethodException ex) {
             return false;
         }
+    }
+
+    static Class<?> resolveUserClass(CocoMybatisPlusInterceptorCustomizer customizer) {
+        Class<?> targetClass = AopUtils.getTargetClass(Objects.requireNonNull(customizer, "customizer must not be null"));
+        return targetClass == null ? customizer.getClass() : targetClass;
     }
 
     final class OrderedCustomizer implements CocoMybatisPlusInterceptorCustomizer, Ordered {
