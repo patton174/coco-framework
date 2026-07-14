@@ -25,6 +25,7 @@ import org.apache.maven.model.Build;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.project.MavenProject;
 import org.eclipse.aether.RepositorySystem;
@@ -143,7 +144,7 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
-    void prunesDisabledMybatisArtifactsAndKeepsAudit() throws Exception {
+    void prunesOnlyDisabledCocoMybatisArtifactsAndKeepsThirdPartyArtifacts() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("classpath"));
         Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
@@ -197,34 +198,86 @@ class CocoFeaturesMojoTest {
                         "io.github.patton174:coco-audit",
                         "io.github.patton174:coco-web",
                         "com.example:mybatis",
-                        "org.mybatis:mybatis-extra",
-                        "org.springframework:spring-jdbc")
-                .doesNotContain(
                         "com.baomidou:mybatis-plus-core",
                         "com.baomidou:mybatis-plus-jsqlparser-common",
                         "com.baomidou:mybatis-plus-spring-boot-native-image",
                         "com.baomidou:mybatis-plus-spring-boot4-starter",
-                        "io.github.patton174:coco-mybatis-plus",
-                        "io.github.patton174:coco-feature-mybatis-plus",
                         "org.mybatis:mybatis",
-                        "org.mybatis:mybatis-spring");
+                        "org.mybatis:mybatis-extra",
+                        "org.mybatis:mybatis-spring",
+                        "org.springframework:spring-jdbc")
+                .doesNotContain(
+                        "io.github.patton174:coco-mybatis-plus",
+                        "io.github.patton174:coco-feature-mybatis-plus");
         assertThat(project.getDependencyArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
                 .contains(
                         "io.github.patton174:coco-audit",
                         "io.github.patton174:coco-web",
                         "com.example:mybatis",
-                        "org.mybatis:mybatis-extra",
-                        "org.springframework:spring-jdbc")
-                .doesNotContain(
                         "com.baomidou:mybatis-plus-core",
                         "com.baomidou:mybatis-plus-jsqlparser-common",
                         "com.baomidou:mybatis-plus-spring-boot-native-image",
                         "com.baomidou:mybatis-plus-spring-boot4-starter",
-                        "io.github.patton174:coco-mybatis-plus",
-                        "io.github.patton174:coco-feature-mybatis-plus",
                         "org.mybatis:mybatis",
-                        "org.mybatis:mybatis-spring");
+                        "org.mybatis:mybatis-extra",
+                        "org.mybatis:mybatis-spring",
+                        "org.springframework:spring-jdbc")
+                .doesNotContain(
+                        "io.github.patton174:coco-mybatis-plus",
+                        "io.github.patton174:coco-feature-mybatis-plus");
+    }
+
+    @Test
+    void keepsBusinessDirectThirdPartyDependenciesWhenFeatureIsDisabled() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("direct-third-party-dependencies"));
+        Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        Files.writeString(resources.resolve("application.yml"), """
+                coco:
+                  features:
+                    disabled:
+                      - mybatis-plus
+                      - codegen
+                """, StandardCharsets.UTF_8);
+
+        MavenProject project = project(baseDir, output);
+        Dependency mybatis = dependency("org.mybatis", "mybatis");
+        Dependency freemarker = dependency("org.freemarker", "freemarker");
+        project.getModel().addDependency(mybatis);
+        project.getModel().addDependency(freemarker);
+        Set<Artifact> artifacts = new LinkedHashSet<>(Set.of(
+                artifact("org.mybatis", "mybatis", "3.5.19"),
+                artifact("org.freemarker", "freemarker", "2.3.34"),
+                artifact("io.github.patton174", "coco-mybatis-plus", "2.0.2"),
+                artifact("io.github.patton174", "coco-feature-codegen", "2.0.2")));
+        project.setArtifacts(artifacts);
+        project.setDependencyArtifacts(new LinkedHashSet<>(artifacts));
+
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "outputDirectory", output.toFile());
+        set(mojo, "classesDirectory", output.toFile());
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "2.0.2");
+
+        mojo.execute();
+
+        assertThat(project.getModel().getDependencies())
+                .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
+                .doesNotContain("io.github.patton174:coco-mybatis-plus",
+                        "io.github.patton174:coco-feature-codegen");
+        assertThat(project.getArtifacts())
+                .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
+                .doesNotContain("io.github.patton174:coco-mybatis-plus",
+                        "io.github.patton174:coco-feature-codegen");
+        assertThat(project.getDependencyArtifacts())
+                .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
+                .doesNotContain("io.github.patton174:coco-mybatis-plus",
+                        "io.github.patton174:coco-feature-codegen");
     }
 
     @Test
@@ -331,6 +384,92 @@ class CocoFeaturesMojoTest {
                 .isInstanceOf(MojoExecutionException.class)
                 .hasMessage("Coco feature artifact versions must align with '2.0.2': "
                         + "io.github.patton174:coco-feature-web:2.0.1.");
+    }
+
+    @Test
+    void derivesFeatureVersionFromResolvedCocoArtifactsInsteadOfBusinessProjectVersion() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("different-business-version"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.setVersion("99.7.3");
+        project.setArtifacts(Set.of(artifact("io.github.patton174", "coco-api", "2.0.2")));
+
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "outputDirectory", output.toFile());
+        set(mojo, "classesDirectory", output.toFile());
+        set(mojo, "featureGroupId", "io.github.patton174");
+
+        mojo.execute();
+
+        assertThat(project.getModel().getDependencies())
+                .filteredOn(dependency -> "io.github.patton174".equals(dependency.getGroupId()))
+                .allSatisfy(dependency -> assertThat(dependency.getVersion()).isEqualTo("2.0.2"));
+    }
+
+    @Test
+    void derivesFeatureVersionFromPluginDescriptorInsteadOfBusinessProjectVersion() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("plugin-version-source"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.setVersion("99.7.3");
+        PluginDescriptor pluginDescriptor = new PluginDescriptor();
+        pluginDescriptor.setVersion("2.0.2");
+
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "pluginDescriptor", pluginDescriptor);
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .singleElement()
+                .satisfies(dependency -> assertThat(dependency.getVersion()).isEqualTo("2.0.2"));
+    }
+
+    @Test
+    void explicitFeatureVersionRemainsAuthoritativeOverPluginVersion() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("explicit-feature-version"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        PluginDescriptor pluginDescriptor = new PluginDescriptor();
+        pluginDescriptor.setVersion("9.9.9");
+
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "2.0.2");
+        set(mojo, "pluginDescriptor", pluginDescriptor);
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .singleElement()
+                .satisfies(dependency -> assertThat(dependency.getVersion()).isEqualTo("2.0.2"));
+    }
+
+    @Test
+    void rejectsMixedResolvedCocoArtifactVersionsWithoutUsingBusinessVersion() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("mixed-coco-versions"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.setVersion("99.7.3");
+        project.setArtifacts(Set.of(
+                artifact("io.github.patton174", "coco-api", "2.0.1"),
+                artifact("io.github.patton174", "coco-web", "2.0.2")));
+
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "outputDirectory", output.toFile());
+        set(mojo, "classesDirectory", output.toFile());
+        set(mojo, "featureGroupId", "io.github.patton174");
+
+        assertThatThrownBy(mojo::execute)
+                .isInstanceOf(MojoExecutionException.class)
+                .hasMessageContaining("Coco artifacts must use one version")
+                .hasMessageContaining("coco-api:2.0.1")
+                .hasMessageContaining("coco-web:2.0.2");
     }
 
     private MavenProject project(Path baseDir, Path output) throws Exception {

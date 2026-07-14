@@ -10,8 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -28,6 +30,7 @@ import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
@@ -87,8 +90,13 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     @Parameter(property = "coco.features.featureGroupId", defaultValue = "io.github.patton174")
     private String featureGroupId;
 
-    @Parameter(property = "coco.features.featureVersion", defaultValue = "${project.version}")
+    @Parameter(property = "coco.features.featureVersion")
     private String featureVersion;
+
+    @Parameter(defaultValue = "${plugin}", readonly = true)
+    private PluginDescriptor pluginDescriptor;
+
+    private String resolvedFeatureVersion;
 
     @Parameter(property = "coco.features.skip", defaultValue = "false")
     private boolean skip;
@@ -150,7 +158,8 @@ public final class CocoFeaturesMojo extends AbstractMojo {
      * </p>
      * @param plan 最终功能启用计划
      */
-    void applyFeatureDependencies(CocoFeaturePlan plan) {
+    void applyFeatureDependencies(CocoFeaturePlan plan) throws MojoExecutionException {
+        String targetFeatureVersion = effectiveFeatureVersion();
         Set<String> existingDependencies = this.project.getDependencies().stream()
                 .map(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -169,7 +178,7 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             Dependency dependency = new Dependency();
             dependency.setGroupId(this.featureGroupId);
             dependency.setArtifactId(definition.artifactId());
-            dependency.setVersion(this.featureVersion);
+            dependency.setVersion(targetFeatureVersion);
             dependency.setScope(Artifact.SCOPE_RUNTIME);
             this.project.getModel().addDependency(dependency);
             resolveRuntimeArtifact(dependency).ifPresent(this.project.getArtifacts()::add);
@@ -230,35 +239,98 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     }
 
     private boolean isPrunableCoordinate(String groupId, String artifactId, Set<String> excludedArtifactIds) {
-        if (!excludedArtifactIds.contains(artifactId)) {
-            return false;
-        }
-        if (this.featureGroupId.equals(groupId)) {
-            return true;
-        }
-        if (artifactId.startsWith("mybatis-plus")) {
-            return "com.baomidou".equals(groupId);
-        }
-        return ("mybatis".equals(artifactId) || "mybatis-spring".equals(artifactId))
-                && "org.mybatis".equals(groupId);
+        return this.featureGroupId.equals(groupId) && excludedArtifactIds.contains(artifactId);
     }
 
     void validateFeatureArtifactVersions() throws MojoExecutionException {
-        Set<String> equivalentArtifactIds = StandardCocoFeatures.all().stream()
-                .flatMap(definition -> StandardCocoFeatures.equivalentArtifactIds(definition).stream())
-                .collect(Collectors.toUnmodifiableSet());
-        List<String> misalignedArtifacts = this.project.getArtifacts().stream()
-                .filter(artifact -> this.featureGroupId.equals(artifact.getGroupId()))
-                .filter(artifact -> equivalentArtifactIds.contains(artifact.getArtifactId()))
-                .filter(artifact -> !this.featureVersion.equals(artifact.getBaseVersion()))
+        this.resolvedFeatureVersion = resolveFeatureVersion();
+    }
+
+    private String effectiveFeatureVersion() throws MojoExecutionException {
+        if (this.resolvedFeatureVersion == null) {
+            this.resolvedFeatureVersion = resolveFeatureVersion();
+        }
+        return this.resolvedFeatureVersion;
+    }
+
+    private String resolveFeatureVersion() throws MojoExecutionException {
+        String configuredVersion = nonBlank(this.featureVersion);
+        String pluginVersion = pluginVersion();
+        List<Artifact> cocoArtifacts = resolvedCocoArtifacts();
+
+        if (configuredVersion != null) {
+            validateCocoArtifactVersions(configuredVersion, cocoArtifacts);
+            return configuredVersion;
+        }
+
+        if (pluginVersion != null) {
+            validateCocoArtifactVersions(pluginVersion, cocoArtifacts);
+            return pluginVersion;
+        }
+
+        Map<String, List<String>> artifactsByVersion = new LinkedHashMap<>();
+        for (Artifact artifact : cocoArtifacts) {
+            String artifactVersion = nonBlank(artifact.getBaseVersion());
+            if (artifactVersion == null) {
+                continue;
+            }
+            artifactsByVersion.computeIfAbsent(artifactVersion, ignored -> new java.util.ArrayList<>())
+                    .add(coordinate(artifact));
+        }
+        if (artifactsByVersion.size() > 1) {
+            List<String> mixedArtifacts = artifactsByVersion.values().stream()
+                    .flatMap(Collection::stream)
+                    .sorted()
+                    .toList();
+            throw new MojoExecutionException("Coco artifacts must use one version: "
+                    + String.join(", ", mixedArtifacts) + ".");
+        }
+        if (artifactsByVersion.size() == 1) {
+            return artifactsByVersion.keySet().iterator().next();
+        }
+        throw new MojoExecutionException("Unable to determine the Coco feature version. Configure "
+                + "coco.features.featureVersion or run the goal from a versioned Coco Maven plugin or project.");
+    }
+
+    private void validateCocoArtifactVersions(String expectedVersion, List<Artifact> cocoArtifacts)
+            throws MojoExecutionException {
+        List<String> misalignedArtifacts = cocoArtifacts.stream()
+                .filter(artifact -> !expectedVersion.equals(artifact.getBaseVersion()))
                 .map(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId() + ":"
                         + artifact.getBaseVersion())
                 .sorted()
                 .toList();
         if (!misalignedArtifacts.isEmpty()) {
             throw new MojoExecutionException("Coco feature artifact versions must align with '"
-                    + this.featureVersion + "': " + String.join(", ", misalignedArtifacts) + ".");
+                    + expectedVersion + "': " + String.join(", ", misalignedArtifacts) + ".");
         }
+    }
+
+    private List<Artifact> resolvedCocoArtifacts() {
+        if (this.project == null || this.project.getArtifacts() == null) {
+            return List.of();
+        }
+        return this.project.getArtifacts().stream()
+                .filter(artifact -> this.featureGroupId.equals(artifact.getGroupId()))
+                .filter(artifact -> artifact.getArtifactId() != null && artifact.getArtifactId().startsWith("coco-"))
+                .sorted(Comparator.comparing(this::coordinate))
+                .toList();
+    }
+
+    private String pluginVersion() {
+        String descriptorVersion = this.pluginDescriptor == null ? null : nonBlank(this.pluginDescriptor.getVersion());
+        if (descriptorVersion != null) {
+            return descriptorVersion;
+        }
+        return nonBlank(CocoFeaturesMojo.class.getPackage().getImplementationVersion());
+    }
+
+    private String coordinate(Artifact artifact) {
+        return artifact.getGroupId() + ":" + artifact.getArtifactId() + ":" + artifact.getBaseVersion();
+    }
+
+    private static String nonBlank(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /**
