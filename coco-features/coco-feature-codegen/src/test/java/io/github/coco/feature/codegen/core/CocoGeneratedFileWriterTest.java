@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -57,6 +58,31 @@ class CocoGeneratedFileWriterTest {
         new CocoGeneratedFileWriter().write(output, result, new CocoGeneratedFileWriteOptions(true, false));
 
         assertThat(Files.readString(target)).isEqualTo("new");
+    }
+
+    @Test
+    void rollsBackCommittedFilesWhenWritingTheBatchFails() throws IOException {
+        Path output = this.tempDirectory.resolve("atomic");
+        Path existing = output.resolve("existing.txt");
+        Files.createDirectories(output);
+        Files.writeString(existing, "old");
+        AtomicInteger moves = new AtomicInteger();
+        CocoGeneratedFileWriter writer = new CocoGeneratedFileWriter(java.nio.charset.StandardCharsets.UTF_8,
+                (source, target) -> {
+                    if (moves.incrementAndGet() == 3) {
+                        throw new IOException("simulated move failure");
+                    }
+                    Files.move(source, target);
+                });
+        CocoCodegenResult result = CocoCodegenResult.of(List.of(
+                new CocoGeneratedFile("existing.txt", "new"),
+                new CocoGeneratedFile("new.txt", "new")));
+
+        assertThatThrownBy(() -> writer.write(output, result, new CocoGeneratedFileWriteOptions(true, false)))
+                .isInstanceOf(CocoCodegenException.class)
+                .hasMessageContaining("failed to write generated files");
+        assertThat(Files.readString(existing)).isEqualTo("old");
+        assertThat(output.resolve("new.txt")).doesNotExist();
     }
 
     @Test

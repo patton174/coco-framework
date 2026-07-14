@@ -47,10 +47,11 @@ public final class CocoCrudSpec {
             "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class",
             "const", "continue", "default", "do", "double", "else", "enum", "extends", "final",
             "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int",
+            "_", "exports", "module", "non-sealed", "open", "opens", "permits", "provides", "record",
+            "requires", "sealed", "to", "transitive", "uses", "var", "with", "yield",
             "interface", "long", "native", "new", "package", "private", "protected", "public", "return",
             "short", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
-            "transient", "try", "void", "volatile", "while", "true", "false", "null", "_", "record",
-            "sealed", "permits", "non-sealed", "var", "yield");
+            "transient", "try", "void", "volatile", "while", "true", "false", "null");
 
     private static final Set<String> PRIMITIVE_TYPE_NAMES = Set.of(
             "long", "int", "short", "byte", "boolean", "double", "float", "char");

@@ -68,6 +68,14 @@ class FreeMarkerCocoCodeGeneratorTest {
     }
 
     @Test
+    void generatesDeterministicSourceOrderAndContent() {
+        CocoCodegenResult first = generateProductCrud();
+        CocoCodegenResult second = generateProductCrud();
+
+        assertThat(second.files()).containsExactlyElementsOf(first.files());
+    }
+
+    @Test
     void generatedCrudSourcesCompileWithJava17() throws IOException {
         assertCompilesWithJava17(generateProductCrud());
     }

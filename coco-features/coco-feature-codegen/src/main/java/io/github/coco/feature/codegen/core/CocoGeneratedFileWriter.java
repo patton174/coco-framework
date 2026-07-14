@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -39,6 +39,8 @@ public final class CocoGeneratedFileWriter {
 
     private final Charset encoding;
 
+    private final FileMover fileMover;
+
     /**
      * <p>
      * 使用 UTF-8 创建文件写入器。
@@ -65,7 +67,12 @@ public final class CocoGeneratedFileWriter {
      * @param encoding 输出字符集
      */
     public CocoGeneratedFileWriter(Charset encoding) {
+        this(encoding, CocoGeneratedFileWriter::moveFile);
+    }
+
+    CocoGeneratedFileWriter(Charset encoding, FileMover fileMover) {
         this.encoding = Objects.requireNonNull(encoding, "encoding must not be null");
+        this.fileMover = Objects.requireNonNull(fileMover, "fileMover must not be null");
     }
 
     /**
@@ -98,7 +105,7 @@ public final class CocoGeneratedFileWriter {
 
         if (!checkedOptions.dryRun()) {
             preflight(root, plannedFiles, checkedOptions.overwrite());
-            writeAll(plannedFiles, checkedOptions.overwrite());
+            writeAll(root, plannedFiles);
         }
         return plannedFiles.stream().map(PlannedFile::target).toList();
     }
@@ -121,6 +128,9 @@ public final class CocoGeneratedFileWriter {
     }
 
     private static void preflight(Path root, List<PlannedFile> plannedFiles, boolean overwrite) {
+        if (Files.isSymbolicLink(root)) {
+            throw new CocoCodegenException("output directory must not be a symbolic link: " + root);
+        }
         if (Files.exists(root, LinkOption.NOFOLLOW_LINKS) && !Files.isDirectory(root)) {
             throw new CocoCodegenException("output directory is not a directory: " + root);
         }
@@ -144,6 +154,9 @@ public final class CocoGeneratedFileWriter {
     private static void validateParents(Path root, Path parent) {
         Path current = parent;
         while (current != null && current.startsWith(root)) {
+            if (Files.isSymbolicLink(current)) {
+                throw new CocoCodegenException("generated file parent must not be a symbolic link: " + current);
+            }
             if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)
                     && !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) {
                 throw new CocoCodegenException("generated file parent is not a directory: " + current);
@@ -155,19 +168,168 @@ public final class CocoGeneratedFileWriter {
         }
     }
 
-    private void writeAll(List<PlannedFile> plannedFiles, boolean overwrite) {
-        OpenOption[] openOptions = overwrite
-                ? new OpenOption[] { StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
-                        StandardOpenOption.WRITE }
-                : new OpenOption[] { StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE };
-        for (PlannedFile plannedFile : plannedFiles) {
+    private void writeAll(Path root, List<PlannedFile> plannedFiles) {
+        Path stagingDirectory = createStagingDirectory(root);
+        List<Path> createdDirectories = new ArrayList<>();
+        List<CommittedFile> committedFiles = new ArrayList<>();
+        try {
+            List<StagedFile> stagedFiles = stage(plannedFiles, stagingDirectory);
+            for (StagedFile stagedFile : stagedFiles) {
+                createTargetDirectories(root, stagedFile.target().getParent(), createdDirectories);
+                Path backup = stagingDirectory.resolve("backup").resolve(Integer.toString(stagedFile.index()));
+                CommittedFile committedFile = new CommittedFile(stagedFile.target(), backup,
+                        Files.exists(stagedFile.target(), LinkOption.NOFOLLOW_LINKS));
+                committedFiles.add(committedFile);
+                if (committedFile.existed()) {
+                    Files.createDirectories(backup.getParent());
+                    this.move(stagedFile.target(), backup);
+                }
+                this.move(stagedFile.staged(), stagedFile.target());
+            }
+        }
+        catch (IOException ex) {
             try {
-                Files.createDirectories(plannedFile.target.getParent());
-                Files.writeString(plannedFile.target, plannedFile.file.content(), this.encoding, openOptions);
+                rollback(committedFiles, createdDirectories);
+            }
+            catch (CocoCodegenException rollbackFailure) {
+                ex.addSuppressed(rollbackFailure);
+            }
+            throw new CocoCodegenException("failed to write generated files", ex);
+        }
+        catch (CocoCodegenException ex) {
+            try {
+                rollback(committedFiles, createdDirectories);
+            }
+            catch (CocoCodegenException rollbackFailure) {
+                ex.addSuppressed(rollbackFailure);
+            }
+            throw ex;
+        }
+        finally {
+            deleteRecursively(stagingDirectory);
+        }
+    }
+
+    private List<StagedFile> stage(List<PlannedFile> plannedFiles, Path stagingDirectory) throws IOException {
+        List<StagedFile> stagedFiles = new ArrayList<>(plannedFiles.size());
+        for (int index = 0; index < plannedFiles.size(); index++) {
+            PlannedFile plannedFile = plannedFiles.get(index);
+            Path staged = stagingDirectory.resolve("files").resolve(Integer.toString(index));
+            Files.createDirectories(staged.getParent());
+            Files.writeString(staged, plannedFile.file.content(), this.encoding,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            stagedFiles.add(new StagedFile(index, staged, plannedFile.target));
+        }
+        return stagedFiles;
+    }
+
+    private static Path createStagingDirectory(Path root) {
+        Path parent = nearestExistingParent(root);
+        try {
+            return Files.createTempDirectory(parent, ".coco-codegen-");
+        }
+        catch (IOException ex) {
+            throw new CocoCodegenException("failed to create generated-file staging directory", ex);
+        }
+    }
+
+    private static Path nearestExistingParent(Path root) {
+        Path current = root.getParent();
+        while (current != null && !Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+            current = current.getParent();
+        }
+        if (current == null || !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) {
+            throw new CocoCodegenException("output directory has no writable parent: " + root);
+        }
+        return current;
+    }
+
+    private static void createTargetDirectories(Path root, Path targetParent, List<Path> createdDirectories)
+            throws IOException {
+        List<Path> missingDirectories = new ArrayList<>();
+        Path current = targetParent;
+        while (current != null && !Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+            missingDirectories.add(current);
+            current = current.getParent();
+        }
+        Path rootParent = root.getParent();
+        if (current == null || (rootParent != null && !current.startsWith(rootParent))) {
+            throw new CocoCodegenException("generated file parent escapes output directory: " + targetParent);
+        }
+        if (Files.isSymbolicLink(current) || !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) {
+            throw new CocoCodegenException("generated file parent is not a directory: " + current);
+        }
+        for (int index = missingDirectories.size() - 1; index >= 0; index--) {
+            Path directory = missingDirectories.get(index);
+            Files.createDirectory(directory);
+            createdDirectories.add(directory);
+        }
+    }
+
+    private void move(Path source, Path target) throws IOException {
+        this.fileMover.move(source, target);
+    }
+
+    private static void moveFile(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        }
+        catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+            Files.move(source, target);
+        }
+    }
+
+    private void rollback(List<CommittedFile> committedFiles, List<Path> createdDirectories) {
+        IOException failure = null;
+        for (int index = committedFiles.size() - 1; index >= 0; index--) {
+            CommittedFile committedFile = committedFiles.get(index);
+            try {
+                Files.deleteIfExists(committedFile.target());
+                if (committedFile.existed() && Files.exists(committedFile.backup())) {
+                    move(committedFile.backup(), committedFile.target());
+                }
             }
             catch (IOException ex) {
-                throw new CocoCodegenException("failed to write generated file: " + plannedFile.target, ex);
+                failure = appendFailure(failure, ex);
             }
+        }
+        for (int index = createdDirectories.size() - 1; index >= 0; index--) {
+            try {
+                Files.deleteIfExists(createdDirectories.get(index));
+            }
+            catch (IOException ex) {
+                failure = appendFailure(failure, ex);
+            }
+        }
+        if (failure != null) {
+            throw new CocoCodegenException("failed to roll back generated files", failure);
+        }
+    }
+
+    private static IOException appendFailure(IOException previous, IOException next) {
+        if (previous == null) {
+            return next;
+        }
+        previous.addSuppressed(next);
+        return previous;
+    }
+
+    private static void deleteRecursively(Path path) {
+        if (path == null || !Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        try (var paths = Files.walk(path)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(current -> {
+                try {
+                    Files.deleteIfExists(current);
+                }
+                catch (IOException ignored) {
+                    // The original failure is more useful than an unremovable temporary file.
+                }
+            });
+        }
+        catch (IOException ignored) {
+            // The original failure is more useful than an unremovable temporary file.
         }
     }
 
@@ -184,5 +346,17 @@ public final class CocoGeneratedFileWriter {
     }
 
     private record PlannedFile(Path target, CocoGeneratedFile file) {
+    }
+
+    private record StagedFile(int index, Path staged, Path target) {
+    }
+
+    private record CommittedFile(Path target, Path backup, boolean existed) {
+    }
+
+    @FunctionalInterface
+    interface FileMover {
+
+        void move(Path source, Path target) throws IOException;
     }
 }

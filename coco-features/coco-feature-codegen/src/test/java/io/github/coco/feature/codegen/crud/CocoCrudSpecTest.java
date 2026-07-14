@@ -98,6 +98,17 @@ class CocoCrudSpecTest {
     }
 
     @Test
+    void rejectsJava17ReservedNamesBeforeRenderingTemplates() {
+        for (String name : List.of("_", "record", "sealed", "var", "yield")) {
+            assertThatThrownBy(() -> validSpecBuilder("Product")
+                    .field(name, "sample_" + name.replace('-', '_'), "String", false))
+                    .as(name)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("valid Java identifier");
+        }
+    }
+
+    @Test
     void rejectsInvalidOrAmbiguousSpecifications() {
         assertThatThrownBy(() -> CocoCrudSpec.builder("bad-package", "Product", "product")
                 .id("id", "id", "Long", CocoCrudIdStrategy.AUTO)
