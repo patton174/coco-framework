@@ -3,6 +3,7 @@ package io.github.coco.feature.replay.redis;
 import io.github.coco.feature.web.CocoWebAutoConfiguration;
 import io.github.coco.feature.web.replay.CocoReplayStore;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,8 +29,9 @@ public class CocoReplayRedisAutoConfiguration {
      * 创建 Redis 防重放共享存储。
      * @param connectionFactory Redis 连接工厂
      * @return Redis 防重放共享存储
-     */
+    */
     @Bean(destroyMethod = "close")
+    @ConditionalOnBean(RedisConnectionFactory.class)
     @ConditionalOnMissingBean(CocoReplayStore.class)
     public RedisCocoReplayStore redisCocoReplayStore(RedisConnectionFactory connectionFactory) {
         return new RedisCocoReplayStore(connectionFactory);

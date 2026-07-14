@@ -48,6 +48,17 @@ class CocoReplayRedisAutoConfigurationTest {
                     assertThat(context.getBean(CocoReplayStore.class)).isSameAs(customStore);
                     assertThat(context).doesNotHaveBean(RedisCocoReplayStore.class);
                     assertThat(context).doesNotHaveBean(InMemoryCocoReplayStore.class);
+        });
+    }
+
+    @Test
+    void missingConnectionFactoryLeavesDefaultMemoryStoreUntouched() {
+        this.contextRunner
+                .withPropertyValues("coco.web.replay.redis.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(RedisCocoReplayStore.class);
+                    assertThat(context).hasSingleBean(InMemoryCocoReplayStore.class);
                 });
     }
 
