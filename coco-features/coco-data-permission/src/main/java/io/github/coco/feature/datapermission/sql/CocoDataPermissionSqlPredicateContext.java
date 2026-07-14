@@ -40,15 +40,23 @@ public record CocoDataPermissionSqlPredicateContext(Table table, Expression wher
      * </p>
      */
     public CocoDataPermissionSqlPredicateContext {
-        table = Objects.requireNonNull(table, "table must not be null");
+        table = CocoDataPermissionSqlTableSnapshot.copyOf(table);
         mappedStatementId = mappedStatementId == null ? "" : mappedStatementId;
         resource = requireText(resource, "resource");
         dataPermissionContext = Objects.requireNonNull(dataPermissionContext,
                 "dataPermissionContext must not be null");
         rule = Objects.requireNonNull(rule, "rule must not be null");
-        resourceProperties = resourceProperties == null
-                ? new CocoDataPermissionSqlResourceProperties()
-                : resourceProperties;
+        resourceProperties = CocoDataPermissionSqlResourceProperties.copyOf(resourceProperties);
+    }
+
+    @Override
+    public Table table() {
+        return CocoDataPermissionSqlTableSnapshot.copyOf(this.table);
+    }
+
+    @Override
+    public CocoDataPermissionSqlResourceProperties resourceProperties() {
+        return CocoDataPermissionSqlResourceProperties.copyOf(this.resourceProperties);
     }
 
     private static String requireText(String value, String name) {

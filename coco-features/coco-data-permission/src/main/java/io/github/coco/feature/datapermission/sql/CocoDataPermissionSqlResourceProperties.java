@@ -1,6 +1,7 @@
 package io.github.coco.feature.datapermission.sql;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -34,7 +35,7 @@ public class CocoDataPermissionSqlResourceProperties {
      * @return 数据表名称集合
      */
     public List<String> getTables() {
-        return this.tables;
+        return Collections.unmodifiableList(new ArrayList<>(this.tables));
     }
 
     /**
@@ -85,5 +86,16 @@ public class CocoDataPermissionSqlResourceProperties {
      */
     public void setColumnType(CocoDataPermissionSqlColumnType columnType) {
         this.columnType = columnType == null ? CocoDataPermissionSqlColumnType.STRING : columnType;
+    }
+
+    static CocoDataPermissionSqlResourceProperties copyOf(CocoDataPermissionSqlResourceProperties source) {
+        CocoDataPermissionSqlResourceProperties copy = new CocoDataPermissionSqlResourceProperties();
+        if (source == null) {
+            return copy;
+        }
+        copy.setTables(source.getTables());
+        copy.setColumn(source.getColumn());
+        copy.setColumnType(source.getColumnType());
+        return copy;
     }
 }

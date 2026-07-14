@@ -2,6 +2,7 @@ package io.github.coco.feature.datapermission.sql;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Collections;
 
 /**
  * Coco 数据权限 SQL 接入配置。
@@ -102,7 +103,7 @@ public class CocoDataPermissionSqlProperties {
      * @return 业务资源映射配置
      */
     public Map<String, CocoDataPermissionSqlResourceProperties> getResources() {
-        return this.resources;
+        return Collections.unmodifiableMap(copyResources(this.resources));
     }
 
     /**
@@ -112,7 +113,7 @@ public class CocoDataPermissionSqlProperties {
      * @param resources 业务资源映射配置
      */
     public void setResources(Map<String, CocoDataPermissionSqlResourceProperties> resources) {
-        this.resources = resources == null ? new LinkedHashMap<>() : new LinkedHashMap<>(resources);
+        this.resources = copyResources(resources);
     }
 
     /**
@@ -124,6 +125,17 @@ public class CocoDataPermissionSqlProperties {
      */
     public CocoDataPermissionSqlResourceProperties resource(String resource) {
         CocoDataPermissionSqlResourceProperties properties = this.resources.get(resource);
-        return properties == null ? new CocoDataPermissionSqlResourceProperties() : properties;
+        return CocoDataPermissionSqlResourceProperties.copyOf(properties);
+    }
+
+    private static Map<String, CocoDataPermissionSqlResourceProperties> copyResources(
+            Map<String, CocoDataPermissionSqlResourceProperties> resources) {
+        Map<String, CocoDataPermissionSqlResourceProperties> copy = new LinkedHashMap<>();
+        if (resources == null) {
+            return copy;
+        }
+        resources.forEach((resource, properties) -> copy.put(resource,
+                CocoDataPermissionSqlResourceProperties.copyOf(properties)));
+        return copy;
     }
 }

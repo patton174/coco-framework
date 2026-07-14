@@ -34,7 +34,7 @@ public class CocoDataPermissionProperties {
      * @return 数据权限 SQL 接入配置
      */
     public CocoDataPermissionSqlProperties getSql() {
-        return this.sql;
+        return copyOf(this.sql);
     }
 
     /**
@@ -44,6 +44,18 @@ public class CocoDataPermissionProperties {
      * @param sql 数据权限 SQL 接入配置
      */
     public void setSql(CocoDataPermissionSqlProperties sql) {
-        this.sql = sql == null ? new CocoDataPermissionSqlProperties() : sql;
+        this.sql = copyOf(sql);
+    }
+
+    private static CocoDataPermissionSqlProperties copyOf(CocoDataPermissionSqlProperties source) {
+        CocoDataPermissionSqlProperties copy = new CocoDataPermissionSqlProperties();
+        if (source == null) {
+            return copy;
+        }
+        copy.setEnabled(source.isEnabled());
+        copy.setMissingContextPolicy(source.getMissingContextPolicy());
+        copy.setMissingRulePolicy(source.getMissingRulePolicy());
+        copy.setResources(source.getResources());
+        return copy;
     }
 }

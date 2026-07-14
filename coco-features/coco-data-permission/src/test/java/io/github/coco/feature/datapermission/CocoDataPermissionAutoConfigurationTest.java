@@ -1,13 +1,17 @@
 package io.github.coco.feature.datapermission;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.DataPermissionInterceptor;
@@ -26,6 +30,8 @@ import io.github.coco.feature.datapermission.sql.CocoDataPermissionMissingContex
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionMissingRulePolicy;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlColumnType;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlProperties;
+import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlPredicateContext;
+import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlResourceContext;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlResourceProperties;
 import io.github.coco.feature.datapermission.sql.DefaultCocoDataPermissionSqlPredicateProvider;
 import io.github.coco.feature.datapermission.sql.PropertyCocoDataPermissionSqlResourceResolver;
@@ -172,6 +178,51 @@ class CocoDataPermissionAutoConfigurationTest {
     }
 
     @Test
+    void keepsSqlPropertySnapshotsIndependentFromConfiguredResourceValues() {
+        CocoDataPermissionSqlResourceProperties resource = new CocoDataPermissionSqlResourceProperties();
+        resource.setTables(List.of("sample_order"));
+        resource.setColumn("dept_id");
+        CocoDataPermissionSqlProperties sql = new CocoDataPermissionSqlProperties();
+        sql.setResources(Map.of("sample-order", resource));
+        CocoDataPermissionProperties properties = new CocoDataPermissionProperties();
+        properties.setSql(sql);
+
+        resource.setColumn("changed_column");
+        sql.setMissingRulePolicy(CocoDataPermissionMissingRulePolicy.IGNORE);
+        CocoDataPermissionSqlProperties snapshot = properties.getSql();
+
+        assertThat(snapshot.resource("sample-order").getColumn()).isEqualTo("dept_id");
+        assertThat(snapshot.getMissingRulePolicy()).isEqualTo(CocoDataPermissionMissingRulePolicy.DENY);
+        assertThatThrownBy(() -> snapshot.getResources().put("other", resource))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> snapshot.resource("sample-order").getTables().add("other_table"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void keepsSqlContextSnapshotsIndependentFromMutableParserInputs() {
+        Table table = new Table("tenant_a", "sample_order");
+        table.setAlias(new Alias("o"));
+        CocoDataPermissionSqlResourceProperties resource = new CocoDataPermissionSqlResourceProperties();
+        resource.setTables(List.of("tenant_a.sample_order"));
+        resource.setColumn("dept_id");
+        CocoDataPermissionSqlResourceContext resourceContext =
+                new CocoDataPermissionSqlResourceContext(table, "SampleMapper.selectOrders");
+        CocoDataPermissionSqlPredicateContext predicateContext = new CocoDataPermissionSqlPredicateContext(table, null,
+                "SampleMapper.selectOrders", "sample-order", CocoDataPermissionContext.empty(),
+                CocoDataPermissionRule.all("sample-order"), resource);
+
+        table.setName("changed_table");
+        resource.setColumn("changed_column");
+        resourceContext.table().setName("changed_again");
+        predicateContext.resourceProperties().setColumn("changed_again");
+
+        assertThat(resourceContext.table().getFullyQualifiedName()).isEqualTo("tenant_a.sample_order");
+        assertThat(predicateContext.table().getAlias().getName()).isEqualTo("o");
+        assertThat(predicateContext.resourceProperties().getColumn()).isEqualTo("dept_id");
+    }
+
+    @Test
     void handlerCreatesPredicateForMatchedResourceRule() {
         CocoDataPermissionSqlProperties properties = sqlProperties();
         CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
@@ -220,7 +271,7 @@ class CocoDataPermissionAutoConfigurationTest {
     @Test
     void handlerCreatesNumericPredicateForLongColumn() {
         CocoDataPermissionSqlProperties properties = sqlProperties();
-        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.LONG);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.LONG));
         CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
                 new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, Set.of("10", "20"))));
         CocoMybatisPlusDataPermissionHandler handler = handler(properties, () -> Optional.of(context));
@@ -235,7 +286,7 @@ class CocoDataPermissionAutoConfigurationTest {
     @Test
     void handlerDeniesWhenLongColumnValueIsInvalid() {
         CocoDataPermissionSqlProperties properties = sqlProperties();
-        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.LONG);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.LONG));
         CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
                 new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, Set.of("D1"))));
         CocoMybatisPlusDataPermissionHandler handler = handler(properties, () -> Optional.of(context));
@@ -249,18 +300,17 @@ class CocoDataPermissionAutoConfigurationTest {
     @Test
     void handlerCreatesPredicatesForExplicitIntegerDecimalAndBooleanColumns() {
         CocoDataPermissionSqlProperties properties = sqlProperties();
-        CocoDataPermissionSqlResourceProperties resource = properties.resource("sample-order");
         Table table = new Table("sample_order");
         table.setAlias(new Alias("o"));
 
-        resource.setColumnType(CocoDataPermissionSqlColumnType.INTEGER);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.INTEGER));
         assertThat(predicate(properties, Set.of("10", "20"), table).toString()).isEqualTo("o.dept_id IN (10, 20)");
 
-        resource.setColumnType(CocoDataPermissionSqlColumnType.DECIMAL);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.DECIMAL));
         assertThat(predicate(properties, Set.of("1.25", "2.5"), table).toString())
                 .isEqualTo("o.dept_id IN (1.25, 2.5)");
 
-        resource.setColumnType(CocoDataPermissionSqlColumnType.BOOLEAN);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.BOOLEAN));
         assertThat(predicate(properties, Set.of("true", "false"), table).toString())
                 .isEqualTo("o.dept_id IN (FALSE, TRUE)");
     }
@@ -271,15 +321,15 @@ class CocoDataPermissionAutoConfigurationTest {
         Table table = new Table("sample_order");
 
         for (CocoDataPermissionSqlColumnType columnType : CocoDataPermissionSqlColumnType.values()) {
-            properties.resource("sample-order").setColumnType(columnType);
+            updateSampleOrderResource(properties, resource -> resource.setColumnType(columnType));
             assertThat(predicate(properties, Set.of(""), table).toString()).isEqualTo("1 = 0");
         }
-        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.INTEGER);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.INTEGER));
         assertThat(predicate(properties, Set.of("1 OR 1 = 1"), table).toString()).isEqualTo("1 = 0");
         assertThat(predicate(properties, Set.of("2147483648"), table).toString()).isEqualTo("1 = 0");
-        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.DECIMAL);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.DECIMAL));
         assertThat(predicate(properties, Set.of("1.2.3"), table).toString()).isEqualTo("1 = 0");
-        properties.resource("sample-order").setColumnType(CocoDataPermissionSqlColumnType.BOOLEAN);
+        updateSampleOrderResource(properties, resource -> resource.setColumnType(CocoDataPermissionSqlColumnType.BOOLEAN));
         assertThat(predicate(properties, Set.of("yes"), table).toString()).isEqualTo("1 = 0");
 
         CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
@@ -329,7 +379,7 @@ class CocoDataPermissionAutoConfigurationTest {
     @Test
     void handlerMatchesSchemaQualifiedResourceTable() {
         CocoDataPermissionSqlProperties properties = sqlProperties();
-        properties.resource("sample-order").setTables(java.util.List.of("tenant_a.sample_order"));
+        updateSampleOrderResource(properties, resource -> resource.setTables(List.of("tenant_a.sample_order")));
         CocoDataPermissionContext context = CocoDataPermissionContext.of(Set.of(
                 new CocoDataPermissionRule("sample-order", CocoDataScope.CUSTOM, Set.of("D1"))));
         CocoMybatisPlusDataPermissionHandler handler = handler(properties, () -> Optional.of(context));
@@ -381,7 +431,16 @@ class CocoDataPermissionAutoConfigurationTest {
         resource.setTables(java.util.List.of("sample_order"));
         resource.setColumn("dept_id");
         CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
-        properties.getResources().put("sample-order", resource);
+        properties.setResources(Map.of("sample-order", resource));
         return properties;
+    }
+
+    private static void updateSampleOrderResource(CocoDataPermissionSqlProperties properties,
+            Consumer<CocoDataPermissionSqlResourceProperties> customization) {
+        CocoDataPermissionSqlResourceProperties resource = properties.resource("sample-order");
+        customization.accept(resource);
+        Map<String, CocoDataPermissionSqlResourceProperties> resources = new LinkedHashMap<>(properties.getResources());
+        resources.put("sample-order", resource);
+        properties.setResources(resources);
     }
 }
