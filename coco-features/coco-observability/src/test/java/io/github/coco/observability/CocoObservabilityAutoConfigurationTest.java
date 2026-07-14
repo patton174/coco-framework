@@ -5,14 +5,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
 import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
+import io.github.coco.logging.core.AsyncCocoLogSink;
 import io.github.coco.logging.core.CocoAsyncLogDropListener;
+import io.github.coco.logging.core.CocoLogHandle;
 import io.github.coco.logging.core.CocoLogLevel;
+import io.github.coco.logging.core.CocoLogRecord;
+import io.github.coco.logging.core.CocoLogSink;
+import io.github.coco.observability.logging.CocoObservabilityAsyncLogDropListener;
 import io.github.coco.observability.actuator.CocoActuatorHealthEndpoint;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.actuate.info.Info;
 import org.springframework.boot.actuate.info.InfoContributor;
@@ -26,6 +35,11 @@ class CocoObservabilityAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CocoObservabilityAutoConfiguration.class))
+            .withUserConfiguration(MeterRegistryConfiguration.class);
+
+    private final ApplicationContextRunner standardLoggingContextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(CocoObservabilityAutoConfiguration.class,
+                    CocoObservabilityLoggingAutoConfiguration.class, CocoCommonLoggingAutoConfiguration.class))
             .withUserConfiguration(MeterRegistryConfiguration.class);
 
     @Test
@@ -42,7 +56,7 @@ class CocoObservabilityAutoConfigurationTest {
                     .build());
             context.getBean(CocoReplayObservation.class).record(CocoObservationOutcome.DUPLICATE);
             context.getBean(CocoRateLimitObservation.class).record(CocoObservationOutcome.REJECTED);
-            context.getBean(CocoAsyncLogDropListener.class).onDropped(CocoLogLevel.INFO, "request-9842", 1L);
+            context.getBean(CocoLogOverflowObservation.class).recordDrop();
 
             assertThat(meterRegistry.get("coco.audit.events").tag("outcome", "failure").counter().count()).isEqualTo(1.0);
             assertThat(meterRegistry.get("coco.replay.reservations").tag("outcome", "duplicate").counter().count())
@@ -57,6 +71,34 @@ class CocoObservabilityAutoConfigurationTest {
                     .containsOnly("outcome"));
             assertThat(meterIds).allSatisfy(id -> assertThat(id.getTags()).extracting(tag -> tag.getValue())
                     .doesNotContain("tenant-secret", "user-9842", "secret", "request-9842"));
+        });
+    }
+
+    @Test
+    void collapsesHighCardinalityAndSensitiveAuditInputsIntoBoundedMeters() {
+        this.contextRunner.run(context -> {
+            SimpleMeterRegistry meterRegistry = context.getBean(SimpleMeterRegistry.class);
+            CocoAuditRecorder auditRecorder = context.getBean("cocoObservabilityAuditRecorder", CocoAuditRecorder.class);
+            for (int index = 0; index < 128; index++) {
+                auditRecorder.record(CocoAuditEvent.builder("operation-" + index)
+                        .actor("user-" + index)
+                        .tenantId("tenant-" + index)
+                        .resourceId("/customers/" + index + "?nonce=nonce-" + index)
+                        .traceId("trace-" + index)
+                        .attribute("authorization", "Bearer key-" + index)
+                        .success(index % 2 == 0)
+                        .build());
+            }
+
+            List<Meter.Id> auditMeters = meterRegistry.find("coco.audit.events").meters().stream()
+                    .map(Meter::getId)
+                    .toList();
+            assertThat(auditMeters).hasSize(2);
+            assertThat(auditMeters).allSatisfy(id -> assertThat(id.getTags()).extracting(tag -> tag.getKey())
+                    .containsOnly("outcome"));
+            assertThat(auditMeters).extracting(id -> id.getTag("outcome")).containsExactlyInAnyOrder("success", "failure");
+            assertThat(auditMeters).allSatisfy(id -> assertThat(id.getTags()).extracting(tag -> tag.getValue())
+                    .doesNotContain("user-0", "tenant-0", "nonce-0", "trace-0", "Bearer key-0"));
         });
     }
 
@@ -100,6 +142,104 @@ class CocoObservabilityAutoConfigurationTest {
                 });
     }
 
+    @Test
+    void keepsMetricsAvailableWithoutActuatorButDoesNotCreateEndpointBeans() {
+        this.contextRunner.withClassLoader(new FilteredClassLoader("org.springframework.boot.actuate"))
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoObservationRecorder.class);
+                    assertThat(context.getBeanFactory().containsBean("cocoObservabilityHealthEndpoint")).isFalse();
+                    assertThat(context.getBeanFactory().containsBean("cocoObservabilityInfoContributor")).isFalse();
+                });
+    }
+
+    @Test
+    void disablesActuatorEndpointExposureWhenBothEndpointFlagsAreFalse() {
+        this.contextRunner.withPropertyValues(
+                "coco.observability.health.enabled=false",
+                "coco.observability.info.enabled=false")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(CocoObservationRecorder.class);
+                    assertThat(context.getBeanFactory().containsBean("cocoObservabilityHealthEndpoint")).isFalse();
+                    assertThat(context.getBeanFactory().containsBean("cocoObservabilityInfoContributor")).isFalse();
+                });
+    }
+
+    @Test
+    void backsOffForCustomObservationRecorderAndLogDropListener() {
+        CustomObservationConfiguration.recordCount.set(0);
+        CustomLogListenerConfiguration.dropCount.set(0);
+        this.contextRunner.withUserConfiguration(CustomObservationConfiguration.class, CustomLogListenerConfiguration.class)
+                .run(context -> {
+                    assertThat(context.getBean(CocoObservationRecorder.class))
+                            .isInstanceOf(CustomObservationConfiguration.RecordingObservationRecorder.class);
+                    context.getBean(CocoReplayObservation.class).record(CocoObservationOutcome.ACCEPTED);
+                    context.getBean(CocoAsyncLogDropListener.class).onDropped(CocoLogLevel.INFO, "ignored-handle", 1L);
+
+                    assertThat(CustomObservationConfiguration.recordCount).hasValue(1);
+                    assertThat(CustomLogListenerConfiguration.dropCount).hasValue(1);
+                    assertThat(context.getBean(SimpleMeterRegistry.class).find("coco.replay.reservations").meters())
+                            .isEmpty();
+                });
+    }
+
+    @Test
+    void disablesOnlyAuditBinderWithoutDisablingOtherObservationSpis() {
+        this.contextRunner.withPropertyValues("coco.observability.metrics.audit-enabled=false")
+                .run(context -> {
+                    assertThat(context.getBeanFactory().containsBean("cocoObservabilityAuditRecorder")).isFalse();
+                    assertThat(context).hasSingleBean(CocoReplayObservation.class)
+                            .hasSingleBean(CocoRateLimitObservation.class)
+                            .hasSingleBean(CocoLogOverflowObservation.class);
+                });
+    }
+
+    @Test
+    void composesWithStandardLoggingAutoConfigurationAndCountsEachRealDropOnce() throws Exception {
+        this.standardLoggingContextRunner.run(context -> {
+            CocoAsyncLogDropListener listener = context.getBean(CocoAsyncLogDropListener.class);
+            assertThat(listener).isInstanceOf(CocoObservabilityAsyncLogDropListener.class);
+
+            CountDownLatch delegateStarted = new CountDownLatch(1);
+            CountDownLatch releaseDelegate = new CountDownLatch(1);
+            CocoLogSink blockingDelegate = record -> {
+                delegateStarted.countDown();
+                try {
+                    releaseDelegate.await();
+                }
+                catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            CocoLogRecord record = new CocoLogRecord(CocoLogHandle.of("test", "test", CocoLogLevel.INFO),
+                    CocoLogLevel.INFO, "untrusted-body", null);
+            AsyncCocoLogSink sink = new AsyncCocoLogSink(blockingDelegate, 1, listener);
+            try {
+                sink.log(record);
+                assertThat(delegateStarted.await(5, TimeUnit.SECONDS)).isTrue();
+                sink.log(record);
+                sink.log(record);
+                assertThat(context.getBean(SimpleMeterRegistry.class).get("coco.logging.dropped")
+                        .tag("outcome", "dropped").counter().count()).isEqualTo(1.0);
+            }
+            finally {
+                releaseDelegate.countDown();
+                sink.close();
+            }
+        });
+    }
+
+    @Test
+    void standardLoggingAutoConfigurationKeepsUserLogListenerOverride() {
+        CustomLogListenerConfiguration.dropCount.set(0);
+        this.standardLoggingContextRunner.withUserConfiguration(CustomLogListenerConfiguration.class).run(context -> {
+            CocoAsyncLogDropListener listener = context.getBean(CocoAsyncLogDropListener.class);
+            assertThat(listener).isSameAs(CustomLogListenerConfiguration.listener);
+            listener.onDropped(CocoLogLevel.INFO, "custom", 1L);
+            assertThat(CustomLogListenerConfiguration.dropCount).hasValue(1);
+            assertThat(context.getBean(SimpleMeterRegistry.class).find("coco.logging.dropped").meters()).isEmpty();
+        });
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class MeterRegistryConfiguration {
 
@@ -124,6 +264,38 @@ class CocoObservabilityAutoConfigurationTest {
         @Bean(name = "cocoObservabilityHealthEndpoint")
         CocoActuatorHealthEndpoint replacementHealthEndpoint() {
             return new CocoActuatorHealthEndpoint(() -> Map.of("replacement", true));
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomObservationConfiguration {
+
+        static final AtomicInteger recordCount = new AtomicInteger();
+
+        @Bean
+        CocoObservationRecorder customObservationRecorder() {
+            return new RecordingObservationRecorder();
+        }
+
+        static final class RecordingObservationRecorder implements CocoObservationRecorder {
+
+            @Override
+            public void record(CocoObservationKind kind, CocoObservationOutcome outcome) {
+                recordCount.incrementAndGet();
+            }
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomLogListenerConfiguration {
+
+        static final AtomicInteger dropCount = new AtomicInteger();
+
+        static final CocoAsyncLogDropListener listener = (level, handleName, totalDropped) -> dropCount.incrementAndGet();
+
+        @Bean
+        CocoAsyncLogDropListener customLogDropListener() {
+            return listener;
         }
     }
 }

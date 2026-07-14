@@ -107,23 +107,6 @@ public class CocoObservabilityAutoConfiguration {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(name = {
-            "io.github.coco.logging.core.CocoAsyncLogDropListener",
-            "io.github.coco.logging.core.CocoLogLevel" })
-    static class LoggingMetricsConfiguration {
-
-        @Bean
-        @ConditionalOnBean(type = "io.micrometer.core.instrument.MeterRegistry")
-        @ConditionalOnMissingBean(type = "io.github.coco.logging.core.CocoAsyncLogDropListener")
-        @ConditionalOnProperty(prefix = "coco.observability.metrics", name = { "enabled", "log-overflow-enabled" },
-                havingValue = "true", matchIfMissing = true)
-        io.github.coco.logging.core.CocoAsyncLogDropListener cocoObservabilityAsyncLogDropListener(
-                CocoLogOverflowObservation observation) {
-            return new io.github.coco.observability.logging.CocoObservabilityAsyncLogDropListener(observation);
-        }
-    }
-
-    @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.boot.actuate.endpoint.annotation.Endpoint")
     static class ActuatorEndpointConfiguration {
 

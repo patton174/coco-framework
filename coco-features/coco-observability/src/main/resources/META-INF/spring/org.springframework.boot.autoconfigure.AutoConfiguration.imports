@@ -1,1 +1,2 @@
 io.github.coco.observability.CocoObservabilityAutoConfiguration
+io.github.coco.observability.CocoObservabilityLoggingAutoConfiguration

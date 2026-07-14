@@ -27,6 +27,10 @@ exception text, log handle, log body, or arbitrary audit attributes. The default
 Audit uses the existing `CocoAuditRecorder` composition point. The observability recorder is ordered after Coco audit
 auto-configuration so the standard audit recorder remains available; the composite publisher sees both recorders.
 Async logging uses the existing `CocoAsyncLogDropListener` hook and preserves the normal SLF4J overflow diagnostic.
+The logging-only auto-configuration is ordered before `CocoCommonLoggingAutoConfiguration`: with no business listener,
+it becomes the single listener and the standard default backs off. A business supplied listener is discovered first and
+prevents both defaults from being created. The composed listener looks up the metric observation lazily, so it receives
+each confirmed drop once without introducing an auto-configuration ordering cycle.
 
 There is no replay result hook and no rate-limiter event source in the baseline. The module therefore provides
 `CocoReplayObservation` and `CocoRateLimitObservation` small adapter SPIs. A replay store/filter or rate limiter must
