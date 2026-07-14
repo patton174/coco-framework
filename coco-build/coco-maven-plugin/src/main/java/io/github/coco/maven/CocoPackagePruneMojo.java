@@ -7,6 +7,9 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -178,9 +181,13 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
                 if (pruneEntryNames.isEmpty()) {
                     return 0;
                 }
+                byte[] prefix = CocoExecutableArchive.readPrefix(archivePath);
+                Set<PosixFilePermission> permissions = posixPermissions(archivePath);
                 temporaryPath = Files.createTempFile(archivePath.getParent(),
                         archivePath.getFileName().toString(), ".tmp");
-                try (JarOutputStream target = new JarOutputStream(Files.newOutputStream(temporaryPath))) {
+                try (OutputStream outputStream = Files.newOutputStream(temporaryPath)) {
+                    outputStream.write(prefix);
+                    try (JarOutputStream target = new JarOutputStream(outputStream)) {
                     var entries = source.entries();
                     while (entries.hasMoreElements()) {
                         JarEntry entry = entries.nextElement();
@@ -200,16 +207,55 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
                         }
                         target.closeEntry();
                     }
+                    }
+                }
+                CocoExecutableArchive.relocateOffsets(temporaryPath, prefix.length);
+                verifyReadableArchive(temporaryPath);
+                if (permissions != null) {
+                    Files.setPosixFilePermissions(temporaryPath, permissions);
                 }
             }
             backupOriginalArchive(archivePath);
-            Files.move(temporaryPath, archivePath, StandardCopyOption.REPLACE_EXISTING);
+            replaceArchive(temporaryPath, archivePath);
             return removed;
         }
         finally {
             if (temporaryPath != null) {
                 Files.deleteIfExists(temporaryPath);
             }
+        }
+    }
+
+    private Set<PosixFilePermission> posixPermissions(Path archivePath) throws IOException {
+        PosixFileAttributeView view = Files.getFileAttributeView(archivePath, PosixFileAttributeView.class);
+        return view == null ? null : view.readAttributes().permissions();
+    }
+
+    private void verifyReadableArchive(Path archivePath) throws IOException {
+        try (JarFile ignored = new JarFile(archivePath.toFile())) {
+            // Opening the archive verifies prefix relocation before the original is replaced.
+        }
+    }
+
+    private void replaceArchive(Path temporaryPath, Path archivePath) throws IOException {
+        try {
+            Files.move(temporaryPath, archivePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            return;
+        }
+        catch (AtomicMoveNotSupportedException ex) {
+            // Windows and some network filesystems do not provide an atomic replacement primitive.
+        }
+        try {
+            Files.move(temporaryPath, archivePath, StandardCopyOption.REPLACE_EXISTING);
+        }
+        catch (IOException ex) {
+            try {
+                Files.copy(originalArchivePath(archivePath), archivePath, StandardCopyOption.REPLACE_EXISTING);
+            }
+            catch (IOException rollbackFailure) {
+                ex.addSuppressed(rollbackFailure);
+            }
+            throw ex;
         }
     }
 
