@@ -131,9 +131,6 @@ public final class CocoGeneratedFileWriter {
             if (!target.startsWith(root)) {
                 throw new CocoCodegenException("generated path escapes output directory: " + checkedFile.path());
             }
-            if (CocoOutputRootLock.isStatePath(root, target)) {
-                throw new CocoCodegenException("generated path is reserved for codegen state: " + checkedFile.path());
-            }
             PlannedFile previous = plannedFiles.putIfAbsent(target, new PlannedFile(target, checkedFile));
             if (previous != null) {
                 throw new CocoCodegenException("duplicate generated output: " + normalizedPath);

@@ -19,6 +19,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -172,7 +174,7 @@ class CocoGeneratedFileWriterTest {
     }
 
     @Test
-    void reportsLockHeldByAnotherJvmWithDifferentTempDirectories() throws Exception {
+    void reportsLockHeldByAnotherJvmWithDifferentTempAndHomeDirectories() throws Exception {
         Path output = this.tempDirectory.resolve("cross-process-lock");
         Path ready = this.tempDirectory.resolve("cross-process.ready");
         Path release = this.tempDirectory.resolve("cross-process.release");
@@ -202,7 +204,7 @@ class CocoGeneratedFileWriterTest {
     }
 
     @Test
-    void recoveryMarkerIsVisibleToJvmWithDifferentTempDirectory() throws Exception {
+    void recoveryMarkerIsVisibleToJvmWithDifferentTempAndHomeDirectories() throws Exception {
         Path output = this.tempDirectory.resolve("cross-temp-recovery");
         Path foreignTemp = Files.createDirectories(this.tempDirectory.resolve("foreign-jvm-temp"));
         Path marker = CocoOutputRootLock.recoveryMarkerPath(output);
@@ -212,7 +214,8 @@ class CocoGeneratedFileWriterTest {
             assertThat(checker.waitFor(10, TimeUnit.SECONDS)).isTrue();
             assertThat(checker.exitValue()).isEqualTo(3);
             assertThat(readProcessOutput(checker)).contains("recovery is required");
-            assertThat(marker).startsWith(output.resolve(".coco-codegen"));
+            assertThat(marker).startsWith(output.getParent().resolve(".coco-codegen-state").toRealPath());
+            assertThat(marker.startsWith(output.toRealPath())).isFalse();
         }
         finally {
             Files.deleteIfExists(marker);
@@ -291,6 +294,101 @@ class CocoGeneratedFileWriterTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void realWindowsShortNameAliasesShareExternalStateAndLock() throws Exception {
+        Path parent = Files.createDirectories(this.tempDirectory.resolve("short-name-parent"));
+        Path output = Files.createDirectory(parent.resolve("coco-output-root-long-name"));
+        Path shortOutput = parent.resolve(requireWindowsShortName(output));
+        assertThat(Files.isSameFile(output, shortOutput)).isTrue();
+
+        Path lockFile = CocoOutputRootLock.lockFilePath(output);
+        Path lockFileByOutputAlias = CocoOutputRootLock.lockFilePath(shortOutput);
+        assertThat(lockFileByOutputAlias).isEqualTo(lockFile);
+        Path statePartition = lockFile.getParent();
+        Path stateRoot = statePartition.getParent();
+        assertThat(stateRoot.getParent()).isEqualTo(output.toRealPath().getParent());
+        assertThat(stateRoot.startsWith(output.toRealPath())).isFalse();
+
+        Path shortStateRoot = parent.resolve(requireWindowsShortName(stateRoot));
+        Path lockFileByStateAlias = shortStateRoot.resolve(statePartition.getFileName()).resolve("writer.lock");
+        String aliasTarget = "../" + shortStateRoot.getFileName() + "/"
+                + statePartition.getFileName() + "/writer.lock";
+        CocoCodegenResult aliasResult = CocoCodegenResult.of(List.of(
+                new CocoGeneratedFile(aliasTarget, "replacement")));
+        assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(output, aliasResult,
+                new CocoGeneratedFileWriteOptions(false, true)))
+                .isInstanceOf(CocoCodegenException.class)
+                .hasMessageContaining("must not traverse outside");
+
+        Path ready = parent.resolve("short-name.ready");
+        Path release = parent.resolve("short-name.release");
+        Path holderRuntime = Files.createDirectories(parent.resolve("holder-runtime"));
+        Path contenderRuntime = Files.createDirectories(parent.resolve("contender-runtime"));
+        Process holder = startLockProcess(holderRuntime, "hold", output.toString(),
+                ready.toString(), release.toString());
+        try {
+            assertThat(awaitExists(ready, holder, 10, TimeUnit.SECONDS))
+                    .withFailMessage(() -> readProcessOutput(holder))
+                    .isTrue();
+            assertThat(Files.isSameFile(lockFile, lockFileByStateAlias)).isTrue();
+            assertThat(Files.isSameFile(shortOutput.resolve(aliasTarget).normalize(), lockFile)).isTrue();
+
+            assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(shortOutput, aliasResult,
+                    new CocoGeneratedFileWriteOptions(true, false)))
+                    .isInstanceOf(CocoCodegenException.class)
+                    .hasMessageContaining("must not traverse outside");
+
+            Process contender = startLockProcess(contenderRuntime, "try", shortOutput.toString());
+            assertThat(contender.waitFor(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(contender.exitValue()).isEqualTo(2);
+            assertThat(readProcessOutput(contender)).contains("locked by another process");
+        }
+        finally {
+            Files.writeString(release, "release");
+            if (!holder.waitFor(10, TimeUnit.SECONDS)) {
+                holder.destroyForcibly();
+                holder.waitFor(10, TimeUnit.SECONDS);
+            }
+        }
+        assertThat(holder.exitValue()).isZero();
+        assertThat(lockFile).exists();
+
+        Path marker = CocoOutputRootLock.recoveryMarkerPath(output);
+        assertThat(CocoOutputRootLock.recoveryMarkerPath(shortOutput)).isEqualTo(marker);
+        Files.writeString(marker, "recovery-required");
+        try {
+            Path checkerRuntime = Files.createDirectories(parent.resolve("checker-runtime"));
+            Process checker = startLockProcess(checkerRuntime, "check-marker", shortOutput.toString());
+            assertThat(checker.waitFor(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(checker.exitValue()).isEqualTo(3);
+            assertThat(readProcessOutput(checker)).contains("recovery is required");
+        }
+        finally {
+            Files.deleteIfExists(marker);
+        }
+    }
+
+    @Test
+    void rejectsFilesystemRootAsOutputDirectory() {
+        Path filesystemRoot = this.tempDirectory.toAbsolutePath().getRoot();
+        CocoCodegenResult result = CocoCodegenResult.of(List.of(new CocoGeneratedFile("value.txt", "value")));
+
+        assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(filesystemRoot, result))
+                .isInstanceOf(CocoCodegenException.class)
+                .hasMessageContaining("filesystem root cannot be used");
+    }
+
+    @Test
+    void rejectsSharedStateRootAsOutputDirectory() {
+        Path output = this.tempDirectory.resolve(".coco-codegen-state");
+        CocoCodegenResult result = CocoCodegenResult.of(List.of(new CocoGeneratedFile("value.txt", "value")));
+
+        assertThatThrownBy(() -> new CocoGeneratedFileWriter().write(output, result))
+                .isInstanceOf(CocoCodegenException.class)
+                .hasMessageContaining("state root must be outside output root");
+    }
+
+    @Test
     void dryRunCreatesNoDirectoriesOrFiles() {
         Path output = this.tempDirectory.resolve("dry-run");
         CocoCodegenResult result = CocoCodegenResult.of(List.of(
@@ -329,13 +427,22 @@ class CocoGeneratedFileWriterTest {
                 new CocoGeneratedFileWriteOptions(false, true)))
                 .isInstanceOf(CocoCodegenException.class)
                 .hasMessageContaining("duplicate generated output");
+    }
 
-        CocoCodegenResult reservedState = CocoCodegenResult.of(List.of(
-                new CocoGeneratedFile(".coco-codegen/owned.txt", "value")));
-        assertThatThrownBy(() -> writer.write(this.tempDirectory, reservedState,
-                new CocoGeneratedFileWriteOptions(false, true)))
-                .isInstanceOf(CocoCodegenException.class)
-                .hasMessageContaining("reserved for codegen state");
+    private static String requireWindowsShortName(Path directory) throws Exception {
+        Process process = new ProcessBuilder("cmd.exe", "/d", "/c", "dir", "/x", "/a:d",
+                directory.getParent().toString())
+                .redirectErrorStream(true)
+                .start();
+        String commandOutput = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exitCode = process.waitFor();
+        Assumptions.assumeTrue(exitCode == 0, () -> "dir /x unavailable: " + commandOutput);
+
+        Pattern entry = Pattern.compile("(?im)^.*\\s(\\S*~\\S*)\\s+"
+                + Pattern.quote(directory.getFileName().toString()) + "\\s*$");
+        Matcher matcher = entry.matcher(commandOutput);
+        Assumptions.assumeTrue(matcher.find(), () -> "8.3 short name unavailable: " + commandOutput);
+        return matcher.group(1);
     }
 
     private static Properties loadProperties(Path path) throws IOException {
@@ -374,9 +481,11 @@ class CocoGeneratedFileWriterTest {
         String javaExecutable = Path.of(System.getProperty("java.home"), "bin",
                 System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java").toString();
         String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        Path homeDirectory = Files.createDirectories(tempDirectory.resolve("home"));
         List<String> command = new java.util.ArrayList<>();
         command.add(javaExecutable);
         command.add("-Djava.io.tmpdir=" + tempDirectory);
+        command.add("-Duser.home=" + homeDirectory);
         command.add("-cp");
         command.add(classpath);
         command.add(CocoOutputRootLockProcess.class.getName());
