@@ -111,6 +111,32 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
+    void featureSelectionSnapshotsInputsAndExposesImmutableRecordComponents() {
+        EnumSet<CocoFeature> enabled = EnumSet.of(CocoFeature.WEB);
+        EnumSet<CocoFeature> disabled = EnumSet.of(CocoFeature.TENANT);
+
+        CocoFeatureSelection selection = CocoFeatureSelection.of(enabled, disabled);
+        enabled.add(CocoFeature.AUDIT);
+        disabled.clear();
+
+        assertEquals(Set.of(CocoFeature.WEB), selection.enabled());
+        assertEquals(Set.of(CocoFeature.TENANT), selection.disabled());
+        assertThrows(UnsupportedOperationException.class,
+                () -> selection.enabled().add(CocoFeature.AUDIT));
+        assertThrows(UnsupportedOperationException.class,
+                () -> selection.disabled().remove(CocoFeature.TENANT));
+    }
+
+    @Test
+    void preservesFeatureSelectionRecordShape() throws NoSuchMethodException {
+        assertEquals(List.of("enabled", "disabled"), recordComponentNames(CocoFeatureSelection.class));
+        assertEquals(List.of(Set.class, Set.class), recordComponentTypes(CocoFeatureSelection.class));
+        assertEquals(1, CocoFeatureSelection.class.getDeclaredConstructors().length);
+        assertEquals(2, CocoFeatureSelection.class.getDeclaredConstructor(Set.class, Set.class)
+                .getParameterCount());
+    }
+
+    @Test
     void disablesOnlyFeaturesThatDependOnDisabledMybatisPlus() {
         Set<CocoFeature> enabled = StandardCocoFeatures.resolveEnabledFeatures(Set.of(CocoFeature.MYBATIS_PLUS));
 
