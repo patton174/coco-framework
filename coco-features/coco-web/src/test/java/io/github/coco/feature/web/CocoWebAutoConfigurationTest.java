@@ -269,7 +269,7 @@ class CocoWebAutoConfigurationTest {
             assertTrue(bodyRegistration.getOrder() < traceRegistration.getOrder());
             assertTrue(traceRegistration.getOrder() < replayRequestShapeRegistration.getOrder());
             assertTrue(replayRequestShapeRegistration.getOrder() < signatureRegistration.getOrder());
-            assertTrue(signatureRegistration.getOrder() < encryptionRegistration.getOrder());
+            assertTrue(encryptionRegistration.getOrder() < signatureRegistration.getOrder());
             assertTrue(encryptionRegistration.getOrder() < replayRegistration.getOrder());
             assertEquals(Ordered.HIGHEST_PRECEDENCE + 5, replayRegistration.getOrder());
         });
