@@ -98,6 +98,35 @@ class CocoCrudSpecTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void validatesIdentifiersWithSourceVersionAndSupportsSupplementaryUnicode() {
+        String supplementaryLowercaseLetter = "\uD801\uDC28";
+        String supplementaryUppercaseLetter = "\uD801\uDC00";
+        CocoCrudSpec spec = CocoCrudSpec.builder("com.example." + supplementaryLowercaseLetter,
+                        supplementaryLowercaseLetter + "Product", "sample")
+                .id("id", "id", "Long", CocoCrudIdStrategy.AUTO)
+                .field(supplementaryLowercaseLetter + "name", "sample_name", "String", false)
+                .build();
+        Map<String, Object> model = (Map<String, Object>) spec.toRequest().attributes()
+                .get(CocoCrudSpec.MODEL_ATTRIBUTE);
+
+        assertThat(spec.basePackage()).isEqualTo("com.example." + supplementaryLowercaseLetter);
+        assertThat(spec.resourceName()).isEqualTo(supplementaryUppercaseLetter + "Product");
+        assertThat(spec.apiPath()).isEqualTo("/" + supplementaryLowercaseLetter + "-products");
+        assertThat(model)
+                .containsEntry("resourceVariable", supplementaryLowercaseLetter + "Product")
+                .containsEntry("resourcePackage", supplementaryLowercaseLetter + "product");
+
+        for (String name : List.of("_", "class", "bad-name")) {
+            assertThatThrownBy(() -> validSpecBuilder("Product")
+                    .field(name, "sample_name", "String", false))
+                    .as(name)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("valid Java identifier");
+        }
+    }
+
+    @Test
     void rejectsInvalidOrAmbiguousSpecifications() {
         assertThatThrownBy(() -> CocoCrudSpec.builder("bad-package", "Product", "product")
                 .id("id", "id", "Long", CocoCrudIdStrategy.AUTO)

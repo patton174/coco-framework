@@ -12,6 +12,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
+import javax.lang.model.SourceVersion;
+
 import io.github.coco.feature.codegen.core.CocoCodegenRequest;
 
 /**
@@ -42,15 +44,6 @@ public final class CocoCrudSpec {
     private static final Pattern SQL_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     private static final Pattern API_PATH = Pattern.compile("/(?:[A-Za-z0-9][A-Za-z0-9_-]*)(?:/[A-Za-z0-9][A-Za-z0-9_-]*)*");
-
-    private static final Set<String> JAVA_KEYWORDS = Set.of(
-            "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class",
-            "const", "continue", "default", "do", "double", "else", "enum", "extends", "final",
-            "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int",
-            "interface", "long", "native", "new", "package", "private", "protected", "public", "return",
-            "short", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
-            "transient", "try", "void", "volatile", "while", "true", "false", "null", "_", "record",
-            "sealed", "permits", "non-sealed", "var", "yield");
 
     private static final Set<String> PRIMITIVE_TYPE_NAMES = Set.of(
             "long", "int", "short", "byte", "boolean", "double", "float", "char");
@@ -301,21 +294,20 @@ public final class CocoCrudSpec {
 
     private static String normalizeResourceName(String value) {
         String normalized = requireJavaIdentifier(requireText(value, "resourceName"), "resourceName");
-        if (!Character.isLetter(normalized.charAt(0))) {
+        int firstCodePoint = normalized.codePointAt(0);
+        if (!Character.isLetter(firstCodePoint)) {
             throw new IllegalArgumentException("resourceName must start with a letter");
         }
-        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
+        return new StringBuilder(normalized.length())
+                .appendCodePoint(Character.toUpperCase(firstCodePoint))
+                .append(normalized.substring(Character.charCount(firstCodePoint)))
+                .toString();
     }
 
     private static String requireJavaIdentifier(String value, String name) {
         String normalized = requireText(value, name);
-        if (JAVA_KEYWORDS.contains(normalized) || !Character.isJavaIdentifierStart(normalized.charAt(0))) {
+        if (!SourceVersion.isIdentifier(normalized) || SourceVersion.isKeyword(normalized)) {
             throw new IllegalArgumentException(name + " must be a valid Java identifier: " + normalized);
-        }
-        for (int index = 1; index < normalized.length(); index++) {
-            if (!Character.isJavaIdentifierPart(normalized.charAt(index))) {
-                throw new IllegalArgumentException(name + " must be a valid Java identifier: " + normalized);
-            }
         }
         return normalized;
     }
@@ -352,21 +344,27 @@ public final class CocoCrudSpec {
 
     private static String toKebabCase(String value) {
         StringBuilder result = new StringBuilder();
-        for (int index = 0; index < value.length(); index++) {
-            char current = value.charAt(index);
+        int[] codePoints = value.codePoints().toArray();
+        for (int index = 0; index < codePoints.length; index++) {
+            int current = codePoints[index];
             if (Character.isUpperCase(current) && index > 0
-                    && (Character.isLowerCase(value.charAt(index - 1))
-                    || (index + 1 < value.length() && Character.isLowerCase(value.charAt(index + 1))))) {
+                    && (Character.isLowerCase(codePoints[index - 1])
+                    || (index + 1 < codePoints.length && Character.isLowerCase(codePoints[index + 1])))) {
                 result.append('-');
             }
-            result.append(Character.toLowerCase(current));
+            result.appendCodePoint(Character.toLowerCase(current));
         }
         return result.toString();
     }
 
     private static String pluralize(String value) {
-        if (value.endsWith("y") && value.length() > 1 && !isVowel(value.charAt(value.length() - 2))) {
-            return value.substring(0, value.length() - 1) + "ies";
+        int codePointCount = value.codePointCount(0, value.length());
+        if (value.endsWith("y") && codePointCount > 1) {
+            int yIndex = value.offsetByCodePoints(value.length(), -1);
+            int previousIndex = value.offsetByCodePoints(yIndex, -1);
+            if (!isVowel(value.codePointAt(previousIndex))) {
+                return value.substring(0, yIndex) + "ies";
+            }
         }
         if (value.endsWith("s") || value.endsWith("x") || value.endsWith("z")
                 || value.endsWith("ch") || value.endsWith("sh")) {
@@ -375,7 +373,7 @@ public final class CocoCrudSpec {
         return value + "s";
     }
 
-    private static boolean isVowel(char value) {
+    private static boolean isVowel(int value) {
         return value == 'a' || value == 'e' || value == 'i' || value == 'o' || value == 'u';
     }
 
@@ -407,7 +405,11 @@ public final class CocoCrudSpec {
     }
 
     private static String decapitalize(String value) {
-        return Character.toLowerCase(value.charAt(0)) + value.substring(1);
+        int firstCodePoint = value.codePointAt(0);
+        return new StringBuilder(value.length())
+                .appendCodePoint(Character.toLowerCase(firstCodePoint))
+                .append(value.substring(Character.charCount(firstCodePoint)))
+                .toString();
     }
 
     private static Map<String, String> commonTypeNames() {
