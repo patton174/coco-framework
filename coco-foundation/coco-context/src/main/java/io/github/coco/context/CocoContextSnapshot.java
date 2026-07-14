@@ -137,25 +137,15 @@ public interface CocoContextSnapshot {
     }
 
     private static void closeReverse(List<CocoContextScope> scopes) {
-        Throwable failure = null;
-        for (int i = scopes.size() - 1; i >= 0; i--) {
-            try {
-                scopes.get(i).close();
-            }
-            catch (RuntimeException | Error ex) {
-                if (failure == null) {
-                    failure = ex;
-                }
-                else {
-                    addSuppressed(failure, ex);
-                }
-            }
+        closeReverse(scopes, 0);
+    }
+
+    private static void closeReverse(List<CocoContextScope> scopes, int index) {
+        if (index >= scopes.size()) {
+            return;
         }
-        if (failure instanceof RuntimeException runtimeException) {
-            throw runtimeException;
-        }
-        if (failure instanceof Error error) {
-            throw error;
+        try (CocoContextScope scope = scopes.get(index)) {
+            closeReverse(scopes, index + 1);
         }
     }
 
