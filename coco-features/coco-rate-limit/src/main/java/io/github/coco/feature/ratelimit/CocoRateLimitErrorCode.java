@@ -8,7 +8,10 @@ import io.github.coco.exception.CocoBusinessCode;
 public enum CocoRateLimitErrorCode implements CocoBusinessCode {
 
     /** 请求超过已配置配额。 */
-    EXCEEDED(42900, "coco.rate-limit.exceeded");
+    EXCEEDED(42900, "coco.rate-limit.exceeded"),
+
+    /** 限流键或原子存储不可用，系统按拒绝策略处理。 */
+    UNAVAILABLE(42900, "coco.rate-limit.unavailable");
 
     private final int code;
 

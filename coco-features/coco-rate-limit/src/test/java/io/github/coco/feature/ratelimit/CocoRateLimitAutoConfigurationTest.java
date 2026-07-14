@@ -2,12 +2,18 @@ package io.github.coco.feature.ratelimit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -57,6 +63,28 @@ class CocoRateLimitAutoConfigurationTest {
                     assertThat(context.getBean(CocoRateLimitStore.class)).isSameAs(store);
                     assertThat(context.getBean(CocoRateLimitKeyResolver.class)).isSameAs(keyResolver);
                 });
+    }
+
+    @Test
+    void doesNotCreateServletFilterForANonWebContext() {
+        this.contextRunner.withPropertyValues("coco.rate-limit.enabled=true")
+                .run(context -> assertThat(context).doesNotHaveBean(FilterRegistrationBean.class));
+    }
+
+    @Test
+    void remainsInactiveWhenTheServletClasspathIsUnavailable() {
+        new ApplicationContextRunner().withClassLoader(new FilteredClassLoader("jakarta.servlet"))
+                .withConfiguration(AutoConfigurations.of(CocoRateLimitAutoConfiguration.class))
+                .withPropertyValues("coco.rate-limit.enabled=true")
+                .run(context -> assertThat(context).doesNotHaveBean(FilterRegistrationBean.class));
+    }
+
+    @Test
+    void backsOffFromAnApplicationProvidedRateLimitClock() {
+        Clock clock = Clock.fixed(Instant.parse("2026-07-15T00:00:00Z"), ZoneOffset.UTC);
+        this.contextRunner.withPropertyValues("coco.rate-limit.enabled=true")
+                .withBean("cocoRateLimitClock", Clock.class, () -> clock)
+                .run(context -> assertThat(context.getBean("cocoRateLimitClock")).isSameAs(clock));
     }
 
     @Configuration(proxyBeanMethods = false)

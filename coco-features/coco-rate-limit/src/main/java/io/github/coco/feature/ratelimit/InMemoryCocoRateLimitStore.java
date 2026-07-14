@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
@@ -25,6 +26,10 @@ import org.slf4j.LoggerFactory;
 public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, AutoCloseable {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(InMemoryCocoRateLimitStore.class);
+
+    private static final AtomicBoolean CLUSTER_WARNING_LOGGED = new AtomicBoolean();
+
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     private final Map<CocoRateLimitKey, Bucket> entries = new ConcurrentHashMap<>();
 
@@ -59,13 +64,18 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
             this.cleanupExecutor.scheduleWithFixedDelay(() -> removeExpired(this.clock.instant()), cleanupIntervalSeconds,
                     cleanupIntervalSeconds, TimeUnit.SECONDS);
         }
-        LOGGER.warn("Coco rate-limit is using process-local storage; configure a shared CocoRateLimitStore for multi-instance production deployments");
+        if (CLUSTER_WARNING_LOGGED.compareAndSet(false, true)) {
+            LOGGER.warn("Coco rate-limit is using process-local storage; configure a shared CocoRateLimitStore for multi-instance production deployments");
+        }
     }
 
     @Override
     public CocoRateLimitDecision acquire(CocoRateLimitPermit permit) {
         CocoRateLimitPermit checkedPermit = Objects.requireNonNull(permit, "permit must not be null");
         Instant now = this.clock.instant();
+        if (this.closed.get() || !checkedPermit.resetAt().isAfter(now)) {
+            return new CocoRateLimitDecision(false, checkedPermit.limit(), 0, checkedPermit.resetAt(), true);
+        }
         CocoRateLimitDecision existingDecision = acquireExisting(checkedPermit, now);
         if (existingDecision != null) {
             return existingDecision;
@@ -119,8 +129,13 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
         return this.entries.size();
     }
 
+    static void resetClusterWarningForTests() {
+        CLUSTER_WARNING_LOGGED.set(false);
+    }
+
     @Override
     public void close() {
+        this.closed.set(true);
         if (this.cleanupExecutor != null) {
             this.cleanupExecutor.shutdownNow();
         }
