@@ -2,8 +2,8 @@ package io.github.coco.feature.datapermission.sql;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Collections;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 /**
  * Coco 数据权限 SQL 接入配置。
  * <p>
@@ -102,8 +102,10 @@ public class CocoDataPermissionSqlProperties {
      * </p>
      * @return 业务资源映射配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Existing configuration consumers use the live resource map for chained put operations.")
     public Map<String, CocoDataPermissionSqlResourceProperties> getResources() {
-        return Collections.unmodifiableMap(copyResources(this.resources));
+        return this.resources;
     }
 
     /**
@@ -113,7 +115,7 @@ public class CocoDataPermissionSqlProperties {
      * @param resources 业务资源映射配置
      */
     public void setResources(Map<String, CocoDataPermissionSqlResourceProperties> resources) {
-        this.resources = copyResources(resources);
+        this.resources = resources == null ? new LinkedHashMap<>() : new LinkedHashMap<>(resources);
     }
 
     /**
@@ -125,17 +127,35 @@ public class CocoDataPermissionSqlProperties {
      */
     public CocoDataPermissionSqlResourceProperties resource(String resource) {
         CocoDataPermissionSqlResourceProperties properties = this.resources.get(resource);
-        return CocoDataPermissionSqlResourceProperties.copyOf(properties);
+        return properties == null ? new CocoDataPermissionSqlResourceProperties() : properties;
     }
 
-    private static Map<String, CocoDataPermissionSqlResourceProperties> copyResources(
-            Map<String, CocoDataPermissionSqlResourceProperties> resources) {
-        Map<String, CocoDataPermissionSqlResourceProperties> copy = new LinkedHashMap<>();
-        if (resources == null) {
+    /**
+     * <p>
+     * 创建供框架内部长期持有的独立 SQL 配置快照。
+     * </p>
+     * <p>
+     * 配置 Bean 的公开 getter 保持 Spring Binder 和既有业务代码所依赖的 live mutable 语义；
+     * 拦截器、解析器等内部消费者必须显式调用本方法，避免运行期配置对象被外部修改后改变已创建组件的行为。
+     * </p>
+     * @return 深复制的 SQL 配置快照
+     */
+    public CocoDataPermissionSqlProperties snapshot() {
+        return snapshotOf(this);
+    }
+
+    static CocoDataPermissionSqlProperties snapshotOf(CocoDataPermissionSqlProperties source) {
+        CocoDataPermissionSqlProperties copy = new CocoDataPermissionSqlProperties();
+        if (source == null) {
             return copy;
         }
-        resources.forEach((resource, properties) -> copy.put(resource,
-                CocoDataPermissionSqlResourceProperties.copyOf(properties)));
+        copy.setEnabled(source.isEnabled());
+        copy.setMissingContextPolicy(source.getMissingContextPolicy());
+        copy.setMissingRulePolicy(source.getMissingRulePolicy());
+        Map<String, CocoDataPermissionSqlResourceProperties> resourceCopies = new LinkedHashMap<>();
+        source.resources.forEach((resource, properties) -> resourceCopies.put(resource,
+                CocoDataPermissionSqlResourceProperties.snapshotOf(properties)));
+        copy.setResources(resourceCopies);
         return copy;
     }
 }

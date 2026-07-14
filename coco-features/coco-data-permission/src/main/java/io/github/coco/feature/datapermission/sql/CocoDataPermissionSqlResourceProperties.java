@@ -1,9 +1,9 @@
 package io.github.coco.feature.datapermission.sql;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 /**
  * Coco 数据权限 SQL 资源配置。
  * <p>
@@ -34,8 +34,10 @@ public class CocoDataPermissionSqlResourceProperties {
      * </p>
      * @return 数据表名称集合
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Existing configuration consumers append tables through the live list returned by this getter.")
     public List<String> getTables() {
-        return Collections.unmodifiableList(new ArrayList<>(this.tables));
+        return this.tables;
     }
 
     /**
@@ -88,7 +90,7 @@ public class CocoDataPermissionSqlResourceProperties {
         this.columnType = columnType == null ? CocoDataPermissionSqlColumnType.STRING : columnType;
     }
 
-    static CocoDataPermissionSqlResourceProperties copyOf(CocoDataPermissionSqlResourceProperties source) {
+    static CocoDataPermissionSqlResourceProperties snapshotOf(CocoDataPermissionSqlResourceProperties source) {
         CocoDataPermissionSqlResourceProperties copy = new CocoDataPermissionSqlResourceProperties();
         if (source == null) {
             return copy;

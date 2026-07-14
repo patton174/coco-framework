@@ -1,5 +1,6 @@
 package io.github.coco.feature.datapermission;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -33,8 +34,10 @@ public class CocoDataPermissionProperties {
      * </p>
      * @return 数据权限 SQL 接入配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "Spring Binder and existing consumers rely on mutating the live nested SQL configuration.")
     public CocoDataPermissionSqlProperties getSql() {
-        return copyOf(this.sql);
+        return this.sql;
     }
 
     /**
@@ -44,18 +47,6 @@ public class CocoDataPermissionProperties {
      * @param sql 数据权限 SQL 接入配置
      */
     public void setSql(CocoDataPermissionSqlProperties sql) {
-        this.sql = copyOf(sql);
-    }
-
-    private static CocoDataPermissionSqlProperties copyOf(CocoDataPermissionSqlProperties source) {
-        CocoDataPermissionSqlProperties copy = new CocoDataPermissionSqlProperties();
-        if (source == null) {
-            return copy;
-        }
-        copy.setEnabled(source.isEnabled());
-        copy.setMissingContextPolicy(source.getMissingContextPolicy());
-        copy.setMissingRulePolicy(source.getMissingRulePolicy());
-        copy.setResources(source.getResources());
-        return copy;
+        this.sql = sql == null ? new CocoDataPermissionSqlProperties() : sql;
     }
 }

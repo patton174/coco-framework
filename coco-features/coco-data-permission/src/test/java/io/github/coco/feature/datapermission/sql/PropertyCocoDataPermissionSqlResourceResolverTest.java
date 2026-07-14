@@ -13,6 +13,8 @@ import io.github.coco.context.internal.CocoSqlIdentifierNormalizer;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.parser.feature.Feature;
 import net.sf.jsqlparser.parser.feature.FeatureConfiguration;
+import net.sf.jsqlparser.schema.Database;
+import net.sf.jsqlparser.schema.Server;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.Select;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,18 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
 
         assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(new Table("tenant_a", "sample_order"),
                 "SampleMapper.selectOrders"))).contains("sample-order");
+    }
+
+    @Test
+    void resolvesResourceByFourPartTableName() {
+        CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
+        addResource(properties, "document", resource("server_a.database_a.schema_a.document_a"));
+        PropertyCocoDataPermissionSqlResourceResolver resolver =
+                new PropertyCocoDataPermissionSqlResourceResolver(properties);
+        Table table = new Table(new Database(new Server("server_a"), "database_a"), "schema_a", "document_a");
+
+        assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(table,
+                "DocumentMapper.selectDocuments"))).contains("document");
     }
 
     @Test
