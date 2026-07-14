@@ -22,8 +22,7 @@ import java.util.stream.Collectors;
  * @author patton174
  * @since 1.0.0
  */
-public record CocoFeatureManifest(String schemaVersion, String generatedBy, List<CocoFeatureManifestEntry> features,
-        List<String> explicitlyDisabledFeatureIds) {
+public record CocoFeatureManifest(String schemaVersion, String generatedBy, List<CocoFeatureManifestEntry> features) {
 
     public static final String CURRENT_SCHEMA_VERSION = "1.1";
 
@@ -36,30 +35,11 @@ public record CocoFeatureManifest(String schemaVersion, String generatedBy, List
      * @param schemaVersion 清单结构版本
      * @param generatedBy 清单生成来源
      * @param features 功能条目列表
-     * @param explicitlyDisabledFeatureIds 构建期显式禁用的功能标识列表；来源未知时为 {@code null}
      */
     public CocoFeatureManifest {
         Objects.requireNonNull(schemaVersion, "schemaVersion must not be null");
         Objects.requireNonNull(generatedBy, "generatedBy must not be null");
         features = List.copyOf(Objects.requireNonNull(features, "features must not be null"));
-        explicitlyDisabledFeatureIds = explicitlyDisabledFeatureIds == null
-                ? null
-                : List.copyOf(explicitlyDisabledFeatureIds);
-    }
-
-    /**
-     * <p>
-     * 创建不包含显式禁用来源信息的功能清单。
-     * </p>
-     * <p>
-     * 保留该构造入口以兼容 2.0.1 及更早版本的清单创建代码。
-     * </p>
-     * @param schemaVersion 清单结构版本
-     * @param generatedBy 清单生成来源
-     * @param features 功能条目列表
-     */
-    public CocoFeatureManifest(String schemaVersion, String generatedBy, List<CocoFeatureManifestEntry> features) {
-        this(schemaVersion, generatedBy, features, null);
     }
 
     /**

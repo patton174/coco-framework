@@ -96,7 +96,7 @@ class CocoConfigAutoConfigurationTest {
 
     @Test
     @ExtendWith(OutputCaptureExtension.class)
-    void runtimeConfigurationKeepsExplicitDisableOutOfDependencyDiagnostics(CapturedOutput output) {
+    void runtimeConfigurationLogsOnlyDependencyPropagatedFeatures(CapturedOutput output) {
         this.contextRunner
                 .withPropertyValues(
                         "coco.features.disabled[0]=tenant",
@@ -104,9 +104,7 @@ class CocoConfigAutoConfigurationTest {
                 .run(context -> {
                     CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
 
-                    assertEquals(java.util.Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS),
-                            plan.explicitlyDisabledFeatures());
-                    assertEquals(java.util.Set.of(CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
+                    assertEquals(java.util.Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
                             plan.disabledByDependencyFeatures());
                 });
 

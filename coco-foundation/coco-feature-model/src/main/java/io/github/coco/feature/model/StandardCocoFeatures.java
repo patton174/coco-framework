@@ -150,7 +150,7 @@ public final class StandardCocoFeatures {
 
         EnumSet<CocoFeature> disabled = EnumSet.allOf(CocoFeature.class);
         disabled.removeAll(enabled);
-        return new CocoFeaturePlan(enabled, disabled, FEATURES, requestedSelection.disabled());
+        return new CocoFeaturePlan(enabled, disabled, FEATURES);
     }
 
     /**
@@ -179,12 +179,7 @@ public final class StandardCocoFeatures {
                                 .sorted()
                                 .toList()))
                 .toList();
-        List<String> explicitlyDisabledFeatureIds = targetPlan.explicitlyDisabledFeatures().stream()
-                .map(CocoFeature::id)
-                .sorted()
-                .toList();
-        return new CocoFeatureManifest(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, generatedBy, entries,
-                explicitlyDisabledFeatureIds);
+        return new CocoFeatureManifest(CocoFeatureManifest.CURRENT_SCHEMA_VERSION, generatedBy, entries);
     }
 
     /**
@@ -211,13 +206,7 @@ public final class StandardCocoFeatures {
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(CocoFeature.class)));
         EnumSet<CocoFeature> disabled = EnumSet.allOf(CocoFeature.class);
         disabled.removeAll(enabled);
-        if (manifest.explicitlyDisabledFeatureIds() == null) {
-            return new CocoFeaturePlan(enabled, disabled, FEATURES);
-        }
-        Set<CocoFeature> explicitlyDisabled = manifest.explicitlyDisabledFeatureIds().stream()
-                .map(StandardCocoFeatures::requireManifestFeature)
-                .collect(Collectors.toCollection(() -> EnumSet.noneOf(CocoFeature.class)));
-        return new CocoFeaturePlan(enabled, disabled, FEATURES, explicitlyDisabled);
+        return new CocoFeaturePlan(enabled, disabled, FEATURES);
     }
 
     /**
@@ -256,10 +245,8 @@ public final class StandardCocoFeatures {
                     + featureIds + ". Rebuild the application with these features available.");
         }
 
-        CocoFeatureSelection buildAvailability = manifest.explicitlyDisabledFeatureIds() == null
-                ? CocoFeatureSelection.of(availabilityPlan.enabledFeatures(), availabilityPlan.disabledFeatures())
-                : CocoFeatureSelection.of(availabilityPlan.enabledFeatures(),
-                        availabilityPlan.explicitlyDisabledFeatures());
+        CocoFeatureSelection buildAvailability = CocoFeatureSelection.of(
+                availabilityPlan.enabledFeatures(), availabilityPlan.disabledFeatures());
         return resolve(buildAvailability.merge(requestedSelection));
     }
 
@@ -317,7 +304,6 @@ public final class StandardCocoFeatures {
                 }
             }
         }
-        validateExplicitlyDisabledFeatureIds(manifest, entriesByFeature);
     }
 
     private static void validateManifestEntry(CocoFeatureManifestEntry entry,
@@ -357,23 +343,6 @@ public final class StandardCocoFeatures {
                     + featureId + "' field '" + fieldName + "'.");
         }
         return Set.copyOf(uniqueValues);
-    }
-
-    private static void validateExplicitlyDisabledFeatureIds(CocoFeatureManifest manifest,
-            Map<CocoFeature, CocoFeatureManifestEntry> entriesByFeature) {
-        if (manifest.explicitlyDisabledFeatureIds() == null) {
-            return;
-        }
-        Set<String> explicitlyDisabledFeatureIds = uniqueManifestValues("manifest", "explicitlyDisabledFeatureIds",
-                manifest.explicitlyDisabledFeatureIds());
-        for (String featureId : explicitlyDisabledFeatureIds) {
-            CocoFeature feature = requireManifestFeature(featureId);
-            CocoFeatureManifestEntry entry = entriesByFeature.get(feature);
-            if (entry == null || entry.enabled()) {
-                throw new IllegalArgumentException("Explicitly disabled Coco feature manifest entry '" + featureId
-                        + "' must be present and disabled.");
-            }
-        }
     }
 
     private static IllegalArgumentException inconsistentManifestEntry(String featureId, String fieldName,

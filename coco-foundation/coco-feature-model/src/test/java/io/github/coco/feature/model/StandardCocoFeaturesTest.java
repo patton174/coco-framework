@@ -2,17 +2,22 @@ package io.github.coco.feature.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.EnumSet;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.RecordComponent;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.github.coco.api.feature.CocoFeature;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -140,12 +145,11 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
-    void excludesExplicitlyDisabledFeatureFromDependencyDiagnostics() {
+    void preservesFinalStateDependencyDiagnosticsWhenExplicitSourcesAreNotRetained() {
         CocoFeaturePlan plan = StandardCocoFeatures.resolve(
                 CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS)));
 
-        assertEquals(Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS), plan.explicitlyDisabledFeatures());
-        assertEquals(Set.of(CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
+        assertEquals(Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
                 plan.disabledByDependencyFeatures());
     }
 
@@ -208,8 +212,7 @@ class StandardCocoFeaturesTest {
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.TENANT));
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.MYBATIS_PLUS));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
-        assertEquals(plan.explicitlyDisabledFeatures(), loadedPlan.explicitlyDisabledFeatures());
-        assertEquals(plan.disabledByDependencyFeatures(), loadedPlan.disabledByDependencyFeatures());
+        assertEquals(plan, loadedPlan);
         assertEquals(List.of(
                 "coco-feature-mybatis-plus",
                 "coco-mybatis-plus"), manifest.features().stream()
@@ -225,17 +228,57 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
-    void preservesLegacyPlanAndManifestConstructors() {
-        CocoFeaturePlan plan = new CocoFeaturePlan(
-                Set.of(CocoFeature.WEB),
-                Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.TENANT),
-                StandardCocoFeatures.all());
-        CocoFeatureManifest manifest = new CocoFeatureManifest("1.1", "test",
-                StandardCocoFeatures.toManifest(plan, "test").features());
+    void preservesPublishedPlanAndManifestRecordShapes() throws NoSuchMethodException {
+        assertEquals(List.of("enabledFeatures", "disabledFeatures", "definitions"),
+                recordComponentNames(CocoFeaturePlan.class));
+        assertEquals(List.of(Set.class, Set.class, List.class), recordComponentTypes(CocoFeaturePlan.class));
+        assertEquals(1, CocoFeaturePlan.class.getDeclaredConstructors().length);
+        assertEquals(CocoFeaturePlan.class.getDeclaredConstructor(Set.class, Set.class, List.class).getParameterCount(),
+                3);
 
-        assertEquals(Set.of(), plan.explicitlyDisabledFeatures());
+        assertEquals(List.of("schemaVersion", "generatedBy", "features"),
+                recordComponentNames(CocoFeatureManifest.class));
+        assertEquals(List.of(String.class, String.class, List.class), recordComponentTypes(CocoFeatureManifest.class));
+        assertEquals(1, CocoFeatureManifest.class.getDeclaredConstructors().length);
+        assertEquals(CocoFeatureManifest.class.getDeclaredConstructor(String.class, String.class, List.class)
+                .getParameterCount(), 3);
+    }
+
+    @Test
+    void legacyCanonicalConstructorsRemainLinkable() throws Throwable {
+        CocoFeaturePlan plan = (CocoFeaturePlan) MethodHandles.publicLookup()
+                .findConstructor(CocoFeaturePlan.class, MethodType.methodType(void.class, Set.class, Set.class,
+                        List.class))
+                .invokeWithArguments(Set.of(CocoFeature.WEB),
+                        Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.TENANT), StandardCocoFeatures.all());
+        CocoFeatureManifest manifest = (CocoFeatureManifest) MethodHandles.publicLookup()
+                .findConstructor(CocoFeatureManifest.class, MethodType.methodType(void.class, String.class, String.class,
+                        List.class))
+                .invokeWithArguments("1.1", "test", StandardCocoFeatures.toManifest(plan, "test").features());
+
         assertEquals(Set.of(CocoFeature.TENANT), plan.disabledByDependencyFeatures());
-        assertNull(manifest.explicitlyDisabledFeatureIds());
+        assertEquals("test", manifest.generatedBy());
+    }
+
+    @Test
+    void newManifestRemainsReadableByStrictLegacyLoader() throws Exception {
+        CocoFeatureManifest manifest = StandardCocoFeatures.toManifest(StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS))), "test");
+        String json = CocoFeatureManifestLoader.write(manifest);
+        ObjectMapper strictLegacyLoader = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+
+        CocoFeatureManifest loaded = strictLegacyLoader.readValue(json, CocoFeatureManifest.class);
+
+        assertEquals(manifest, loaded);
+        assertFalse(json.contains("explicitlyDisabled"));
+    }
+
+    private static List<String> recordComponentNames(Class<?> recordType) {
+        return Arrays.stream(recordType.getRecordComponents()).map(RecordComponent::getName).toList();
+    }
+
+    private static List<Class<?>> recordComponentTypes(Class<?> recordType) {
+        return Arrays.stream(recordType.getRecordComponents()).map(RecordComponent::getType).toList();
     }
 
     @Test

@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -93,6 +94,34 @@ class CocoFeaturesMojoTest {
                 .extracting(Artifact::getArtifactId)
                 .contains("coco-web", "coco-mybatis-plus", "coco-audit", "coco-security",
                         "coco-openapi", "coco-feature-codegen");
+    }
+
+    @Test
+    void logsOnlyDependencyPropagatedFeaturesWhenExplicitDisablesAlsoMatchDependencies() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("dependency-diagnostics"));
+        Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        Files.writeString(resources.resolve("application.yml"), """
+                coco:
+                  features:
+                    disabled:
+                      - tenant
+                      - mybatis-plus
+                """, StandardCharsets.UTF_8);
+
+        CocoFeaturesMojo mojo = newMojo(project(baseDir, output));
+        List<String> infoMessages = new ArrayList<>();
+        mojo.setLog(capturingLog(infoMessages));
+        set(mojo, "outputDirectory", output.toFile());
+        set(mojo, "classesDirectory", output.toFile());
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+
+        mojo.execute();
+
+        assertThat(infoMessages).anySatisfy(message -> assertThat(message)
+                .contains("disabledByDependency=[codegen, data-permission]")
+                .doesNotContain("disabledByDependency=[codegen, data-permission, tenant]"));
     }
 
     @Test
@@ -649,6 +678,29 @@ class CocoFeaturesMojoTest {
                 Log.class.getClassLoader(),
                 new Class<?>[] { Log.class },
                 (proxy, method, arguments) -> {
+                    if (method.getReturnType() == boolean.class) {
+                        return false;
+                    }
+                    if (method.getReturnType() == void.class) {
+                        return null;
+                    }
+                    return proxyObjectMethod(proxy, method.getName(), arguments);
+                });
+    }
+
+    private Log capturingLog(List<String> infoMessages) {
+        return (Log) Proxy.newProxyInstance(
+                Log.class.getClassLoader(),
+                new Class<?>[] { Log.class },
+                (proxy, method, arguments) -> {
+                    if ("isInfoEnabled".equals(method.getName())) {
+                        return true;
+                    }
+                    if ("info".equals(method.getName()) && arguments != null && arguments.length > 0
+                            && arguments[0] instanceof CharSequence message) {
+                        infoMessages.add(message.toString());
+                        return null;
+                    }
                     if (method.getReturnType() == boolean.class) {
                         return false;
                     }

@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -145,8 +146,8 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             CocoFeatureSelection annotationSelection = new CocoAnnotatedFeatureScanner()
                     .scan(this.classesDirectory.toPath(), classpathUrls());
 
-            CocoFeaturePlan plan = StandardCocoFeatures.resolve(
-                    applicationSelection.merge(parameterSelection).merge(annotationSelection));
+            CocoFeatureSelection selection = applicationSelection.merge(parameterSelection).merge(annotationSelection);
+            CocoFeaturePlan plan = StandardCocoFeatures.resolve(selection);
             logResolvedFeaturePlan(plan, applicationSelection, parameterSelection, annotationSelection);
             return plan;
         }
@@ -557,12 +558,26 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 + ", annotations=" + describeSelection(annotationSelection)
                 + "}: enabled=" + featureIds(plan.enabledFeatures())
                 + ", disabled=" + featureIds(plan.disabledFeatures())
-                + ", disabledByDependency=" + featureIds(plan.disabledByDependencyFeatures()) + ".");
+                + ", disabledByDependency=" + featureIds(disabledByDependencyFeatures(plan,
+                        applicationSelection.merge(parameterSelection).merge(annotationSelection))) + ".");
     }
 
     private static String describeSelection(CocoFeatureSelection selection) {
         CocoFeatureSelection target = selection == null ? CocoFeatureSelection.empty() : selection;
         return "{enabled=" + featureIds(target.enabled()) + ", disabled=" + featureIds(target.disabled()) + "}";
+    }
+
+    private static Set<CocoFeature> disabledByDependencyFeatures(CocoFeaturePlan plan,
+            CocoFeatureSelection selection) {
+        EnumSet<CocoFeature> disabledByDependency = EnumSet.noneOf(CocoFeature.class);
+        for (CocoFeatureDefinition definition : plan.definitions()) {
+            if (plan.disabledFeatures().contains(definition.feature())
+                    && !selection.disabled().contains(definition.feature())
+                    && !plan.enabledFeatures().containsAll(definition.dependencies())) {
+                disabledByDependency.add(definition.feature());
+            }
+        }
+        return disabledByDependency.isEmpty() ? Set.of() : Set.copyOf(disabledByDependency);
     }
 
     private static String featureIds(Set<CocoFeature> features) {

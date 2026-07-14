@@ -1,6 +1,7 @@
 package io.github.coco.config;
 
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -145,7 +146,8 @@ public class CocoConfigAutoConfiguration {
         LOGGER.info("Coco features resolved from " + source
                 + ": enabled=" + featureIds(plan.enabledFeatures())
                 + ", disabled=" + featureIds(plan.disabledFeatures())
-                + ", disabledByDependency=" + featureIds(plan.disabledByDependencyFeatures())
+                + ", disabledByDependency=" + featureIds(disabledByDependencyFeatures(plan,
+                        propertySelection.merge(codeSelection)))
                 + ", propertySelection=" + describeSelection(propertySelection)
                 + ", codeSelection=" + describeSelection(codeSelection) + ".");
     }
@@ -153,6 +155,19 @@ public class CocoConfigAutoConfiguration {
     private static String describeSelection(CocoFeatureSelection selection) {
         CocoFeatureSelection target = selection == null ? CocoFeatureSelection.empty() : selection;
         return "{enabled=" + featureIds(target.enabled()) + ", disabled=" + featureIds(target.disabled()) + "}";
+    }
+
+    private static Set<CocoFeature> disabledByDependencyFeatures(CocoFeaturePlan plan,
+            CocoFeatureSelection selection) {
+        EnumSet<CocoFeature> disabledByDependency = EnumSet.noneOf(CocoFeature.class);
+        for (io.github.coco.feature.model.CocoFeatureDefinition definition : plan.definitions()) {
+            if (plan.disabledFeatures().contains(definition.feature())
+                    && !selection.disabled().contains(definition.feature())
+                    && !plan.enabledFeatures().containsAll(definition.dependencies())) {
+                disabledByDependency.add(definition.feature());
+            }
+        }
+        return disabledByDependency.isEmpty() ? Set.of() : Set.copyOf(disabledByDependency);
     }
 
     private static String featureIds(Set<CocoFeature> features) {
