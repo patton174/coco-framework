@@ -16,6 +16,7 @@ import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.trace.CocoTraceIdValidator;
+import io.github.coco.feature.web.trace.CocoTraceIdValidation;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import io.github.coco.feature.web.trace.DefaultCocoTraceIdValidator;
 
@@ -108,7 +109,8 @@ public final class DefaultCocoWebRequestCanonicalizer implements CocoWebRequestC
         if (traceHeaderValues == null) {
             return input.canonicalHeaderValues();
         }
-        String traceId = this.traceIdValidator.resolveHeaderValues(traceHeaderValues, this.traceMaxLength)
+        String traceId = CocoTraceIdValidation.resolveHeaderValues(traceHeaderValues, this.traceMaxLength,
+                this.traceIdValidator)
                 .orElseThrow(() -> CocoBusinessExceptions.request(INVALID_TRACE_ID_CODE));
         List<String> normalizedTraceIds = java.util.Collections.nCopies(traceHeaderValues.size(), traceId);
         if (normalizedTraceIds.equals(traceHeaderValues)) {

@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -86,7 +87,8 @@ class CocoTraceIdBoundaryIntegrationTest {
     void independentCanonicalizerRejectsUnsafeTraceIdsBeforeBuildingCanonicalForm() {
         DefaultCocoWebRequestCanonicalizer canonicalizer = new DefaultCocoWebRequestCanonicalizer();
 
-        for (String traceId : List.of("\u0001polluted", "polluted\u0085value", "polluted\u2029value")) {
+        for (String traceId : List.of(
+                "\u0001polluted", "polluted\u0085value", "polluted\u2028value", "polluted\u2029value")) {
             CocoException exception = assertThrows(CocoException.class,
                     () -> canonicalizer.canonicalize(securityInput("X-Trace-Id", List.of(traceId))));
 
@@ -112,6 +114,19 @@ class CocoTraceIdBoundaryIntegrationTest {
     }
 
     @Test
+    void canonicalizerIgnoresMaliciousLegacyHeaderResolutionOverride() {
+        OverrideBypassingTraceIdValidator validator = new OverrideBypassingTraceIdValidator();
+        DefaultCocoWebRequestCanonicalizer canonicalizer = new DefaultCocoWebRequestCanonicalizer(
+                new CocoWebRequestCanonicalizationProperties(), new CocoTraceProperties(), validator);
+
+        CocoException exception = assertThrows(CocoException.class, () -> canonicalizer.canonicalize(
+                securityInput("X-Trace-Id", List.of("first-trace", "second-trace"))));
+
+        assertEquals("coco.web.trace.invalid-trace-id", exception.messageCode());
+        assertEquals(0, validator.legacyResolutionCalls());
+    }
+
+    @Test
     void springRequestContextResolverRejectsRawTraceBeforeCanonicalizationWhenTraceFilterIsSkipped() {
         this.webContextRunner
                 .withPropertyValues("coco.web.context.canonical-header-names=X-Trace-Id")
@@ -125,6 +140,25 @@ class CocoTraceIdBoundaryIntegrationTest {
 
                     assertEquals("coco.web.trace.invalid-trace-id", exception.messageCode());
                     assertTrue(CocoWebRequestSnapshotAttributes.get(request).isEmpty());
+                });
+    }
+
+    @Test
+    void securityInputResolverIgnoresMaliciousLegacyHeaderResolutionOverride() {
+        OverrideBypassingTraceIdValidator validator = new OverrideBypassingTraceIdValidator();
+        this.webContextRunner
+                .withBean(CocoTraceIdValidator.class, () -> validator)
+                .run(context -> {
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+                    request.addHeader("X-Trace-Id", "x".repeat(CocoTraceProperties.DEFAULT_MAX_LENGTH + 1));
+
+                    CocoException exception = assertThrows(CocoException.class,
+                            () -> context.getBean(CocoWebRequestContextResolver.class)
+                                    .resolve("server-generated-trace", request));
+
+                    assertEquals("coco.web.trace.invalid-trace-id", exception.messageCode());
+                    assertTrue(CocoWebRequestSnapshotAttributes.get(request).isEmpty());
+                    assertEquals(0, validator.legacyResolutionCalls());
                 });
     }
 
@@ -146,7 +180,8 @@ class CocoTraceIdBoundaryIntegrationTest {
                 .run(context -> {
                     assertRegisteredFilterOrder(context);
                     for (String traceId : List.of(
-                            "polluted\u0001value", "polluted\u0085value", "polluted\u2029value")) {
+                            "polluted\u0001value", "polluted\u0085value",
+                            "polluted\u2028value", "polluted\u2029value")) {
                         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
                         MockHttpServletResponse response = new MockHttpServletResponse();
                         AtomicBoolean terminalInvoked = new AtomicBoolean();
@@ -168,6 +203,50 @@ class CocoTraceIdBoundaryIntegrationTest {
                         assertTrue(CocoTraceContext.currentTraceId().isEmpty(), traceId);
                         assertNull(MDC.get("traceId"), traceId);
                     }
+                });
+    }
+
+    @Test
+    void registeredFilterChainIgnoresMaliciousLegacyHeaderResolutionOverride() throws Exception {
+        OverrideBypassingTraceIdValidator validator = new OverrideBypassingTraceIdValidator();
+        CapturingAccessLogRecorder recorder = new CapturingAccessLogRecorder();
+        AtomicInteger canonicalizations = new AtomicInteger();
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.web.context.canonical-header-names=X-Trace-Id",
+                        "coco.web.response.metadata-mode=debug",
+                        "coco.web.trace.response-cookie-enabled=true",
+                        "coco.web.signature.required=true")
+                .withBean(CocoTraceIdValidator.class, () -> validator)
+                .withBean(CocoAccessLogRecorder.class, () -> recorder)
+                .withBean(CocoWebRequestCanonicalizer.class, () -> context -> {
+                    canonicalizations.incrementAndGet();
+                    return new DefaultCocoWebRequestCanonicalizer().canonicalize(context);
+                })
+                .run(context -> {
+                    assertRegisteredFilterOrder(context);
+                    for (String traceId : List.of("polluted\r\nInjected: true", "polluted\u2028value")) {
+                        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+                        MockHttpServletResponse response = new MockHttpServletResponse();
+                        AtomicBoolean terminalInvoked = new AtomicBoolean();
+                        request.addHeader("X-Trace-Id", traceId);
+                        request.addHeader(HttpHeaders.ACCEPT_LANGUAGE, "en-US");
+
+                        registeredFilterChain(context, () -> terminalInvoked.set(true))
+                                .doFilter(request, response);
+
+                        assertEquals(400, response.getStatus(), traceId);
+                        assertFalse(terminalInvoked.get(), traceId);
+                        assertEquals(0, canonicalizations.get(), traceId);
+                        assertNull(response.getHeader("X-Trace-Id"), traceId);
+                        assertNull(response.getHeader(HttpHeaders.SET_COOKIE), traceId);
+                        assertNull(recorder.lastAccessLog(), traceId);
+                        assertNotNull(assertUnifiedInvalidTraceResponse(response, traceId).get("traceId"), traceId);
+                        assertTrue(CocoRequestContextHolder.current().isEmpty(), traceId);
+                        assertTrue(CocoTraceContext.currentTraceId().isEmpty(), traceId);
+                        assertNull(MDC.get("traceId"), traceId);
+                    }
+                    assertEquals(0, validator.legacyResolutionCalls());
                 });
     }
 
@@ -341,6 +420,29 @@ class CocoTraceIdBoundaryIntegrationTest {
             assertFalse(rejectedTraceId.equals(responseTraceId));
         }
         return body;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static final class OverrideBypassingTraceIdValidator implements CocoTraceIdValidator {
+
+        private final AtomicInteger legacyResolutionCalls = new AtomicInteger();
+
+        @Override
+        public boolean isValid(String traceId) {
+            return true;
+        }
+
+        @Override
+        public Optional<String> resolveHeaderValues(List<String> headerValues, int maxLength) {
+            this.legacyResolutionCalls.incrementAndGet();
+            return headerValues == null || headerValues.isEmpty()
+                    ? Optional.empty()
+                    : Optional.ofNullable(headerValues.get(0));
+        }
+
+        private int legacyResolutionCalls() {
+            return this.legacyResolutionCalls.get();
+        }
     }
 
     private record RegisteredFilter(String name, int order, Filter filter) {

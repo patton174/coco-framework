@@ -28,6 +28,7 @@ import io.github.coco.feature.web.encryption.CocoEncryptionProperties;
 import io.github.coco.feature.web.replay.CocoReplayProperties;
 import io.github.coco.feature.web.signature.CocoSignatureProperties;
 import io.github.coco.feature.web.trace.CocoTraceIdValidator;
+import io.github.coco.feature.web.trace.CocoTraceIdValidation;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import io.github.coco.feature.web.trace.DefaultCocoTraceIdValidator;
 import jakarta.servlet.http.HttpServletRequest;
@@ -216,7 +217,8 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
         if (traceHeaderValues == null || !traceHeaderValues.hasMoreElements()) {
             return;
         }
-        if (this.traceIdValidator.resolveHeaderValues(Collections.list(traceHeaderValues), this.traceMaxLength)
+        if (CocoTraceIdValidation.resolveHeaderValues(Collections.list(traceHeaderValues), this.traceMaxLength,
+                this.traceIdValidator)
                 .isEmpty()) {
             throw CocoBusinessExceptions.request(INVALID_TRACE_ID_CODE);
         }

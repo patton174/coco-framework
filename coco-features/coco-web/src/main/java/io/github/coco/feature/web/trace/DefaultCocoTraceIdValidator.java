@@ -42,7 +42,7 @@ public final class DefaultCocoTraceIdValidator implements CocoTraceIdValidator {
      */
     @Override
     public boolean isValid(String traceId) {
-        if (!CocoTraceIdValidator.isTransportSafe(traceId)) {
+        if (!CocoTraceIdValidation.isTransportSafe(traceId)) {
             return false;
         }
         return traceId.length() <= this.maxLength

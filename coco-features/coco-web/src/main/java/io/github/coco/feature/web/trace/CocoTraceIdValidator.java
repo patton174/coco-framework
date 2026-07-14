@@ -26,34 +26,15 @@ public interface CocoTraceIdValidator {
      * <p>
      * 解析并校验同一 HTTP 请求头的全部 TraceId 值。
      * </p>
-     * <p>
-     * 每个值先按 HTTP 可选空白规则规范化，再执行长度、传输字符和业务格式校验；重复同值可接受，
-     * 空白、非法值或重复冲突值返回空结果。调用方应在请求头实际存在但返回空结果时拒绝请求。
-     * </p>
      * @param headerValues 同一 TraceId 请求头的全部值
      * @param maxLength 允许接收的 TraceId 最大长度
      * @return 唯一且可安全传播的 TraceId；不存在合法唯一值时为空
+     * @deprecated 仅为二进制和源码兼容保留。框架调用方必须直接使用
+     * {@link CocoTraceIdValidation#resolveHeaderValues(List, int, CocoTraceIdValidator)}，避免实现类覆盖安全规则。
      */
+    @Deprecated(since = "1.0.0", forRemoval = false)
     default Optional<String> resolveHeaderValues(List<String> headerValues, int maxLength) {
-        if (headerValues == null || headerValues.isEmpty()) {
-            return Optional.empty();
-        }
-        int effectiveMaxLength = maxLength <= 0 ? CocoTraceProperties.DEFAULT_MAX_LENGTH : maxLength;
-        String resolvedTraceId = null;
-        for (String headerValue : headerValues) {
-            String candidate = normalizeHeaderValue(headerValue);
-            if (candidate == null
-                    || candidate.length() > effectiveMaxLength
-                    || !isTransportSafe(candidate)
-                    || !isValid(candidate)) {
-                return Optional.empty();
-            }
-            if (resolvedTraceId != null && !resolvedTraceId.equals(candidate)) {
-                return Optional.empty();
-            }
-            resolvedTraceId = candidate;
-        }
-        return Optional.ofNullable(resolvedTraceId);
+        return CocoTraceIdValidation.resolveHeaderValues(headerValues, maxLength, this);
     }
 
     /**
@@ -67,28 +48,7 @@ public interface CocoTraceIdValidator {
      * @return 规范化后的 TraceId；无法安全规范化时返回 {@code null}
      */
     static String normalizeHeaderValue(String traceId) {
-        if (traceId == null) {
-            return null;
-        }
-        int start = 0;
-        int end = traceId.length();
-        while (start < end && optionalWhitespace(traceId.charAt(start))) {
-            start++;
-        }
-        while (end > start && optionalWhitespace(traceId.charAt(end - 1))) {
-            end--;
-        }
-        if (start == end) {
-            return null;
-        }
-        String normalized = traceId.substring(start, end);
-        for (int index = 0; index < normalized.length(); index++) {
-            char character = normalized.charAt(index);
-            if (character < 0x21 || character > 0x7e) {
-                return null;
-            }
-        }
-        return normalized;
+        return CocoTraceIdValidation.normalizeHeaderValue(traceId);
     }
 
     /**
@@ -99,23 +59,7 @@ public interface CocoTraceIdValidator {
      * @return 可安全传播时返回 {@code true}
      */
     static boolean isTransportSafe(String traceId) {
-        if (traceId == null || traceId.isEmpty()) {
-            return false;
-        }
-        for (int index = 0; index < traceId.length(); index++) {
-            char character = traceId.charAt(index);
-            if (!(character >= 'a' && character <= 'z')
-                    && !(character >= 'A' && character <= 'Z')
-                    && !(character >= '0' && character <= '9')
-                    && character != '.' && character != '_' && character != ':' && character != '-') {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean optionalWhitespace(char character) {
-        return character == ' ' || character == '\t';
+        return CocoTraceIdValidation.isTransportSafe(traceId);
     }
 
     /**

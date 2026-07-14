@@ -243,7 +243,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
         if (headerValues == null || !headerValues.hasMoreElements()) {
             return TraceIdResolution.accepted(newServerTraceId());
         }
-        return this.traceIdValidator.resolveHeaderValues(Collections.list(headerValues), this.maxLength)
+        return CocoTraceIdValidation.resolveHeaderValues(Collections.list(headerValues), this.maxLength,
+                this.traceIdValidator)
                 .map(TraceIdResolution::accepted)
                 .orElseGet(TraceIdResolution::rejected);
     }
