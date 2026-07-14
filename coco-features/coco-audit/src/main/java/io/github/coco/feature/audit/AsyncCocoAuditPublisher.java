@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.feature.audit.core.CocoAuditEvent;
@@ -15,6 +16,9 @@ import io.github.coco.feature.audit.core.CocoAuditPublisher;
  * <p>
  * 使用单消费者有界队列保持事件提交顺序，并在关闭时等待已接收事件排空。队列拒绝和后台记录失败统一遵循
  * {@link CocoAuditFailurePolicy}，且失败诊断不会再次进入审计发布链。
+ * </p>
+ * <p>
+ * 关闭等待超时或被中断时始终以异常报告未排空事件数量，不受记录失败策略影响；工作线程为守护线程，停止请求不会无限阻塞 JVM。
  * </p>
  *
  * @author patton174
@@ -33,6 +37,12 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
     private final long shutdownTimeoutMillis;
 
     private final AtomicReference<RuntimeException> terminalFailure = new AtomicReference<>();
+
+    private final AtomicReference<IllegalStateException> shutdownFailure = new AtomicReference<>();
+
+    private final AtomicLong acceptedEventCount = new AtomicLong();
+
+    private final AtomicLong completedEventCount = new AtomicLong();
 
     private final Object lifecycleMonitor = new Object();
 
@@ -62,7 +72,7 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
         }
         RuntimeException rejection = null;
         synchronized (this.lifecycleMonitor) {
-            RuntimeException failure = this.terminalFailure.get();
+            RuntimeException failure = currentFailure();
             if (failure != null) {
                 throw failure;
             }
@@ -70,6 +80,7 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
                 rejection = new IllegalStateException("Coco audit publisher is closed");
             }
             else if (this.queue.offer(checkedEvent)) {
+                this.acceptedEventCount.incrementAndGet();
                 return;
             }
             else {
@@ -86,6 +97,10 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
         synchronized (this.lifecycleMonitor) {
             this.accepting = false;
         }
+        RuntimeException failure = currentFailure();
+        if (failure != null) {
+            throw failure;
+        }
         if (Thread.currentThread() == this.worker) {
             return;
         }
@@ -93,21 +108,19 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
             this.worker.join(this.shutdownTimeoutMillis);
         }
         catch (InterruptedException ex) {
+            IllegalStateException shutdownFailure = registerShutdownFailure(
+                    "Interrupted while draining Coco audit queue", ex);
             stopWorker();
             Thread.currentThread().interrupt();
-            if (this.failurePolicy == CocoAuditFailurePolicy.THROW) {
-                throw new IllegalStateException("Interrupted while draining Coco audit queue", ex);
-            }
-            return;
+            throw shutdownFailure;
         }
         if (this.worker.isAlive()) {
+            IllegalStateException shutdownFailure = registerShutdownFailure(
+                    "Timed out while draining Coco audit queue", null);
             stopWorker();
-            if (this.failurePolicy == CocoAuditFailurePolicy.THROW) {
-                throw new IllegalStateException("Timed out while draining Coco audit queue");
-            }
-            return;
+            throw shutdownFailure;
         }
-        RuntimeException failure = this.terminalFailure.get();
+        failure = currentFailure();
         if (failure != null) {
             throw failure;
         }
@@ -133,6 +146,7 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
     private boolean record(CocoAuditEvent event) {
         try {
             this.delegate.publish(event);
+            this.completedEventCount.incrementAndGet();
             return true;
         }
         catch (RuntimeException ex) {
@@ -140,7 +154,6 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
             synchronized (this.lifecycleMonitor) {
                 this.accepting = false;
                 this.stopping = true;
-                this.queue.clear();
             }
             return false;
         }
@@ -150,10 +163,23 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
         this.terminalFailure.compareAndSet(null, failure);
     }
 
+    private RuntimeException currentFailure() {
+        RuntimeException failure = this.shutdownFailure.get();
+        return failure != null ? failure : this.terminalFailure.get();
+    }
+
+    private IllegalStateException registerShutdownFailure(String reason, InterruptedException cause) {
+        long undrainedEventCount = Math.max(0L,
+                this.acceptedEventCount.get() - this.completedEventCount.get());
+        IllegalStateException failure = new IllegalStateException(reason + "; " + undrainedEventCount
+                + " accepted event(s) remain undrained", cause);
+        this.shutdownFailure.compareAndSet(null, failure);
+        return this.shutdownFailure.get();
+    }
+
     private void stopWorker() {
         synchronized (this.lifecycleMonitor) {
             this.stopping = true;
-            this.queue.clear();
         }
         this.worker.interrupt();
     }

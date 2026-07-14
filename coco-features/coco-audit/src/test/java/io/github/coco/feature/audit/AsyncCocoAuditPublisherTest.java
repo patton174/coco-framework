@@ -3,53 +3,92 @@ package io.github.coco.feature.audit;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.coco.feature.audit.core.CocoAuditEvent;
 import io.github.coco.feature.audit.core.CocoAuditFailurePolicy;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AsyncCocoAuditPublisherTest {
 
     @Test
-    void ignoresShutdownDrainTimeoutWhenConfiguredFailOpen() throws Exception {
+    void exposesShutdownDrainTimeoutWhenConfiguredFailOpen() throws Exception {
         BlockingPublisher delegate = new BlockingPublisher();
         AsyncCocoAuditPublisher publisher = publisher(delegate, CocoAuditFailurePolicy.IGNORE);
+        IllegalStateException shutdownFailure;
 
         try {
             fillWorkerAndQueue(publisher, delegate);
 
-            assertThatCode(publisher::close).doesNotThrowAnyException();
+            shutdownFailure = captureShutdownFailure(publisher,
+                    "Timed out while draining Coco audit queue; 2 accepted event(s) remain undrained");
         }
         finally {
             delegate.releaseAndAwaitCompletion();
-            publisher.close();
         }
 
-        assertThat(delegate.recordedCount()).isEqualTo(1);
+        assertThatThrownBy(publisher::close).isSameAs(shutdownFailure);
     }
 
     @Test
     void throwsShutdownDrainTimeoutWhenConfiguredFailClosed() throws Exception {
         BlockingPublisher delegate = new BlockingPublisher();
         AsyncCocoAuditPublisher publisher = publisher(delegate, CocoAuditFailurePolicy.THROW);
+        IllegalStateException shutdownFailure;
 
         try {
             fillWorkerAndQueue(publisher, delegate);
 
-            assertThatThrownBy(publisher::close)
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessage("Timed out while draining Coco audit queue");
+            shutdownFailure = captureShutdownFailure(publisher,
+                    "Timed out while draining Coco audit queue; 2 accepted event(s) remain undrained");
         }
         finally {
             delegate.releaseAndAwaitCompletion();
-            publisher.close();
         }
 
-        assertThat(delegate.recordedCount()).isEqualTo(1);
+        assertThatThrownBy(publisher::close).isSameAs(shutdownFailure);
+    }
+
+    @Test
+    void exposesInterruptedShutdownAndPreservesTheInterruptStatus() throws Exception {
+        BlockingPublisher delegate = new BlockingPublisher();
+        AsyncCocoAuditPublisher publisher = new AsyncCocoAuditPublisher(delegate::publish, 1,
+                Duration.ofSeconds(5), CocoAuditFailurePolicy.IGNORE);
+        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+        AtomicBoolean closeThreadInterrupted = new AtomicBoolean();
+
+        fillWorkerAndQueue(publisher, delegate);
+        Thread closer = new Thread(() -> {
+            try {
+                publisher.close();
+            }
+            catch (Throwable ex) {
+                closeFailure.set(ex);
+                closeThreadInterrupted.set(Thread.currentThread().isInterrupted());
+            }
+        }, "coco-audit-interrupted-close-test");
+        closer.start();
+        awaitWaiting(closer);
+        closer.interrupt();
+        closer.join(TimeUnit.SECONDS.toMillis(5));
+
+        try {
+            assertThat(closer.isAlive()).isFalse();
+            assertThat(closeFailure.get())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Interrupted while draining Coco audit queue; 2 accepted event(s) remain undrained")
+                    .hasCauseInstanceOf(InterruptedException.class);
+            assertThat(closeThreadInterrupted).isTrue();
+        }
+        finally {
+            delegate.releaseAndAwaitCompletion();
+        }
+
+        assertThatThrownBy(publisher::close).isSameAs(closeFailure.get());
     }
 
     @Test
@@ -64,6 +103,7 @@ class AsyncCocoAuditPublisherTest {
 
         Thread closer = new Thread(publisher::close, "coco-audit-close-test");
         closer.start();
+        awaitWaiting(closer);
         delegate.release();
         closer.join(TimeUnit.SECONDS.toMillis(5));
 
@@ -88,6 +128,30 @@ class AsyncCocoAuditPublisherTest {
         return CocoAuditEvent.builder("shutdown-contract").resourceId(resourceId).build();
     }
 
+    private static IllegalStateException captureShutdownFailure(AsyncCocoAuditPublisher publisher,
+            String expectedMessage) {
+        try {
+            publisher.close();
+            throw new AssertionError("expected shutdown failure");
+        }
+        catch (IllegalStateException ex) {
+            assertThat(ex).hasMessage(expectedMessage);
+            return ex;
+        }
+    }
+
+    private static void awaitWaiting(Thread thread) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            Thread.State state = thread.getState();
+            if (state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING) {
+                return;
+            }
+            Thread.onSpinWait();
+        }
+        throw new AssertionError("thread did not start waiting for shutdown drain");
+    }
+
     private static final class BlockingPublisher {
 
         private final CountDownLatch started = new CountDownLatch(1);
@@ -96,12 +160,9 @@ class AsyncCocoAuditPublisherTest {
 
         private final CountDownLatch completed = new CountDownLatch(1);
 
-        private int recordedCount;
-
         void publish(CocoAuditEvent event) {
             this.started.countDown();
             awaitUninterruptibly(this.release);
-            this.recordedCount++;
             this.completed.countDown();
         }
 
@@ -112,10 +173,6 @@ class AsyncCocoAuditPublisherTest {
         void releaseAndAwaitCompletion() throws InterruptedException {
             this.release.countDown();
             assertThat(this.completed.await(5, TimeUnit.SECONDS)).isTrue();
-        }
-
-        int recordedCount() {
-            return this.recordedCount;
         }
 
         private static void awaitUninterruptibly(CountDownLatch latch) {

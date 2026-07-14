@@ -27,7 +27,7 @@
     {
       "name": "coco.audit.async.shutdown-timeout",
       "type": "java.time.Duration",
-      "description": "Maximum time Coco waits for accepted audit events to drain during shutdown.",
+      "description": "Maximum time Coco waits for accepted audit events to drain during shutdown; timeout or interruption fails shutdown with the undrained event count.",
       "defaultValue": "5s"
     },
     {
