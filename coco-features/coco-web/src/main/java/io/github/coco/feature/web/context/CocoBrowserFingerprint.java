@@ -3,7 +3,6 @@ package io.github.coco.feature.web.context;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -54,6 +53,16 @@ public record CocoBrowserFingerprint(String value, Map<String, String> signals) 
 
     /**
      * <p>
+     * 返回参与生成指纹的不可变信号快照。
+     * </p>
+     * @return 指纹信号
+     */
+    public Map<String, String> signals() {
+        return Map.copyOf(new LinkedHashMap<>(this.signals));
+    }
+
+    /**
+     * <p>
      * 根据浏览器信号生成指纹。
      * </p>
      * @param signals 浏览器信号
@@ -97,7 +106,7 @@ public record CocoBrowserFingerprint(String value, Map<String, String> signals) 
                 copied.put(name.trim().toLowerCase(Locale.ROOT), value.trim());
             }
         });
-        return copied.isEmpty() ? Map.of() : Collections.unmodifiableMap(copied);
+        return copied.isEmpty() ? Map.of() : Map.copyOf(copied);
     }
 
     private static String canonicalSignals(Map<String, String> signals) {

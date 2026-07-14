@@ -100,22 +100,19 @@ public final class DefaultCocoWebRequestTargetResolver implements CocoWebRequest
             return ForwardedTarget.empty();
         }
         String scheme = null;
-        HostPort hostPort = null;
+        HostPort hostPort = HostPort.empty();
         while (headerValues.hasMoreElements()) {
             String headerValue = headerValues.nextElement();
             for (String segment : splitCommaSeparatedValues(headerValue)) {
-                if (scheme == null) {
-                    scheme = forwardedParameter(segment, "proto");
-                }
-                if (hostPort == null) {
-                    hostPort = parseHostPort(forwardedParameter(segment, "host"));
-                }
-                if (scheme != null && hostPort != null) {
+                scheme = firstNonBlank(scheme, forwardedParameter(segment, "proto"));
+                hostPort = firstHostPort(hostPort, parseHostPort(forwardedParameter(segment, "host")),
+                        HostPort.empty());
+                if (scheme != null && hostPort.present()) {
                     return new ForwardedTarget(normalizeScheme(scheme), hostPort);
                 }
             }
         }
-        return new ForwardedTarget(normalizeScheme(scheme), hostPort == null ? HostPort.empty() : hostPort);
+        return new ForwardedTarget(normalizeScheme(scheme), hostPort);
     }
 
     private HeaderCandidate<String> configuredForwardedSchemeCandidate(HttpServletRequest request) {

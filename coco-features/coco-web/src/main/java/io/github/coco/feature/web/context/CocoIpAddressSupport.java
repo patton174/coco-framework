@@ -41,7 +41,7 @@ public final class CocoIpAddressSupport {
             return false;
         }
         byte[] remoteAddressBytes = parseIpAddress(remoteAddress);
-        if (remoteAddressBytes == null) {
+        if (remoteAddressBytes.length == 0) {
             return false;
         }
         return trustedProxyCidrs.stream()
@@ -53,25 +53,25 @@ public final class CocoIpAddressSupport {
      * 解析 IP 地址字面量。
      * </p>
      * @param value IP 地址字符串
-     * @return IP 地址字节数组；无法解析时返回 {@code null}
+     * @return IP 地址字节数组；无法解析时返回空数组
      */
     public static byte[] parseIpAddress(String value) {
         String normalized = normalizeString(value);
         if (normalized == null) {
-            return null;
+            return new byte[0];
         }
         if (isIpv4Literal(normalized)) {
             return parseIpv4Address(normalized);
         }
         if (!normalized.contains(":") || !isIpv6LiteralCandidate(normalized)) {
-            return null;
+            return new byte[0];
         }
         try {
             byte[] address = InetAddress.getByName(normalized).getAddress();
-            return address.length == 16 ? address : null;
+            return address.length == 16 ? address : new byte[0];
         }
         catch (UnknownHostException ex) {
-            return null;
+            return new byte[0];
         }
     }
 
@@ -94,7 +94,7 @@ public final class CocoIpAddressSupport {
         int separatorIndex = normalizedProxy.indexOf('/');
         String addressPart = separatorIndex < 0 ? normalizedProxy : normalizedProxy.substring(0, separatorIndex);
         byte[] trustedAddress = parseIpAddress(addressPart);
-        if (trustedAddress == null || trustedAddress.length != remoteAddress.length) {
+        if (trustedAddress.length == 0 || trustedAddress.length != remoteAddress.length) {
             return false;
         }
         int prefixLength = separatorIndex < 0
@@ -138,7 +138,7 @@ public final class CocoIpAddressSupport {
         for (int index = 0; index < parts.length; index++) {
             int part = Integer.parseInt(parts[index]);
             if (part < 0 || part > 255) {
-                return null;
+                return new byte[0];
             }
             address[index] = (byte) part;
         }
