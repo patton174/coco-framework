@@ -4,7 +4,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import io.github.coco.feature.mybatisplus.internal.CocoSqlIdentifierNormalizer;
+import io.github.coco.context.internal.CocoSqlIdentifierNormalizer;
 /**
  * 基于配置属性的数据权限 SQL 资源解析器。
  * <p>

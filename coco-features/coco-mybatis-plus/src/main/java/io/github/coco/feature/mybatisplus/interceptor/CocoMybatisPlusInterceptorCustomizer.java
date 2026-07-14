@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.Objects;
 
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import org.springframework.core.Ordered;
 import org.springframework.core.annotation.OrderUtils;
 
 /**
@@ -65,6 +66,9 @@ public interface CocoMybatisPlusInterceptorCustomizer {
      * @return 定制器执行顺序
      */
     default int getOrder() {
+        if (this instanceof Ordered ordered) {
+            return ordered.getOrder();
+        }
         Integer annotatedOrder = OrderUtils.getOrder(getClass());
         return annotatedOrder == null ? USER_ORDER : annotatedOrder;
     }
@@ -102,7 +106,7 @@ public interface CocoMybatisPlusInterceptorCustomizer {
                 .thenComparing(CocoMybatisPlusInterceptorCustomizer::getOrderKey);
     }
 
-    final class OrderedCustomizer implements CocoMybatisPlusInterceptorCustomizer {
+    final class OrderedCustomizer implements CocoMybatisPlusInterceptorCustomizer, Ordered {
 
         private final int order;
 

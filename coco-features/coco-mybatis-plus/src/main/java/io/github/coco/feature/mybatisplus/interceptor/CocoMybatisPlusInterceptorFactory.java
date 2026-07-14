@@ -46,6 +46,8 @@ public final class CocoMybatisPlusInterceptorFactory {
 
     private final Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers;
 
+    private final boolean sortCustomizers;
+
     /**
      * <p>
      * 创建 MyBatis-Plus 拦截器工厂。
@@ -57,7 +59,7 @@ public final class CocoMybatisPlusInterceptorFactory {
     public CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
             ObjectProvider<InnerInterceptor> innerInterceptors,
             ObjectProvider<CocoMybatisPlusInterceptorCustomizer> customizers) {
-        this(properties, innerInterceptors::orderedStream, customizers::stream);
+        this(properties, innerInterceptors::orderedStream, customizers::orderedStream, false);
     }
 
     /**
@@ -71,15 +73,16 @@ public final class CocoMybatisPlusInterceptorFactory {
     public CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
             Collection<InnerInterceptor> innerInterceptors,
             Collection<CocoMybatisPlusInterceptorCustomizer> customizers) {
-        this(properties, () -> innerInterceptors.stream(), () -> customizers.stream());
+        this(properties, () -> innerInterceptors.stream(), () -> customizers.stream(), true);
     }
 
     private CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
             Supplier<Stream<InnerInterceptor>> innerInterceptors,
-            Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers) {
+            Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers, boolean sortCustomizers) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.innerInterceptors = Objects.requireNonNull(innerInterceptors, "innerInterceptors must not be null");
         this.customizers = Objects.requireNonNull(customizers, "customizers must not be null");
+        this.sortCustomizers = sortCustomizers;
     }
 
     /**
@@ -91,9 +94,11 @@ public final class CocoMybatisPlusInterceptorFactory {
     public MybatisPlusInterceptor create() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
         this.innerInterceptors.get().forEach(interceptor::addInnerInterceptor);
-        this.customizers.get()
-                .sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator())
-                .forEach(customizer -> customizer.customize(interceptor));
+        Stream<CocoMybatisPlusInterceptorCustomizer> customizerStream = this.customizers.get();
+        if (this.sortCustomizers) {
+            customizerStream = customizerStream.sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator());
+        }
+        customizerStream.forEach(customizer -> customizer.customize(interceptor));
         CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.getSqlGuard();
         logSqlGuardProductionRecommendation(sqlGuard);
         addSqlGuardInnerInterceptors(interceptor, sqlGuard);

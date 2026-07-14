@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import io.github.coco.feature.tenant.CocoTenantErrorCode;
 import io.github.coco.feature.tenant.context.CocoTenantContext;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
-import io.github.coco.feature.mybatisplus.internal.CocoSqlIdentifierNormalizer;
+import io.github.coco.context.internal.CocoSqlIdentifierNormalizer;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.NullValue;
 

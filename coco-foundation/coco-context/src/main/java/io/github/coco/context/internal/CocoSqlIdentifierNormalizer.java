@@ -1,4 +1,4 @@
-package io.github.coco.feature.mybatisplus.internal;
+package io.github.coco.context.internal;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +63,7 @@ public final class CocoSqlIdentifierNormalizer {
         }
         char first = source.charAt(index);
         if (first == '"' || first == '`' || first == '[') {
-            return quotedSegment(source, index, first, first == '[' ? ']' : first);
+            return quotedSegment(source, index, first == '[' ? ']' : first);
         }
         if (!isIdentifierStart(first)) {
             return null;
@@ -75,7 +75,7 @@ public final class CocoSqlIdentifierNormalizer {
         return new Segment(source.substring(index, end), end);
     }
 
-    private static Segment quotedSegment(String source, int index, char opening, char closing) {
+    private static Segment quotedSegment(String source, int index, char closing) {
         StringBuilder value = new StringBuilder();
         for (int current = index + 1; current < source.length(); current++) {
             char character = source.charAt(current);
