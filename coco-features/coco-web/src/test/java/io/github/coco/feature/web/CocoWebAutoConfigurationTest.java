@@ -18,6 +18,8 @@ import io.github.coco.exception.CocoBusinessExceptions;
 import io.github.coco.exception.CocoCommonErrorCode;
 import io.github.coco.exception.CocoException;
 import io.github.coco.exception.CocoExceptions;
+import io.github.coco.exception.type.CocoRequestException;
+import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.logging.access.CocoAccessLog;
 import io.github.coco.logging.access.CocoAccessLogFormatter;
@@ -136,10 +138,15 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -553,6 +560,192 @@ class CocoWebAutoConfigurationTest {
                     assertEquals(0, failure.getSuppressed()[0].getSuppressed().length);
                     assertEquals(renderStackTrace(failure), renderStackTrace(repeatedFailure));
                 });
+    }
+
+    @Test
+    void boundsHighFanOutSuppressedGraphsInLocalizedFailureLogs() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoException exception = highFanOutCocoException(4096);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+
+                    handler.handleCocoException(exception, new ServletWebRequest(new MockHttpServletRequest()));
+                    handler.handleCocoException(exception, new ServletWebRequest(new MockHttpServletRequest()));
+
+                    Throwable first = sink.records().get(0).failure().orElseThrow();
+                    Throwable repeated = sink.records().get(1).failure().orElseThrow();
+                    assertEquals(127, first.getSuppressed().length);
+                    assertEquals(128, exceptionGraphNodeCount(first));
+                    assertEquals(renderStackTrace(first), renderStackTrace(repeated));
+                });
+    }
+
+    @Test
+    void preservesCausePriorityAtTheGlobalGraphBudget() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoException exception = deepCocoException(32);
+        for (int index = 0; index < 4096; index++) {
+            exception.addSuppressed(new CocoException("test.suppressed." + index, "suppressed-" + index));
+        }
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    handler.handleCocoException(exception, new ServletWebRequest(new MockHttpServletRequest()));
+
+                    Throwable failure = sink.records().get(0).failure().orElseThrow();
+                    assertEquals(32, causeMessages(failure).size());
+                    assertEquals(96, failure.getSuppressed().length);
+                    assertEquals("suppressed-0", failure.getSuppressed()[0].getMessage());
+                    assertEquals(128, exceptionGraphNodeCount(failure));
+                });
+    }
+
+    @Test
+    void preservesTheCauseDepthBoundaryBeforeTruncatingLaterNodes() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    for (int depth = 31; depth <= 33; depth++) {
+                        handler.handleCocoException(deepCocoException(depth),
+                                new ServletWebRequest(new MockHttpServletRequest()));
+                    }
+
+                    assertEquals(31, causeMessages(sink.records().get(0).failure().orElseThrow()).size());
+                    assertEquals(32, causeMessages(sink.records().get(1).failure().orElseThrow()).size());
+                    assertEquals(32, causeMessages(sink.records().get(2).failure().orElseThrow()).size());
+                });
+    }
+
+    @Test
+    void cutsCrossLinkedCauseAndSuppressedCyclesAndSharedNodes() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoException first = new CocoException("coco.error.internal-error", "first");
+        CocoException second = new CocoException("coco.error.internal-error", "second");
+        first.initCause(second);
+        second.addSuppressed(first);
+        CocoException shared = new CocoException("coco.error.internal-error", "shared");
+        CocoException sharedRoot = new CocoException("coco.error.internal-error", "root", shared);
+        sharedRoot.addSuppressed(shared);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    handler.handleCocoException(first, new ServletWebRequest(new MockHttpServletRequest()));
+                    handler.handleCocoException(sharedRoot, new ServletWebRequest(new MockHttpServletRequest()));
+
+                    Throwable cyclicFailure = sink.records().get(0).failure().orElseThrow();
+                    Throwable sharedFailure = sink.records().get(1).failure().orElseThrow();
+                    assertEquals(2, causeMessages(cyclicFailure).size());
+                    assertEquals(0, cyclicFailure.getCause().getSuppressed().length);
+                    assertEquals(2, causeMessages(sharedFailure).size());
+                    assertEquals(0, sharedFailure.getSuppressed().length);
+                });
+    }
+
+    @Test
+    void usesIndependentBoundedBudgetsForConcurrentExceptionLogs() throws Exception {
+        ConcurrentCocoLogSink sink = new ConcurrentCocoLogSink();
+        CocoException exception = highFanOutCocoException(4096);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ExecutorService executor = Executors.newFixedThreadPool(8);
+                    try {
+                        List<Future<ResponseEntity<Object>>> responses = new ArrayList<>();
+                        for (int index = 0; index < 16; index++) {
+                            responses.add(executor.submit(() -> handler.handleCocoException(exception,
+                                    new ServletWebRequest(new MockHttpServletRequest()))));
+                        }
+                        for (Future<ResponseEntity<Object>> response : responses) {
+                            assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.get().getStatusCode());
+                        }
+                        assertEquals(16, sink.records().size());
+                        for (CocoLogRecord record : sink.records()) {
+                            assertTrue(exceptionGraphNodeCount(record.failure().orElseThrow()) <= 128);
+                        }
+                    }
+                    finally {
+                        executor.shutdownNow();
+                    }
+                });
+    }
+
+    @Test
+    void preservesBusinessResponseWhenTheLogGraphIsTruncated() {
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoException exception = CocoCommonErrorCode.INVALID_ARGUMENT.exception("name");
+        CocoException wideCause = highFanOutCocoException(4096);
+        exception.initCause(wideCause);
+        this.webContextRunner
+                .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                .run(context -> {
+                    CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                    ResponseEntity<Object> response = handler.handleCocoException(exception,
+                            new ServletWebRequest(new MockHttpServletRequest("GET", "/api/users")));
+
+                    CocoApiResponse<?> body = apiBody(response);
+                    assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+                    assertFalse(body.success());
+                    assertEquals(400, body.code());
+                    assertEquals(128, exceptionGraphNodeCount(sink.records().get(0).failure().orElseThrow()));
+                });
+    }
+
+    @Test
+    void preservesBadRequestResponsesWhenCocoExceptionAccessorsAreHostile() {
+        for (HostileThrowableAccessor accessor : List.of(HostileThrowableAccessor.CAUSE,
+                HostileThrowableAccessor.MESSAGE, HostileThrowableAccessor.STACK_TRACE)) {
+            CapturingCocoLogSink sink = new CapturingCocoLogSink();
+            this.webContextRunner
+                    .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                    .run(context -> {
+                        CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                        ResponseEntity<Object> response = handler.handleCocoException(
+                                new HostileCocoRequestException(accessor),
+                                new ServletWebRequest(new MockHttpServletRequest("GET", "/api/hostile")));
+
+                        CocoApiResponse<?> body = apiBody(response);
+                        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+                        assertFalse(body.success());
+                        assertEquals(400, body.code());
+                        assertEquals(1, sink.records().size());
+                    });
+        }
+    }
+
+    @Test
+    void preservesUnhandledResponsesWhenRawThrowableRenderingIsHostile() {
+        for (HostileThrowableAccessor accessor : List.of(HostileThrowableAccessor.TO_STRING,
+                HostileThrowableAccessor.STACK_TRACE)) {
+            CocoLogSink sink = record -> {
+                Throwable failure = record.failure().orElseThrow();
+                if (accessor == HostileThrowableAccessor.TO_STRING) {
+                    failure.toString();
+                }
+                else {
+                    failure.getStackTrace();
+                }
+            };
+            this.webContextRunner
+                    .withBean(CocoLogManager.class, () -> cocoLogManager(sink))
+                    .run(context -> {
+                        CocoWebExceptionHandler handler = context.getBean(CocoWebExceptionHandler.class);
+                        ResponseEntity<Object> response = handler.handleUnhandledException(
+                                new HostileRawException(accessor),
+                                new ServletWebRequest(new MockHttpServletRequest("GET", "/api/hostile")));
+
+                        CocoApiResponse<?> body = apiBody(response);
+                        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+                        assertFalse(body.success());
+                        assertEquals(500, body.code());
+                    });
+        }
     }
 
     @Test
@@ -5773,7 +5966,7 @@ class CocoWebAutoConfigurationTest {
                 responseProperties);
     }
 
-    private static CocoLogManager cocoLogManager(CapturingCocoLogSink sink) {
+    private static CocoLogManager cocoLogManager(CocoLogSink sink) {
         CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
         CocoLogHandles.registerDefaults(registry);
         return new CocoLogManager(registry, sink);
@@ -5785,6 +5978,31 @@ class CocoWebAutoConfigurationTest {
             exception = new CocoException("coco.error.internal-error", "deep-" + index, exception);
         }
         return exception;
+    }
+
+    private static CocoException highFanOutCocoException(int suppressedCount) {
+        CocoException exception = new CocoException("coco.error.internal-error", "wide");
+        for (int index = 0; index < suppressedCount; index++) {
+            exception.addSuppressed(new CocoException("coco.error.internal-error", "leaf-" + index));
+        }
+        return exception;
+    }
+
+    private static int exceptionGraphNodeCount(Throwable exception) {
+        IdentityHashMap<Throwable, Boolean> visited = new IdentityHashMap<>();
+        List<Throwable> pending = new ArrayList<>();
+        pending.add(exception);
+        while (!pending.isEmpty()) {
+            Throwable current = pending.remove(pending.size() - 1);
+            if (current == null || visited.put(current, Boolean.TRUE) != null) {
+                continue;
+            }
+            pending.add(current.getCause());
+            for (Throwable suppressed : current.getSuppressed()) {
+                pending.add(suppressed);
+            }
+        }
+        return visited.size();
     }
 
     private static List<String> causeMessages(Throwable exception) {
@@ -6031,6 +6249,95 @@ class CocoWebAutoConfigurationTest {
 
         private List<CocoLogRecord> records() {
             return this.records;
+        }
+    }
+
+    private static final class ConcurrentCocoLogSink implements CocoLogSink {
+
+        private final ConcurrentLinkedQueue<CocoLogRecord> records = new ConcurrentLinkedQueue<>();
+
+        @Override
+        public void log(CocoLogRecord record) {
+            this.records.add(record);
+        }
+
+        private List<CocoLogRecord> records() {
+            return List.copyOf(this.records);
+        }
+    }
+
+    private enum HostileThrowableAccessor {
+
+        CAUSE,
+        MESSAGE,
+        STACK_TRACE,
+        TO_STRING
+    }
+
+    private static final class HostileCocoRequestException extends CocoRequestException {
+
+        private final HostileThrowableAccessor accessor;
+
+        private HostileCocoRequestException(HostileThrowableAccessor accessor) {
+            super(CocoCommonErrorCode.INVALID_ARGUMENT, "name");
+            this.accessor = accessor;
+        }
+
+        @Override
+        public synchronized Throwable getCause() {
+            failWhen(HostileThrowableAccessor.CAUSE);
+            return super.getCause();
+        }
+
+        @Override
+        public CocoMessage message() {
+            failWhen(HostileThrowableAccessor.MESSAGE);
+            return super.message();
+        }
+
+        @Override
+        public StackTraceElement[] getStackTrace() {
+            failWhen(HostileThrowableAccessor.STACK_TRACE);
+            return super.getStackTrace();
+        }
+
+        @Override
+        public String toString() {
+            failWhen(HostileThrowableAccessor.TO_STRING);
+            return super.toString();
+        }
+
+        private void failWhen(HostileThrowableAccessor expected) {
+            if (this.accessor == expected) {
+                throw new IllegalStateException("hostile " + expected);
+            }
+        }
+    }
+
+    private static final class HostileRawException extends RuntimeException {
+
+        private final HostileThrowableAccessor accessor;
+
+        private HostileRawException(HostileThrowableAccessor accessor) {
+            this.accessor = accessor;
+        }
+
+        @Override
+        public StackTraceElement[] getStackTrace() {
+            failWhen(HostileThrowableAccessor.STACK_TRACE);
+            return super.getStackTrace();
+        }
+
+        @Override
+        public String toString() {
+            failWhen(HostileThrowableAccessor.TO_STRING);
+            return super.toString();
+        }
+
+        private void failWhen(HostileThrowableAccessor expected) {
+            if (this.accessor == expected) {
+                throw new IllegalStateException("hostile " + expected);
+            }
         }
     }
 

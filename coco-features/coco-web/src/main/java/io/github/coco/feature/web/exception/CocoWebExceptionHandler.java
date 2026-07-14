@@ -63,6 +63,11 @@ public class CocoWebExceptionHandler {
 
     private static final int MAX_LOCALIZED_FAILURE_DEPTH = 32;
 
+    /**
+     * 限制单次异常日志最多复制四条最大深度的异常路径，避免高扇出 suppressed 图占用无界日志资源。
+     */
+    private static final int MAX_LOCALIZED_FAILURE_NODES = MAX_LOCALIZED_FAILURE_DEPTH * 4;
+
     private static final String BAD_REQUEST_MESSAGE_CODE = "coco.web.error.bad-request";
 
     private static final String METHOD_NOT_ALLOWED_MESSAGE_CODE = "coco.web.error.method-not-allowed";
@@ -233,7 +238,7 @@ public class CocoWebExceptionHandler {
         HttpStatusCode statusCode = Objects.requireNonNull(this.httpStatusResolver.resolve(checkedException),
                 "resolved http status must not be null");
         Locale resolvedLocale = explicitLocale ? effectiveLocale(locale) : null;
-        String message = resolveMessage(checkedException, resolvedLocale);
+        String message = resolveResponseMessage(checkedException, resolvedLocale);
         int code = checkedException.businessCode()
                 .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
         logException(checkedException, statusCode, code, request, message, resolvedLocale);
@@ -335,9 +340,14 @@ public class CocoWebExceptionHandler {
         CocoLogLevel level = statusCode != null && statusCode.is5xxServerError()
                 ? CocoLogLevel.ERROR
                 : CocoLogLevel.WARN;
-        this.logManager.log(CocoLogHandles.EXCEPTION, level,
-                formatExceptionLogMessage(exception, statusCode, code, request),
-                localizedFailure(exception, resolvedMessage, locale));
+        try {
+            this.logManager.log(CocoLogHandles.EXCEPTION, level,
+                    formatExceptionLogMessage(exception, statusCode, code, request),
+                    localizedFailure(exception, resolvedMessage, locale));
+        }
+        catch (RuntimeException ignored) {
+            // Optional exception logging must not alter the Web error response.
+        }
     }
 
     private static String formatExceptionLogMessage(Throwable exception, HttpStatusCode statusCode, int code,
@@ -364,25 +374,36 @@ public class CocoWebExceptionHandler {
     }
 
     private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale) {
-        return localizedFailure(exception, resolvedMessage, locale, new IdentityHashMap<>(), 0);
+        try {
+            return localizedFailure(exception, resolvedMessage, locale, new IdentityHashMap<>(),
+                    new LocalizedFailureBudget(), 0);
+        }
+        catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale,
-            IdentityHashMap<Throwable, Boolean> visited, int depth) {
+            IdentityHashMap<Throwable, Boolean> visited, LocalizedFailureBudget budget, int depth) {
         if (!(exception instanceof CocoException cocoException)) {
             return exception;
         }
-        if (depth >= MAX_LOCALIZED_FAILURE_DEPTH || visited.put(cocoException, Boolean.TRUE) != null) {
+        if (depth >= MAX_LOCALIZED_FAILURE_DEPTH || visited.containsKey(cocoException) || !budget.tryAcquire()) {
             return null;
         }
+        visited.put(cocoException, Boolean.TRUE);
         String message = resolvedMessage == null || resolvedMessage.isBlank()
                 ? resolveMessage(cocoException, locale)
                 : resolvedMessage;
-        Throwable localizedCause = localizedFailure(cocoException.getCause(), null, locale, visited, depth + 1);
+        Throwable localizedCause = localizedFailure(cocoException.getCause(), null, locale, visited, budget,
+                depth + 1);
         CocoException localizedException = copyCocoException(cocoException, message, localizedCause);
         localizedException.setStackTrace(cocoException.getStackTrace());
         for (Throwable suppressed : cocoException.getSuppressed()) {
-            Throwable localizedSuppressed = localizedFailure(suppressed, null, locale, visited, depth + 1);
+            if (budget.exhausted()) {
+                break;
+            }
+            Throwable localizedSuppressed = localizedFailure(suppressed, null, locale, visited, budget, depth + 1);
             if (localizedSuppressed != null) {
                 localizedException.addSuppressed(localizedSuppressed);
             }
@@ -398,6 +419,17 @@ public class CocoWebExceptionHandler {
         return locale == null
                 ? this.messageService.resolve(exception.message())
                 : this.messageService.resolve(exception.message(), locale);
+    }
+
+    private String resolveResponseMessage(CocoException exception, Locale locale) {
+        try {
+            return resolveMessage(exception, locale);
+        }
+        catch (RuntimeException ignored) {
+            return locale == null
+                    ? this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR)
+                    : this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR, locale);
+        }
     }
 
     private Locale effectiveLocale(Locale locale) {
@@ -426,6 +458,23 @@ public class CocoWebExceptionHandler {
             return new CocoUnauthorizedException(code, message, cause, args);
         }
         return new CocoException(code, message, cause, args);
+    }
+
+    private static final class LocalizedFailureBudget {
+
+        private int remaining = MAX_LOCALIZED_FAILURE_NODES;
+
+        private boolean tryAcquire() {
+            if (this.remaining == 0) {
+                return false;
+            }
+            this.remaining--;
+            return true;
+        }
+
+        private boolean exhausted() {
+            return this.remaining == 0;
+        }
     }
 
     private ResponseEntity<Object> error(HttpStatusCode statusCode, int code, String message, WebRequest request) {
