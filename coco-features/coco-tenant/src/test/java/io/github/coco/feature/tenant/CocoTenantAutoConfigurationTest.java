@@ -162,6 +162,9 @@ class CocoTenantAutoConfigurationTest {
                         "coco.tenant.sql.tenant-id-column=org_id",
                         "coco.tenant.sql.ignore-tables[0]=sys_tenant",
                         "coco.tenant.sql.ignore-tables[1]=coco_dictionary",
+                        "coco.tenant.sql.ignore-tables[2]=\"tenant_a\".\"sys_tenant\"",
+                        "coco.tenant.sql.ignore-tables[3]=`tenant_b`.`sys``tenant`",
+                        "coco.tenant.sql.ignore-tables[4]=[tenant_c].[sys]]tenant]",
                         "coco.tenant.sql.fail-on-missing-context=false",
                         "coco.tenant.sql.interceptor-ignore.block-unlisted=false",
                         "coco.tenant.sql.interceptor-ignore.strict-mode=true",
@@ -172,7 +175,8 @@ class CocoTenantAutoConfigurationTest {
 
                     assertThat(properties.getSql().getTenantIdColumn()).isEqualTo("org_id");
                     assertThat(properties.getSql().getIgnoreTables()).containsExactly("sys_tenant",
-                            "coco_dictionary");
+                            "coco_dictionary", "\"tenant_a\".\"sys_tenant\"", "`tenant_b`.`sys``tenant`",
+                            "[tenant_c].[sys]]tenant]");
                     assertThat(properties.getSql().isFailOnMissingContext()).isFalse();
                     assertThat(properties.getSql().getInterceptorIgnore().isBlockUnlisted()).isFalse();
                     assertThat(properties.getSql().getInterceptorIgnore().isStrictMode()).isTrue();
@@ -180,6 +184,9 @@ class CocoTenantAutoConfigurationTest {
                             .containsExactly("com.example.AdminMapper.selectShared");
                     assertThat(handler.getTenantIdColumn()).isEqualTo("org_id");
                     assertThat(handler.ignoreTable("SYS_TENANT")).isTrue();
+                    assertThat(handler.ignoreTable("[TENANT_A].`SYS_TENANT`")).isTrue();
+                    assertThat(handler.ignoreTable("\"TENANT_B\".\"SYS`TENANT\"")).isTrue();
+                    assertThat(handler.ignoreTable("\"TENANT_C\".\"SYS]TENANT\"")).isTrue();
                     assertThat(handler.ignoreTable("business_order")).isFalse();
                     assertThat(handler.getTenantId()).isInstanceOf(NullValue.class);
                 });

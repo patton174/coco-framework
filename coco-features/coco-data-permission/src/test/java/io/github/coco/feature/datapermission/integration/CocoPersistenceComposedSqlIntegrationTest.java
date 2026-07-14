@@ -55,6 +55,7 @@ class CocoPersistenceComposedSqlIntegrationTest {
                     "coco.mybatis-plus.pagination.db-type=h2",
                     "coco.data-permission.sql.enabled=true",
                     "coco.data-permission.sql.resources.document.tables[0]=documents",
+                    "coco.data-permission.sql.resources.document.tables[1]=\"tenant_a\".\"documents\"",
                     "coco.data-permission.sql.resources.document.column=department_id",
                     "coco.data-permission.sql.resources.document.column-type=long",
                     "coco.tenant.sql.interceptor-ignore.allowed-mapped-statements[0]="
@@ -160,6 +161,42 @@ class CocoPersistenceComposedSqlIntegrationTest {
                     .containsIgnoringCase("d.department_id IN (10)")
                     .containsIgnoringCase("d.tenant_id = 'tenant-a'")
                     .containsIgnoringCase("t.tenant_id = 'tenant-a'");
+        });
+    }
+
+    @Test
+    void quotedSchemaJoinComposesTenantAndDataPermissionInExecutedSql() {
+        this.contextRunner.run(context -> {
+            RecordingDataSource dataSource = context.getBean(RecordingDataSource.class);
+            initializeDatabase(dataSource);
+            ComposedDocumentMapper mapper = context.getBean(ComposedDocumentMapper.class);
+
+            List<ComposedDocument> documents = withContexts(() -> mapper.selectQuotedByTagJoin("blue"));
+            String executedSql = onlyPreparedSql(dataSource);
+
+            assertThat(documents).extracting(ComposedDocument::getId).containsExactly(1L);
+            assertThat(executedSql)
+                    .containsIgnoringCase("tenant_id = 'tenant-a'")
+                    .containsIgnoringCase("department_id IN (10)")
+                    .contains("\"tenant_a\".\"documents\"");
+        });
+    }
+
+    @Test
+    void quotedSchemaSubqueryComposesTenantAndDataPermissionInExecutedSql() {
+        this.contextRunner.run(context -> {
+            RecordingDataSource dataSource = context.getBean(RecordingDataSource.class);
+            initializeDatabase(dataSource);
+            ComposedDocumentMapper mapper = context.getBean(ComposedDocumentMapper.class);
+
+            List<ComposedDocument> documents = withContexts(() -> mapper.selectQuotedByTagSubquery("blue"));
+            String executedSql = onlyPreparedSql(dataSource);
+
+            assertThat(documents).extracting(ComposedDocument::getId).containsExactly(1L);
+            assertThat(executedSql)
+                    .containsIgnoringCase("tenant_id = 'tenant-a'")
+                    .containsIgnoringCase("department_id IN (10)")
+                    .contains("\"tenant_a\".\"document_tags\"");
         });
     }
 
@@ -309,6 +346,15 @@ class CocoPersistenceComposedSqlIntegrationTest {
                 new Object[] {2L, "tenant-a", "blue"},
                 new Object[] {3L, "tenant-b", "blue"},
                 new Object[] {4L, "tenant-a", "blue"}));
+        jdbcTemplate.execute("CREATE SCHEMA \"tenant_a\"");
+        jdbcTemplate.execute("""
+                CREATE TABLE "tenant_a"."documents" AS
+                SELECT * FROM documents
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE "tenant_a"."document_tags" AS
+                SELECT * FROM document_tags
+                """);
         ((RecordingDataSource) dataSource).clearPreparedSql();
     }
 

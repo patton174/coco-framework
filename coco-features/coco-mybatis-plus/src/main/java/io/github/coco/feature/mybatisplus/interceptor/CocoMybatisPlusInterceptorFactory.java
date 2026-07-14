@@ -1,6 +1,9 @@
 package io.github.coco.feature.mybatisplus.interceptor;
 
+import java.util.Collection;
 import java.util.Objects;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -39,9 +42,9 @@ public final class CocoMybatisPlusInterceptorFactory {
 
     private final CocoMybatisPlusProperties properties;
 
-    private final ObjectProvider<InnerInterceptor> innerInterceptors;
+    private final Supplier<Stream<InnerInterceptor>> innerInterceptors;
 
-    private final ObjectProvider<CocoMybatisPlusInterceptorCustomizer> customizers;
+    private final Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers;
 
     /**
      * <p>
@@ -54,6 +57,26 @@ public final class CocoMybatisPlusInterceptorFactory {
     public CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
             ObjectProvider<InnerInterceptor> innerInterceptors,
             ObjectProvider<CocoMybatisPlusInterceptorCustomizer> customizers) {
+        this(properties, innerInterceptors::orderedStream, customizers::stream);
+    }
+
+    /**
+     * <p>
+     * 创建可由非 Spring 调用方手工组装的 MyBatis-Plus 拦截器工厂。
+     * </p>
+     * @param properties MyBatis-Plus 功能配置属性
+     * @param innerInterceptors 业务或其他框架注册的 MyBatis-Plus 内置拦截器集合
+     * @param customizers 拦截器定制器集合
+     */
+    public CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
+            Collection<InnerInterceptor> innerInterceptors,
+            Collection<CocoMybatisPlusInterceptorCustomizer> customizers) {
+        this(properties, () -> innerInterceptors.stream(), () -> customizers.stream());
+    }
+
+    private CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
+            Supplier<Stream<InnerInterceptor>> innerInterceptors,
+            Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.innerInterceptors = Objects.requireNonNull(innerInterceptors, "innerInterceptors must not be null");
         this.customizers = Objects.requireNonNull(customizers, "customizers must not be null");
@@ -67,8 +90,10 @@ public final class CocoMybatisPlusInterceptorFactory {
      */
     public MybatisPlusInterceptor create() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        this.innerInterceptors.orderedStream().forEach(interceptor::addInnerInterceptor);
-        this.customizers.orderedStream().forEach(customizer -> customizer.customize(interceptor));
+        this.innerInterceptors.get().forEach(interceptor::addInnerInterceptor);
+        this.customizers.get()
+                .sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator())
+                .forEach(customizer -> customizer.customize(interceptor));
         CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.getSqlGuard();
         logSqlGuardProductionRecommendation(sqlGuard);
         addSqlGuardInnerInterceptors(interceptor, sqlGuard);

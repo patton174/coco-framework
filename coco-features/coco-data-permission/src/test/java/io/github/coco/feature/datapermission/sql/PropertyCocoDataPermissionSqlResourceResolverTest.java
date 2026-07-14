@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Table;
+import net.sf.jsqlparser.statement.select.Select;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -45,6 +47,33 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
 
         assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(new Table("tenant_a", "sample_order"),
                 "SampleMapper.selectOrders"))).contains("sample-order");
+    }
+
+    @Test
+    void resolvesQuotedSchemaQualifiedTableParsedByJSqlParser() throws Exception {
+        CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
+        properties.getResources().put("sample-order", resource("`tenant_a`.\"sample_order\""));
+        PropertyCocoDataPermissionSqlResourceResolver resolver =
+                new PropertyCocoDataPermissionSqlResourceResolver(properties);
+        Select select = (Select) CCJSqlParserUtil.parse("SELECT * FROM [TENANT_A].\"SAMPLE_ORDER\"");
+        Table table = (Table) select.getPlainSelect().getFromItem();
+
+        assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(table,
+                "SampleMapper.selectOrders"))).contains("sample-order");
+    }
+
+    @Test
+    void keepsQuotedDotsAsOneIdentifierSegment() {
+        CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
+        properties.getResources().put("literal-dot", resource("\"tenant.a\""));
+        properties.getResources().put("qualified", resource("tenant.a"));
+        PropertyCocoDataPermissionSqlResourceResolver resolver =
+                new PropertyCocoDataPermissionSqlResourceResolver(properties);
+
+        assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(new Table("\"TENANT.A\""),
+                "SampleMapper.selectOrders"))).contains("literal-dot");
+        assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(new Table("TENANT", "A"),
+                "SampleMapper.selectOrders"))).contains("qualified");
     }
 
     @Test

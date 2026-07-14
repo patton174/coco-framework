@@ -129,10 +129,12 @@ public class CocoTenantMybatisPlusAutoConfiguration {
                 eventPublisherProvider.getIfAvailable(NoOpCocoTenantInterceptorIgnoreEventPublisher::new));
         CocoTenantLineHandler tenantLineHandler = new CocoTenantLineHandler(properties.getSql(),
                 contextResolver, expressionResolver);
-        return interceptor -> {
-            interceptor.addInnerInterceptor(interceptorIgnoreGuard);
-            interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler));
-        };
+        return CocoMybatisPlusInterceptorCustomizer.ordered(
+                CocoMybatisPlusInterceptorCustomizer.TENANT_INTERCEPTOR_IGNORE_GUARD_ORDER,
+                interceptor -> {
+                    interceptor.addInnerInterceptor(interceptorIgnoreGuard);
+                    interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler));
+                });
     }
 
     @SuppressWarnings("deprecation")
