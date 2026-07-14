@@ -132,7 +132,6 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         validateFeatureArtifactVersions();
         writeManifest(plan);
         applyFeatureDependencies(plan);
-        pruneDisabledFeatureArtifacts(plan);
         getLog().info("Coco feature manifest generated with " + plan.enabledFeatures().size() + " enabled features.");
     }
 
@@ -188,11 +187,16 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                         + "' is declared only with non-runtime dependencies: " + coordinates
                         + ". Use non-optional compile or runtime scope.");
             }
+            if (runtimeDeclared.isEmpty() && hasResolvedFeatureArtifact(equivalentArtifactIds)) {
+                // The normal starter already supplies this feature transitively. Re-declaring it here
+                // would make Maven mediate the starter's compile closure as a direct dependency.
+                continue;
+            }
             Dependency dependency = runtimeDeclared.stream()
                     .filter(candidate -> definition.artifactId().equals(candidate.getArtifactId()))
                     .findFirst()
                     .orElseGet(() -> runtimeDeclared.stream().findFirst()
-                            .orElseGet(() -> newRuntimeDependency(definition, targetFeatureVersion)));
+                            .orElseGet(() -> newCompileDependency(definition, targetFeatureVersion)));
             String dependencyVersion = nonBlank(dependency.getVersion());
             if (dependencyVersion == null) {
                 dependency.setVersion(targetFeatureVersion);
@@ -211,12 +215,12 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         mergeResolvedArtifacts(resolvedClosure);
     }
 
-    private Dependency newRuntimeDependency(CocoFeatureDefinition definition, String version) {
+    private Dependency newCompileDependency(CocoFeatureDefinition definition, String version) {
         Dependency dependency = new Dependency();
         dependency.setGroupId(this.featureGroupId);
         dependency.setArtifactId(definition.artifactId());
         dependency.setVersion(version);
-        dependency.setScope(Artifact.SCOPE_RUNTIME);
+        dependency.setScope(Artifact.SCOPE_COMPILE);
         return dependency;
     }
 
@@ -227,67 +231,20 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 || Artifact.SCOPE_RUNTIME.equals(scope));
     }
 
+    private boolean hasResolvedFeatureArtifact(Set<String> equivalentArtifactIds) {
+        if (this.project.getArtifacts() == null) {
+            return false;
+        }
+        return this.project.getArtifacts().stream()
+                .anyMatch(artifact -> this.featureGroupId.equals(artifact.getGroupId())
+                        && equivalentArtifactIds.contains(artifact.getArtifactId()));
+    }
+
     private String dependencyDescription(Dependency dependency) {
         String scope = nonBlank(dependency.getScope());
         return dependency.getGroupId() + ":" + dependency.getArtifactId() + ":" + dependency.getVersion()
                 + " (scope=" + (scope == null ? Artifact.SCOPE_COMPILE : scope)
                 + ", optional=" + dependency.isOptional() + ")";
-    }
-
-    /**
-     * <p>
-     * 从 Maven 已解析 artifact 集合中移除被禁用功能声明的可裁剪 artifact，避免后续打包插件把禁用能力写入业务应用产物。
-     * </p>
-     * @param plan 最终功能启用计划
-     */
-    void pruneDisabledFeatureArtifacts(CocoFeaturePlan plan) {
-        Set<String> disabledArtifactIds = plan.definitions().stream()
-                .filter(definition -> !plan.isEnabled(definition.feature()))
-                .flatMap(definition -> definition.pruneArtifactIds().stream())
-                .collect(Collectors.toUnmodifiableSet());
-        if (disabledArtifactIds.isEmpty()) {
-            return;
-        }
-        this.project.getModel().getDependencies()
-                .removeIf(dependency -> isPrunableCoordinate(
-                        dependency.getGroupId(), dependency.getArtifactId(), disabledArtifactIds));
-        this.project.setArtifacts(pruneArtifacts(this.project.getArtifacts(), disabledArtifactIds));
-        if (this.project.getDependencyArtifacts() != null) {
-            this.project.setDependencyArtifacts(pruneArtifacts(this.project.getDependencyArtifacts(), disabledArtifactIds));
-        }
-    }
-
-    /**
-     * <p>
-     * 从 artifact 集合中过滤指定 artifactId。
-     * </p>
-     * @param artifacts 原始 artifact 集合
-     * @param excludedArtifactIds 需要过滤的 artifactId 集合
-     * @return 过滤后的 artifact 集合
-     */
-    private Set<Artifact> pruneArtifacts(Set<Artifact> artifacts, Set<String> excludedArtifactIds) {
-        if (artifacts == null || artifacts.isEmpty()) {
-            return Set.of();
-        }
-        return artifacts.stream()
-                .filter(artifact -> !isPrunableArtifact(artifact, excludedArtifactIds))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-    }
-
-    /**
-     * <p>
-     * 判断已解析 artifact 是否属于 Coco 禁用功能可裁剪范围。
-     * </p>
-     * @param artifact 已解析 Maven artifact
-     * @param excludedArtifactIds 功能清单声明的可裁剪 artifactId 集合
-     * @return 需要裁剪时返回 {@code true}
-     */
-    private boolean isPrunableArtifact(Artifact artifact, Set<String> excludedArtifactIds) {
-        return isPrunableCoordinate(artifact.getGroupId(), artifact.getArtifactId(), excludedArtifactIds);
-    }
-
-    private boolean isPrunableCoordinate(String groupId, String artifactId, Set<String> excludedArtifactIds) {
-        return this.featureGroupId.equals(groupId) && excludedArtifactIds.contains(artifactId);
     }
 
     void validateFeatureArtifactVersions() throws MojoExecutionException {
@@ -462,19 +419,18 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     }
 
     private void mergeResolvedArtifacts(Set<Artifact> resolvedClosure) {
-        Set<Artifact> artifacts = new LinkedHashSet<>();
-        if (this.project.getArtifacts() != null) {
-            artifacts.addAll(this.project.getArtifacts());
+        Set<Artifact> currentArtifacts = this.project.getArtifacts();
+        if (currentArtifacts == null || resolvedClosure.isEmpty()) {
+            return;
         }
-        artifacts.addAll(resolvedClosure);
-        this.project.setArtifacts(artifacts);
-
-        Set<Artifact> dependencyArtifacts = new LinkedHashSet<>();
-        if (this.project.getDependencyArtifacts() != null) {
-            dependencyArtifacts.addAll(this.project.getDependencyArtifacts());
+        try {
+            currentArtifacts.addAll(resolvedClosure);
         }
-        dependencyArtifacts.addAll(resolvedClosure);
-        this.project.setDependencyArtifacts(dependencyArtifacts);
+        catch (UnsupportedOperationException ex) {
+            Set<Artifact> mergedArtifacts = new LinkedHashSet<>(currentArtifacts);
+            mergedArtifacts.addAll(resolvedClosure);
+            this.project.setArtifacts(mergedArtifacts);
+        }
     }
 
     /**

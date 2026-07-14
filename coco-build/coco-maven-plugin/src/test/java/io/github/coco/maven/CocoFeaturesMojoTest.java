@@ -175,7 +175,7 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
-    void prunesOnlyDisabledCocoMybatisArtifactsAndKeepsThirdPartyArtifacts() throws Exception {
+    void leavesDisabledFeatureArtifactsAvailableUntilPackagePruning() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("classpath"));
         Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
@@ -218,8 +218,7 @@ class CocoFeaturesMojoTest {
         assertThat(manifest.enabledFeatureIds()).contains("audit").doesNotContain("mybatis-plus");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-audit")
-                .doesNotContain(
+                .contains(
                         "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus");
         assertThat(project.getArtifacts())
@@ -235,8 +234,7 @@ class CocoFeaturesMojoTest {
                         "org.mybatis:mybatis",
                         "org.mybatis:mybatis-extra",
                         "org.mybatis:mybatis-spring",
-                        "org.springframework:spring-jdbc")
-                .doesNotContain(
+                        "org.springframework:spring-jdbc",
                         "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus");
         assertThat(project.getDependencyArtifacts())
@@ -252,8 +250,7 @@ class CocoFeaturesMojoTest {
                         "org.mybatis:mybatis",
                         "org.mybatis:mybatis-extra",
                         "org.mybatis:mybatis-spring",
-                        "org.springframework:spring-jdbc")
-                .doesNotContain(
+                        "org.springframework:spring-jdbc",
                         "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus");
     }
@@ -294,18 +291,16 @@ class CocoFeaturesMojoTest {
 
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
-                .doesNotContain("io.github.patton174:coco-mybatis-plus",
-                        "io.github.patton174:coco-feature-codegen");
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker");
         assertThat(project.getArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
-                .doesNotContain("io.github.patton174:coco-mybatis-plus",
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker",
+                        "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-codegen");
         assertThat(project.getDependencyArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
-                .doesNotContain("io.github.patton174:coco-mybatis-plus",
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker",
+                        "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-codegen");
     }
 
@@ -414,7 +409,7 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
-    void addsResolvedTransitiveClosureToBothMavenArtifactViews() throws Exception {
+    void addsResolvedTransitiveClosureOnlyToTheCurrentClasspathView() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("transitive-closure"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
         MavenProject project = project(baseDir, output);
@@ -426,12 +421,41 @@ class CocoFeaturesMojoTest {
 
         mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
 
+        assertThat(project.getModel().getDependencies())
+                .singleElement()
+                .satisfies(dependency -> {
+                    assertThat(dependency.getArtifactId()).isEqualTo("coco-web");
+                    assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_COMPILE);
+                });
         assertThat(project.getArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
                 .containsExactlyInAnyOrder("io.github.patton174:coco-web", "com.example:feature-runtime");
-        assertThat(project.getDependencyArtifacts())
-                .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .containsExactlyInAnyOrder("io.github.patton174:coco-web", "com.example:feature-runtime");
+        assertThat(project.getDependencyArtifacts()).isNull();
+    }
+
+    @Test
+    void doesNotRedeclareFeaturesAlreadyResolvedThroughTheStarter() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("starter-classpath"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.getModel().addDependency(dependency("io.github.patton174", "coco-spring-boot-starter"));
+        Set<Artifact> starterClasspath = new LinkedHashSet<>(Set.of(
+                artifact("io.github.patton174", "coco-api"),
+                artifact("io.github.patton174", "coco-web"),
+                artifact("org.springframework", "spring-context"),
+                artifact("com.fasterxml.jackson.core", "jackson-databind")));
+        project.setArtifacts(starterClasspath);
+        project.setDependencyArtifacts(new LinkedHashSet<>(starterClasspath));
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .extracting(Dependency::getArtifactId)
+                .containsExactly("coco-spring-boot-starter");
+        assertThat(project.getArtifacts()).containsExactlyInAnyOrderElementsOf(starterClasspath);
+        assertThat(project.getDependencyArtifacts()).containsExactlyInAnyOrderElementsOf(starterClasspath);
     }
 
     @Test
