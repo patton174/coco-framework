@@ -30,8 +30,13 @@ public final class CocoFeatureManifestLoader {
 
     public static final String MANIFEST_LOCATION = "META-INF/coco/features.json";
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+    private static final ObjectMapper COMPATIBLE_OBJECT_MAPPER = new ObjectMapper()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .enable(SerializationFeature.INDENT_OUTPUT)
+            .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+
+    private static final ObjectMapper STRICT_OBJECT_MAPPER = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .enable(SerializationFeature.INDENT_OUTPUT)
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
 
@@ -77,7 +82,13 @@ public final class CocoFeatureManifestLoader {
      */
     public static CocoFeatureManifest read(InputStream inputStream) {
         try {
-            return OBJECT_MAPPER.readValue(inputStream, CocoFeatureManifest.class);
+            byte[] manifestBytes = inputStream.readAllBytes();
+            CocoFeatureManifest compatibleManifest = COMPATIBLE_OBJECT_MAPPER.readValue(
+                    manifestBytes, CocoFeatureManifest.class);
+            if (!CocoFeatureManifest.CURRENT_SCHEMA_VERSION.equals(compatibleManifest.schemaVersion())) {
+                return compatibleManifest;
+            }
+            return STRICT_OBJECT_MAPPER.readValue(manifestBytes, CocoFeatureManifest.class);
         }
         catch (IOException ex) {
             throw new UncheckedIOException("Failed to parse Coco feature manifest", ex);
@@ -94,7 +105,7 @@ public final class CocoFeatureManifestLoader {
      */
     public static String write(CocoFeatureManifest manifest) {
         try {
-            return OBJECT_MAPPER.writeValueAsString(manifest);
+            return STRICT_OBJECT_MAPPER.writeValueAsString(manifest);
         }
         catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to write Coco feature manifest", ex);
