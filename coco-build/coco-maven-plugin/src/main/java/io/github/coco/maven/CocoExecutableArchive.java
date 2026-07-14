@@ -25,6 +25,7 @@ final class CocoExecutableArchive {
     private static final int LOCAL_FILE_SIGNATURE = 0x04034b50;
     private static final int EOCD_MIN_SIZE = 22;
     private static final int ZIP64_LOCATOR_SIZE = 20;
+    private static final long UINT16_MAX = 0xffffL;
     private static final long UINT32_MAX = 0xffff_ffffL;
 
     private CocoExecutableArchive() {
@@ -54,7 +55,9 @@ final class CocoExecutableArchive {
             for (OffsetField field : layout.localHeaderOffsets()) {
                 addOffset(channel, field, zipStart);
             }
-            addOffset(channel, layout.centralDirectoryOffset(), zipStart);
+            for (OffsetField field : layout.centralDirectoryOffsets()) {
+                addOffset(channel, field, zipStart);
+            }
             if (layout.zip64EocdOffset() != null) {
                 addOffset(channel, layout.zip64EocdOffset(), zipStart);
             }
@@ -126,19 +129,38 @@ final class CocoExecutableArchive {
     }
 
     private record ZipLayout(long firstLocalHeaderOffset, List<OffsetField> localHeaderOffsets,
-            OffsetField centralDirectoryOffset, OffsetField zip64EocdOffset) {
+            List<OffsetField> centralDirectoryOffsets, OffsetField zip64EocdOffset) {
 
         static ZipLayout read(FileChannel channel, long zipStart) throws IOException {
             long fileSize = channel.size();
             long eocd = findEocd(channel, fileSize);
+            long eocdDisk = unsignedShort(channel, eocd + 4);
+            long eocdCentralDirectoryDisk = unsignedShort(channel, eocd + 6);
+            long eocdEntriesOnDisk = unsignedShort(channel, eocd + 8);
+            long eocdTotalEntries = unsignedShort(channel, eocd + 10);
             long centralDirectoryOffset = unsignedInt(channel, eocd + 16);
             long centralDirectorySize = unsignedInt(channel, eocd + 12);
-            OffsetField centralDirectoryOffsetField = new OffsetField(eocd + 16, centralDirectoryOffset, Integer.BYTES);
+            requireSingleDisk(eocdDisk, eocdCentralDirectoryDisk, "ZIP end-of-central-directory record");
+            if (eocdEntriesOnDisk != UINT16_MAX && eocdTotalEntries != UINT16_MAX
+                    && eocdEntriesOnDisk != eocdTotalEntries) {
+                throw multiDisk("ZIP end-of-central-directory entry counts differ");
+            }
+            List<OffsetField> centralDirectoryOffsetFields = new ArrayList<>();
+            centralDirectoryOffsetFields.add(new OffsetField(eocd + 16, centralDirectoryOffset, Integer.BYTES));
             OffsetField zip64EocdOffsetField = null;
-            if (centralDirectoryOffset == UINT32_MAX || centralDirectorySize == UINT32_MAX) {
+            long expectedEntryCount = eocdTotalEntries;
+            long centralDirectoryLimit = eocd;
+            boolean usesZip64 = eocdEntriesOnDisk == UINT16_MAX || eocdTotalEntries == UINT16_MAX
+                    || centralDirectoryOffset == UINT32_MAX || centralDirectorySize == UINT32_MAX;
+            if (usesZip64) {
                 long locator = eocd - ZIP64_LOCATOR_SIZE;
                 if (locator < zipStart || unsignedInt(channel, locator) != ZIP64_LOCATOR_SIGNATURE) {
                     throw new IOException("ZIP64 end-of-central-directory locator is missing.");
+                }
+                long zip64EocdDisk = unsignedInt(channel, locator + 4);
+                long totalDisks = unsignedInt(channel, locator + 16);
+                if (zip64EocdDisk != 0 || totalDisks != 1) {
+                    throw multiDisk("ZIP64 locator references multiple disks");
                 }
                 long zip64EocdRelativeOffset = unsignedLong(channel, locator + 8);
                 long zip64Eocd = zipStart + zip64EocdRelativeOffset;
@@ -146,22 +168,57 @@ final class CocoExecutableArchive {
                         || unsignedInt(channel, zip64Eocd) != ZIP64_EOCD_SIGNATURE) {
                     throw new IOException("Invalid ZIP64 end-of-central-directory record.");
                 }
+                long zip64RecordSize = unsignedLong(channel, zip64Eocd + 4);
+                if (zip64RecordSize < 44 || zip64RecordSize > locator - zip64Eocd - 12
+                        || zip64Eocd + 12 + zip64RecordSize != locator) {
+                    throw new IOException("Invalid ZIP64 end-of-central-directory record size.");
+                }
+                long zip64Disk = unsignedInt(channel, zip64Eocd + 16);
+                long zip64CentralDirectoryDisk = unsignedInt(channel, zip64Eocd + 20);
+                requireSingleDisk(zip64Disk, zip64CentralDirectoryDisk,
+                        "ZIP64 end-of-central-directory record");
+                long zip64EntriesOnDisk = unsignedLong(channel, zip64Eocd + 24);
+                long zip64TotalEntries = unsignedLong(channel, zip64Eocd + 32);
+                if (zip64EntriesOnDisk < 0 || zip64TotalEntries < 0
+                        || zip64EntriesOnDisk != zip64TotalEntries) {
+                    throw multiDisk("ZIP64 end-of-central-directory entry counts differ");
+                }
                 centralDirectorySize = unsignedLong(channel, zip64Eocd + 40);
                 centralDirectoryOffset = unsignedLong(channel, zip64Eocd + 48);
-                centralDirectoryOffsetField = new OffsetField(zip64Eocd + 48, centralDirectoryOffset, Long.BYTES);
+                requireMatchingEocdValue(eocdEntriesOnDisk, UINT16_MAX, zip64EntriesOnDisk,
+                        "entries on this disk");
+                requireMatchingEocdValue(eocdTotalEntries, UINT16_MAX, zip64TotalEntries,
+                        "total entries");
+                requireMatchingEocdValue(unsignedInt(channel, eocd + 12), UINT32_MAX,
+                        centralDirectorySize, "central-directory size");
+                requireMatchingEocdValue(unsignedInt(channel, eocd + 16), UINT32_MAX,
+                        centralDirectoryOffset, "central-directory offset");
+                expectedEntryCount = zip64TotalEntries;
+                centralDirectoryLimit = zip64Eocd;
+                if (centralDirectoryOffsetFields.get(0).value() == UINT32_MAX) {
+                    centralDirectoryOffsetFields.clear();
+                }
+                centralDirectoryOffsetFields.add(
+                        new OffsetField(zip64Eocd + 48, centralDirectoryOffset, Long.BYTES));
                 zip64EocdOffsetField = new OffsetField(locator + 8, zip64EocdRelativeOffset, Long.BYTES);
             }
             long centralDirectory = zipStart + centralDirectoryOffset;
-            if (centralDirectory < zipStart || centralDirectorySize > eocd - centralDirectory) {
+            if (centralDirectoryOffset < 0 || centralDirectorySize < 0 || centralDirectory < zipStart
+                    || centralDirectory > centralDirectoryLimit
+                    || centralDirectorySize > centralDirectoryLimit - centralDirectory) {
                 throw new IOException("Invalid ZIP central-directory bounds.");
             }
             List<OffsetField> localHeaderOffsets = new ArrayList<>();
             long cursor = centralDirectory;
             long end = centralDirectory + centralDirectorySize;
             long firstLocalHeaderOffset = Long.MAX_VALUE;
+            long entryCount = 0;
             while (cursor < end) {
                 if (end - cursor < 46 || unsignedInt(channel, cursor) != CENTRAL_DIRECTORY_SIGNATURE) {
                     throw new IOException("Invalid ZIP central-directory entry.");
+                }
+                if (unsignedShort(channel, cursor + 34) != 0) {
+                    throw multiDisk("ZIP central-directory entry references another disk");
                 }
                 int nameLength = Math.toIntExact(unsignedShort(channel, cursor + 28));
                 int extraLength = Math.toIntExact(unsignedShort(channel, cursor + 30));
@@ -183,13 +240,36 @@ final class CocoExecutableArchive {
                 }
                 localHeaderOffsets.add(localOffsetField);
                 firstLocalHeaderOffset = Math.min(firstLocalHeaderOffset, localOffset);
+                entryCount++;
                 cursor = entryEnd;
             }
             if (cursor != end || localHeaderOffsets.isEmpty()) {
                 throw new IOException("ZIP archive has no valid central-directory entries.");
             }
+            if (entryCount != expectedEntryCount) {
+                throw new IOException("ZIP central-directory entry count does not match the end record: expected "
+                        + expectedEntryCount + " but found " + entryCount + ".");
+            }
             return new ZipLayout(firstLocalHeaderOffset, List.copyOf(localHeaderOffsets),
-                    centralDirectoryOffsetField, zip64EocdOffsetField);
+                    List.copyOf(centralDirectoryOffsetFields), zip64EocdOffsetField);
+        }
+
+        private static void requireSingleDisk(long disk, long centralDirectoryDisk, String structure)
+                throws IOException {
+            if (disk != 0 || centralDirectoryDisk != 0) {
+                throw multiDisk(structure + " has a non-zero disk number");
+            }
+        }
+
+        private static void requireMatchingEocdValue(long eocdValue, long sentinel, long zip64Value,
+                String field) throws IOException {
+            if (eocdValue != sentinel && eocdValue != zip64Value) {
+                throw new IOException("ZIP64 " + field + " does not match the ZIP end-of-central-directory record.");
+            }
+        }
+
+        private static IOException multiDisk(String detail) {
+            return new IOException("Multi-disk ZIP archives are not supported: " + detail + ".");
         }
 
         private static OffsetField zip64LocalHeaderOffset(FileChannel channel, long extraStart, int extraLength,
