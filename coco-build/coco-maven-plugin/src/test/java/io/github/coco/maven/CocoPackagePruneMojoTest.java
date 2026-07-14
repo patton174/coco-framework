@@ -2,6 +2,7 @@ package io.github.coco.maven;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -21,6 +22,7 @@ import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeatureSelection;
 import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.model.Build;
+import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
@@ -108,7 +110,7 @@ class CocoPackagePruneMojoTest {
     }
 
     @Test
-    void removesDisabledFeatureTransitiveJarsFromSpringBootArchive() throws Exception {
+    void removesOnlyDisabledCocoFeatureJarsFromSpringBootArchive() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("mybatis"));
         Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
         Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
@@ -128,41 +130,126 @@ class CocoPackagePruneMojoTest {
                 .contains(
                         "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar",
-                        "BOOT-INF/lib/mybatis-extra-1.0.0.jar",
-                        "BOOT-INF/lib/spring-jdbc-7.0.0.jar")
-                .doesNotContain(
-                        "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
-                        "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/mybatis-3.5.19.jar",
                         "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar",
                         "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.16.jar",
                         "BOOT-INF/lib/mybatis-plus-spring-3.5.16.jar",
                         "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar",
                         "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar",
-                        "BOOT-INF/lib/mybatis-spring-3.0.5.jar");
+                        "BOOT-INF/lib/mybatis-spring-3.0.5.jar",
+                        "BOOT-INF/lib/freemarker-2.3.34.jar",
+                        "BOOT-INF/lib/mybatis-extra-1.0.0.jar",
+                        "BOOT-INF/lib/spring-jdbc-7.0.0.jar")
+                .doesNotContain(
+                        "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar");
         assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
-                .contains("coco-audit", "mybatis-extra", "spring-jdbc")
-                .doesNotContain(
-                        "coco-mybatis-plus",
-                        "coco-feature-mybatis-plus",
-                        "mybatis-3.5.19",
-                        "mybatis-plus-core",
-                        "mybatis-plus-jsqlparser-common",
-                        "mybatis-plus-spring-boot-native-image",
-                        "mybatis-plus-spring-boot4-starter",
-                        "mybatis-spring");
+                .contains("coco-audit", "mybatis-3.5.19", "mybatis-plus-core",
+                        "mybatis-plus-jsqlparser-common", "mybatis-plus-spring-boot-native-image",
+                        "mybatis-plus-spring-boot4-starter", "mybatis-spring", "freemarker", "spring-jdbc")
+                .doesNotContain("coco-mybatis-plus", "coco-feature-mybatis-plus");
         assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
-                .contains("coco-audit", "mybatis-extra", "spring-jdbc")
-                .doesNotContain(
-                        "coco-mybatis-plus",
-                        "coco-feature-mybatis-plus",
-                        "mybatis-3.5.19",
-                        "mybatis-plus-core",
-                        "mybatis-plus-jsqlparser-common",
-                        "mybatis-plus-spring-boot-native-image",
-                        "mybatis-plus-spring-boot4-starter",
-                        "mybatis-spring");
+                .contains("coco-audit", "mybatis-3.5.19", "mybatis-plus-core",
+                        "mybatis-plus-jsqlparser-common", "mybatis-plus-spring-boot-native-image",
+                        "mybatis-plus-spring-boot4-starter", "mybatis-spring", "freemarker", "spring-jdbc")
+                .doesNotContain("coco-mybatis-plus", "coco-feature-mybatis-plus");
         assertRunnableSpringBootArchive(archivePath);
+    }
+
+    @Test
+    void keepsDirectMybatisAndFreemarkerDependenciesInSpringBootArchive() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("direct-third-party-archive"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeManifest(classesDirectory, Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.CODEGEN));
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        writeMybatisArchive(archivePath);
+        MavenProject project = project(baseDir, buildDirectory, classesDirectory);
+        project.getModel().addDependency(dependency("org.mybatis", "mybatis", "3.5.19"));
+        project.getModel().addDependency(dependency("org.freemarker", "freemarker", "2.3.34"));
+
+        CocoPackagePruneMojo mojo = new CocoPackagePruneMojo();
+        set(mojo, "project", project);
+        set(mojo, "classesDirectory", classesDirectory.toFile());
+        set(mojo, "buildDirectory", buildDirectory.toFile());
+        set(mojo, "finalName", "demo");
+
+        mojo.execute();
+
+        assertThat(entries(archivePath))
+                .contains(
+                        "BOOT-INF/lib/mybatis-3.5.19.jar",
+                        "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar",
+                        "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.16.jar",
+                        "BOOT-INF/lib/mybatis-plus-spring-3.5.16.jar",
+                        "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar",
+                        "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar",
+                        "BOOT-INF/lib/mybatis-spring-3.0.5.jar",
+                        "BOOT-INF/lib/freemarker-2.3.34.jar")
+                .doesNotContain(
+                        "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar");
+        assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
+                .contains("mybatis-3.5.19", "mybatis-plus-core", "mybatis-spring", "freemarker-2.3.34")
+                .doesNotContain("coco-mybatis-plus", "coco-feature-mybatis-plus");
+        assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
+                .contains("mybatis-3.5.19", "mybatis-plus-core", "mybatis-spring", "freemarker-2.3.34")
+                .doesNotContain("coco-mybatis-plus", "coco-feature-mybatis-plus");
+        assertRunnableSpringBootArchive(archivePath);
+    }
+
+    @Test
+    void ignoresThirdPartyPruneIdsFromExistingManifestFormat() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("existing-unsafe-manifest"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeExistingUnsafeMybatisManifest(classesDirectory);
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        writeMybatisArchive(archivePath);
+
+        CocoPackagePruneMojo mojo = new CocoPackagePruneMojo();
+        set(mojo, "project", project(baseDir, buildDirectory, classesDirectory));
+        set(mojo, "classesDirectory", classesDirectory.toFile());
+        set(mojo, "buildDirectory", buildDirectory.toFile());
+        set(mojo, "finalName", "demo");
+
+        mojo.execute();
+
+        assertThat(entries(archivePath))
+                .contains(
+                        "BOOT-INF/lib/mybatis-3.5.19.jar",
+                        "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar",
+                        "BOOT-INF/lib/mybatis-spring-3.0.5.jar",
+                        "BOOT-INF/lib/freemarker-2.3.34.jar")
+                .doesNotContain(
+                        "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar");
+    }
+
+    @Test
+    void keepsThirdPartyArtifactWhenItsArtifactIdMatchesCocoArtifact() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("third-party-coco-artifact-id"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeManifest(classesDirectory, Set.of(CocoFeature.WEB));
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        writeThirdPartyCocoNamedArchive(archivePath);
+
+        CocoPackagePruneMojo mojo = new CocoPackagePruneMojo();
+        set(mojo, "project", project(baseDir, buildDirectory, classesDirectory));
+        set(mojo, "classesDirectory", classesDirectory.toFile());
+        set(mojo, "buildDirectory", buildDirectory.toFile());
+        set(mojo, "finalName", "demo");
+
+        mojo.execute();
+
+        assertThat(entries(archivePath)).contains(
+                "BOOT-INF/lib/coco-web-9.0.0.jar",
+                "BOOT-INF/lib/coco-feature-web-9.0.0.jar");
+        assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
+                .contains("coco-web-9.0.0.jar", "coco-feature-web-9.0.0.jar");
+        assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
+                .contains("coco-web-9.0.0.jar", "coco-feature-web-9.0.0.jar");
     }
 
     @Test
@@ -183,23 +270,18 @@ class CocoPackagePruneMojoTest {
         mojo.execute();
 
         assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
-                .contains("mybatis-extra-1.0.0.jar")
-                .doesNotContain(
-                        "coco-mybatis-plus",
-                        "coco-feature-mybatis-plus",
-                        "mybatis-plus-core",
-                        "mybatis-plus-extension",
-                        "mybatis-RELEASE.jar",
-                        "mybatis-v1.jar");
+                .contains("mybatis-plus-core", "mybatis-plus-extension", "mybatis-RELEASE.jar",
+                        "mybatis-v1.jar", "mybatis-extra-1.0.0.jar")
+                .doesNotContain("coco-mybatis-plus", "coco-feature-mybatis-plus");
         assertThat(entries(archivePath))
                 .doesNotContain(
                         "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
-                        "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar")
+                .contains(
                         "BOOT-INF/lib/mybatis-plus-core-RELEASE.jar",
                         "BOOT-INF/lib/mybatis-plus-extension-v1.jar",
                         "BOOT-INF/lib/mybatis-RELEASE.jar",
-                        "BOOT-INF/lib/mybatis-v1.jar")
-                .contains(
+                        "BOOT-INF/lib/mybatis-v1.jar",
                         "BOOT-INF/lib/spring-boot-4.1.0.jar",
                         "BOOT-INF/lib/mybatis-extra-1.0.0.jar");
         assertThat(entryMethod(archivePath, "BOOT-INF/lib/spring-boot-4.1.0.jar"))
@@ -265,6 +347,33 @@ class CocoPackagePruneMojoTest {
                 """, StandardCharsets.UTF_8);
     }
 
+    private void writeExistingUnsafeMybatisManifest(Path classesDirectory) throws Exception {
+        Path manifestPath = classesDirectory.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
+        Files.createDirectories(manifestPath.getParent());
+        Files.writeString(manifestPath, """
+                {
+                  "schemaVersion" : "1.1",
+                  "generatedBy" : "existing-plugin",
+                  "features" : [ {
+                    "id" : "mybatis-plus",
+                    "artifactId" : "coco-mybatis-plus",
+                    "autoConfigurationClassName" : "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration",
+                    "defaultEnabled" : true,
+                    "enabled" : false,
+                    "dependencies" : [ ],
+                    "pruneArtifactIds" : [
+                      "coco-mybatis-plus",
+                      "coco-feature-mybatis-plus",
+                      "mybatis",
+                      "mybatis-plus-core",
+                      "mybatis-spring",
+                      "freemarker"
+                    ]
+                  } ]
+                }
+                """, StandardCharsets.UTF_8);
+    }
+
     private void writeLegacyManifestArchive(Path archivePath) throws Exception {
         try (JarOutputStream outputStream = newBootArchive(archivePath)) {
             addBootRuntimeEntries(outputStream);
@@ -279,9 +388,29 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar"
                     """);
-            add(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar", "web");
-            add(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar", "web-alias");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-feature-web", "1.0.0-SNAPSHOT");
             add(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar", "audit");
+        }
+    }
+
+    private void writeThirdPartyCocoNamedArchive(Path archivePath) throws Exception {
+        try (JarOutputStream outputStream = newBootArchive(archivePath)) {
+            addBootRuntimeEntries(outputStream);
+            add(outputStream, "BOOT-INF/classpath.idx", """
+                    - "BOOT-INF/lib/coco-web-9.0.0.jar"
+                    - "BOOT-INF/lib/coco-feature-web-9.0.0.jar"
+                    """);
+            add(outputStream, "BOOT-INF/layers.idx", """
+                    - "dependencies":
+                      - "BOOT-INF/lib/coco-web-9.0.0.jar"
+                      - "BOOT-INF/lib/coco-feature-web-9.0.0.jar"
+                    """);
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-web-9.0.0.jar",
+                    "com.example", "coco-web", "9.0.0");
+            add(outputStream, "BOOT-INF/lib/coco-feature-web-9.0.0.jar", "unproven-artifact");
         }
     }
 
@@ -306,10 +435,14 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/classes/application.yml", "spring.application.name=demo");
             add(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar", "web");
             add(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar", "audit");
-            add(outputStream, "BOOT-INF/lib/coco-tenant-1.0.0-SNAPSHOT.jar", "tenant");
-            add(outputStream, "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar", "tenant");
-            add(outputStream, "BOOT-INF/lib/coco-data-permission-1.0.0-SNAPSHOT.jar", "data-permission");
-            add(outputStream, "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar", "data-permission");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-tenant-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-tenant", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-feature-tenant", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-data-permission-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-data-permission", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-feature-data-permission", "1.0.0-SNAPSHOT");
         }
     }
 
@@ -329,6 +462,7 @@ class CocoPackagePruneMojoTest {
                     - "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar"
                     - "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar"
                     - "BOOT-INF/lib/mybatis-spring-3.0.5.jar"
+                    - "BOOT-INF/lib/freemarker-2.3.34.jar"
                     - "BOOT-INF/lib/spring-jdbc-7.0.0.jar"
                     """);
             add(outputStream, "BOOT-INF/layers.idx", """
@@ -345,12 +479,15 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar"
                       - "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar"
                       - "BOOT-INF/lib/mybatis-spring-3.0.5.jar"
+                      - "BOOT-INF/lib/freemarker-2.3.34.jar"
                       - "BOOT-INF/lib/spring-jdbc-7.0.0.jar"
                     """);
             add(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar", "web");
             add(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar", "audit");
-            add(outputStream, "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar", "mybatis-plus");
-            add(outputStream, "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar", "mybatis-plus");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-mybatis-plus", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-feature-mybatis-plus", "1.0.0-SNAPSHOT");
             add(outputStream, "BOOT-INF/lib/mybatis-3.5.19.jar", "mybatis");
             add(outputStream, "BOOT-INF/lib/mybatis-extra-1.0.0.jar", "mybatis-extra");
             add(outputStream, "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar", "mybatis-plus-core");
@@ -359,6 +496,7 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar", "mybatis-native-image");
             add(outputStream, "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar", "mybatis-starter");
             add(outputStream, "BOOT-INF/lib/mybatis-spring-3.0.5.jar", "mybatis-spring");
+            add(outputStream, "BOOT-INF/lib/freemarker-2.3.34.jar", "freemarker");
             add(outputStream, "BOOT-INF/lib/spring-jdbc-7.0.0.jar", "spring-jdbc");
         }
     }
@@ -385,8 +523,10 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/mybatis-v1.jar"
                       - "BOOT-INF/lib/mybatis-extra-1.0.0.jar"
                     """);
-            add(outputStream, "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar", "mybatis-plus");
-            add(outputStream, "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar", "mybatis-plus-alias");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-mybatis-plus", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-feature-mybatis-plus", "1.0.0-SNAPSHOT");
             add(outputStream, "BOOT-INF/lib/mybatis-plus-core-RELEASE.jar", "mybatis-plus-core");
             add(outputStream, "BOOT-INF/lib/mybatis-plus-extension-v1.jar", "mybatis-plus-extension");
             add(outputStream, "BOOT-INF/lib/mybatis-RELEASE.jar", "mybatis-release");
@@ -442,6 +582,14 @@ class CocoPackagePruneMojoTest {
         return project;
     }
 
+    private Dependency dependency(String groupId, String artifactId, String version) {
+        Dependency dependency = new Dependency();
+        dependency.setGroupId(groupId);
+        dependency.setArtifactId(artifactId);
+        dependency.setVersion(version);
+        return dependency;
+    }
+
     private Set<String> entries(Path archivePath) throws Exception {
         try (JarFile jarFile = new JarFile(archivePath.toFile())) {
             return jarFile.stream().map(JarEntry::getName).collect(Collectors.toUnmodifiableSet());
@@ -465,6 +613,21 @@ class CocoPackagePruneMojoTest {
     private void add(JarOutputStream outputStream, String name, String content) throws Exception {
         outputStream.putNextEntry(new JarEntry(name));
         outputStream.write(content.getBytes(StandardCharsets.UTF_8));
+        outputStream.closeEntry();
+    }
+
+    private void addMavenArtifact(JarOutputStream outputStream, String name,
+            String groupId, String artifactId, String version) throws Exception {
+        ByteArrayOutputStream nestedBytes = new ByteArrayOutputStream();
+        try (JarOutputStream nested = new JarOutputStream(nestedBytes)) {
+            add(nested, "META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties", """
+                    groupId=%s
+                    artifactId=%s
+                    version=%s
+                    """.formatted(groupId, artifactId, version));
+        }
+        outputStream.putNextEntry(new JarEntry(name));
+        outputStream.write(nestedBytes.toByteArray());
         outputStream.closeEntry();
     }
 
