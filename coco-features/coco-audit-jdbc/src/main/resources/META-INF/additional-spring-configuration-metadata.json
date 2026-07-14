@@ -1,0 +1,27 @@
+{
+  "properties": [
+    {
+      "name": "coco.audit.jdbc.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable the optional JDBC Coco audit recorder."
+    },
+    {
+      "name": "coco.audit.jdbc.schema",
+      "type": "java.lang.String",
+      "description": "Optional unquoted SQL schema identifier for the audit table."
+    },
+    {
+      "name": "coco.audit.jdbc.table-name",
+      "type": "java.lang.String",
+      "defaultValue": "coco_audit_event",
+      "description": "Unquoted SQL table identifier for audit events."
+    },
+    {
+      "name": "coco.audit.jdbc.batch-size",
+      "type": "java.lang.Integer",
+      "defaultValue": 100,
+      "description": "Maximum audit events per JDBC prepared-statement batch."
+    }
+  ]
+}
