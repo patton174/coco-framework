@@ -1,5 +1,6 @@
 package io.github.coco.feature.security;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.security.web.CocoSecurityWebProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -26,12 +27,19 @@ public class CocoSecurityProperties {
     @NestedConfigurationProperty
     private CocoSecurityWebProperties web = new CocoSecurityWebProperties();
 
+    public CocoSecurityProperties() {
+    }
+
     /**
      * <p>
-     * 返回 Web 安全上下文桥接配置。
+     * 返回 Web 安全上下文桥接配置的可变 JavaBean 引用。
+     * Spring Binder 和已有 Java 配置使用者会通过 {@code getWeb().set...} 更新嵌套属性，
+     * 因此这里有意暴露受 {@link #setWeb(CocoSecurityWebProperties)} 防御性复制保护的内部配置。
      * </p>
      * @return Web 安全上下文桥接配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain their established live mutable semantics for Spring Binder and Java consumers.")
     public CocoSecurityWebProperties getWeb() {
         return this.web;
     }
@@ -43,6 +51,6 @@ public class CocoSecurityProperties {
      * @param web Web 安全上下文桥接配置
      */
     public void setWeb(CocoSecurityWebProperties web) {
-        this.web = web == null ? new CocoSecurityWebProperties() : web;
+        this.web = web == null ? new CocoSecurityWebProperties() : new CocoSecurityWebProperties(web);
     }
 }
