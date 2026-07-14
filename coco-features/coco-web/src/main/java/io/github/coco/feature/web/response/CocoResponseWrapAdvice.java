@@ -45,6 +45,9 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CocoResponseWrapAdvice.class);
 
+    private static final String JACKSON_2_CONVERTER_BASE =
+            "org.springframework.http.converter.json.AbstractJackson2HttpMessageConverter";
+
     private final CocoMessageService messageService;
 
     private final CocoResponseWrapProperties properties;
@@ -178,7 +181,7 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
             response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
             return writeJson(wrapped);
         }
-        return wrapped;
+        return adaptJsonBody(wrapped, selectedContentType, selectedConverterType);
     }
 
     private static boolean hasIgnoreAnnotation(MethodParameter returnType) {
@@ -240,6 +243,27 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException(ex);
         }
+    }
+
+    private Object adaptJsonBody(Object body, MediaType selectedContentType,
+            Class<? extends HttpMessageConverter<?>> selectedConverterType) {
+        if (selectedContentType == null || !MediaType.APPLICATION_JSON.isCompatibleWith(selectedContentType)
+                || !isJackson2Converter(selectedConverterType)
+                || this.responseBodyFactory instanceof DefaultCocoResponseBodyFactory) {
+            return body;
+        }
+        return this.objectMapper.valueToTree(body);
+    }
+
+    private static boolean isJackson2Converter(Class<?> converterType) {
+        Class<?> currentType = converterType;
+        while (currentType != null) {
+            if (JACKSON_2_CONVERTER_BASE.equals(currentType.getName())) {
+                return true;
+            }
+            currentType = currentType.getSuperclass();
+        }
+        return false;
     }
 
     private static String resolvePath(ServerHttpRequest request) {
