@@ -66,9 +66,6 @@ public interface CocoMybatisPlusInterceptorCustomizer {
      * @return 定制器执行顺序
      */
     default int getOrder() {
-        if (this instanceof Ordered ordered) {
-            return ordered.getOrder();
-        }
         Integer annotatedOrder = OrderUtils.getOrder(getClass());
         return annotatedOrder == null ? USER_ORDER : annotatedOrder;
     }
