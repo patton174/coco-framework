@@ -319,24 +319,31 @@ class CocoPackagePruneMojoTest {
 
     @Test
     void rejectsSignedOuterArchiveBeforeCreatingTemporaryFile() throws Exception {
-        Path baseDir = Files.createDirectories(this.tempDir.resolve("signed-archive"));
-        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
-        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
-        writeManifest(classesDirectory, Set.of(CocoFeature.WEB));
-        Path archivePath = buildDirectory.resolve("demo.jar");
-        writeSignedArchive(archivePath);
+        java.util.List<String> signatureEntries = java.util.List.of(
+                "META-INF/COCO.SF", "META-INF/COCO.RSA", "META-INF/COCO.DSA",
+                "META-INF/COCO.EC", "META-INF/SIG-COCO");
+        for (int index = 0; index < signatureEntries.size(); index++) {
+            Path baseDir = Files.createDirectories(this.tempDir.resolve("signed-archive-" + index));
+            Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+            Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+            writeManifest(classesDirectory, Set.of(CocoFeature.WEB));
+            Path archivePath = buildDirectory.resolve("demo.jar");
+            String signatureEntry = signatureEntries.get(index);
+            writeSignedArchive(archivePath, signatureEntry);
 
-        byte[] original = Files.readAllBytes(archivePath);
-        CocoPackagePruneMojo mojo = configuredMojo(baseDir, buildDirectory, classesDirectory);
+            byte[] original = Files.readAllBytes(archivePath);
+            CocoPackagePruneMojo mojo = configuredMojo(baseDir, buildDirectory, classesDirectory);
 
-        assertThatThrownBy(mojo::execute)
-                .isInstanceOf(MojoExecutionException.class)
-                .hasRootCauseMessage("Refusing to rewrite signed archive containing 'META-INF/COCO.SF'.");
-        assertThat(Files.readAllBytes(archivePath)).isEqualTo(original);
-        assertThat(buildDirectory.resolve("coco-prune.original.jar")).doesNotExist();
-        try (var files = Files.list(buildDirectory)) {
-            assertThat(files.map(path -> path.getFileName().toString()))
-                    .noneMatch(name -> name.startsWith("demo.jar") && name.endsWith(".tmp"));
+            assertThatThrownBy(mojo::execute)
+                    .isInstanceOf(MojoExecutionException.class)
+                    .hasRootCauseMessage("Refusing to rewrite signed archive containing '"
+                            + signatureEntry + "'.");
+            assertThat(Files.readAllBytes(archivePath)).isEqualTo(original);
+            assertThat(buildDirectory.resolve("coco-prune.original.jar")).doesNotExist();
+            try (var files = Files.list(buildDirectory)) {
+                assertThat(files.map(path -> path.getFileName().toString()))
+                        .noneMatch(name -> name.startsWith("demo.jar") && name.endsWith(".tmp"));
+            }
         }
     }
 
@@ -430,6 +437,24 @@ class CocoPackagePruneMojoTest {
                 "does not match Boot library entry");
     }
 
+    @Test
+    void rejectsEnabledCocoLibraryWithoutMavenGavDuringStandalonePrune() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("enabled-without-gav"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeManifest(classesDirectory, Set.of(CocoFeature.AUDIT));
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        try (JarOutputStream outputStream = newBootArchive(archivePath)) {
+            addBootRuntimeEntries(outputStream);
+            add(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar", "not-a-nested-jar");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-audit", "1.0.0-SNAPSHOT");
+        }
+
+        assertArchiveRejected(configuredMojo(baseDir, buildDirectory, classesDirectory), archivePath,
+                "Cannot verify Maven GAV for Coco-named nested library");
+    }
+
     private void writeManifest(Path classesDirectory, Set<CocoFeature> disabledFeatures) throws Exception {
         Path manifestPath = classesDirectory.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
         Files.createDirectories(manifestPath.getParent());
@@ -503,7 +528,8 @@ class CocoPackagePruneMojoTest {
                     "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar",
                     "io.github.patton174", "coco-feature-web", "1.0.0-SNAPSHOT");
-            add(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar", "audit");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-audit", "1.0.0-SNAPSHOT");
         }
     }
 
@@ -545,8 +571,10 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar"
                     """);
             add(outputStream, "BOOT-INF/classes/application.yml", "spring.application.name=demo");
-            add(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar", "web");
-            add(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar", "audit");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-audit", "1.0.0-SNAPSHOT");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-tenant-1.0.0-SNAPSHOT.jar",
                     "io.github.patton174", "coco-tenant", "1.0.0-SNAPSHOT");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar",
@@ -594,8 +622,10 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/freemarker-2.3.34.jar"
                       - "BOOT-INF/lib/spring-jdbc-7.0.0.jar"
                     """);
-            add(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar", "web");
-            add(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar", "audit");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-audit-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-audit", "1.0.0-SNAPSHOT");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
                     "io.github.patton174", "coco-mybatis-plus", "1.0.0-SNAPSHOT");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar",
@@ -648,10 +678,10 @@ class CocoPackagePruneMojoTest {
         }
     }
 
-    private void writeSignedArchive(Path archivePath) throws Exception {
+    private void writeSignedArchive(Path archivePath, String signatureEntry) throws Exception {
         try (JarOutputStream outputStream = newBootArchive(archivePath)) {
             addBootRuntimeEntries(outputStream);
-            add(outputStream, "META-INF/COCO.SF", "signed");
+            add(outputStream, signatureEntry, "signed");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
                     "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
         }

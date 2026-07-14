@@ -55,6 +55,10 @@ final class CocoBootArchivePreflight {
                     .filter(coordinate -> featureGroupId.equals(coordinate.groupId()))
                     .filter(coordinate -> coordinate.artifactId().startsWith("coco-"))
                     .toList();
+            if (looksLikeCocoLibrary(entry.getName()) && coordinates.isEmpty()) {
+                throw new IOException("Cannot verify Maven GAV for Coco-named nested library '"
+                        + entry.getName() + "'.");
+            }
             cocoCoordinates.forEach(coordinate -> cocoVersions.add(coordinate.version()));
             for (ArtifactCoordinates coordinate : cocoCoordinates) {
                 validateLibraryFileName(entry.getName(), coordinate);
@@ -70,10 +74,6 @@ final class CocoBootArchivePreflight {
                     }
                     pruneEntryNames.add(entry.getName());
                 }
-            }
-            if (looksLikePruneCandidate(entry.getName(), pruneArtifactIds) && coordinates.isEmpty()) {
-                throw new IOException("Cannot verify Maven GAV for prune candidate '"
-                        + entry.getName() + "'.");
             }
         }
         validateCocoVersions(cocoVersions, expectedFeatureVersion);
@@ -206,7 +206,9 @@ final class CocoBootArchivePreflight {
         }
         String relative = name.substring("META-INF/".length());
         return !relative.contains("/")
-                && (relative.endsWith(".SF") || relative.endsWith(".RSA") || relative.endsWith(".DSA"));
+                && (relative.endsWith(".SF") || relative.endsWith(".RSA")
+                        || relative.endsWith(".DSA") || relative.endsWith(".EC")
+                        || relative.startsWith("SIG-"));
     }
 
     private static boolean isBootLibrary(JarEntry entry) {
@@ -214,12 +216,12 @@ final class CocoBootArchivePreflight {
                 && entry.getName().endsWith(".jar");
     }
 
-    private static boolean looksLikePruneCandidate(String entryName, Set<String> artifactIds) {
+    private static boolean looksLikeCocoLibrary(String entryName) {
         if (!entryName.startsWith("BOOT-INF/lib/") || !entryName.endsWith(".jar")) {
             return false;
         }
         String fileName = entryName.substring("BOOT-INF/lib/".length());
-        return artifactIds.stream().anyMatch(artifactId -> fileName.startsWith(artifactId + "-"));
+        return fileName.startsWith("coco-");
     }
 
     private static void validateEntryName(String name, String archiveDescription) throws IOException {
