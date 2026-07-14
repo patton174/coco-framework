@@ -25,10 +25,10 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 public class CocoMybatisPlusProperties {
 
     @NestedConfigurationProperty
-    private CocoMybatisPlusPaginationProperties pagination = new CocoMybatisPlusPaginationProperties();
+    private final CocoMybatisPlusPaginationProperties pagination = new CocoMybatisPlusPaginationProperties();
 
     @NestedConfigurationProperty
-    private CocoMybatisPlusSqlGuardProperties sqlGuard = new CocoMybatisPlusSqlGuardProperties();
+    private final CocoMybatisPlusSqlGuardProperties sqlGuard = new CocoMybatisPlusSqlGuardProperties();
 
     /**
      * <p>
@@ -37,7 +37,7 @@ public class CocoMybatisPlusProperties {
      * @return 分页拦截器配置属性
      */
     public CocoMybatisPlusPaginationProperties getPagination() {
-        return this.pagination;
+        return new PaginationPropertiesView();
     }
 
     /**
@@ -47,7 +47,14 @@ public class CocoMybatisPlusProperties {
      * @param pagination 分页拦截器配置属性
      */
     public void setPagination(CocoMybatisPlusPaginationProperties pagination) {
-        this.pagination = pagination == null ? new CocoMybatisPlusPaginationProperties() : pagination;
+        CocoMybatisPlusPaginationProperties source = pagination == null
+                ? new CocoMybatisPlusPaginationProperties()
+                : pagination;
+        this.pagination.setEnabled(source.isEnabled());
+        this.pagination.setDbType(source.getDbType());
+        this.pagination.setOverflow(source.isOverflow());
+        this.pagination.setMaxLimit(source.getMaxLimit());
+        this.pagination.setOptimizeJoin(source.isOptimizeJoin());
     }
 
     /**
@@ -57,7 +64,7 @@ public class CocoMybatisPlusProperties {
      * @return SQL 防护配置属性
      */
     public CocoMybatisPlusSqlGuardProperties getSqlGuard() {
-        return this.sqlGuard;
+        return new SqlGuardPropertiesView();
     }
 
     /**
@@ -67,6 +74,86 @@ public class CocoMybatisPlusProperties {
      * @param sqlGuard SQL 防护配置属性
      */
     public void setSqlGuard(CocoMybatisPlusSqlGuardProperties sqlGuard) {
-        this.sqlGuard = sqlGuard == null ? new CocoMybatisPlusSqlGuardProperties() : sqlGuard;
+        CocoMybatisPlusSqlGuardProperties source = sqlGuard == null
+                ? new CocoMybatisPlusSqlGuardProperties()
+                : sqlGuard;
+        this.sqlGuard.setBlockAttackEnabled(source.isBlockAttackEnabled());
+        this.sqlGuard.setIllegalSqlEnabled(source.isIllegalSqlEnabled());
+    }
+
+    private final class PaginationPropertiesView extends CocoMybatisPlusPaginationProperties {
+
+        @Override
+        public boolean isEnabled() {
+            return CocoMybatisPlusProperties.this.pagination.isEnabled();
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            CocoMybatisPlusProperties.this.pagination.setEnabled(enabled);
+        }
+
+        @Override
+        public String getDbType() {
+            return CocoMybatisPlusProperties.this.pagination.getDbType();
+        }
+
+        @Override
+        public void setDbType(String dbType) {
+            CocoMybatisPlusProperties.this.pagination.setDbType(dbType);
+        }
+
+        @Override
+        public boolean isOverflow() {
+            return CocoMybatisPlusProperties.this.pagination.isOverflow();
+        }
+
+        @Override
+        public void setOverflow(boolean overflow) {
+            CocoMybatisPlusProperties.this.pagination.setOverflow(overflow);
+        }
+
+        @Override
+        public Long getMaxLimit() {
+            return CocoMybatisPlusProperties.this.pagination.getMaxLimit();
+        }
+
+        @Override
+        public void setMaxLimit(Long maxLimit) {
+            CocoMybatisPlusProperties.this.pagination.setMaxLimit(maxLimit);
+        }
+
+        @Override
+        public boolean isOptimizeJoin() {
+            return CocoMybatisPlusProperties.this.pagination.isOptimizeJoin();
+        }
+
+        @Override
+        public void setOptimizeJoin(boolean optimizeJoin) {
+            CocoMybatisPlusProperties.this.pagination.setOptimizeJoin(optimizeJoin);
+        }
+    }
+
+    private final class SqlGuardPropertiesView extends CocoMybatisPlusSqlGuardProperties {
+
+        @Override
+        public boolean isBlockAttackEnabled() {
+            return CocoMybatisPlusProperties.this.sqlGuard.isBlockAttackEnabled();
+        }
+
+        @Override
+        public void setBlockAttackEnabled(boolean blockAttackEnabled) {
+            CocoMybatisPlusProperties.this.sqlGuard.setBlockAttackEnabled(blockAttackEnabled);
+        }
+
+        @Override
+        public boolean isIllegalSqlEnabled() {
+            return CocoMybatisPlusProperties.this.sqlGuard.isIllegalSqlEnabled();
+        }
+
+        @Override
+        public void setIllegalSqlEnabled(boolean illegalSqlEnabled) {
+            CocoMybatisPlusProperties.this.sqlGuard.setIllegalSqlEnabled(illegalSqlEnabled);
+        }
     }
 }
