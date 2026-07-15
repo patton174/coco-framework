@@ -196,7 +196,9 @@ class DiagnosticContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RUNNER.HarnessError, "live basename-list"):
             RUNNER.assert_i18n_basename_consumer_evidence("BUILD SUCCESS")
 
-    def test_common_locale_factory_evidence_accepts_the_old_consumer_marker(self) -> None:
+    def test_common_locale_factory_evidence_accepts_the_old_consumer_marker(
+        self,
+    ) -> None:
         self.assertEqual(
             RUNNER.assert_common_locale_factory_consumer_evidence(
                 RUNNER.COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE

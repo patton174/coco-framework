@@ -76,7 +76,6 @@ public class CocoCommonAutoConfiguration {
      * <p>
      * 创建 Coco 语言解析器。
      * </p>
-     * @param properties Coco 通用配置
      * @return Coco 语言解析器
      */
     @Bean
