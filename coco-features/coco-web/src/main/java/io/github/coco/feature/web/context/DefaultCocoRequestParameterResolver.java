@@ -379,10 +379,6 @@ public final class DefaultCocoRequestParameterResolver implements CocoRequestPar
                         .isPresent();
     }
 
-    private static boolean isJsonContentType(String contentType) {
-        return contentType != null && ("application/json".equals(contentType) || contentType.endsWith("+json"));
-    }
-
     private static String normalizeMediaType(String contentType) {
         if (contentType == null || contentType.isBlank()) {
             return null;
