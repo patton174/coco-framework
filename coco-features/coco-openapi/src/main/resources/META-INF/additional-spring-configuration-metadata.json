@@ -29,6 +29,12 @@
       "type": "java.lang.Boolean",
       "description": "Whether Coco should adapt OpenAPI metadata into SpringDoc when SpringDoc is on the application classpath.",
       "defaultValue": true
+    },
+    {
+      "name": "coco.openapi.springdoc.response-schemas-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco should publish bounded OpenAPI unified response and error response schemas into SpringDoc components.",
+      "defaultValue": true
     }
   ]
 }

@@ -40,6 +40,7 @@ class CocoOpenApiConfigurationMetadataTest {
         assertProperty(metadata, "coco.openapi.info.version", "java.lang.String", "1.0.0");
         assertProperty(metadata, "coco.openapi.info.description", "java.lang.String", "Coco Framework API");
         assertProperty(metadata, "coco.openapi.springdoc.enabled", "java.lang.Boolean", "true");
+        assertProperty(metadata, "coco.openapi.springdoc.response-schemas-enabled", "java.lang.Boolean", "true");
     }
 
     private JsonNode configurationMetadata() throws IOException {

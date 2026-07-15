@@ -4,18 +4,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.Path;
+import java.util.List;
+
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadata;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.core.DefaultCocoOpenApiMetadataProvider;
+import io.github.coco.feature.openapi.springdoc.CocoSpringDocOpenApiCustomizerFactoryBean;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import javax.tools.JavaCompiler;
+import javax.tools.JavaFileObject;
+import javax.tools.SimpleJavaFileObject;
+import javax.tools.StandardJavaFileManager;
+import javax.tools.ToolProvider;
 
 /**
  * Coco OpenAPI 功能自动配置测试。
@@ -159,6 +174,78 @@ class CocoOpenApiAutoConfigurationTest {
                     assertThat(context).doesNotHaveBean(CocoOpenApiMetadataProvider.class);
                     assertThat(context).doesNotHaveBean("cocoSpringDocOpenApiCustomizer");
                 });
+    }
+
+    @Test
+    void preservesLegacyOneArgumentSpringDocCustomizerDescriptor() throws NoSuchMethodException {
+        assertThat(CocoOpenApiAutoConfiguration.class.getMethod("cocoSpringDocOpenApiCustomizer",
+                CocoOpenApiMetadataProvider.class).getReturnType())
+                .isEqualTo(CocoSpringDocOpenApiCustomizerFactoryBean.class);
+    }
+
+    @Test
+    void executesOldBytecodeLinkedToTheOneArgumentSpringDocCustomizer(@TempDir Path temporaryDirectory)
+            throws Exception {
+        Path classesDirectory = temporaryDirectory.resolve("classes");
+        compile(classesDirectory, classPathFor(CocoOpenApiMetadataProvider.class), List.of(
+                source("io.github.coco.feature.openapi.CocoOpenApiAutoConfiguration", """
+                        package io.github.coco.feature.openapi;
+                        import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
+                        import io.github.coco.feature.openapi.springdoc.CocoSpringDocOpenApiCustomizerFactoryBean;
+                        public class CocoOpenApiAutoConfiguration {
+                            public CocoSpringDocOpenApiCustomizerFactoryBean cocoSpringDocOpenApiCustomizer(
+                                    CocoOpenApiMetadataProvider metadataProvider) {
+                                return null;
+                            }
+                        }
+                        """),
+                source("legacy.OpenApiClient", """
+                        package legacy;
+                        import io.github.coco.feature.openapi.CocoOpenApiAutoConfiguration;
+                        import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
+                        public final class OpenApiClient {
+                            public static Object create(CocoOpenApiMetadataProvider metadataProvider) {
+                                return new CocoOpenApiAutoConfiguration()
+                                        .cocoSpringDocOpenApiCustomizer(metadataProvider);
+                            }
+                        }
+                        """)));
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[] { classesDirectory.toUri().toURL() },
+                getClass().getClassLoader())) {
+            Class<?> client = classLoader.loadClass("legacy.OpenApiClient");
+            Object factoryBean = client.getMethod("create", CocoOpenApiMetadataProvider.class)
+                    .invoke(null, (CocoOpenApiMetadataProvider) () -> new CocoOpenApiMetadata("Legacy", "1", null));
+
+            assertThat(factoryBean).isInstanceOf(CocoSpringDocOpenApiCustomizerFactoryBean.class);
+        }
+    }
+
+    private static void compile(Path classesDirectory, String classPath, List<JavaFileObject> sources) {
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        assertThat(compiler).as("JDK compiler").isNotNull();
+        try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null)) {
+            boolean compiled = compiler.getTask(null, fileManager, null,
+                    List.of("-classpath", classPath, "-d", classesDirectory.toString()), null, sources).call();
+            assertThat(compiled).isTrue();
+        }
+        catch (Exception ex) {
+            throw new IllegalStateException("Unable to compile compatibility fixture", ex);
+        }
+    }
+
+    private static JavaFileObject source(String className, String source) {
+        return new SimpleJavaFileObject(URI.create("string:///" + className.replace('.', '/') + ".java"),
+                JavaFileObject.Kind.SOURCE) {
+            @Override
+            public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+                return source;
+            }
+        };
+    }
+
+    private static String classPathFor(Class<?> type) throws Exception {
+        return new File(type.getProtectionDomain().getCodeSource().getLocation().toURI()).getPath();
     }
 
     @Configuration(proxyBeanMethods = false)

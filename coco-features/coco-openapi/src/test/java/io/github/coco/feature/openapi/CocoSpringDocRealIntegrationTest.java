@@ -13,6 +13,7 @@ import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadata;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.media.ObjectSchema;
 import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
 import org.junit.jupiter.api.Test;
@@ -59,6 +60,9 @@ class CocoSpringDocRealIntegrationTest {
             assertThat(openApi.getInfo().getTitle()).isEqualTo("Coco API");
             assertThat(openApi.getInfo().getVersion()).isEqualTo("1.0.0");
             assertThat(openApi.getInfo().getDescription()).isEqualTo("Coco Framework API");
+            assertThat(openApi.getComponents()).isNotNull();
+            assertThat(openApi.getComponents().getSchemas())
+                    .containsKeys("CocoApiResponse", "CocoApiErrorResponse");
         });
     }
 
@@ -69,6 +73,87 @@ class CocoSpringDocRealIntegrationTest {
                 .run(context -> {
                     assertThat(context).hasSingleBean(CocoOpenApiMetadataProvider.class);
                     assertThat(context).doesNotHaveBean("cocoSpringDocOpenApiCustomizer");
+                });
+    }
+
+    @Test
+    void doesNotRegisterAdapterWhenRequiredSpringDocModelIsMissing() {
+        this.contextRunner
+                .withClassLoader(new FilteredClassLoader(ObjectSchema.class))
+                .run(context -> {
+                    assertThat(context).hasSingleBean(CocoOpenApiMetadataProvider.class);
+                    assertThat(context).doesNotHaveBean("cocoSpringDocOpenApiCustomizer");
+                });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void publishesBoundedResponseSchemasWithoutRequestOrSecurityContext() {
+        this.contextRunner.run(context -> {
+            OpenApiCustomizer customizer = context.getBean(
+                    "cocoSpringDocOpenApiCustomizer", OpenApiCustomizer.class);
+            OpenAPI openApi = new OpenAPI();
+
+            customizer.customise(openApi);
+
+            assertThat(openApi.getComponents().getSchemas().get("CocoApiResponse").getProperties().keySet())
+                    .containsExactlyInAnyOrder("success", "code", "message", "data")
+                    .allSatisfy(property -> assertThat(String.valueOf(property))
+                            .doesNotMatch("(?i).*(tenant|user|key|nonce|path|trace|token|secret).*"));
+            assertThat(openApi.getComponents().getSchemas().get("CocoApiErrorResponse").getProperties().keySet())
+                    .containsExactlyInAnyOrder("success", "code", "message", "data")
+                    .allSatisfy(property -> assertThat(String.valueOf(property))
+                            .doesNotMatch("(?i).*(tenant|user|key|nonce|path|trace|token|secret).*"));
+            assertThat(openApi.getComponents().getSchemas().get("CocoApiErrorResponse").getRequired())
+                    .containsExactlyInAnyOrder("success", "code", "message");
+        });
+    }
+
+    @Test
+    void canDisableResponseSchemaPublicationWithoutDisablingMetadataCustomization() {
+        this.contextRunner
+                .withPropertyValues("coco.openapi.springdoc.response-schemas-enabled=false")
+                .run(context -> {
+                    OpenApiCustomizer customizer = context.getBean(
+                            "cocoSpringDocOpenApiCustomizer", OpenApiCustomizer.class);
+                    OpenAPI openApi = new OpenAPI();
+
+                    customizer.customise(openApi);
+
+                    assertThat(openApi.getInfo().getTitle()).isEqualTo("Coco API");
+                    assertThat(openApi.getComponents()).isNull();
+                });
+    }
+
+    @Test
+    void customizesMetadataWithoutSchemaClassesWhenResponseSchemasAreDisabled() {
+        this.contextRunner
+                .withPropertyValues("coco.openapi.springdoc.response-schemas-enabled=false")
+                .withClassLoader(new FilteredClassLoader(ObjectSchema.class))
+                .run(context -> {
+                    OpenApiCustomizer customizer = context.getBean(
+                            "cocoSpringDocOpenApiCustomizer", OpenApiCustomizer.class);
+                    OpenAPI openApi = new OpenAPI();
+
+                    customizer.customise(openApi);
+
+                    assertThat(openApi.getInfo().getTitle()).isEqualTo("Coco API");
+                    assertThat(openApi.getComponents()).isNull();
+                });
+    }
+
+    @Test
+    void backsOffWhenApplicationDefinesNamedSpringDocCustomizer() {
+        this.contextRunner
+                .withUserConfiguration(CustomSpringDocCustomizerConfiguration.class)
+                .run(context -> {
+                    assertThat(context.getBeansOfType(OpenApiCustomizer.class))
+                            .containsOnlyKeys("cocoSpringDocOpenApiCustomizer");
+
+                    OpenAPI openApi = new OpenAPI();
+                    context.getBean(OpenApiCustomizer.class).customise(openApi);
+
+                    assertThat(openApi.getInfo().getTitle()).isEqualTo("Application API");
                 });
     }
 
@@ -158,6 +243,15 @@ class CocoSpringDocRealIntegrationTest {
         @Bean
         CocoOpenApiMetadataProvider customCocoOpenApiMetadataProvider() {
             return () -> new CocoOpenApiMetadata("Custom API", "9.9.9", "Custom description");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomSpringDocCustomizerConfiguration {
+
+        @Bean(name = "cocoSpringDocOpenApiCustomizer")
+        OpenApiCustomizer applicationOpenApiCustomizer() {
+            return openApi -> openApi.info(new Info().title("Application API"));
         }
     }
 }

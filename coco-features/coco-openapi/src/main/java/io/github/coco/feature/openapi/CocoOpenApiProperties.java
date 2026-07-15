@@ -1,5 +1,6 @@
 package io.github.coco.feature.openapi;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -56,6 +57,7 @@ public class CocoOpenApiProperties {
      * </p>
      * @return OpenAPI 文档信息配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Configuration binders require a live nested object.")
     public InfoProperties getInfo() {
         return this.info;
     }
@@ -76,6 +78,7 @@ public class CocoOpenApiProperties {
      * </p>
      * @return SpringDoc 适配配置
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Configuration binders require a live nested object.")
     public SpringdocProperties getSpringdoc() {
         return this.springdoc;
     }
@@ -196,6 +199,8 @@ public class CocoOpenApiProperties {
 
         private boolean enabled = true;
 
+        private boolean responseSchemasEnabled = true;
+
         /**
          * <p>
          * 返回是否启用 SpringDoc 元数据适配。
@@ -214,6 +219,29 @@ public class CocoOpenApiProperties {
          */
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        /**
+         * <p>
+         * 返回是否发布 Coco OpenAPI 统一响应和异常响应组件模型。
+         * </p>
+         * <p>
+         * 组件不包含链路、请求路径、租户、用户或凭据等运行时上下文。
+         * </p>
+         * @return 启用时返回 {@code true}
+         */
+        public boolean isResponseSchemasEnabled() {
+            return this.responseSchemasEnabled;
+        }
+
+        /**
+         * <p>
+         * 设置是否发布 Coco 统一响应和异常响应组件模型。
+         * </p>
+         * @param responseSchemasEnabled 是否启用
+         */
+        public void setResponseSchemasEnabled(boolean responseSchemasEnabled) {
+            this.responseSchemasEnabled = responseSchemasEnabled;
         }
     }
 }

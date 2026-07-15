@@ -5,14 +5,17 @@ import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.core.DefaultCocoOpenApiMetadataProvider;
 import io.github.coco.feature.openapi.springdoc.CocoSpringDocOpenApiCustomizerFactoryBean;
+import io.github.coco.feature.openapi.springdoc.SpringDocOpenApiCustomizerCondition;
+import io.github.coco.feature.openapi.springdoc.SpringDocOpenApiRuntimeHints;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.ImportRuntimeHints;
 
 /**
  * Coco OpenAPI 功能自动配置。
@@ -36,6 +39,7 @@ import org.springframework.context.annotation.Bean;
 })
 @ConditionalOnCocoFeature(CocoFeature.OPENAPI)
 @EnableConfigurationProperties(CocoOpenApiProperties.class)
+@ImportRuntimeHints(SpringDocOpenApiRuntimeHints.class)
 public class CocoOpenApiAutoConfiguration {
 
     /**
@@ -74,15 +78,32 @@ public class CocoOpenApiAutoConfiguration {
     @Bean(name = "cocoSpringDocOpenApiCustomizer")
     @ConditionalOnBean(CocoOpenApiMetadataProvider.class)
     @ConditionalOnMissingBean(name = "cocoSpringDocOpenApiCustomizer")
-    @ConditionalOnClass(name = {
-            CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CUSTOMIZER_CLASS,
-            CocoSpringDocOpenApiCustomizerFactoryBean.OPEN_API_CLASS,
-            CocoSpringDocOpenApiCustomizerFactoryBean.INFO_CLASS
-    })
+    @Conditional(SpringDocOpenApiCustomizerCondition.class)
     @ConditionalOnProperty(prefix = "coco.openapi.springdoc", name = "enabled", havingValue = "true",
             matchIfMissing = true)
     public CocoSpringDocOpenApiCustomizerFactoryBean cocoSpringDocOpenApiCustomizer(
+            CocoOpenApiMetadataProvider metadataProvider, CocoOpenApiProperties properties) {
+        return springDocOpenApiCustomizer(metadataProvider,
+                properties.getSpringdoc().isResponseSchemasEnabled());
+    }
+
+    /**
+     * <p>
+     * 创建默认 SpringDoc OpenAPI 定制器。
+     * </p>
+     * <p>
+     * 保留该公开重载以兼容已编译的业务配置代码；通过此入口创建的定制器沿用历史默认行为并发布响应组件模型。
+     * </p>
+     * @param metadataProvider Coco OpenAPI 元数据提供器
+     * @return SpringDoc OpenAPI 定制器工厂
+     */
+    public CocoSpringDocOpenApiCustomizerFactoryBean cocoSpringDocOpenApiCustomizer(
             CocoOpenApiMetadataProvider metadataProvider) {
-        return new CocoSpringDocOpenApiCustomizerFactoryBean(metadataProvider);
+        return springDocOpenApiCustomizer(metadataProvider, true);
+    }
+
+    private CocoSpringDocOpenApiCustomizerFactoryBean springDocOpenApiCustomizer(
+            CocoOpenApiMetadataProvider metadataProvider, boolean responseSchemasEnabled) {
+        return new CocoSpringDocOpenApiCustomizerFactoryBean(metadataProvider, responseSchemasEnabled);
     }
 }
