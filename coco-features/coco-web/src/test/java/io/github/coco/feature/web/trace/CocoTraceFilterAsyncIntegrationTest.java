@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.trace;
 
+import java.util.ArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
@@ -118,6 +120,24 @@ class CocoTraceFilterAsyncIntegrationTest {
         assertTrue(CocoTraceContext.currentTraceId().isEmpty());
         assertTrue(CocoRequestContextHolder.current().isEmpty());
         assertNull(MDC.get(properties.getMdcKey()));
+    }
+
+    @Test
+    void snapshotsAccessLogRecorderCollectionAtConstruction() throws Exception {
+        CocoTraceProperties properties = new CocoTraceProperties();
+        CopyOnWriteArrayList<CocoAccessLog> accessLogs = new CopyOnWriteArrayList<>();
+        ArrayList<CocoAccessLogRecorder> suppliedRecorders = new ArrayList<>();
+        suppliedRecorders.add(accessLogs::add);
+        CocoTraceFilter filter = new CocoTraceFilter(properties, suppliedRecorders);
+        suppliedRecorders.clear();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/snapshot");
+        request.addHeader(properties.getHeaderName(), TRACE_ID);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(1, accessLogs.size());
+        assertEquals(200, accessLogs.get(0).status());
     }
 
     @RestController
