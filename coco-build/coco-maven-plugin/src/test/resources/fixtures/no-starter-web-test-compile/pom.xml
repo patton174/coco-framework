@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.patton174</groupId>
         <artifactId>coco-parent</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>@coco.fixture.version@</version>
         <relativePath/>
     </parent>
 
@@ -24,6 +24,11 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>io.github.patton174</groupId>
+                <artifactId>coco-maven-plugin</artifactId>
+                <version>@coco.fixture.version@</version>
+            </plugin>
             <plugin>
                 <groupId>io.github.coco.fixture</groupId>
                 <artifactId>project-view-dump-plugin</artifactId>
