@@ -202,8 +202,9 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         }
         ResolvedFeatureDependencies resolvedDependencies = resolveAddedDependencies(
                 dependenciesToAdd, targetFeatureVersion);
+        ResolvedProjectViews resolvedProjectViews = stageResolvedProjectViews(resolvedDependencies);
         dependenciesToAdd.forEach(this.project.getModel()::addDependency);
-        mergeResolvedArtifacts(resolvedDependencies);
+        publishResolvedProjectViews(resolvedProjectViews);
     }
 
     private Dependency newCompileDependency(CocoFeatureDefinition definition, String version) {
@@ -417,30 +418,42 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         return mavenArtifact;
     }
 
-    private void mergeResolvedArtifacts(ResolvedFeatureDependencies resolvedDependencies) {
+    private ResolvedProjectViews stageResolvedProjectViews(ResolvedFeatureDependencies resolvedDependencies) {
         if (resolvedDependencies.artifacts().isEmpty()) {
-            return;
+            return ResolvedProjectViews.empty();
         }
-        Set<Artifact> mergedArtifacts = unionArtifacts(
+        Set<Artifact> mergedArtifacts = replaceConflictingArtifacts(
                 this.project.getArtifacts(), resolvedDependencies.artifacts());
         Set<Artifact> currentDependencyArtifacts = this.project.getDependencyArtifacts();
         Set<Artifact> mergedDependencyArtifacts = currentDependencyArtifacts == null
                 ? null
-                : unionArtifacts(currentDependencyArtifacts, resolvedDependencies.directArtifacts());
+                : replaceConflictingArtifacts(currentDependencyArtifacts, resolvedDependencies.directArtifacts());
+        return new ResolvedProjectViews(mergedArtifacts, mergedDependencyArtifacts, true);
+    }
 
+    private void publishResolvedProjectViews(ResolvedProjectViews resolvedProjectViews) {
+        if (!resolvedProjectViews.publish()) {
+            return;
+        }
         // Publish only after the staged project has fully resolved. artifacts is the mediated closure,
         // while dependencyArtifacts remains Maven's direct-dependency view. A null direct view is a
         // meaningful uncollected cache state and must not be replaced with an incomplete synthetic set.
-        this.project.setArtifacts(mergedArtifacts);
-        if (mergedDependencyArtifacts != null) {
-            this.project.setDependencyArtifacts(mergedDependencyArtifacts);
+        this.project.setArtifacts(resolvedProjectViews.artifacts());
+        if (resolvedProjectViews.dependencyArtifacts() != null) {
+            this.project.setDependencyArtifacts(resolvedProjectViews.dependencyArtifacts());
         }
     }
 
-    private static Set<Artifact> unionArtifacts(Set<Artifact> existingArtifacts, Set<Artifact> resolvedClosure) {
+    private static Set<Artifact> replaceConflictingArtifacts(
+            Set<Artifact> existingArtifacts, Set<Artifact> resolvedClosure) {
+        Set<String> resolvedConflictIds = resolvedClosure.stream()
+                .map(Artifact::getDependencyConflictId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         Set<Artifact> merged = new LinkedHashSet<>();
         if (existingArtifacts != null) {
-            merged.addAll(existingArtifacts);
+            existingArtifacts.stream()
+                    .filter(artifact -> !resolvedConflictIds.contains(artifact.getDependencyConflictId()))
+                    .forEach(merged::add);
         }
         merged.addAll(resolvedClosure);
         return merged;
@@ -450,6 +463,14 @@ public final class CocoFeaturesMojo extends AbstractMojo {
 
         private static ResolvedFeatureDependencies empty() {
             return new ResolvedFeatureDependencies(Set.of(), Set.of());
+        }
+    }
+
+    private record ResolvedProjectViews(
+            Set<Artifact> artifacts, Set<Artifact> dependencyArtifacts, boolean publish) {
+
+        private static ResolvedProjectViews empty() {
+            return new ResolvedProjectViews(Set.of(), null, false);
         }
     }
 

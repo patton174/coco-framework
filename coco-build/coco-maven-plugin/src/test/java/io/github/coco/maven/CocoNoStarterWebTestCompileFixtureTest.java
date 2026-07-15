@@ -12,6 +12,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.JarOutputStream;
 import java.util.regex.Pattern;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -20,6 +21,10 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Exclusion;
+import org.apache.maven.model.Model;
+import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.w3c.dom.Document;
@@ -39,6 +44,7 @@ class CocoNoStarterWebTestCompileFixtureTest {
 
     private static final String PLUGIN_GROUP_ID = "io.github.patton174";
     private static final String PLUGIN_ARTIFACT_ID = "coco-maven-plugin";
+    private static final String MEDIATION_GROUP_ID = "io.github.coco.fixture.mediation";
     private static final String DISABLED_FEATURES =
             "audit,codegen,data-permission,mybatis-plus,openapi,security,tenant";
     private static final Pattern FEATURE_EXECUTION = Pattern.compile(
@@ -101,6 +107,54 @@ class CocoNoStarterWebTestCompileFixtureTest {
                 .contains("coco-api", "coco-spring-boot-starter")
                 .doesNotContain("coco-web");
 
+        installMediationArtifacts(localRepository, projectVersion);
+        Path mediationFixture = this.tempDir.resolve("mediation-fixture");
+        copyDirectory(fixtureSource, mediationFixture);
+        configureFixtureVersions(mediationFixture.resolve("pom.xml"), projectVersion, projectVersion);
+        String mediationOutput = runMaven(mediationFixture, localRepository, settings,
+                "-Drevision=" + revision,
+                "-Pmediation",
+                "-Dcoco.features.disabled=" + DISABLED_FEATURES,
+                "-Dcoco.features.featureGroupId=" + MEDIATION_GROUP_ID,
+                "process-test-resources");
+        assertThat(mediationOutput).contains("Coco feature manifest generated with 1 enabled features.");
+        assertExecutedPluginMatchesWorkspace(
+                mediationOutput, projectVersion, workspacePluginArtifact, localRepository);
+        String mediationBefore = Files.readString(mediationFixture.resolve("target/project-before.txt"));
+        String mediationAfter = Files.readString(mediationFixture.resolve("target/project-after.txt"));
+        assertThat(line(mediationBefore, "artifacts="))
+                .contains(MEDIATION_GROUP_ID + ":shared-library:1.0.0")
+                .doesNotContain(MEDIATION_GROUP_ID + ":shared-library:2.0.0");
+        assertThat(line(mediationAfter, "artifacts="))
+                .contains(
+                        MEDIATION_GROUP_ID + ":shared-library:2.0.0:compile",
+                        MEDIATION_GROUP_ID + ":excluded-parent:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":runtime-library:1.0.0:runtime")
+                .doesNotContain(
+                        MEDIATION_GROUP_ID + ":shared-library:1.0.0",
+                        MEDIATION_GROUP_ID + ":excluded-leaf",
+                        MEDIATION_GROUP_ID + ":optional-library",
+                        MEDIATION_GROUP_ID + ":provided-library",
+                        MEDIATION_GROUP_ID + ":test-library");
+        assertThat(line(mediationAfter, "dependencyArtifacts="))
+                .contains(
+                        MEDIATION_GROUP_ID + ":deep-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":coco-web:" + projectVersion + ":compile")
+                .doesNotContain("shared-library", "deep-middle", "runtime-library", "excluded-parent");
+        assertThat(listValues(mediationAfter, "artifactOrder="))
+                .containsSubsequence(
+                        MEDIATION_GROUP_ID + ":deep-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":deep-middle:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":coco-web:" + projectVersion + ":compile",
+                        MEDIATION_GROUP_ID + ":shared-library:2.0.0:compile",
+                        MEDIATION_GROUP_ID + ":excluded-parent:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":runtime-library:1.0.0:runtime");
+        assertThat(line(mediationAfter, "testClasspathOrder="))
+                .contains(
+                        "shared-library-2.0.0.jar",
+                        "runtime-library-1.0.0.jar")
+                .doesNotContain("shared-library-1.0.0.jar");
+
         Path wrongVersionFixture = this.tempDir.resolve("wrong-version-fixture");
         copyDirectory(fixtureSource, wrongVersionFixture);
         String wrongVersion = "0.0.0-coco-fixture-missing";
@@ -134,6 +188,76 @@ class CocoNoStarterWebTestCompileFixtureTest {
         Path fixture = this.tempDir.resolve("project-view-dump-plugin");
         copyDirectory(source, fixture);
         runMaven(fixture, localRepository, settings, "-DskipTests", "install");
+    }
+
+    private void installMediationArtifacts(Path localRepository, String featureVersion) throws Exception {
+        installFixtureArtifact(localRepository, "shared-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "shared-library", "2.0.0", List.of());
+        installFixtureArtifact(localRepository, "excluded-leaf", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "optional-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "provided-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "test-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "runtime-library", "1.0.0", List.of());
+
+        Dependency excludedLeaf = fixtureDependency("excluded-leaf", "1.0.0");
+        installFixtureArtifact(localRepository, "excluded-parent", "1.0.0", List.of(excludedLeaf));
+        installFixtureArtifact(localRepository, "deep-middle", "1.0.0",
+                List.of(fixtureDependency("shared-library", "1.0.0")));
+        installFixtureArtifact(localRepository, "deep-root", "1.0.0",
+                List.of(fixtureDependency("deep-middle", "1.0.0")));
+
+        Dependency excludedParent = fixtureDependency("excluded-parent", "1.0.0");
+        Exclusion exclusion = new Exclusion();
+        exclusion.setGroupId(MEDIATION_GROUP_ID);
+        exclusion.setArtifactId("excluded-leaf");
+        excludedParent.addExclusion(exclusion);
+        Dependency optionalLibrary = fixtureDependency("optional-library", "1.0.0");
+        optionalLibrary.setOptional(true);
+        Dependency providedLibrary = fixtureDependency("provided-library", "1.0.0");
+        providedLibrary.setScope("provided");
+        Dependency testLibrary = fixtureDependency("test-library", "1.0.0");
+        testLibrary.setScope("test");
+        Dependency runtimeLibrary = fixtureDependency("runtime-library", "1.0.0");
+        runtimeLibrary.setScope("runtime");
+        installFixtureArtifact(localRepository, "coco-web", featureVersion, List.of(
+                fixtureDependency("shared-library", "2.0.0"),
+                excludedParent,
+                optionalLibrary,
+                providedLibrary,
+                testLibrary,
+                runtimeLibrary));
+    }
+
+    private void installFixtureArtifact(Path localRepository, String artifactId, String version,
+            List<Dependency> dependencies) throws Exception {
+        Path artifactDirectory = localRepository.resolve(MEDIATION_GROUP_ID.replace('.', '/'))
+                .resolve(artifactId)
+                .resolve(version);
+        Files.createDirectories(artifactDirectory);
+        Path jar = artifactDirectory.resolve(artifactId + "-" + version + ".jar");
+        try (JarOutputStream ignored = new JarOutputStream(Files.newOutputStream(jar))) {
+            // Empty JARs are sufficient for a resolver mediation fixture.
+        }
+
+        Model model = new Model();
+        model.setModelVersion("4.0.0");
+        model.setGroupId(MEDIATION_GROUP_ID);
+        model.setArtifactId(artifactId);
+        model.setVersion(version);
+        model.setPackaging("jar");
+        dependencies.forEach(model::addDependency);
+        try (var writer = Files.newBufferedWriter(
+                artifactDirectory.resolve(artifactId + "-" + version + ".pom"), StandardCharsets.UTF_8)) {
+            new MavenXpp3Writer().write(writer, model);
+        }
+    }
+
+    private static Dependency fixtureDependency(String artifactId, String version) {
+        Dependency dependency = new Dependency();
+        dependency.setGroupId(MEDIATION_GROUP_ID);
+        dependency.setArtifactId(artifactId);
+        dependency.setVersion(version);
+        return dependency;
     }
 
     private Path writeFixtureSettings(Path settings, Path outerLocalRepository) throws IOException {
@@ -309,6 +433,14 @@ class CocoNoStarterWebTestCompileFixtureTest {
     private static long jarCount(String dump, String prefix) {
         String classpath = line(dump, prefix);
         return classpath.split("\\.jar", -1).length - 1L;
+    }
+
+    private static List<String> listValues(String dump, String prefix) {
+        String value = line(dump, prefix).substring(prefix.length());
+        if ("[]".equals(value)) {
+            return List.of();
+        }
+        return List.of(value.substring(1, value.length() - 1).split(","));
     }
 
     private static String line(String dump, String prefix) {

@@ -37,10 +37,14 @@ public final class DumpProjectMojo extends AbstractMojo {
                     + System.lineSeparator() + "artifacts=" + artifacts(this.project.getArtifacts())
                     + System.lineSeparator() + "dependencyArtifacts="
                     + artifacts(this.project.getDependencyArtifacts())
+                    + System.lineSeparator() + "artifactOrder="
+                    + artifactOrder(this.project.getArtifacts())
                     + System.lineSeparator() + "compileClasspath="
                     + classpath(this.project.getCompileClasspathElements())
                     + System.lineSeparator() + "testClasspath="
                     + classpath(this.project.getTestClasspathElements())
+                    + System.lineSeparator() + "testClasspathOrder="
+                    + classpathOrder(this.project.getTestClasspathElements())
                     + System.lineSeparator(), StandardCharsets.UTF_8);
         }
         catch (IOException | DependencyResolutionRequiredException ex) {
@@ -69,5 +73,19 @@ public final class DumpProjectMojo extends AbstractMojo {
 
     private static String classpath(Collection<String> entries) {
         return entries.stream().sorted().collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private static String artifactOrder(Set<Artifact> artifacts) {
+        if (artifacts == null) {
+            return "null";
+        }
+        return artifacts.stream()
+                .map(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId() + ":"
+                        + artifact.getBaseVersion() + ":" + artifact.getScope())
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private static String classpathOrder(Collection<String> entries) {
+        return entries.stream().collect(Collectors.joining(",", "[", "]"));
     }
 }
