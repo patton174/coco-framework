@@ -2,7 +2,7 @@
 
 ## 目标
 
-新增独立工件 `coco-audit-jdbc`，为 `coco-audit` 的 `CocoAuditRecorder` SPI 提供可选 JDBC 持久化适配器。该工件不加入 starter、`coco-features` 聚合、BOM 或任何共享 composition 文件；业务项目只有显式依赖该工件并设置 `coco.audit.jdbc.enabled=true` 才会启用。
+新增独立工件 `coco-audit-jdbc`，为 `coco-audit` 的 `CocoAuditRecorder` SPI 提供可选 JDBC 持久化适配器。该工件通过 `coco-features` 聚合参与根 reactor，坐标由 `coco-dependencies` BOM 管理；但它仍是业务显式选择的 opt-in 模块，不加入 `coco-spring-boot-starter`，也不注册到 `StandardCocoFeatures` 或生成的标准功能计划。业务项目只有显式依赖该工件并设置 `coco.audit.jdbc.enabled=true` 才会启用。
 
 该能力记录 Coco 已有的结构化审计事件，不引入用户、角色、组织、租户或业务审计模型。业务项目仍拥有表、迁移、数据源、连接池、事务和保留策略。
 
@@ -47,10 +47,11 @@ coco:
 - 管理业务 DataSource、连接池、数据库账号、事务管理器或高可用。
 - 绑定 Coco 到任何业务用户、身份、组织或租户模型。
 - 承诺跨系统 exactly-once、审计保留合规或消息投递。
-- 修改 starter、共享自动配置 composition 或 README。
+- 将模块加入 starter、`StandardCocoFeatures`、生成的标准功能计划或 README。
 
 ## 验收
 
 - H2 覆盖自动注入和替换回退、参数化结构化字段和 JSON、批处理、并发、超长与空字段、数据库失败、调用方回滚事务以及关闭后拒绝写入。
-- 仅新增 `coco-features/coco-audit-jdbc`、本规格和测试，不修改共享 composition 文件或 README。
+- `coco-features/coco-audit-jdbc` 通过 `coco-features` 聚合参与根 reactor，且其坐标同时受根 dependency management 与 `coco-dependencies` BOM 管理。
+- starter 与 `StandardCocoFeatures` 均不引用该模块；业务仍必须显式添加依赖和开启配置。
 - 使用 JDK 21 执行独立模块测试及 SpotBugs、Checkstyle，并在源码变更后同步 CodeGraph（索引存在时）。

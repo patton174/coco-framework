@@ -2,7 +2,7 @@
 
 ## Scope
 
-`coco-replay-redis` is an optional, independent adapter for the existing `CocoReplayStore` SPI. It does not add a Coco feature, change the default in-memory store, or add Redis to the root BOM, starter, or feature metadata.
+`coco-replay-redis` is an optional, independent adapter for the existing `CocoReplayStore` SPI. It participates in the root reactor through the `coco-features` aggregate, and its module coordinate is managed by the `coco-dependencies` BOM. It does not add a Coco feature or change the default in-memory store, and it remains absent from `coco-spring-boot-starter`, `StandardCocoFeatures`, and the generated standard feature plan.
 
 Applications opt in by adding both `coco-replay-redis` and Spring Data Redis, then setting:
 

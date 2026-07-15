@@ -2,8 +2,10 @@
 
 ## Scope
 
-`coco-features/coco-observability` is an independent optional adapter. It is intentionally not added to the shared
-reactor, BOM, starter, standard feature metadata, or README. Applications opt in by declaring the module directly.
+`coco-features/coco-observability` is an independent optional adapter. It participates in the root reactor through the
+`coco-features` aggregate, and its coordinate is managed by the `coco-dependencies` BOM. It remains opt-in: the normal
+starter and `StandardCocoFeatures` do not include it, so applications must declare the module directly. It is also not
+added to the generated standard feature plan or README.
 
 The module compiles against Micrometer, Actuator, audit, Web replay, logging, and feature-model APIs as optional
 dependencies. Its auto-configuration activates only when `MeterRegistry` is on the classpath and

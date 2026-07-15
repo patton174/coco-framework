@@ -2,7 +2,7 @@
 
 ## Scope
 
-`coco-rate-limit` is an opt-in Servlet Web infrastructure module. It is not included by the normal starter, BOM, standard feature set, or generated feature plan. An application enables it only by depending on the module and setting `coco.rate-limit.enabled=true`.
+`coco-rate-limit` is an opt-in Servlet Web infrastructure module. It participates in the root reactor through the `coco-features` aggregate, and its coordinate is managed by the `coco-dependencies` BOM. It remains excluded from the normal starter, `StandardCocoFeatures`, and the generated standard feature plan. An application enables it only by depending on the module and setting `coco.rate-limit.enabled=true`.
 
 ## Configuration and Matching
 

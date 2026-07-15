@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -127,6 +128,81 @@ def child_text(parent: ET.Element, name: str) -> str:
     if child is None or child.text is None:
         return ""
     return child.text.strip()
+
+
+def workflow_jobs(workflow: str) -> dict[str, str]:
+    lines = workflow.splitlines()
+    try:
+        jobs_index = lines.index("jobs:")
+    except ValueError as ex:
+        raise ValueError("workflow has no top-level jobs mapping") from ex
+
+    jobs: dict[str, str] = {}
+    current_job: str | None = None
+    current_lines: list[str] = []
+    job_pattern = re.compile(r"^  ([A-Za-z0-9_-]+):(?:\s*#.*)?$")
+
+    def store_current_job() -> None:
+        if current_job is None:
+            return
+        if current_job in jobs:
+            raise ValueError(f"duplicate workflow job: {current_job}")
+        jobs[current_job] = "\n".join(current_lines)
+
+    for line in lines[jobs_index + 1 :]:
+        if line and not line[0].isspace() and not line.startswith("#"):
+            break
+        match = job_pattern.fullmatch(line)
+        if match is not None:
+            store_current_job()
+            current_job = match.group(1)
+            current_lines = [line]
+        elif current_job is not None:
+            current_lines.append(line)
+    store_current_job()
+
+    if not jobs:
+        raise ValueError("workflow jobs mapping is empty")
+    return jobs
+
+
+def workflow_job_needs(job: str) -> list[str]:
+    lines = job.splitlines()
+    needs_pattern = re.compile(r"^    needs:\s*(.*?)\s*$")
+    matches = [
+        (index, match.group(1))
+        for index, line in enumerate(lines)
+        if (match := needs_pattern.fullmatch(line)) is not None
+    ]
+    if len(matches) != 1:
+        raise ValueError("workflow job must define needs exactly once")
+
+    needs_index, inline_value = matches[0]
+    job_id_pattern = r"[A-Za-z0-9_-]+"
+    if inline_value:
+        inline_pattern = re.compile(
+            rf"^\[\s*(?:{job_id_pattern}(?:\s*,\s*{job_id_pattern})*)?\s*\]$"
+        )
+        if inline_pattern.fullmatch(inline_value) is None:
+            raise ValueError(f"unsupported inline needs value: {inline_value}")
+        return re.findall(job_id_pattern, inline_value)
+
+    needs: list[str] = []
+    item_pattern = re.compile(rf"^      -\s+({job_id_pattern})\s*(?:#.*)?$")
+    for line in lines[needs_index + 1 :]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        item = item_pattern.fullmatch(line)
+        if item is not None:
+            needs.append(item.group(1))
+            continue
+        indentation = len(line) - len(line.lstrip())
+        if indentation <= 4:
+            break
+        raise ValueError(f"unsupported block needs entry: {line}")
+    if not needs:
+        raise ValueError("workflow job needs list is empty")
+    return needs
 
 
 def project_artifact_id(project: ET.Element) -> str:
@@ -378,17 +454,15 @@ class CanonicalMavenOwnershipTests(unittest.TestCase):
         )
 
     def test_ci_gate_verifies_starter_release_archives_from_clean_state(self) -> None:
-        reusable_tests = (
-            self.root / ".github/workflows/reusable-tests.yml"
-        ).read_text(encoding="utf-8")
+        reusable_tests = (self.root / ".github/workflows/reusable-tests.yml").read_text(
+            encoding="utf-8"
+        )
         ci_workflow = (self.root / ".github/workflows/ci.yml").read_text(
             encoding="utf-8"
         )
-        marker = "\n  starter-release-artifacts:\n"
-        self.assertIn(marker, reusable_tests)
-        job = reusable_tests.split(marker, maxsplit=1)[1].split(
-            "\n  compatibility-consumers:\n", maxsplit=1
-        )[0]
+        reusable_jobs = workflow_jobs(reusable_tests)
+        ci_jobs = workflow_jobs(ci_workflow)
+        job = reusable_jobs["starter-release-artifacts"]
 
         for token in (
             "name: starter release artifacts (ubuntu)",
@@ -401,9 +475,49 @@ class CanonicalMavenOwnershipTests(unittest.TestCase):
         ):
             self.assertIn(token, job)
         self.assertNotIn("-DskipTests", job)
-        self.assertIn("uses: ./.github/workflows/reusable-tests.yml", ci_workflow)
-        self.assertIn("name: CI gate", ci_workflow)
-        self.assertIn("needs: [test, static-analysis, codeql]", ci_workflow)
+        self.assertIn("uses: ./.github/workflows/reusable-tests.yml", ci_jobs["test"])
+        self.assertIn("name: CI gate", ci_jobs["gate"])
+        gate_needs = workflow_job_needs(ci_jobs["gate"])
+        self.assertEqual(3, len(gate_needs))
+        self.assertEqual({"test", "static-analysis", "codeql"}, set(gate_needs))
+
+    def test_workflow_job_parser_accepts_equivalent_job_and_needs_reordering(
+        self,
+    ) -> None:
+        workflow = """
+name: reordered jobs
+jobs:
+  gate:
+    needs:
+      - codeql
+      - test
+      - static-analysis
+    name: CI gate
+  compatibility-consumers:
+    runs-on: ubuntu-latest
+  starter-release-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - run: clean verify
+  test:
+    uses: ./.github/workflows/reusable-tests.yml
+"""
+
+        jobs = workflow_jobs(workflow)
+
+        self.assertEqual(
+            {
+                "gate",
+                "compatibility-consumers",
+                "starter-release-artifacts",
+                "test",
+            },
+            set(jobs),
+        )
+        self.assertIn("clean verify", jobs["starter-release-artifacts"])
+        needs = workflow_job_needs(jobs["gate"])
+        self.assertEqual(3, len(needs))
+        self.assertEqual({"test", "static-analysis", "codeql"}, set(needs))
 
     def test_canonical_modules_are_the_only_implementation_owners(self) -> None:
         artifacts_to_poms: dict[str, list[Path]] = defaultdict(list)
