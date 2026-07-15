@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Proxy;
 import java.util.List;
 
 import com.baomidou.mybatisplus.annotation.DbType;
@@ -22,6 +23,8 @@ import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptor
 import io.github.coco.feature.runtime.autoconfigure.CocoFeatureAutoConfigurationImportFilter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -147,6 +150,113 @@ class CocoMybatisPlusAutoConfigurationTest {
                             .containsExactly(OptimisticLockerInnerInterceptor.class, BlockAttackInnerInterceptor.class,
                                     PaginationInnerInterceptor.class);
                 });
+    }
+
+    @Test
+    void prioritizesExplicitCustomizerOrderOverBeanOrderWhenProvidedBySpring() {
+        this.contextRunner
+                .withUserConfiguration(ExplicitOrderCustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class, BlockAttackInnerInterceptor.class,
+                                    PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void preservesOrderedCustomizerOrderWhenProvidedBySpring() {
+        this.contextRunner
+                .withUserConfiguration(SpringOrderedCustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class, BlockAttackInnerInterceptor.class,
+                                    PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void sortsFinalNumericOrderGloballyWhenExplicitOrderConflictsWithClassOrder() {
+        this.contextRunner
+                .withPropertyValues("coco.mybatis-plus.pagination.enabled=false")
+                .withUserConfiguration(ConflictingOrderCustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(BlockAttackInnerInterceptor.class, OptimisticLockerInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void usesStableOrderKeyForSpringCustomizersRegisteredInReverseOrder() {
+        this.contextRunner
+                .withPropertyValues("coco.mybatis-plus.pagination.enabled=false")
+                .withUserConfiguration(ReverseRegistrationCustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class, BlockAttackInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void resolvesPlainJdkProxyTargetOrderWithoutProxyDefaultMethodReflection() {
+        CocoMybatisPlusProperties properties = new CocoMybatisPlusProperties();
+        properties.getPagination().setEnabled(false);
+        CocoMybatisPlusInterceptorCustomizer proxy = jdkProxy(new MinusHundredCustomizer());
+        CocoMybatisPlusInterceptorCustomizer explicit = new ExplicitHundredCustomizer();
+
+        MybatisPlusInterceptor interceptor = new CocoMybatisPlusInterceptorFactory(properties, List.of(),
+                List.of(explicit, proxy)).create();
+
+        assertThat(proxy.getOrder()).isEqualTo(-100);
+        assertThat(interceptor.getInterceptors())
+                .extracting(InnerInterceptor::getClass)
+                .containsExactly(BlockAttackInnerInterceptor.class, OptimisticLockerInnerInterceptor.class);
+    }
+
+    @Test
+    void resolvesSpringAopJdkProxyTargetOrderAndExplicitOverride() {
+        this.contextRunner
+                .withPropertyValues("coco.mybatis-plus.pagination.enabled=false")
+                .withUserConfiguration(SpringAopProxyCustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(BlockAttackInnerInterceptor.class, OptimisticLockerInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void keepsManualAndProviderConstructionPathsAligned() {
+        CocoMybatisPlusProperties properties = new CocoMybatisPlusProperties();
+        properties.getPagination().setEnabled(false);
+        CocoMybatisPlusInterceptorCustomizer explicit = new ExplicitHundredCustomizer();
+        CocoMybatisPlusInterceptorCustomizer annotated = new MinusHundredCustomizer();
+
+        MybatisPlusInterceptor manual = new CocoMybatisPlusInterceptorFactory(properties, List.of(),
+                List.of(explicit, annotated)).create();
+
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("explicitCustomizer", explicit);
+        beanFactory.registerSingleton("annotatedCustomizer", annotated);
+        MybatisPlusInterceptor provider = new CocoMybatisPlusInterceptorFactory(properties,
+                beanFactory.getBeanProvider(InnerInterceptor.class),
+                beanFactory.getBeanProvider(CocoMybatisPlusInterceptorCustomizer.class)).create();
+
+        assertThat(provider.getInterceptors().stream().map(Object::getClass).toList())
+                .containsExactlyElementsOf(manual.getInterceptors().stream().map(Object::getClass).toList());
     }
 
     @Test
@@ -379,6 +489,76 @@ class CocoMybatisPlusAutoConfigurationTest {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    static class ExplicitOrderCustomizerConfiguration {
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer defaultCustomizer() {
+            return new AlphaDefaultCustomizer();
+        }
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer explicitCustomizer() {
+            return new ExplicitOrderCustomizer();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class SpringOrderedCustomizerConfiguration {
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer defaultCustomizer() {
+            return new AlphaDefaultCustomizer();
+        }
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer orderedCustomizer() {
+            return new ZetaOrderedCustomizer();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ConflictingOrderCustomizerConfiguration {
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer explicitHundredCustomizer() {
+            return new ExplicitHundredCustomizer();
+        }
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer minusHundredCustomizer() {
+            return new MinusHundredCustomizer();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ReverseRegistrationCustomizerConfiguration {
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer zetaCustomizer() {
+            return new KeyedCustomizer("zeta", new ZetaCustomizer());
+        }
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer alphaCustomizer() {
+            return new KeyedCustomizer("alpha", new AlphaCustomizer());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class SpringAopProxyCustomizerConfiguration {
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer explicitHundredAopProxy() {
+            return springAopJdkProxy(new ExplicitHundredCustomizer());
+        }
+
+        @Bean
+        CocoMybatisPlusInterceptorCustomizer minusHundredAopProxy() {
+            return springAopJdkProxy(new MinusHundredCustomizer());
+        }
+    }
+
     @Order(-10)
     private static final class AlphaCustomizer implements CocoMybatisPlusInterceptorCustomizer {
 
@@ -423,5 +603,80 @@ class CocoMybatisPlusAutoConfigurationTest {
         public void customize(MybatisPlusInterceptor interceptor) {
             interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
         }
+    }
+
+    @Order(-100)
+    private static final class ExplicitOrderCustomizer implements CocoMybatisPlusInterceptorCustomizer {
+
+        @Override
+        public int getOrder() {
+            return -10;
+        }
+
+        @Override
+        public void customize(MybatisPlusInterceptor interceptor) {
+            interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+        }
+    }
+
+    @Order(-100)
+    private static final class MinusHundredCustomizer implements CocoMybatisPlusInterceptorCustomizer {
+
+        @Override
+        public void customize(MybatisPlusInterceptor interceptor) {
+            interceptor.addInnerInterceptor(new BlockAttackInnerInterceptor());
+        }
+
+    }
+
+    private static final class ExplicitHundredCustomizer implements CocoMybatisPlusInterceptorCustomizer {
+
+        @Override
+        public void customize(MybatisPlusInterceptor interceptor) {
+            interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+        }
+
+        @Override
+        public int getOrder() {
+            return 100;
+        }
+    }
+
+    private static final class KeyedCustomizer implements CocoMybatisPlusInterceptorCustomizer {
+
+        private final String key;
+
+        private final CocoMybatisPlusInterceptorCustomizer delegate;
+
+        private KeyedCustomizer(String key, CocoMybatisPlusInterceptorCustomizer delegate) {
+            this.key = key;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void customize(MybatisPlusInterceptor interceptor) {
+            this.delegate.customize(interceptor);
+        }
+
+        @Override
+        public String getOrderKey() {
+            return this.key;
+        }
+    }
+
+    private static CocoMybatisPlusInterceptorCustomizer jdkProxy(
+            CocoMybatisPlusInterceptorCustomizer target) {
+        return (CocoMybatisPlusInterceptorCustomizer) Proxy.newProxyInstance(
+                CocoMybatisPlusAutoConfigurationTest.class.getClassLoader(),
+                new Class<?>[] { CocoMybatisPlusInterceptorCustomizer.class },
+                (proxy, method, arguments) -> method.invoke(target, arguments));
+    }
+
+    private static CocoMybatisPlusInterceptorCustomizer springAopJdkProxy(
+            CocoMybatisPlusInterceptorCustomizer target) {
+        ProxyFactory proxyFactory = new ProxyFactory(target);
+        proxyFactory.setProxyTargetClass(false);
+        proxyFactory.setInterfaces(CocoMybatisPlusInterceptorCustomizer.class);
+        return (CocoMybatisPlusInterceptorCustomizer) proxyFactory.getProxy();
     }
 }

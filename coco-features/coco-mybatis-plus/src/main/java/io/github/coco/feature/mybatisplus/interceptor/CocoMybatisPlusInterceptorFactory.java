@@ -1,8 +1,10 @@
 package io.github.coco.feature.mybatisplus.interceptor;
 
+import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Objects;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
 import java.util.stream.Stream;
 
 import com.baomidou.mybatisplus.annotation.DbType;
@@ -18,6 +20,10 @@ import io.github.coco.feature.mybatisplus.sqlguard.CocoMybatisPlusSqlGuardProper
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.core.annotation.OrderUtils;
 
 /**
  * Coco MyBatis-Plus 拦截器工厂。
@@ -46,7 +52,7 @@ public final class CocoMybatisPlusInterceptorFactory {
 
     private final Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers;
 
-    private final boolean sortCustomizers;
+    private final ToIntFunction<CocoMybatisPlusInterceptorCustomizer> customizerOrder;
 
     /**
      * <p>
@@ -59,7 +65,16 @@ public final class CocoMybatisPlusInterceptorFactory {
     public CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
             ObjectProvider<InnerInterceptor> innerInterceptors,
             ObjectProvider<CocoMybatisPlusInterceptorCustomizer> customizers) {
-        this(properties, innerInterceptors::orderedStream, customizers::orderedStream, false);
+        this(properties, innerInterceptors::orderedStream, customizers::stream,
+                CocoMybatisPlusInterceptorCustomizer::getOrder);
+    }
+
+    public CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
+            ObjectProvider<InnerInterceptor> innerInterceptors,
+            ObjectProvider<CocoMybatisPlusInterceptorCustomizer> customizers,
+            ConfigurableListableBeanFactory beanFactory) {
+        this(properties, innerInterceptors::orderedStream, customizers::stream,
+                customizer -> resolveSpringOrder(customizer, beanFactory));
     }
 
     /**
@@ -73,16 +88,18 @@ public final class CocoMybatisPlusInterceptorFactory {
     public CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
             Collection<InnerInterceptor> innerInterceptors,
             Collection<CocoMybatisPlusInterceptorCustomizer> customizers) {
-        this(properties, () -> innerInterceptors.stream(), () -> customizers.stream(), true);
+        this(properties, () -> innerInterceptors.stream(), () -> customizers.stream(),
+                CocoMybatisPlusInterceptorCustomizer::getOrder);
     }
 
     private CocoMybatisPlusInterceptorFactory(CocoMybatisPlusProperties properties,
             Supplier<Stream<InnerInterceptor>> innerInterceptors,
-            Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers, boolean sortCustomizers) {
+            Supplier<Stream<CocoMybatisPlusInterceptorCustomizer>> customizers,
+            ToIntFunction<CocoMybatisPlusInterceptorCustomizer> customizerOrder) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.innerInterceptors = Objects.requireNonNull(innerInterceptors, "innerInterceptors must not be null");
         this.customizers = Objects.requireNonNull(customizers, "customizers must not be null");
-        this.sortCustomizers = sortCustomizers;
+        this.customizerOrder = Objects.requireNonNull(customizerOrder, "customizerOrder must not be null");
     }
 
     /**
@@ -94,11 +111,11 @@ public final class CocoMybatisPlusInterceptorFactory {
     public MybatisPlusInterceptor create() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
         this.innerInterceptors.get().forEach(interceptor::addInnerInterceptor);
-        Stream<CocoMybatisPlusInterceptorCustomizer> customizerStream = this.customizers.get();
-        if (this.sortCustomizers) {
-            customizerStream = customizerStream.sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator());
-        }
-        customizerStream.forEach(customizer -> customizer.customize(interceptor));
+        this.customizers.get()
+                .map(customizer -> CocoMybatisPlusInterceptorCustomizer.ordered(
+                        this.customizerOrder.applyAsInt(customizer), customizer))
+                .sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator())
+                .forEach(customizer -> customizer.customize(interceptor));
         CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.sqlGuardSnapshot();
         logSqlGuardProductionRecommendation(sqlGuard);
         addSqlGuardInnerInterceptors(interceptor, sqlGuard);
@@ -107,6 +124,35 @@ public final class CocoMybatisPlusInterceptorFactory {
             interceptor.addInnerInterceptor(createPaginationInnerInterceptor(pagination));
         }
         return interceptor;
+    }
+
+    private static int resolveSpringOrder(CocoMybatisPlusInterceptorCustomizer customizer,
+            ConfigurableListableBeanFactory beanFactory) {
+        if (CocoMybatisPlusInterceptorCustomizer.hasExplicitOrder(customizer)) {
+            return customizer.getOrder();
+        }
+        Integer factoryMethodOrder = findFactoryMethodOrder(customizer, beanFactory);
+        return factoryMethodOrder == null ? customizer.getOrder() : factoryMethodOrder;
+    }
+
+    private static Integer findFactoryMethodOrder(CocoMybatisPlusInterceptorCustomizer customizer,
+            ConfigurableListableBeanFactory beanFactory) {
+        if (beanFactory == null) {
+            return null;
+        }
+        for (String beanName : beanFactory.getBeanNamesForType(CocoMybatisPlusInterceptorCustomizer.class, true, false)) {
+            if (beanFactory.getBean(beanName) != customizer) {
+                continue;
+            }
+            BeanDefinition beanDefinition = beanFactory.getBeanDefinition(beanName);
+            if (beanDefinition instanceof RootBeanDefinition rootBeanDefinition) {
+                Method factoryMethod = rootBeanDefinition.getResolvedFactoryMethod();
+                if (factoryMethod != null) {
+                    return OrderUtils.getOrder(factoryMethod);
+                }
+            }
+        }
+        return null;
     }
 
     private static void addSqlGuardInnerInterceptors(MybatisPlusInterceptor interceptor,

@@ -9,7 +9,10 @@ import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptorCustomizer;
 import io.github.coco.feature.mybatisplus.interceptor.CocoMybatisPlusInterceptorFactory;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -37,7 +40,9 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.MYBATIS_PLUS)
 @ConditionalOnClass(MybatisPlusInterceptor.class)
 @EnableConfigurationProperties(CocoMybatisPlusProperties.class)
-public class CocoMybatisPlusAutoConfiguration {
+public class CocoMybatisPlusAutoConfiguration implements BeanFactoryAware {
+
+    private ConfigurableListableBeanFactory beanFactory;
 
     /**
      * <p>
@@ -65,6 +70,13 @@ public class CocoMybatisPlusAutoConfiguration {
     public MybatisPlusInterceptor mybatisPlusInterceptor(CocoMybatisPlusProperties properties,
             ObjectProvider<InnerInterceptor> innerInterceptors,
             ObjectProvider<CocoMybatisPlusInterceptorCustomizer> customizers) {
-        return new CocoMybatisPlusInterceptorFactory(properties, innerInterceptors, customizers).create();
+        return new CocoMybatisPlusInterceptorFactory(properties, innerInterceptors, customizers, this.beanFactory)
+                .create();
+    }
+
+    @Override
+    public void setBeanFactory(BeanFactory beanFactory) {
+        this.beanFactory = beanFactory instanceof ConfigurableListableBeanFactory configurableBeanFactory
+                ? configurableBeanFactory : null;
     }
 }
