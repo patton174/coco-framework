@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.context.CocoRequestContext;
 import io.github.coco.context.CocoRequestContextHolder;
@@ -464,6 +465,24 @@ class CocoWebAutoConfigurationTest {
             assertEquals(400, body.get("code"));
             assertEquals("Invalid argument: name", body.get("message"));
             assertEquals(staleAttributes, RequestContextHolder.getRequestAttributes());
+        });
+    }
+
+    @Test
+    void traceFilterUsesInjectedExceptionResponseWriterForInvalidTraceId() throws Exception {
+        this.webContextRunner.run(context -> {
+            CocoTraceProperties properties = new CocoTraceProperties();
+            CocoTraceFilter filter = new CocoTraceFilter(properties, List.of(),
+                    new CocoAccessLogCaptureProperties(), new DefaultCocoWebRequestContextResolver(null), null,
+                    context.getBean(CocoFilterExceptionResponseWriter.class));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/trace");
+            request.addHeader(properties.getHeaderName(), "invalid trace id");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            filter.doFilter(request, response, new MockFilterChain());
+
+            assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatus());
+            assertTrue(response.getContentAsString().contains("\"success\":false"));
         });
     }
 
@@ -1271,6 +1290,32 @@ class CocoWebAutoConfigurationTest {
             assertFalse(((String) body).contains("\"traceId\""));
             assertFalse(((String) body).contains("\"path\""));
             assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
+        });
+    }
+
+    @Test
+    void responseWrapAdviceRetainsApplicationObjectMapperConfiguration() throws Exception {
+        this.webContextRunner.run(context -> {
+            ObjectMapper objectMapper = new ObjectMapper()
+                    .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+            CocoResponseWrapProperties properties = new CocoResponseWrapProperties();
+            properties.setSuccessMessageCode("coco.web.response.success");
+            CocoResponseProperties responseProperties = new CocoResponseProperties();
+            responseProperties.setMetadataMode(CocoResponseMetadataMode.TRACE);
+            CocoResponseWrapAdvice advice = new CocoResponseWrapAdvice(
+                    context.getBean(CocoMessageService.class), properties, CocoSystemCodes.defaults(), objectMapper,
+                    responseProperties);
+            CocoTraceContext.setTraceId("mapper-trace");
+            MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/text");
+            ServerHttpRequest request = new ServletServerHttpRequest(servletRequest);
+            ServletServerHttpResponse response = new ServletServerHttpResponse(new MockHttpServletResponse());
+
+            Object body = advice.beforeBodyWrite("hello", methodParameter("stringBody"),
+                    MediaType.TEXT_PLAIN, StringHttpMessageConverter.class, request, response);
+
+            assertTrue(body instanceof String);
+            assertTrue(((String) body).contains("\"trace_id\":\"mapper-trace\""));
+            assertFalse(((String) body).contains("\"traceId\""));
         });
     }
 

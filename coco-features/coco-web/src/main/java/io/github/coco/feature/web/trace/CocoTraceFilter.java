@@ -13,6 +13,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.context.CocoContextScope;
 import io.github.coco.context.CocoContextSnapshot;
 import io.github.coco.context.CocoContextSnapshotRegistry;
@@ -100,6 +101,8 @@ public final class CocoTraceFilter extends OncePerRequestFilter {
 
     private final int maxLength;
 
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "The supplied writer is the established filter exception "
+            + "response extension point and must remain the live application-selected writer.")
     private final CocoFilterExceptionResponseWriter exceptionResponseWriter;
 
     /**
