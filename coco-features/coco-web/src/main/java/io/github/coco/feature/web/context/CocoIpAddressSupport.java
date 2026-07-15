@@ -4,6 +4,8 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Set;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
 /**
  * <p>
  * Coco IP 地址支持工具。
@@ -55,13 +57,24 @@ public final class CocoIpAddressSupport {
      * @param value IP 地址字符串
      * @return IP 地址字节数组；无法解析时返回 {@code null}
      */
+    @SuppressFBWarnings(value = "PZLA_PREFER_ZERO_LENGTH_ARRAYS",
+            justification = "Published 2.0.1 API contract uses null to signal an invalid IP literal")
     public static byte[] parseIpAddress(String value) {
         String normalized = normalizeString(value);
         if (normalized == null) {
             return null;
         }
         if (isIpv4Literal(normalized)) {
-            return parseIpv4Address(normalized);
+            String[] parts = normalized.split("\\.");
+            byte[] address = new byte[4];
+            for (int index = 0; index < parts.length; index++) {
+                int part = Integer.parseInt(parts[index]);
+                if (part < 0 || part > 255) {
+                    return null;
+                }
+                address[index] = (byte) part;
+            }
+            return address;
         }
         if (!normalized.contains(":") || !isIpv6LiteralCandidate(normalized)) {
             return null;
@@ -130,19 +143,6 @@ public final class CocoIpAddressSupport {
 
     private static boolean isIpv4Literal(String value) {
         return value.matches("\\d{1,3}(\\.\\d{1,3}){3}");
-    }
-
-    private static byte[] parseIpv4Address(String value) {
-        String[] parts = value.split("\\.");
-        byte[] address = new byte[4];
-        for (int index = 0; index < parts.length; index++) {
-            int part = Integer.parseInt(parts[index]);
-            if (part < 0 || part > 255) {
-                return null;
-            }
-            address[index] = (byte) part;
-        }
-        return address;
     }
 
     private static boolean isIpv6LiteralCandidate(String value) {

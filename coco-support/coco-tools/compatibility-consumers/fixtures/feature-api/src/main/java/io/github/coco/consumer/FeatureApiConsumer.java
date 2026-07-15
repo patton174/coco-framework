@@ -10,6 +10,7 @@ import io.github.coco.feature.openapi.CocoOpenApiFeature;
 import io.github.coco.feature.security.CocoSecurityFeature;
 import io.github.coco.feature.tenant.CocoTenantFeature;
 import io.github.coco.feature.web.CocoWebFeature;
+import io.github.coco.feature.web.context.CocoIpAddressSupport;
 
 public final class FeatureApiConsumer {
 
@@ -28,6 +29,9 @@ public final class FeatureApiConsumer {
     public static void main(String[] args) {
         if (FEATURE_TYPES.size() != 7) {
             throw new IllegalStateException("Expected seven Coco feature APIs.");
+        }
+        if (CocoIpAddressSupport.parseIpAddress("invalid-address") != null) {
+            throw new IllegalStateException("Published CocoIpAddressSupport null sentinel changed.");
         }
         System.out.println(FEATURE_TYPES.stream()
                 .map(Class::getName)

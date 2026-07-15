@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.context;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -138,6 +139,16 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
 
     /**
      * <p>
+     * 返回来源请求头解析出的不可变 IP 链快照。
+     * </p>
+     * @return IP 链
+     */
+    public List<String> sourceChain() {
+        return List.copyOf(new ArrayList<>(this.sourceChain));
+    }
+
+    /**
+     * <p>
      * 返回是否解析到有效客户端 IP。
      * </p>
      * @return 解析到客户端 IP 时返回 {@code true}
@@ -160,10 +171,10 @@ public record CocoClientIpResolution(String clientIp, CocoClientIpSource source,
         if (sourceChain == null || sourceChain.isEmpty()) {
             return List.of();
         }
-        return sourceChain.stream()
+        return List.copyOf(sourceChain.stream()
                 .map(CocoClientIpResolution::normalizeOptional)
                 .filter(value -> value != null)
-                .toList();
+                .toList());
     }
 
     private static Integer normalizeResolvedChainIndex(List<String> sourceChain, Integer resolvedChainIndex) {
