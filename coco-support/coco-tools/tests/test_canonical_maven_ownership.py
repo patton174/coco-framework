@@ -377,6 +377,34 @@ class CanonicalMavenOwnershipTests(unittest.TestCase):
             any(path.suffix in {".java", ".class"} for path in attachment_files)
         )
 
+    def test_ci_gate_verifies_starter_release_archives_from_clean_state(self) -> None:
+        reusable_tests = (
+            self.root / ".github/workflows/reusable-tests.yml"
+        ).read_text(encoding="utf-8")
+        ci_workflow = (self.root / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        marker = "\n  starter-release-artifacts:\n"
+        self.assertIn(marker, reusable_tests)
+        job = reusable_tests.split(marker, maxsplit=1)[1].split(
+            "\n  compatibility-consumers:\n", maxsplit=1
+        )[0]
+
+        for token in (
+            "name: starter release artifacts (ubuntu)",
+            "runs-on: ubuntu-latest",
+            "mvn -B -ntp -Prelease",
+            "-pl :coco-spring-boot-starter -am",
+            "'-Drevision=1.0.0-ci'",
+            "'-Dgpg.skip=true'",
+            "clean verify",
+        ):
+            self.assertIn(token, job)
+        self.assertNotIn("-DskipTests", job)
+        self.assertIn("uses: ./.github/workflows/reusable-tests.yml", ci_workflow)
+        self.assertIn("name: CI gate", ci_workflow)
+        self.assertIn("needs: [test, static-analysis, codeql]", ci_workflow)
+
     def test_canonical_modules_are_the_only_implementation_owners(self) -> None:
         artifacts_to_poms: dict[str, list[Path]] = defaultdict(list)
         for pom in reactor_poms(self.root):

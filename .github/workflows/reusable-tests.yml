@@ -1,9 +1,10 @@
 name: Reusable / Tests
 
 # Reusable test pipeline: cross-platform framework build, sample verification,
-# and isolated Maven compatibility consumers. Called by ci.yml (push/PR) and
-# release.yml (before publishing) so the exact same verification runs in CI and
-# at release time. Not triggered directly.
+# focused release-artifact verification, and isolated Maven compatibility
+# consumers. Called by ci.yml (push/PR) and release.yml (before publishing) so
+# the exact same verification runs in CI and at release time. Not triggered
+# directly.
 
 on:
   workflow_call:
@@ -150,6 +151,33 @@ jobs:
 
       - name: Verify full sample business flow with Python
         run: python coco-samples/coco-sample-full/scripts/verify_business_flow.py
+
+  starter-release-artifacts:
+    name: starter release artifacts (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JAVA_TOOLCHAIN_VERSION: '21'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21 toolchain
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_TOOLCHAIN_VERSION }}
+          cache: maven
+
+      - name: Verify source-free starter release artifacts from clean state
+        run: >-
+          mvn -B -ntp -Prelease
+          -pl :coco-spring-boot-starter -am
+          '-Drevision=1.0.0-ci'
+          '-Dgpg.skip=true'
+          clean verify
 
   compatibility-consumers:
     name: compatibility consumers (ubuntu)
