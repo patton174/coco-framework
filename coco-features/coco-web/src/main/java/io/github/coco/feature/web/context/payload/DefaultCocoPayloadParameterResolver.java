@@ -1,8 +1,11 @@
 package io.github.coco.feature.web.context.payload;
 
+import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
+import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.UnsupportedCharsetException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -14,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
@@ -215,9 +219,12 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
             flattenJson(state.parameters(), "", root, 0, state);
             return new CocoWebPayloadParseResult(copy(state.parameters()), state.status(), CocoWebParameterSource.JSON);
         }
-        catch (Exception ex) {
+        catch (JsonProcessingException ex) {
             return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.MALFORMED_PAYLOAD,
                     CocoWebParameterSource.JSON);
+        }
+        catch (IOException ex) {
+            throw new IllegalStateException("Unable to parse cached JSON payload", ex);
         }
     }
 
@@ -438,7 +445,7 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
         try {
             return Charset.forName(encoding.trim());
         }
-        catch (RuntimeException ex) {
+        catch (IllegalCharsetNameException | UnsupportedCharsetException ex) {
             return StandardCharsets.UTF_8;
         }
     }
