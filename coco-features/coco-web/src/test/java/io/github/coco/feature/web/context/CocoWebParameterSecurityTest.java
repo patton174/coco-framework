@@ -1,17 +1,24 @@
 package io.github.coco.feature.web.context;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.feature.web.body.CocoCachedBodyHttpServletRequest;
 import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.context.payload.DefaultCocoPayloadParameterResolver;
+import io.github.coco.feature.web.context.payload.CocoWebPayloadParseStatus;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -92,6 +99,61 @@ class CocoWebParameterSecurityTest {
     }
 
     @Test
+    void rejectsMalformedJsonPayloadWithoutExposingPartialParameters() {
+        DefaultCocoPayloadParameterResolver resolver = new DefaultCocoPayloadParameterResolver(
+                new CocoWebParameterProperties());
+        HttpServletRequest request = cachedPayloadRequest(MediaType.APPLICATION_JSON_VALUE,
+                "{\"token\":\"secret\",\"nested\":");
+
+        assertEquals(CocoWebPayloadParseStatus.MALFORMED_PAYLOAD,
+                resolver.resolveRawPayloadParseResult(request).status());
+        assertTrue(resolver.resolveRawPayloadParameters(request).isEmpty());
+    }
+
+    @Test
+    void propagatesUnexpectedJsonIoFailureInsteadOfClassifyingItAsMalformedInput() {
+        IOException failure = new IOException("object mapper unavailable");
+        ObjectMapper objectMapper = new ObjectMapper() {
+            @Override
+            public JsonNode readTree(byte[] content) throws IOException {
+                throw failure;
+            }
+        };
+        DefaultCocoPayloadParameterResolver resolver = new DefaultCocoPayloadParameterResolver(
+                new CocoWebParameterProperties(), objectMapper);
+        HttpServletRequest request = cachedPayloadRequest(MediaType.APPLICATION_JSON_VALUE, "{\"name\":\"coco\"}");
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> resolver.resolveRawPayloadParseResult(request));
+
+        assertSame(failure, exception.getCause());
+    }
+
+    @Test
+    void fallsBackToUtf8ForMalformedRequestCharsetWithoutChangingFormParsing() {
+        CocoWebParameterProperties properties = new CocoWebParameterProperties();
+        properties.setValueCaptureMode(CocoWebParameterValueCaptureMode.ALL);
+        DefaultCocoPayloadParameterResolver resolver = new DefaultCocoPayloadParameterResolver(properties);
+        HttpServletRequest request = cachedPayloadRequest(MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                "name=Caf%C3%A9", "invalid[charset");
+
+        assertEquals(CocoWebPayloadParseStatus.PARSED, resolver.resolvePayloadParseResult(request).status());
+        assertEquals(List.of("Café"), resolver.resolvePayloadParameters(request).get("name"));
+    }
+
+    @Test
+    void fallsBackToUtf8ForUnsupportedRequestCharsetWithoutChangingFormParsing() {
+        CocoWebParameterProperties properties = new CocoWebParameterProperties();
+        properties.setValueCaptureMode(CocoWebParameterValueCaptureMode.ALL);
+        DefaultCocoPayloadParameterResolver resolver = new DefaultCocoPayloadParameterResolver(properties);
+        HttpServletRequest request = cachedPayloadRequest(MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                "name=Caf%C3%A9", "x-coco-unsupported");
+
+        assertEquals(CocoWebPayloadParseStatus.PARSED, resolver.resolvePayloadParseResult(request).status());
+        assertEquals(List.of("Café"), resolver.resolvePayloadParameters(request).get("name"));
+    }
+
+    @Test
     void allowListExposesOnlyExplicitNonSensitiveParameterValues() {
         CocoWebParameterProperties properties = new CocoWebParameterProperties();
         properties.setValueCaptureMode(CocoWebParameterValueCaptureMode.ALLOW_LIST);
@@ -140,5 +202,19 @@ class CocoWebParameterSecurityTest {
                 .orElse(""));
         parameters.forEach(request::addParameter);
         return request;
+    }
+
+    private static HttpServletRequest cachedPayloadRequest(String contentType, String body) {
+        return cachedPayloadRequest(contentType, body, null);
+    }
+
+    private static HttpServletRequest cachedPayloadRequest(String contentType, String body, String characterEncoding) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/payload");
+        request.setContentType(contentType);
+        if (characterEncoding != null) {
+            request.setCharacterEncoding(characterEncoding);
+        }
+        return new CocoCachedBodyHttpServletRequest(request,
+                CocoCachedRequestBody.cached(body.getBytes(StandardCharsets.UTF_8)));
     }
 }
