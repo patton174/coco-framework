@@ -1,5 +1,6 @@
 package io.github.coco.feature.web;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.feature.web.accesslog.CocoAccessLogCaptureProperties;
 import io.github.coco.feature.web.body.CocoRequestBodyProperties;
 import io.github.coco.feature.web.context.CocoWebContextProperties;
@@ -64,6 +65,8 @@ public class CocoWebProperties {
      * </p>
      * @return Trace 配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoTraceProperties getTrace() {
         return this.trace;
     }
@@ -84,6 +87,8 @@ public class CocoWebProperties {
      * </p>
      * @return 统一响应配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoResponseProperties getResponse() {
         return this.response;
     }
@@ -104,6 +109,8 @@ public class CocoWebProperties {
      * </p>
      * @return 正常响应包装配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoResponseWrapProperties getResponseWrap() {
         return this.responseWrap;
     }
@@ -124,6 +131,8 @@ public class CocoWebProperties {
      * </p>
      * @return 接口访问日志打印配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoAccessLogCaptureProperties getAccessLog() {
         return this.accessLog;
     }
@@ -144,6 +153,8 @@ public class CocoWebProperties {
      * </p>
      * @return 请求体缓存配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoRequestBodyProperties getRequestBody() {
         return this.requestBody;
     }
@@ -164,6 +175,8 @@ public class CocoWebProperties {
      * </p>
      * @return 请求签名配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoSignatureProperties getSignature() {
         return this.signature;
     }
@@ -184,6 +197,8 @@ public class CocoWebProperties {
      * </p>
      * @return 请求加密配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoEncryptionProperties getEncryption() {
         return this.encryption;
     }
@@ -204,6 +219,8 @@ public class CocoWebProperties {
      * </p>
      * @return 防重放配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoReplayProperties getReplay() {
         return this.replay;
     }
@@ -224,6 +241,8 @@ public class CocoWebProperties {
      * </p>
      * @return Web 请求上下文配置属性
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors must retain live mutable semantics for Spring Binder and existing Java consumers.")
     public CocoWebContextProperties getContext() {
         return this.context;
     }
