@@ -32,7 +32,7 @@ public final class PropertyCocoDataPermissionSqlResourceResolver implements Coco
      * @param properties 数据权限 SQL 配置
      */
     public PropertyCocoDataPermissionSqlResourceResolver(CocoDataPermissionSqlProperties properties) {
-        this.properties = Objects.requireNonNull(properties, "properties must not be null");
+        this.properties = Objects.requireNonNull(properties, "properties must not be null").snapshot();
     }
 
     /**

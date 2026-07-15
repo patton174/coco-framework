@@ -1,7 +1,5 @@
 package io.github.coco.feature.datapermission.sql;
 
-import java.util.Objects;
-
 import net.sf.jsqlparser.schema.Table;
 
 /**
@@ -30,7 +28,12 @@ public record CocoDataPermissionSqlResourceContext(Table table, String mappedSta
      * </p>
      */
     public CocoDataPermissionSqlResourceContext {
-        table = Objects.requireNonNull(table, "table must not be null");
+        table = CocoDataPermissionSqlTableSnapshot.copyOf(table);
         mappedStatementId = mappedStatementId == null ? "" : mappedStatementId;
+    }
+
+    @Override
+    public Table table() {
+        return CocoDataPermissionSqlTableSnapshot.copyOf(this.table);
     }
 }

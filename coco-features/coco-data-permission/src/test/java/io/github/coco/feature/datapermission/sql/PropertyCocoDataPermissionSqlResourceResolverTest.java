@@ -13,6 +13,8 @@ import io.github.coco.context.internal.CocoSqlIdentifierNormalizer;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.parser.feature.Feature;
 import net.sf.jsqlparser.parser.feature.FeatureConfiguration;
+import net.sf.jsqlparser.schema.Database;
+import net.sf.jsqlparser.schema.Server;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.Select;
 import org.junit.jupiter.api.Test;
@@ -38,7 +40,7 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
     @Test
     void resolvesResourceByNormalizedTableName() {
         CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
-        properties.getResources().put(" sample-order ", resource(" `SAMPLE_ORDER` "));
+        addResource(properties, " sample-order ", resource(" `SAMPLE_ORDER` "));
         PropertyCocoDataPermissionSqlResourceResolver resolver =
                 new PropertyCocoDataPermissionSqlResourceResolver(properties);
 
@@ -49,7 +51,7 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
     @Test
     void resolvesResourceBySchemaQualifiedTableName() {
         CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
-        properties.getResources().put("sample-order", resource("tenant_a.sample_order"));
+        addResource(properties, "sample-order", resource("tenant_a.sample_order"));
         PropertyCocoDataPermissionSqlResourceResolver resolver =
                 new PropertyCocoDataPermissionSqlResourceResolver(properties);
 
@@ -58,9 +60,21 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
     }
 
     @Test
+    void resolvesResourceByFourPartTableName() {
+        CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
+        addResource(properties, "document", resource("server_a.database_a.schema_a.document_a"));
+        PropertyCocoDataPermissionSqlResourceResolver resolver =
+                new PropertyCocoDataPermissionSqlResourceResolver(properties);
+        Table table = new Table(new Database(new Server("server_a"), "database_a"), "schema_a", "document_a");
+
+        assertThat(resolver.resolve(new CocoDataPermissionSqlResourceContext(table,
+                "DocumentMapper.selectDocuments"))).contains("document");
+    }
+
+    @Test
     void resolvesQuotedSchemaQualifiedTableParsedByJSqlParser() throws Exception {
         CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
-        properties.getResources().put("sample-order", resource("`tenant_a`.\"sample_order\""));
+        addResource(properties, "sample-order", resource("`tenant_a`.\"sample_order\""));
         PropertyCocoDataPermissionSqlResourceResolver resolver =
                 new PropertyCocoDataPermissionSqlResourceResolver(properties);
         Select select = (Select) CCJSqlParserUtil.parse("SELECT id FROM \"TENANT_A\".\"SAMPLE_ORDER\"");
@@ -73,8 +87,8 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
     @Test
     void keepsQuotedDotsAsOneIdentifierSegment() {
         CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
-        properties.getResources().put("literal-dot", resource("\"tenant.a\""));
-        properties.getResources().put("qualified", resource("tenant.a"));
+        addResource(properties, "literal-dot", resource("\"tenant.a\""));
+        addResource(properties, "qualified", resource("tenant.a"));
         PropertyCocoDataPermissionSqlResourceResolver resolver =
                 new PropertyCocoDataPermissionSqlResourceResolver(properties);
 
@@ -87,7 +101,7 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
     @Test
     void resolvesSquareBracketQualifiedTableWhenParserFeatureIsEnabled() throws Exception {
         CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
-        properties.getResources().put("sample-order", resource("[tenant_a].[sample_order]"));
+        addResource(properties, "sample-order", resource("[tenant_a].[sample_order]"));
         PropertyCocoDataPermissionSqlResourceResolver resolver =
                 new PropertyCocoDataPermissionSqlResourceResolver(properties);
         Select select = (Select) CCJSqlParserUtil.parse("SELECT id FROM [TENANT_A].[SAMPLE_ORDER]", parser ->
@@ -118,7 +132,10 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
                     "io.github.coco.feature.datapermission.sql.CocoDataPermissionSqlResourceProperties");
             Object resource = resourceType.getConstructor().newInstance();
             resourceType.getMethod("setTables", List.class).invoke(resource, List.of("sample_order"));
-            resources(propertiesType, properties).put("sample-order", resource);
+            Map<String, Object> configuredResources = new java.util.LinkedHashMap<>(
+                    resources(propertiesType, properties));
+            configuredResources.put("sample-order", resource);
+            propertiesType.getMethod("setResources", Map.class).invoke(properties, configuredResources);
 
             Class<?> resolverType = classLoader.loadClass(
                     "io.github.coco.feature.datapermission.sql.PropertyCocoDataPermissionSqlResourceResolver");
@@ -138,8 +155,8 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
     @Test
     void ignoresBlankResourceKeysAndUnknownTables() {
         CocoDataPermissionSqlProperties properties = new CocoDataPermissionSqlProperties();
-        properties.getResources().put(" ", resource("sample_order"));
-        properties.getResources().put("sample-product", resource("sample_product"));
+        addResource(properties, " ", resource("sample_order"));
+        addResource(properties, "sample-product", resource("sample_product"));
         PropertyCocoDataPermissionSqlResourceResolver resolver =
                 new PropertyCocoDataPermissionSqlResourceResolver(properties);
 
@@ -151,6 +168,14 @@ class PropertyCocoDataPermissionSqlResourceResolverTest {
         CocoDataPermissionSqlResourceProperties resource = new CocoDataPermissionSqlResourceProperties();
         resource.setTables(List.of(table));
         return resource;
+    }
+
+    private static void addResource(CocoDataPermissionSqlProperties properties, String resource,
+            CocoDataPermissionSqlResourceProperties resourceProperties) {
+        Map<String, CocoDataPermissionSqlResourceProperties> resources = new java.util.LinkedHashMap<>(
+                properties.getResources());
+        resources.put(resource, resourceProperties);
+        properties.setResources(resources);
     }
 
     @SuppressWarnings("unchecked")

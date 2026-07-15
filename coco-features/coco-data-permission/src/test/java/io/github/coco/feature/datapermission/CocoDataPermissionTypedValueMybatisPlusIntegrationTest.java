@@ -140,7 +140,10 @@ class CocoDataPermissionTypedValueMybatisPlusIntegrationTest {
         resource.setTables(List.of(table));
         resource.setColumn("scope_value");
         resource.setColumnType(columnType);
-        properties.getResources().put(resourceName, resource);
+        java.util.Map<String, CocoDataPermissionSqlResourceProperties> resources =
+                new java.util.LinkedHashMap<>(properties.getResources());
+        resources.put(resourceName, resource);
+        properties.setResources(resources);
     }
 
     private static SqlSessionFactory sqlSessionFactory(DriverManagerDataSource dataSource,

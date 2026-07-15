@@ -59,7 +59,7 @@ public final class CocoMybatisPlusDataPermissionHandler implements MultiDataPerm
             CocoDataPermissionContextResolver contextResolver,
             CocoDataPermissionSqlResourceResolver resourceResolver,
             CocoDataPermissionSqlPredicateProvider predicateProvider) {
-        this.properties = Objects.requireNonNull(properties, "properties must not be null");
+        this.properties = Objects.requireNonNull(properties, "properties must not be null").snapshot();
         this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver must not be null");
         this.resourceResolver = Objects.requireNonNull(resourceResolver, "resourceResolver must not be null");
         this.predicateProvider = Objects.requireNonNull(predicateProvider, "predicateProvider must not be null");
