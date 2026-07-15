@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.context.target;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -113,6 +114,16 @@ public record CocoWebRequestTargetResolution(CocoWebRequestTarget target, CocoWe
 
     /**
      * <p>
+     * 返回实际参与解析的不可变来源请求头快照。
+     * </p>
+     * @return 来源请求头
+     */
+    public List<String> sourceHeaders() {
+        return List.copyOf(new ArrayList<>(this.sourceHeaders));
+    }
+
+    /**
+     * <p>
      * 返回可选的 Servlet 远端地址。
      * </p>
      * @return Servlet 远端地址；未设置时为空
@@ -151,12 +162,12 @@ public record CocoWebRequestTargetResolution(CocoWebRequestTarget target, CocoWe
         if (sourceHeaders == null || sourceHeaders.isEmpty()) {
             return List.of();
         }
-        return sourceHeaders.stream()
+        return List.copyOf(sourceHeaders.stream()
                 .map(CocoWebRequestTargetResolution::normalizeOptional)
                 .filter(value -> value != null)
                 .map(value -> value.toLowerCase(Locale.ROOT))
                 .distinct()
-                .toList();
+                .toList());
     }
 
     private static String normalizePrefix(String value) {
