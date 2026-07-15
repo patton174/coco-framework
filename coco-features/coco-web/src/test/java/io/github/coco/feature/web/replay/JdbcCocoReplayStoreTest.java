@@ -20,6 +20,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.sql.DataSource;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,13 +37,15 @@ class JdbcCocoReplayStoreTest {
 
     private JdbcTemplate jdbcTemplate;
 
+    private DataSource dataSource;
+
     private MutableClock clock;
 
     @BeforeEach
     void setUp() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        this.dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
-        this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.jdbcTemplate = new JdbcTemplate(this.dataSource);
         this.jdbcTemplate.execute("""
                 CREATE TABLE coco_replay_key (
                     replay_key_hash VARCHAR(64) NOT NULL,
@@ -223,6 +229,61 @@ class JdbcCocoReplayStoreTest {
                 () -> store.reserve(key("invalid-expiration"), Instant.ofEpochMilli(-1)));
     }
 
+    @Test
+    void nullArgumentsFailClosedWithoutDatabaseMutation() {
+        JdbcCocoReplayStore store = newStore();
+
+        assertThrows(NullPointerException.class,
+                () -> store.reserve(null, BASE_TIME.plusSeconds(60)));
+        assertThrows(NullPointerException.class,
+                () -> store.reserve(key("null-expiration"), null));
+
+        assertEquals(0, rowCount());
+    }
+
+    @Test
+    void closeWithoutBackgroundCleanupIsIdempotentAndFailsClosed() {
+        JdbcCocoReplayStore store = newStore();
+
+        store.close();
+        store.close();
+
+        assertThrows(IllegalStateException.class,
+                () -> store.reserve(key("after-close"), BASE_TIME.plusSeconds(60)));
+        assertThrows(IllegalStateException.class, store::cleanupExpiredKeys);
+        assertEquals(0, rowCount());
+    }
+
+    @Test
+    void closeWaitsForInFlightReservationThenRejectsNewWork() throws Exception {
+        BlockingJdbcTemplate blockingJdbcTemplate = new BlockingJdbcTemplate(this.dataSource);
+        JdbcCocoReplayStore store = new JdbcCocoReplayStore(
+                blockingJdbcTemplate, properties(), this.clock, false);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Boolean> reservation = executor.submit(
+                    () -> store.reserve(key("in-flight"), BASE_TIME.plusSeconds(60)));
+            assertTrue(blockingJdbcTemplate.awaitUpdateStarted());
+            Future<?> close = executor.submit(store::close);
+
+            assertThrows(TimeoutException.class,
+                    () -> close.get(100, TimeUnit.MILLISECONDS));
+            blockingJdbcTemplate.releaseUpdate();
+
+            assertTrue(reservation.get(10, TimeUnit.SECONDS));
+            close.get(10, TimeUnit.SECONDS);
+            assertThrows(IllegalStateException.class,
+                    () -> store.reserve(key("after-in-flight"), BASE_TIME.plusSeconds(60)));
+            assertEquals(1, rowCount());
+        }
+        finally {
+            blockingJdbcTemplate.releaseUpdate();
+            store.close();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
     private JdbcCocoReplayStore newStore() {
         return new JdbcCocoReplayStore(this.jdbcTemplate, properties(), this.clock, false);
     }
@@ -293,6 +354,44 @@ class JdbcCocoReplayStoreTest {
         byte[] digest = MessageDigest.getInstance("SHA-256")
                 .digest(value.getBytes(StandardCharsets.UTF_8));
         return HexFormat.of().formatHex(digest);
+    }
+
+    private static final class BlockingJdbcTemplate extends JdbcTemplate {
+
+        private final CountDownLatch updateStarted = new CountDownLatch(1);
+
+        private final CountDownLatch releaseUpdate = new CountDownLatch(1);
+
+        private final AtomicBoolean blockFirstUpdate = new AtomicBoolean(true);
+
+        private BlockingJdbcTemplate(DataSource dataSource) {
+            super(dataSource);
+        }
+
+        @Override
+        public int update(String sql, Object... args) {
+            if (this.blockFirstUpdate.compareAndSet(true, false)) {
+                this.updateStarted.countDown();
+                try {
+                    if (!this.releaseUpdate.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Timed out waiting to release JDBC replay update");
+                    }
+                }
+                catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting to release JDBC replay update", ex);
+                }
+            }
+            return super.update(sql, args);
+        }
+
+        private boolean awaitUpdateStarted() throws InterruptedException {
+            return this.updateStarted.await(10, TimeUnit.SECONDS);
+        }
+
+        private void releaseUpdate() {
+            this.releaseUpdate.countDown();
+        }
     }
 
     private static final class MutableClock extends Clock {
