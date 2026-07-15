@@ -24,9 +24,8 @@ import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureSelection;
 import io.github.coco.feature.model.StandardCocoFeatures;
+import org.apache.maven.RepositoryUtils;
 import org.apache.maven.artifact.Artifact;
-import org.apache.maven.artifact.DefaultArtifact;
-import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -36,16 +35,12 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.project.DefaultDependencyResolutionRequest;
+import org.apache.maven.project.DependencyResolutionException;
+import org.apache.maven.project.DependencyResolutionResult;
 import org.apache.maven.project.MavenProject;
-import org.eclipse.aether.RepositorySystem;
+import org.apache.maven.project.ProjectDependenciesResolver;
 import org.eclipse.aether.RepositorySystemSession;
-import org.eclipse.aether.collection.CollectRequest;
-import org.eclipse.aether.graph.Exclusion;
-import org.eclipse.aether.repository.RemoteRepository;
-import org.eclipse.aether.resolution.ArtifactResult;
-import org.eclipse.aether.resolution.DependencyRequest;
-import org.eclipse.aether.resolution.DependencyResolutionException;
-import org.eclipse.aether.resolution.DependencyResult;
 
 /**
  * Coco 功能装配 Maven Goal。
@@ -71,13 +66,10 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     private MavenProject project;
 
     @Component
-    private RepositorySystem repositorySystem;
+    private ProjectDependenciesResolver projectDependenciesResolver;
 
     @Parameter(defaultValue = "${repositorySystemSession}", readonly = true)
     private RepositorySystemSession repositorySystemSession;
-
-    @Parameter(defaultValue = "${project.remoteProjectRepositories}", readonly = true)
-    private List<RemoteRepository> remoteRepositories;
 
     @Parameter(defaultValue = "${project.build.outputDirectory}", required = true)
     private File outputDirectory;
@@ -164,8 +156,6 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     void applyFeatureDependencies(CocoFeaturePlan plan) throws MojoExecutionException {
         String targetFeatureVersion = effectiveFeatureVersion();
         List<Dependency> dependenciesToAdd = new java.util.ArrayList<>();
-        Set<Artifact> resolvedClosure = new LinkedHashSet<>();
-
         for (CocoFeatureDefinition definition : plan.definitions()) {
             if (!plan.isEnabled(definition.feature())) {
                 continue;
@@ -209,10 +199,11 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             if (declared.isEmpty()) {
                 dependenciesToAdd.add(dependency);
             }
-            resolvedClosure.addAll(resolveRuntimeClosure(dependency, targetFeatureVersion));
         }
+        ResolvedFeatureDependencies resolvedDependencies = resolveAddedDependencies(
+                dependenciesToAdd, targetFeatureVersion);
         dependenciesToAdd.forEach(this.project.getModel()::addDependency);
-        mergeResolvedArtifacts(resolvedClosure);
+        mergeResolvedArtifacts(resolvedDependencies);
     }
 
     private Dependency newCompileDependency(CocoFeatureDefinition definition, String version) {
@@ -338,25 +329,26 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private Set<Artifact> resolveRuntimeClosure(Dependency dependency, String expectedCocoVersion)
+    private ResolvedFeatureDependencies resolveAddedDependencies(
+            List<Dependency> dependenciesToAdd, String expectedCocoVersion)
             throws MojoExecutionException {
-        if (this.repositorySystem == null || this.repositorySystemSession == null) {
-            throw new MojoExecutionException("Maven Resolver is required to resolve the runtime dependency closure "
-                    + "for " + dependency.getGroupId() + ":" + dependency.getArtifactId() + ".");
+        if (dependenciesToAdd.isEmpty()) {
+            return ResolvedFeatureDependencies.empty();
+        }
+        if (this.projectDependenciesResolver == null || this.repositorySystemSession == null) {
+            throw new MojoExecutionException("Maven project dependency resolver is required to refresh the "
+                    + "classpath for newly added Coco feature dependencies.");
         }
         try {
-            String type = nonBlank(dependency.getType()) == null ? "jar" : dependency.getType().trim();
-            String classifier = nonBlank(dependency.getClassifier()) == null ? "" : dependency.getClassifier().trim();
-            org.eclipse.aether.artifact.Artifact rootArtifact = new org.eclipse.aether.artifact.DefaultArtifact(
-                    dependency.getGroupId(), dependency.getArtifactId(), classifier, type, dependency.getVersion());
-            List<Exclusion> exclusions = dependency.getExclusions().stream()
-                    .map(exclusion -> new Exclusion(exclusion.getGroupId(), exclusion.getArtifactId(), "*", "*"))
-                    .toList();
-            org.eclipse.aether.graph.Dependency rootDependency = new org.eclipse.aether.graph.Dependency(
-                    rootArtifact, Artifact.SCOPE_RUNTIME, false, exclusions);
-            CollectRequest collectRequest = new CollectRequest(rootDependency,
-                    this.remoteRepositories == null ? List.of() : this.remoteRepositories);
-            DependencyRequest request = new DependencyRequest(collectRequest, (node, parents) -> {
+            MavenProject resolutionProject = new MavenProject(this.project);
+            resolutionProject.setModel(this.project.getModel().clone());
+            dependenciesToAdd.forEach(resolutionProject.getModel()::addDependency);
+            // A copied dependencyArtifacts cache contains only the dependencies resolved before this goal.
+            // Clearing it makes Maven collect the complete staged model and mediate all new roots together.
+            resolutionProject.setDependencyArtifacts(null);
+            DefaultDependencyResolutionRequest request = new DefaultDependencyResolutionRequest(
+                    resolutionProject, this.repositorySystemSession);
+            request.setResolutionFilter((node, parents) -> {
                 org.eclipse.aether.graph.Dependency candidate = node.getDependency();
                 if (candidate == null) {
                     return true;
@@ -365,71 +357,99 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 return !candidate.isOptional()
                         && (Artifact.SCOPE_COMPILE.equals(scope) || Artifact.SCOPE_RUNTIME.equals(scope));
             });
-            DependencyResult result = this.repositorySystem.resolveDependencies(
-                    this.repositorySystemSession, request);
-            if (!result.getCollectExceptions().isEmpty()) {
-                throw new MojoExecutionException("Failed to collect runtime dependency closure for "
-                        + dependencyDescription(dependency) + ".", result.getCollectExceptions().get(0));
+            DependencyResolutionResult result = this.projectDependenciesResolver.resolve(request);
+            if (!result.getCollectionErrors().isEmpty()) {
+                throw new MojoExecutionException("Failed to collect the refreshed Coco feature dependency closure.",
+                        result.getCollectionErrors().get(0));
+            }
+            if (!result.getUnresolvedDependencies().isEmpty()) {
+                org.eclipse.aether.graph.Dependency unresolved = result.getUnresolvedDependencies().get(0);
+                List<Exception> errors = result.getResolutionErrors(unresolved);
+                Throwable cause = errors == null || errors.isEmpty() ? null : errors.get(0);
+                throw new MojoExecutionException("Failed to resolve the refreshed Coco feature dependency closure: "
+                        + unresolved + ".", cause);
             }
             Set<Artifact> resolved = new LinkedHashSet<>();
-            for (ArtifactResult artifactResult : result.getArtifactResults()) {
-                resolved.add(toMavenArtifact(requireResolvedArtifact(artifactResult)));
+            for (org.eclipse.aether.graph.Dependency dependency : result.getResolvedDependencies()) {
+                resolved.add(toMavenArtifact(requireResolvedArtifact(dependency), dependency.getScope()));
             }
-            boolean directResolved = resolved.stream()
-                    .anyMatch(artifact -> dependency.getGroupId().equals(artifact.getGroupId())
-                            && dependency.getArtifactId().equals(artifact.getArtifactId())
-                            && dependency.getVersion().equals(artifact.getBaseVersion()));
-            if (!directResolved) {
-                throw new MojoExecutionException("Resolved runtime closure is missing direct feature dependency "
-                        + dependency.getGroupId() + ":" + dependency.getArtifactId() + ":"
-                        + dependency.getVersion() + ".");
+            Set<Artifact> directArtifacts = new LinkedHashSet<>();
+            for (Dependency dependency : dependenciesToAdd) {
+                Artifact directArtifact = resolved.stream()
+                        .filter(artifact -> dependency.getGroupId().equals(artifact.getGroupId()))
+                        .filter(artifact -> dependency.getArtifactId().equals(artifact.getArtifactId()))
+                        .filter(artifact -> dependency.getVersion().equals(artifact.getBaseVersion()))
+                        .findFirst()
+                        .orElse(null);
+                if (directArtifact == null) {
+                    throw new MojoExecutionException("Resolved compile closure is missing direct feature dependency "
+                            + dependency.getGroupId() + ":" + dependency.getArtifactId() + ":"
+                            + dependency.getVersion() + ".");
+                }
+                directArtifacts.add(directArtifact);
             }
             validateCocoArtifactVersions(expectedCocoVersion, resolved.stream()
                     .filter(artifact -> this.featureGroupId.equals(artifact.getGroupId()))
                     .filter(artifact -> artifact.getArtifactId().startsWith("coco-"))
                     .toList());
-            return Set.copyOf(resolved);
+            return new ResolvedFeatureDependencies(resolved, directArtifacts);
         }
         catch (DependencyResolutionException ex) {
-            throw new MojoExecutionException("Failed to resolve runtime dependency closure for "
-                    + dependencyDescription(dependency) + ".", ex);
+            throw new MojoExecutionException("Failed to resolve the refreshed Coco feature dependency closure.", ex);
         }
     }
 
-    private org.eclipse.aether.artifact.Artifact requireResolvedArtifact(ArtifactResult result)
+    private org.eclipse.aether.artifact.Artifact requireResolvedArtifact(
+            org.eclipse.aether.graph.Dependency dependency)
             throws MojoExecutionException {
-        org.eclipse.aether.artifact.Artifact artifact = result.getArtifact();
-        if (artifact == null || artifact.getFile() == null || !artifact.getFile().isFile()
-                || !result.getExceptions().isEmpty()) {
-            throw new MojoExecutionException("Runtime dependency artifact was not resolved to a readable file: "
-                    + result + ".");
+        org.eclipse.aether.artifact.Artifact artifact = dependency.getArtifact();
+        if (artifact == null || artifact.getFile() == null || !artifact.getFile().isFile()) {
+            throw new MojoExecutionException("Compile dependency artifact was not resolved to a readable file: "
+                    + dependency + ".");
         }
         return artifact;
     }
 
-    private Artifact toMavenArtifact(org.eclipse.aether.artifact.Artifact artifact) {
-        String classifier = artifact.getClassifier().isBlank() ? null : artifact.getClassifier();
-        DefaultArtifact mavenArtifact = new DefaultArtifact(
-                artifact.getGroupId(), artifact.getArtifactId(), artifact.getBaseVersion(),
-                Artifact.SCOPE_RUNTIME, artifact.getExtension(), classifier,
-                new DefaultArtifactHandler(artifact.getExtension()));
-        mavenArtifact.setFile(artifact.getFile());
+    private Artifact toMavenArtifact(org.eclipse.aether.artifact.Artifact artifact, String scope) {
+        Artifact mavenArtifact = RepositoryUtils.toArtifact(artifact);
+        mavenArtifact.setScope(scope);
         mavenArtifact.setResolved(true);
         return mavenArtifact;
     }
 
-    private void mergeResolvedArtifacts(Set<Artifact> resolvedClosure) {
-        Set<Artifact> currentArtifacts = this.project.getArtifacts();
-        if (currentArtifacts == null || resolvedClosure.isEmpty()) {
+    private void mergeResolvedArtifacts(ResolvedFeatureDependencies resolvedDependencies) {
+        if (resolvedDependencies.artifacts().isEmpty()) {
             return;
         }
-        try {
-            currentArtifacts.addAll(resolvedClosure);
+        Set<Artifact> mergedArtifacts = unionArtifacts(
+                this.project.getArtifacts(), resolvedDependencies.artifacts());
+        Set<Artifact> currentDependencyArtifacts = this.project.getDependencyArtifacts();
+        Set<Artifact> mergedDependencyArtifacts = currentDependencyArtifacts == null
+                ? null
+                : unionArtifacts(currentDependencyArtifacts, resolvedDependencies.directArtifacts());
+
+        // Publish only after the staged project has fully resolved. artifacts is the mediated closure,
+        // while dependencyArtifacts remains Maven's direct-dependency view. A null direct view is a
+        // meaningful uncollected cache state and must not be replaced with an incomplete synthetic set.
+        this.project.setArtifacts(mergedArtifacts);
+        if (mergedDependencyArtifacts != null) {
+            this.project.setDependencyArtifacts(mergedDependencyArtifacts);
         }
-        catch (UnsupportedOperationException ex) {
-            Set<Artifact> mergedArtifacts = new LinkedHashSet<>(currentArtifacts);
-            mergedArtifacts.addAll(resolvedClosure);
-            this.project.setArtifacts(mergedArtifacts);
+    }
+
+    private static Set<Artifact> unionArtifacts(Set<Artifact> existingArtifacts, Set<Artifact> resolvedClosure) {
+        Set<Artifact> merged = new LinkedHashSet<>();
+        if (existingArtifacts != null) {
+            merged.addAll(existingArtifacts);
+        }
+        merged.addAll(resolvedClosure);
+        return merged;
+    }
+
+    private record ResolvedFeatureDependencies(Set<Artifact> artifacts, Set<Artifact> directArtifacts) {
+
+        private static ResolvedFeatureDependencies empty() {
+            return new ResolvedFeatureDependencies(Set.of(), Set.of());
         }
     }
 
