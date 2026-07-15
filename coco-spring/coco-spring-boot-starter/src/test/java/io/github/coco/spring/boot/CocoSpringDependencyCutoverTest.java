@@ -121,7 +121,7 @@ class CocoSpringDependencyCutoverTest {
             .collect(Collectors.toUnmodifiableSet());
 
     private static final Set<String> OPTIONAL_EXTENSION_ARTIFACTS = Set.of(
-            "coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit");
+            "coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit", "coco-observability");
 
     private static final List<Path> AUTOCONFIGURE_CONSUMERS = List.of(
             Path.of("coco-spring", "coco-spring-boot-starter", "pom.xml"),
@@ -169,7 +169,8 @@ class CocoSpringDependencyCutoverTest {
         assertThat(reactorModulePaths(featuresPom))
                 .contains(projectRoot.resolve("coco-features/coco-audit-jdbc"),
                         projectRoot.resolve("coco-features/coco-replay-redis"),
-                        projectRoot.resolve("coco-features/coco-rate-limit"));
+                        projectRoot.resolve("coco-features/coco-rate-limit"),
+                        projectRoot.resolve("coco-features/coco-observability"));
         assertThat(directDependencyArtifactIds(readPom(starterPom)))
                 .doesNotContainAnyElementsOf(OPTIONAL_EXTENSION_ARTIFACTS);
         for (String artifactId : OPTIONAL_EXTENSION_ARTIFACTS) {

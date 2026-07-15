@@ -61,7 +61,8 @@ class CocoParentPomFixtureTest {
         assertThat(effectiveModel.getProperties().getProperty("coco.version")).isEqualTo("1.0.0-SNAPSHOT");
         assertThat(configuration.getChild("featureVersion").getValue()).isEqualTo("1.0.0-SNAPSHOT");
         assertThat(effectiveModel.getDependencies().stream()
-                .filter(dependency -> Set.of("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit")
+                .filter(dependency -> Set.of(
+                        "coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit", "coco-observability")
                         .contains(dependency.getArtifactId()))
                 .map(Dependency::getVersion)
                 .collect(Collectors.toSet()))

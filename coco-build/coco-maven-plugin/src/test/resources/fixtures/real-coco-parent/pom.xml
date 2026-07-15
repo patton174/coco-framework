@@ -28,5 +28,9 @@
             <groupId>io.github.patton174</groupId>
             <artifactId>coco-rate-limit</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.github.patton174</groupId>
+            <artifactId>coco-observability</artifactId>
+        </dependency>
     </dependencies>
 </project>

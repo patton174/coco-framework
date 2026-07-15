@@ -27,6 +27,7 @@
         <module>coco-openapi</module>
         <module>coco-replay-redis</module>
         <module>coco-rate-limit</module>
+        <module>coco-observability</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>

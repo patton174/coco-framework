@@ -264,13 +264,14 @@ class CocoPackagePruneMojoTest {
         assertThat(entries(archivePath)).contains(
                 "BOOT-INF/lib/coco-audit-jdbc-1.0.0-SNAPSHOT.jar",
                 "BOOT-INF/lib/coco-replay-redis-1.0.0-SNAPSHOT.jar",
-                "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar")
+                "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar",
+                "BOOT-INF/lib/coco-observability-1.0.0-SNAPSHOT.jar")
                 .doesNotContain("BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar");
         assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
-                .contains("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit")
+                .contains("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit", "coco-observability")
                 .doesNotContain("coco-web-1.0.0-SNAPSHOT.jar");
         assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
-                .contains("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit")
+                .contains("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit", "coco-observability")
                 .doesNotContain("coco-web-1.0.0-SNAPSHOT.jar");
     }
 
@@ -584,6 +585,7 @@ class CocoPackagePruneMojoTest {
                     - "BOOT-INF/lib/coco-audit-jdbc-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-replay-redis-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-observability-1.0.0-SNAPSHOT.jar"
                     """);
             add(outputStream, "BOOT-INF/layers.idx", """
                     - "dependencies":
@@ -591,6 +593,7 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/coco-audit-jdbc-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-replay-redis-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-observability-1.0.0-SNAPSHOT.jar"
                     """);
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
                     "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
@@ -600,6 +603,8 @@ class CocoPackagePruneMojoTest {
                     "io.github.patton174", "coco-replay-redis", "1.0.0-SNAPSHOT");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar",
                     "io.github.patton174", "coco-rate-limit", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-observability-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-observability", "1.0.0-SNAPSHOT");
         }
     }
 

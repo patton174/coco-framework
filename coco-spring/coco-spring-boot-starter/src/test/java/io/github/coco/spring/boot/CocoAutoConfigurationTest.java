@@ -102,12 +102,14 @@ class CocoAutoConfigurationTest {
             assertFalse(context.containsBean("jdbcCocoAuditRecorder"));
             assertFalse(context.containsBean("redisCocoReplayStore"));
             assertFalse(context.containsBean("cocoRateLimitStore"));
+            assertFalse(context.containsBean("cocoObservationRecorder"));
         });
 
         ClassLoader classLoader = getClass().getClassLoader();
         assertFalse(ClassUtils.isPresent("io.github.coco.feature.audit.jdbc.JdbcCocoAuditRecorder", classLoader));
         assertFalse(ClassUtils.isPresent("io.github.coco.feature.replay.redis.RedisCocoReplayStore", classLoader));
         assertFalse(ClassUtils.isPresent("io.github.coco.feature.ratelimit.CocoRateLimitStore", classLoader));
+        assertFalse(ClassUtils.isPresent("io.github.coco.observability.CocoObservationRecorder", classLoader));
     }
 
     @Test
