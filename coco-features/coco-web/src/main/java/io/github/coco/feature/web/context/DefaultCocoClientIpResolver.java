@@ -169,7 +169,7 @@ public final class DefaultCocoClientIpResolver implements CocoClientIpResolver {
         if (normalized == null || "unknown".equalsIgnoreCase(normalized) || normalized.startsWith("_")) {
             return null;
         }
-        return CocoIpAddressSupport.parseIpAddress(normalized).length == 0 ? null : normalized;
+        return CocoIpAddressSupport.parseIpAddress(normalized) == null ? null : normalized;
     }
 
     private static String normalizeString(String value) {

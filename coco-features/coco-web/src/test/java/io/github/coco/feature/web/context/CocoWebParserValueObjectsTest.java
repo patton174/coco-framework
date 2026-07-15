@@ -1,8 +1,8 @@
 package io.github.coco.feature.web.context;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.ArrayList;
@@ -24,10 +24,11 @@ import org.springframework.mock.web.MockHttpServletRequest;
 class CocoWebParserValueObjectsTest {
 
     @Test
-    void keepsInvalidIpLiteralsEmptyAndUntrusted() {
-        assertArrayEquals(new byte[0], CocoIpAddressSupport.parseIpAddress(null));
-        assertArrayEquals(new byte[0], CocoIpAddressSupport.parseIpAddress("999.1.1.1"));
-        assertArrayEquals(new byte[0], CocoIpAddressSupport.parseIpAddress("invalid-address"));
+    void keepsPublishedNullSentinelForInvalidIpLiterals() {
+        assertNull(CocoIpAddressSupport.parseIpAddress(null));
+        assertNull(CocoIpAddressSupport.parseIpAddress("999.1.1.1"));
+        assertNull(CocoIpAddressSupport.parseIpAddress("invalid-address"));
+        assertNull(CocoIpAddressSupport.parseIpAddress("2001:db8:::1"));
         assertFalse(CocoIpAddressSupport.isTrustedProxy("invalid-address", Set.of("0.0.0.0/0")));
     }
 
