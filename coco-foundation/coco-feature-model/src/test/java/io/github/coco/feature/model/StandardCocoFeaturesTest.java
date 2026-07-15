@@ -111,6 +111,35 @@ class StandardCocoFeaturesTest {
     }
 
     @Test
+    void featureSelectionSnapshotsInputsAndExposesImmutableRecordComponents() {
+        EnumSet<CocoFeature> enabled = EnumSet.of(CocoFeature.WEB);
+        EnumSet<CocoFeature> disabled = EnumSet.of(CocoFeature.TENANT);
+
+        CocoFeatureSelection selection = CocoFeatureSelection.of(enabled, disabled);
+        enabled.add(CocoFeature.AUDIT);
+        disabled.clear();
+
+        assertEquals(Set.of(CocoFeature.WEB), selection.enabled());
+        assertEquals(Set.of(CocoFeature.TENANT), selection.disabled());
+        assertThrows(UnsupportedOperationException.class,
+                () -> selection.enabled().add(CocoFeature.AUDIT));
+        assertThrows(UnsupportedOperationException.class,
+                () -> selection.disabled().remove(CocoFeature.TENANT));
+    }
+
+    @Test
+    void preservesFeatureSelectionRecordShape() throws NoSuchMethodException {
+        assertTrue(CocoFeatureSelection.class.isRecord());
+        assertEquals(List.of("enabled", "disabled"), recordComponentNames(CocoFeatureSelection.class));
+        assertEquals(List.of(Set.class, Set.class), recordComponentTypes(CocoFeatureSelection.class));
+        assertEquals(1, CocoFeatureSelection.class.getDeclaredConstructors().length);
+        assertEquals(2, CocoFeatureSelection.class.getDeclaredConstructor(Set.class, Set.class)
+                .getParameterCount());
+        assertEquals(Set.class, CocoFeatureSelection.class.getMethod("enabled").getReturnType());
+        assertEquals(Set.class, CocoFeatureSelection.class.getMethod("disabled").getReturnType());
+    }
+
+    @Test
     void disablesOnlyFeaturesThatDependOnDisabledMybatisPlus() {
         Set<CocoFeature> enabled = StandardCocoFeatures.resolveEnabledFeatures(Set.of(CocoFeature.MYBATIS_PLUS));
 
@@ -196,37 +225,6 @@ class StandardCocoFeaturesTest {
 
         assertEquals(Set.of(CocoFeature.WEB), selection.enabled());
         assertEquals(Set.of(CocoFeature.TENANT), selection.disabled());
-    }
-
-    @Test
-    void exposesImmutableFeatureSelectionSnapshots() {
-        Set<CocoFeature> enabled = EnumSet.of(CocoFeature.WEB);
-        Set<CocoFeature> disabled = EnumSet.of(CocoFeature.TENANT);
-
-        CocoFeatureSelection selection = new CocoFeatureSelection(enabled, disabled);
-        enabled.add(CocoFeature.AUDIT);
-        disabled.add(CocoFeature.DATA_PERMISSION);
-
-        assertEquals(Set.of(CocoFeature.WEB), selection.enabled());
-        assertEquals(Set.of(CocoFeature.TENANT), selection.disabled());
-        assertThrows(UnsupportedOperationException.class, () -> selection.enabled().add(CocoFeature.AUDIT));
-        assertThrows(UnsupportedOperationException.class, () -> selection.disabled().add(CocoFeature.DATA_PERMISSION));
-    }
-
-    @Test
-    void preservesPublishedFeatureSelectionRecordApi() throws ReflectiveOperationException {
-        Class<?> selectionType = Class.forName("io.github.coco.feature.model.CocoFeatureSelection");
-
-        assertTrue(selectionType.isRecord());
-        assertEquals(List.of("enabled", "disabled"), java.util.Arrays.stream(selectionType.getRecordComponents())
-                .map(java.lang.reflect.RecordComponent::getName)
-                .toList());
-        assertEquals(List.of(Set.class, Set.class), java.util.Arrays.stream(selectionType.getRecordComponents())
-                .map(java.lang.reflect.RecordComponent::getType)
-                .toList());
-        assertEquals(CocoFeatureSelection.class, selectionType.getConstructor(Set.class, Set.class).getDeclaringClass());
-        assertEquals(Set.class, selectionType.getMethod("enabled").getReturnType());
-        assertEquals(Set.class, selectionType.getMethod("disabled").getReturnType());
     }
 
     @Test

@@ -4,6 +4,7 @@ import java.util.EnumSet;
 import java.util.Set;
 
 import io.github.coco.api.feature.CocoFeature;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 /**
  * Coco 功能选择声明。
@@ -37,22 +38,32 @@ public record CocoFeatureSelection(Set<CocoFeature> enabled, Set<CocoFeature> di
 
     /**
      * <p>
-     * 返回显式启用的功能集合副本。
+     * 返回显式启用功能的不可变快照。
      * </p>
-     * @return 显式启用的功能集合
+     * <p>
+     * 该 accessor 是 record 的既有公开 API；构造器已将输入复制为不可变集合，因此返回内部快照不会暴露可变状态。
+     * </p>
+     * @return 显式启用的不可变功能集合
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "The constructor stores an immutable Set.copyOf snapshot; this accessor preserves the public record API.")
     public Set<CocoFeature> enabled() {
-        return Set.copyOf(this.enabled);
+        return this.enabled;
     }
 
     /**
      * <p>
-     * 返回显式禁用的功能集合副本。
+     * 返回显式禁用功能的不可变快照。
      * </p>
-     * @return 显式禁用的功能集合
+     * <p>
+     * 该 accessor 是 record 的既有公开 API；构造器已将输入复制为不可变集合，因此返回内部快照不会暴露可变状态。
+     * </p>
+     * @return 显式禁用的不可变功能集合
      */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP",
+            justification = "The constructor stores an immutable Set.copyOf snapshot; this accessor preserves the public record API.")
     public Set<CocoFeature> disabled() {
-        return Set.copyOf(this.disabled);
+        return this.disabled;
     }
 
     /**
