@@ -97,4 +97,61 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <cocoStarterMainJar>${project.build.directory}/${project.build.finalName}.jar</cocoStarterMainJar>
+                        <cocoStarterSourcesJar>${project.build.directory}/${project.build.finalName}-sources.jar</cocoStarterSourcesJar>
+                        <cocoStarterJavadocJar>${project.build.directory}/${project.build.finalName}-javadoc.jar</cocoStarterJavadocJar>
+                        <cocoStarterReleaseArtifactsRequired>${coco.compatibility.release-artifacts}</cocoStarterReleaseArtifactsRequired>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>attach-starter-sources</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classesDirectory>${project.build.directory}/empty-release-attachments</classesDirectory>
+                                    <classifier>sources</classifier>
+                                    <skipIfEmpty>false</skipIfEmpty>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>attach-starter-javadocs</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classesDirectory>${project.build.directory}/empty-release-attachments</classesDirectory>
+                                    <classifier>javadoc</classifier>
+                                    <skipIfEmpty>false</skipIfEmpty>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

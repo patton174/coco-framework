@@ -17,6 +17,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.util.ClassUtils;
 
 /**
  * Coco Spring Boot Starter 接入测试。
@@ -93,6 +94,22 @@ class CocoAutoConfigurationTest {
             assertTrue(loggingProperties.getConsolePattern().contains("%clr(COCO){cyan}"));
             assertTrue(loggingProperties.getConsolePattern().contains("%clr(%logger{32}){magenta}"));
         });
+    }
+
+    @Test
+    void starterDoesNotExposeOptionalExtensionBeans() {
+        this.contextRunner.run(context -> {
+            assertFalse(context.containsBean("jdbcCocoAuditRecorder"));
+            assertFalse(context.containsBean("redisCocoReplayStore"));
+            assertFalse(context.containsBean("cocoRateLimitStore"));
+            assertFalse(context.containsBean("cocoObservationRecorder"));
+        });
+
+        ClassLoader classLoader = getClass().getClassLoader();
+        assertFalse(ClassUtils.isPresent("io.github.coco.feature.audit.jdbc.JdbcCocoAuditRecorder", classLoader));
+        assertFalse(ClassUtils.isPresent("io.github.coco.feature.replay.redis.RedisCocoReplayStore", classLoader));
+        assertFalse(ClassUtils.isPresent("io.github.coco.feature.ratelimit.CocoRateLimitStore", classLoader));
+        assertFalse(ClassUtils.isPresent("io.github.coco.observability.CocoObservationRecorder", classLoader));
     }
 
     @Test

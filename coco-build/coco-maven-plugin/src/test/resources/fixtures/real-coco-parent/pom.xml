@@ -14,4 +14,23 @@
     <groupId>com.example</groupId>
     <artifactId>different-business-version</artifactId>
     <version>99.7.3</version>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.patton174</groupId>
+            <artifactId>coco-audit-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.patton174</groupId>
+            <artifactId>coco-replay-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.patton174</groupId>
+            <artifactId>coco-rate-limit</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.patton174</groupId>
+            <artifactId>coco-observability</artifactId>
+        </dependency>
+    </dependencies>
 </project>
