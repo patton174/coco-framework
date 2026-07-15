@@ -66,6 +66,8 @@ FEATURE_CONSUMER_CLASS = "io.github.coco.consumer.FeatureApiConsumer"
 FEATURE_CONSUMER_CLASS_FILE = Path(
     "target/classes/io/github/coco/consumer/FeatureApiConsumer.class"
 )
+I18N_BASENAME_CONSUMER_EVIDENCE = "COCO_I18N_BASENAME_LIVE_LIST_OK"
+COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE = "COCO_COMMON_LOCALE_FACTORY_ABI_OK"
 RUNTIME_FEATURE_CONSUMER_CLASS = (
     "io.github.coco.consumer.RuntimeFeatureRegistrationConsumer"
 )
@@ -360,6 +362,35 @@ def validate_fixture_contracts(fixture_root: Path = FIXTURE_ROOT) -> None:
         fqcn = class_entry.removesuffix(".class").replace("/", ".")
         if fqcn not in feature_source:
             raise HarnessError(f"Feature fixture does not reference {fqcn}.")
+    required_i18n_consumer_tokens = (
+        "new CocoI18nProperties()",
+        ".getBasename().add(",
+        ".getBasename().remove(",
+        I18N_BASENAME_CONSUMER_EVIDENCE,
+    )
+    missing_i18n_consumer_tokens = [
+        token for token in required_i18n_consumer_tokens if token not in feature_source
+    ]
+    if missing_i18n_consumer_tokens:
+        raise HarnessError(
+            "Feature fixture is missing required live basename-list evidence: "
+            f"{missing_i18n_consumer_tokens}."
+        )
+    required_common_locale_factory_tokens = (
+        "new CocoCommonAutoConfiguration()",
+        ".cocoLocaleResolver(new CocoCommonProperties())",
+        COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE,
+    )
+    missing_common_locale_factory_tokens = [
+        token
+        for token in required_common_locale_factory_tokens
+        if token not in feature_source
+    ]
+    if missing_common_locale_factory_tokens:
+        raise HarnessError(
+            "Feature fixture is missing required common locale factory ABI evidence: "
+            f"{missing_common_locale_factory_tokens}."
+        )
 
     runtime_source_path = fixture_root / "feature-api" / RUNTIME_FEATURE_CONSUMER_SOURCE
     if not runtime_source_path.is_file():
@@ -531,6 +562,28 @@ def assert_runtime_registration_evidence(output: str, classpath_name: str) -> st
             return line
     raise HarnessError(
         f"Runtime probe did not emit refreshed-context evidence for {classpath_name}.\n"
+        + normalized.rstrip()
+    )
+
+
+def assert_i18n_basename_consumer_evidence(output: str) -> str:
+    normalized = strip_ansi(output)
+    for line in normalized.splitlines():
+        if line.strip() == I18N_BASENAME_CONSUMER_EVIDENCE:
+            return line.strip()
+    raise HarnessError(
+        "Unchanged 2.0.1 consumer did not preserve the live basename-list runtime contract.\n"
+        + normalized.rstrip()
+    )
+
+
+def assert_common_locale_factory_consumer_evidence(output: str) -> str:
+    normalized = strip_ansi(output)
+    for line in normalized.splitlines():
+        if line.strip() == COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE:
+            return line.strip()
+    raise HarnessError(
+        "Unchanged 2.0.1 consumer did not preserve the common locale factory ABI.\n"
         + normalized.rstrip()
     )
 
@@ -788,6 +841,10 @@ def run_binary_compatibility(
         env=harness.env,
     )
     output = strip_ansi(result.stdout)
+    evidence = assert_i18n_basename_consumer_evidence(output)
+    print(f"[EVID] {evidence}")
+    factory_evidence = assert_common_locale_factory_consumer_evidence(output)
+    print(f"[EVID] {factory_evidence}")
     for class_entry in FEATURE_CLASS_ENTRIES:
         fqcn = class_entry.removesuffix(".class").replace("/", ".")
         if fqcn not in output:

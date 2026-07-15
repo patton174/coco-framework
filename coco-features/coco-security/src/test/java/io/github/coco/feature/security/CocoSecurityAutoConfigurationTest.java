@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.EnumSet;
 import java.util.concurrent.atomic.AtomicReference;
@@ -82,6 +84,15 @@ class CocoSecurityAutoConfigurationTest {
             assertEquals("当前主体无权访问该资源。",
                     messageService.getMessage("coco.feature.security.error.access-denied"));
         });
+    }
+
+    @Test
+    void keepsSecurityMessageBundleKeysAlignedAcrossSupportedLocales() {
+        Set<String> baseKeys = ResourceBundle.getBundle("coco-feature-security-messages", Locale.ROOT).keySet();
+
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-feature-security-messages", Locale.CHINESE).keySet());
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-feature-security-messages", Locale.TAIWAN).keySet());
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-feature-security-messages", Locale.US).keySet());
     }
 
     @Test

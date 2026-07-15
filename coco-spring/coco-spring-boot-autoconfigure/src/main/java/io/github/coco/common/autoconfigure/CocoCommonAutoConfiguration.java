@@ -1,12 +1,17 @@
 package io.github.coco.common.autoconfigure;
 
 import io.github.coco.CocoCommonProperties;
+import io.github.coco.i18n.CocoLocaleFallbackPolicy;
 import io.github.coco.i18n.CocoLocaleResolver;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.i18n.CocoMessageService;
+import io.github.coco.i18n.internal.DefaultCocoLocaleFallbackPolicy;
 import io.github.coco.i18n.internal.DefaultCocoLocaleResolver;
 import io.github.coco.i18n.internal.DefaultCocoMessageBundleRegistry;
 import io.github.coco.i18n.internal.DefaultCocoMessageService;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -52,7 +57,9 @@ public class CocoCommonAutoConfiguration {
     public MessageSource cocoMessageSource(CocoCommonProperties properties,
             ObjectProvider<CocoMessageBundleRegistrar> registrars) {
         DefaultCocoMessageBundleRegistry registry = new DefaultCocoMessageBundleRegistry();
-        properties.getI18n().getBasename().stream()
+        List<String> basenameSnapshot = Collections.unmodifiableList(
+                new ArrayList<>(properties.getI18n().getBasename()));
+        basenameSnapshot.stream()
                 .filter(basename -> !"coco-messages".equals(basename))
                 .forEach(registry::add);
         registrars.orderedStream().forEach(registrar -> registrar.registerBundles(registry));
@@ -74,8 +81,34 @@ public class CocoCommonAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
+    public CocoLocaleFallbackPolicy cocoLocaleFallbackPolicy() {
+        return new DefaultCocoLocaleFallbackPolicy();
+    }
+
+    /**
+     * <p>
+     * 使用默认语言回退策略创建 Coco 语言解析器。
+     * </p>
+     * @param properties Coco 通用配置
+     * @return Coco 语言解析器
+     */
     public CocoLocaleResolver cocoLocaleResolver(CocoCommonProperties properties) {
-        return new DefaultCocoLocaleResolver(properties.getI18n());
+        return cocoLocaleResolver(properties, new DefaultCocoLocaleFallbackPolicy());
+    }
+
+    /**
+     * <p>
+     * 创建 Coco 语言解析器。
+     * </p>
+     * @param properties Coco 通用配置
+     * @param fallbackPolicy 请求或上下文语言回退策略
+     * @return Coco 语言解析器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CocoLocaleResolver cocoLocaleResolver(CocoCommonProperties properties,
+            CocoLocaleFallbackPolicy fallbackPolicy) {
+        return new DefaultCocoLocaleResolver(properties.getI18n(), fallbackPolicy);
     }
 
     /**

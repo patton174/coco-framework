@@ -80,6 +80,46 @@ class FixtureContractTests(unittest.TestCase):
             ):
                 RUNNER.validate_fixture_contracts(fixtures)
 
+    def test_feature_consumer_must_keep_the_live_basename_runtime_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixtures = Path(temporary_directory) / "fixtures"
+            shutil.copytree(HARNESS_ROOT / "fixtures", fixtures)
+            source_path = (
+                fixtures
+                / "feature-api/src/main/java/io/github/coco/consumer/FeatureApiConsumer.java"
+            )
+            source = source_path.read_text(encoding="utf-8")
+            source_path.write_text(
+                source.replace(RUNNER.I18N_BASENAME_CONSUMER_EVIDENCE, "REMOVED"),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                RUNNER.HarnessError, "live basename-list evidence"
+            ):
+                RUNNER.validate_fixture_contracts(fixtures)
+
+    def test_feature_consumer_must_keep_the_common_locale_factory_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixtures = Path(temporary_directory) / "fixtures"
+            shutil.copytree(HARNESS_ROOT / "fixtures", fixtures)
+            source_path = (
+                fixtures
+                / "feature-api/src/main/java/io/github/coco/consumer/FeatureApiConsumer.java"
+            )
+            source = source_path.read_text(encoding="utf-8")
+            source_path.write_text(
+                source.replace(
+                    RUNNER.COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE, "REMOVED"
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                RUNNER.HarnessError, "common locale factory ABI evidence"
+            ):
+                RUNNER.validate_fixture_contracts(fixtures)
+
 
 class JarContractTests(unittest.TestCase):
     def test_unique_implementation_class_is_accepted(self) -> None:
@@ -143,6 +183,32 @@ class DiagnosticContractTests(unittest.TestCase):
     def test_runtime_evidence_rejects_missing_refreshed_context_marker(self) -> None:
         with self.assertRaisesRegex(RUNNER.HarnessError, "refreshed-context evidence"):
             RUNNER.assert_runtime_registration_evidence("BUILD SUCCESS", "alias-only")
+
+    def test_i18n_basename_evidence_accepts_the_old_consumer_marker(self) -> None:
+        self.assertEqual(
+            RUNNER.assert_i18n_basename_consumer_evidence(
+                RUNNER.I18N_BASENAME_CONSUMER_EVIDENCE
+            ),
+            RUNNER.I18N_BASENAME_CONSUMER_EVIDENCE,
+        )
+
+    def test_i18n_basename_evidence_rejects_missing_old_consumer_marker(self) -> None:
+        with self.assertRaisesRegex(RUNNER.HarnessError, "live basename-list"):
+            RUNNER.assert_i18n_basename_consumer_evidence("BUILD SUCCESS")
+
+    def test_common_locale_factory_evidence_accepts_the_old_consumer_marker(self) -> None:
+        self.assertEqual(
+            RUNNER.assert_common_locale_factory_consumer_evidence(
+                RUNNER.COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE
+            ),
+            RUNNER.COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE,
+        )
+
+    def test_common_locale_factory_evidence_rejects_missing_old_consumer_marker(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(RUNNER.HarnessError, "common locale factory ABI"):
+            RUNNER.assert_common_locale_factory_consumer_evidence("BUILD SUCCESS")
 
 
 class RuntimeRegistrationRunnerTests(unittest.TestCase):
