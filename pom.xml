@@ -168,6 +168,11 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-audit-jdbc</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-audit</artifactId>
                 <version>${revision}</version>
             </dependency>
@@ -204,6 +209,16 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-openapi</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-replay-redis</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-rate-limit</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>

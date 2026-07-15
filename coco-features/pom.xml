@@ -20,10 +20,12 @@
         <module>coco-web</module>
         <module>coco-mybatis-plus</module>
         <module>coco-audit</module>
+        <module>coco-audit-jdbc</module>
         <module>coco-security</module>
         <module>coco-tenant</module>
         <module>coco-data-permission</module>
         <module>coco-openapi</module>
+        <module>coco-replay-redis</module>
         <module>coco-rate-limit</module>
         <module>coco-feature-codegen</module>
     </modules>

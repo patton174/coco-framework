@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Parent;
@@ -58,6 +60,12 @@ class CocoParentPomFixtureTest {
         assertThat(effectiveModel.getVersion()).isEqualTo("99.7.3");
         assertThat(effectiveModel.getProperties().getProperty("coco.version")).isEqualTo("1.0.0-SNAPSHOT");
         assertThat(configuration.getChild("featureVersion").getValue()).isEqualTo("1.0.0-SNAPSHOT");
+        assertThat(effectiveModel.getDependencies().stream()
+                .filter(dependency -> Set.of("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit")
+                        .contains(dependency.getArtifactId()))
+                .map(Dependency::getVersion)
+                .collect(Collectors.toSet()))
+                .containsExactly("1.0.0-SNAPSHOT");
     }
 
     private static final class LocalModelResolver implements ModelResolver {

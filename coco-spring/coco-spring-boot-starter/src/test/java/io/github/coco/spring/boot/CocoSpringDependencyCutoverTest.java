@@ -120,6 +120,9 @@ class CocoSpringDependencyCutoverTest {
             .map(Facade::canonicalArtifactId)
             .collect(Collectors.toUnmodifiableSet());
 
+    private static final Set<String> OPTIONAL_EXTENSION_ARTIFACTS = Set.of(
+            "coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit");
+
     private static final List<Path> AUTOCONFIGURE_CONSUMERS = List.of(
             Path.of("coco-spring", "coco-spring-boot-starter", "pom.xml"),
             Path.of("coco-features", "coco-audit", "pom.xml"),
@@ -149,6 +152,29 @@ class CocoSpringDependencyCutoverTest {
         assertThat(dependencyManagementArtifactIds(readPom(bomPom)))
                 .containsAll(FACADE_ARTIFACTS)
                 .containsAll(CANONICAL_ARTIFACTS);
+    }
+
+    @Test
+    void managesOptionalExtensionsWithoutAddingThemToTheStarterOrFeatureGraph() throws Exception {
+        Path projectRoot = projectRoot();
+        Path rootPom = projectRoot.resolve("pom.xml");
+        Path bomPom = projectRoot.resolve("coco-build/coco-dependencies/pom.xml");
+        Path featuresPom = projectRoot.resolve("coco-features/pom.xml");
+        Path starterPom = projectRoot.resolve("coco-spring/coco-spring-boot-starter/pom.xml");
+        String standardFeatures = Files.readString(projectRoot.resolve(
+                "coco-foundation/coco-feature-model/src/main/java/io/github/coco/feature/model/StandardCocoFeatures.java"));
+
+        assertThat(dependencyManagementArtifactIds(readPom(rootPom))).containsAll(OPTIONAL_EXTENSION_ARTIFACTS);
+        assertThat(dependencyManagementArtifactIds(readPom(bomPom))).containsAll(OPTIONAL_EXTENSION_ARTIFACTS);
+        assertThat(reactorModulePaths(featuresPom))
+                .contains(projectRoot.resolve("coco-features/coco-audit-jdbc"),
+                        projectRoot.resolve("coco-features/coco-replay-redis"),
+                        projectRoot.resolve("coco-features/coco-rate-limit"));
+        assertThat(directDependencyArtifactIds(readPom(starterPom)))
+                .doesNotContainAnyElementsOf(OPTIONAL_EXTENSION_ARTIFACTS);
+        for (String artifactId : OPTIONAL_EXTENSION_ARTIFACTS) {
+            assertThat(standardFeatures).doesNotContain(artifactId);
+        }
     }
 
     @Test

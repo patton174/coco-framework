@@ -251,6 +251,30 @@ class CocoPackagePruneMojoTest {
     }
 
     @Test
+    void keepsExplicitOptionalExtensionArtifactsWhenAStandardFeatureIsDisabled() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("optional-extensions"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeManifest(classesDirectory, Set.of(CocoFeature.WEB));
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        writeOptionalExtensionArchive(archivePath);
+
+        configuredMojo(baseDir, buildDirectory, classesDirectory).execute();
+
+        assertThat(entries(archivePath)).contains(
+                "BOOT-INF/lib/coco-audit-jdbc-1.0.0-SNAPSHOT.jar",
+                "BOOT-INF/lib/coco-replay-redis-1.0.0-SNAPSHOT.jar",
+                "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar")
+                .doesNotContain("BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar");
+        assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
+                .contains("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit")
+                .doesNotContain("coco-web-1.0.0-SNAPSHOT.jar");
+        assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
+                .contains("coco-audit-jdbc", "coco-replay-redis", "coco-rate-limit")
+                .doesNotContain("coco-web-1.0.0-SNAPSHOT.jar");
+    }
+
+    @Test
     void rewritesStoredSpringBootIndexesWhenContentChanges() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("stored-index"));
         Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
@@ -549,6 +573,33 @@ class CocoPackagePruneMojoTest {
                     "com.example", "coco-web", "9.0.0");
             addMavenArtifact(outputStream, "BOOT-INF/lib/coco-feature-web-9.0.0.jar",
                     "com.example", "coco-feature-web", "9.0.0");
+        }
+    }
+
+    private void writeOptionalExtensionArchive(Path archivePath) throws Exception {
+        try (JarOutputStream outputStream = newBootArchive(archivePath)) {
+            addBootRuntimeEntries(outputStream);
+            add(outputStream, "BOOT-INF/classpath.idx", """
+                    - "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-audit-jdbc-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-replay-redis-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
+                    """);
+            add(outputStream, "BOOT-INF/layers.idx", """
+                    - "dependencies":
+                      - "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-audit-jdbc-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-replay-redis-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
+                    """);
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-web-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-audit-jdbc-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-audit-jdbc", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-replay-redis-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-replay-redis", "1.0.0-SNAPSHOT");
+            addMavenArtifact(outputStream, "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar",
+                    "io.github.patton174", "coco-rate-limit", "1.0.0-SNAPSHOT");
         }
     }
 
