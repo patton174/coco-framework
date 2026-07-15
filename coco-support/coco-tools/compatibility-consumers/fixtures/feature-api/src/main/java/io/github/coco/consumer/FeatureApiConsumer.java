@@ -10,6 +10,7 @@ import io.github.coco.feature.openapi.CocoOpenApiFeature;
 import io.github.coco.feature.security.CocoSecurityFeature;
 import io.github.coco.feature.tenant.CocoTenantFeature;
 import io.github.coco.feature.web.CocoWebFeature;
+import io.github.coco.feature.web.body.CocoCachedRequestBody;
 import io.github.coco.feature.web.context.CocoIpAddressSupport;
 
 public final class FeatureApiConsumer {
@@ -33,8 +34,34 @@ public final class FeatureApiConsumer {
         if (CocoIpAddressSupport.parseIpAddress("invalid-address") != null) {
             throw new IllegalStateException("Published CocoIpAddressSupport null sentinel changed.");
         }
+        verifyCachedRequestBodyContract();
         System.out.println(FEATURE_TYPES.stream()
                 .map(Class::getName)
                 .collect(Collectors.joining(",")));
+    }
+
+    private static void verifyCachedRequestBodyContract() {
+        byte[] source = { 1, 2, 3 };
+        CocoCachedRequestBody cached = new CocoCachedRequestBody(source, null, -1L, true);
+        source[0] = 9;
+        if (!cached.cached() || cached.length() != 3L || cached.sha256() == null || cached.content()[0] != 1) {
+            throw new IllegalStateException("Published CocoCachedRequestBody cached contract changed.");
+        }
+        byte[] exposed = cached.content();
+        exposed[0] = 9;
+        if (cached.content()[0] != 1) {
+            throw new IllegalStateException("Published CocoCachedRequestBody defensive copy contract changed.");
+        }
+
+        CocoCachedRequestBody uncached = new CocoCachedRequestBody(new byte[] { 1 }, "ignored",
+                Long.MAX_VALUE, false);
+        if (uncached.cached() || uncached.length() != 0L || uncached.sha256() != null) {
+            throw new IllegalStateException("Published CocoCachedRequestBody uncached contract changed.");
+        }
+
+        CocoCachedRequestBody nullContent = new CocoCachedRequestBody(null, null, Long.MAX_VALUE, true);
+        if (nullContent.length() != 0L || nullContent.content().length != 0 || nullContent.sha256() == null) {
+            throw new IllegalStateException("Published CocoCachedRequestBody null-content contract changed.");
+        }
     }
 }
