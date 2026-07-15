@@ -12,6 +12,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
@@ -62,6 +64,12 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
 
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
+
+    private final Lock operationLock = this.lifecycleLock.readLock();
+
+    private final Lock closeLock = this.lifecycleLock.writeLock();
+
     /**
      * <p>
      * 创建 JDBC 防重放共享存储。
@@ -98,29 +106,36 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
     public boolean reserve(CocoReplayKey key, Instant expiresAt) {
         CocoReplayKey checkedKey = Objects.requireNonNull(key, "key must not be null");
         Instant checkedExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
-        String replayKeyHash = sha256(checkedKey.value());
-        long nowEpochMillis = this.clock.millis();
-        long expiresAtEpochMillis = checkedExpiresAt.toEpochMilli();
-        int updated = this.jdbcOperations.update(this.reserveExpiredKeySql,
-                expiresAtEpochMillis, replayKeyHash, nowEpochMillis);
-        boolean reserved;
-        if (updated == 1) {
-            reserved = true;
-        }
-        else if (updated != 0) {
-            throw new IllegalStateException("Coco replay key uniqueness contract was violated");
-        }
-        else {
-            try {
-                insert(replayKeyHash, expiresAtEpochMillis);
+        this.operationLock.lock();
+        try {
+            ensureOpen();
+            String replayKeyHash = sha256(checkedKey.value());
+            long nowEpochMillis = this.clock.millis();
+            long expiresAtEpochMillis = checkedExpiresAt.toEpochMilli();
+            int updated = this.jdbcOperations.update(this.reserveExpiredKeySql,
+                    expiresAtEpochMillis, replayKeyHash, nowEpochMillis);
+            boolean reserved;
+            if (updated == 1) {
                 reserved = true;
             }
-            catch (DuplicateKeyException ex) {
-                reserved = false;
+            else if (updated != 0) {
+                throw new IllegalStateException("Coco replay key uniqueness contract was violated");
             }
+            else {
+                try {
+                    insert(replayKeyHash, expiresAtEpochMillis);
+                    reserved = true;
+                }
+                catch (DuplicateKeyException ex) {
+                    reserved = false;
+                }
+            }
+            startCleanupTaskIfNecessary();
+            return reserved;
         }
-        startCleanupTaskIfNecessary();
-        return reserved;
+        finally {
+            this.operationLock.unlock();
+        }
     }
 
     /**
@@ -128,13 +143,29 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
      */
     @Override
     public void close() {
-        if (this.cleanupExecutor != null && this.closed.compareAndSet(false, true)) {
-            this.cleanupExecutor.shutdownNow();
+        this.closeLock.lock();
+        try {
+            if (!this.closed.compareAndSet(false, true)) {
+                return;
+            }
+            if (this.cleanupExecutor != null) {
+                this.cleanupExecutor.shutdownNow();
+            }
+        }
+        finally {
+            this.closeLock.unlock();
         }
     }
 
     int cleanupExpiredKeys() {
-        return this.jdbcOperations.update(this.cleanupSql, this.clock.millis());
+        this.operationLock.lock();
+        try {
+            ensureOpen();
+            return this.jdbcOperations.update(this.cleanupSql, this.clock.millis());
+        }
+        finally {
+            this.operationLock.unlock();
+        }
     }
 
     boolean cleanupStarted() {
@@ -158,11 +189,22 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
     }
 
     private void cleanupExpiredKeysSafely() {
+        if (this.closed.get()) {
+            return;
+        }
         try {
             cleanupExpiredKeys();
         }
         catch (RuntimeException ex) {
-            LOGGER.warn("Coco JDBC replay cleanup failed; expired replay keys will be retried later.", ex);
+            if (!this.closed.get()) {
+                LOGGER.warn("Coco JDBC replay cleanup failed; expired replay keys will be retried later.", ex);
+            }
+        }
+    }
+
+    private void ensureOpen() {
+        if (this.closed.get()) {
+            throw new IllegalStateException("Coco replay store is closed");
         }
     }
 

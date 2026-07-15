@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.exception;
 
+import java.util.IdentityHashMap;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -59,6 +60,13 @@ import org.springframework.web.util.DisconnectedClientHelper;
  */
 @RestControllerAdvice
 public class CocoWebExceptionHandler {
+
+    private static final int MAX_LOCALIZED_FAILURE_DEPTH = 32;
+
+    /**
+     * 限制单次异常日志最多复制四条最大深度的异常路径，避免高扇出 suppressed 图占用无界日志资源。
+     */
+    private static final int MAX_LOCALIZED_FAILURE_NODES = 128;
 
     private static final String BAD_REQUEST_MESSAGE_CODE = "coco.web.error.bad-request";
 
@@ -230,7 +238,7 @@ public class CocoWebExceptionHandler {
         HttpStatusCode statusCode = Objects.requireNonNull(this.httpStatusResolver.resolve(checkedException),
                 "resolved http status must not be null");
         Locale resolvedLocale = explicitLocale ? effectiveLocale(locale) : null;
-        String message = resolveMessage(checkedException, resolvedLocale);
+        String message = resolveResponseMessage(checkedException, resolvedLocale);
         int code = checkedException.businessCode()
                 .orElseGet(() -> resolveSystemCode(checkedException, statusCode));
         logException(checkedException, statusCode, code, request, message, resolvedLocale);
@@ -306,7 +314,7 @@ public class CocoWebExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> handleUnhandledException(Exception exception, WebRequest request) throws Exception {
         Objects.requireNonNull(exception, "exception must not be null");
-        if (DisconnectedClientHelper.isClientDisconnectedException(exception)) {
+        if (isClientDisconnectedException(exception)) {
             throw exception;
         }
         String message = this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR);
@@ -317,6 +325,16 @@ public class CocoWebExceptionHandler {
 
     private void logException(Throwable exception, HttpStatusCode statusCode, int code, WebRequest request) {
         logException(exception, statusCode, code, request, null);
+    }
+
+    private static boolean isClientDisconnectedException(Throwable exception) {
+        try {
+            return DisconnectedClientHelper.isClientDisconnectedException(exception);
+        }
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return false;
+        }
     }
 
     private void logException(Throwable exception, HttpStatusCode statusCode, int code, WebRequest request,
@@ -332,9 +350,15 @@ public class CocoWebExceptionHandler {
         CocoLogLevel level = statusCode != null && statusCode.is5xxServerError()
                 ? CocoLogLevel.ERROR
                 : CocoLogLevel.WARN;
-        this.logManager.log(CocoLogHandles.EXCEPTION, level,
-                formatExceptionLogMessage(exception, statusCode, code, request),
-                localizedFailure(exception, resolvedMessage, locale));
+        try {
+            this.logManager.log(CocoLogHandles.EXCEPTION, level,
+                    formatExceptionLogMessage(exception, statusCode, code, request),
+                    localizedFailure(exception, resolvedMessage, locale));
+        }
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            // Optional exception logging must not alter the Web error response.
+        }
     }
 
     private static String formatExceptionLogMessage(Throwable exception, HttpStatusCode statusCode, int code,
@@ -356,28 +380,54 @@ public class CocoWebExceptionHandler {
         return builder.toString();
     }
 
-    private Throwable localizedFailure(Throwable exception, String resolvedMessage) {
-        return localizedFailure(exception, resolvedMessage, null);
+    private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale) {
+        try {
+            return localizedFailure(exception, resolvedMessage, locale, new IdentityHashMap<>(),
+                    new LocalizedFailureBudget(), 0);
+        }
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return null;
+        }
     }
 
-    private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale) {
-        if (!(exception instanceof CocoException cocoException)) {
-            return exception;
+    private Throwable localizedFailure(Throwable exception, String resolvedMessage, Locale locale,
+            IdentityHashMap<Throwable, Boolean> visited, LocalizedFailureBudget budget, int depth) {
+        if (exception == null || depth >= MAX_LOCALIZED_FAILURE_DEPTH || visited.containsKey(exception)
+                || !budget.tryAcquire()) {
+            return null;
+        }
+        visited.put(exception, Boolean.TRUE);
+        if (exception instanceof CocoException cocoException) {
+            String message = localizedMessage(cocoException, resolvedMessage, locale);
+            Throwable localizedCause = localizedFailure(safeCause(cocoException), null, locale, visited, budget,
+                    depth + 1);
+            CocoException localizedException = copyCocoException(cocoException, message, localizedCause);
+            localizedException.setStackTrace(safeStackTrace(cocoException));
+            appendSuppressed(localizedException, cocoException, locale, visited, budget, depth);
+            return localizedException;
         }
         String message = resolvedMessage == null || resolvedMessage.isBlank()
-                ? resolveMessage(cocoException, locale)
+                ? safeThrowableMessage(exception)
                 : resolvedMessage;
-        Throwable localizedCause = localizedFailure(cocoException.getCause(), null, locale);
-        CocoException localizedException = copyCocoException(cocoException, message, localizedCause);
-        localizedException.setStackTrace(cocoException.getStackTrace());
-        for (Throwable suppressed : cocoException.getSuppressed()) {
-            localizedException.addSuppressed(localizedFailure(suppressed, null, locale));
-        }
+        Throwable localizedCause = localizedFailure(safeCause(exception), null, locale, visited, budget, depth + 1);
+        LocalizedThrowable localizedException = new LocalizedThrowable(message, localizedCause);
+        localizedException.setStackTrace(safeStackTrace(exception));
+        appendSuppressed(localizedException, exception, locale, visited, budget, depth);
         return localizedException;
     }
 
-    private Throwable localizedFailure(Throwable exception) {
-        return localizedFailure(exception, null);
+    private void appendSuppressed(Throwable target, Throwable source, Locale locale,
+            IdentityHashMap<Throwable, Boolean> visited, LocalizedFailureBudget budget, int depth) {
+        for (Throwable suppressed : safeSuppressed(source)) {
+            if (budget.exhausted()) {
+                break;
+            }
+            Throwable localizedSuppressed = localizedFailure(suppressed, null, locale, visited, budget, depth + 1);
+            if (localizedSuppressed != null) {
+                target.addSuppressed(localizedSuppressed);
+            }
+        }
     }
 
     private String resolveMessage(CocoException exception, Locale locale) {
@@ -386,32 +436,139 @@ public class CocoWebExceptionHandler {
                 : this.messageService.resolve(exception.message(), locale);
     }
 
+    private String resolveResponseMessage(CocoException exception, Locale locale) {
+        try {
+            return resolveMessage(exception, locale);
+        }
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return locale == null
+                    ? this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR)
+                    : this.messageService.getMessage(CocoCommonErrorCode.INTERNAL_ERROR, locale);
+        }
+    }
+
     private Locale effectiveLocale(Locale locale) {
         return locale == null ? this.defaultLocale : locale;
     }
 
     private static CocoException copyCocoException(CocoException exception, String message, Throwable cause) {
-        Object[] args = exception.args();
-        String code = exception.code();
-        if (exception instanceof CocoConflictException) {
-            return new CocoConflictException(code, message, cause, args);
+        try {
+            Object[] args = exception.args();
+            String code = exception.code();
+            if (exception instanceof CocoConflictException) {
+                return new CocoConflictException(code, message, cause, args);
+            }
+            if (exception instanceof CocoForbiddenException) {
+                return new CocoForbiddenException(code, message, cause, args);
+            }
+            if (exception instanceof CocoNotFoundException) {
+                return new CocoNotFoundException(code, message, cause, args);
+            }
+            if (exception instanceof CocoPayloadTooLargeException || exception instanceof CocoRequestException) {
+                return new CocoRequestException(code, message, cause, args);
+            }
+            if (exception instanceof CocoSystemException) {
+                return new CocoSystemException(code, message, cause, args);
+            }
+            if (exception instanceof CocoUnauthorizedException) {
+                return new CocoUnauthorizedException(code, message, cause, args);
+            }
+            return new CocoException(code, message, cause, args);
         }
-        if (exception instanceof CocoForbiddenException) {
-            return new CocoForbiddenException(code, message, cause, args);
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return new CocoException("coco.error.internal-error", message, cause);
         }
-        if (exception instanceof CocoNotFoundException) {
-            return new CocoNotFoundException(code, message, cause, args);
+    }
+
+    private String localizedMessage(CocoException exception, String resolvedMessage, Locale locale) {
+        if (resolvedMessage != null && !resolvedMessage.isBlank()) {
+            return resolvedMessage;
         }
-        if (exception instanceof CocoPayloadTooLargeException || exception instanceof CocoRequestException) {
-            return new CocoRequestException(code, message, cause, args);
+        try {
+            return resolveMessage(exception, locale);
         }
-        if (exception instanceof CocoSystemException) {
-            return new CocoSystemException(code, message, cause, args);
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return safeThrowableMessage(exception);
         }
-        if (exception instanceof CocoUnauthorizedException) {
-            return new CocoUnauthorizedException(code, message, cause, args);
+    }
+
+    private static Throwable safeCause(Throwable exception) {
+        try {
+            return exception.getCause();
         }
-        return new CocoException(code, message, cause, args);
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return null;
+        }
+    }
+
+    private static Throwable[] safeSuppressed(Throwable exception) {
+        try {
+            return exception.getSuppressed();
+        }
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return new Throwable[0];
+        }
+    }
+
+    private static StackTraceElement[] safeStackTrace(Throwable exception) {
+        try {
+            return exception.getStackTrace();
+        }
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return new StackTraceElement[0];
+        }
+    }
+
+    private static String safeThrowableMessage(Throwable exception) {
+        try {
+            String message = exception.getMessage();
+            return message == null ? exception.getClass().getName() : message;
+        }
+        catch (Throwable failure) {
+            rethrowFatal(failure);
+            return exception.getClass().getName();
+        }
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof ThreadDeath threadDeath) {
+            throw threadDeath;
+        }
+        if (failure instanceof VirtualMachineError virtualMachineError) {
+            throw virtualMachineError;
+        }
+    }
+
+    private static final class LocalizedThrowable extends Throwable {
+
+        private static final long serialVersionUID = 1L;
+
+        private LocalizedThrowable(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private static final class LocalizedFailureBudget {
+
+        private int remaining = MAX_LOCALIZED_FAILURE_NODES;
+
+        private boolean tryAcquire() {
+            if (this.remaining == 0) {
+                return false;
+            }
+            this.remaining--;
+            return true;
+        }
+
+        private boolean exhausted() {
+            return this.remaining == 0;
+        }
     }
 
     private ResponseEntity<Object> error(HttpStatusCode statusCode, int code, String message, WebRequest request) {

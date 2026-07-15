@@ -187,6 +187,20 @@ class InMemoryCocoReplayStoreTest {
     }
 
     @Test
+    void nullArgumentsFailClosedWithoutConsumingCapacity() {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        InMemoryCocoReplayStore store = newStore(clock, 1, 1);
+
+        assertThrows(NullPointerException.class,
+                () -> store.reserve(null, BASE_TIME.plusSeconds(60)));
+        assertThrows(NullPointerException.class,
+                () -> store.reserve(key("null-expiration"), null));
+
+        assertTrue(store.reserve(key("valid"), BASE_TIME.plusSeconds(60)));
+        assertEquals(1, store.reservedKeyCount());
+    }
+
+    @Test
     void rejectsNewKeysAtGlobalCapacityWithDistinctFailure() {
         MutableClock clock = new MutableClock(BASE_TIME);
         InMemoryCocoReplayStore store = newStore(clock, 2, 2);
@@ -398,6 +412,7 @@ class InMemoryCocoReplayStoreTest {
         assertTrue(store.reserve(key("app-2", "second"), BASE_TIME.plusSeconds(60), "subject-2"));
 
         store.close();
+        store.close();
 
         assertEquals(0, store.reservedKeyCount());
         assertEquals(0, store.reservedKeyCountForAppId("subject-1"));
@@ -405,6 +420,55 @@ class InMemoryCocoReplayStoreTest {
         assertEquals(0, store.expirationIndexKeyCount());
         assertThrows(IllegalStateException.class,
                 () -> store.reserve(key("after-close"), BASE_TIME.plusSeconds(60)));
+        assertThrows(IllegalStateException.class, store::cleanupExpiredKeys);
+    }
+
+    @Test
+    void concurrentCloseKeepsCapacityBoundedAndFailsClosed() throws Exception {
+        MutableClock clock = new MutableClock(BASE_TIME);
+        int capacity = 4;
+        InMemoryCocoReplayStore store = newStore(clock, capacity, capacity);
+        int contenders = 32;
+        ExecutorService executor = Executors.newFixedThreadPool(contenders + 1);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Boolean>> reservations = java.util.stream.IntStream.range(0, contenders)
+                    .mapToObj(index -> executor.submit(() -> {
+                        start.await();
+                        try {
+                            return store.reserve(key("close-" + index), BASE_TIME.plusSeconds(60));
+                        }
+                        catch (CocoReplayCapacityExceededException | IllegalStateException ex) {
+                            return false;
+                        }
+                    }))
+                    .toList();
+            Future<?> close = executor.submit(() -> {
+                start.await();
+                store.close();
+                return null;
+            });
+            start.countDown();
+
+            int reserved = 0;
+            for (Future<Boolean> reservation : reservations) {
+                if (reservation.get(10, TimeUnit.SECONDS)) {
+                    reserved++;
+                }
+            }
+            close.get(10, TimeUnit.SECONDS);
+
+            assertTrue(reserved <= capacity);
+            assertEquals(0, store.reservedKeyCount());
+            assertEquals(0, store.expirationIndexKeyCount());
+            assertThrows(IllegalStateException.class,
+                    () -> store.reserve(key("after-concurrent-close"), BASE_TIME.plusSeconds(60)));
+        }
+        finally {
+            store.close();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
     }
 
     @Test

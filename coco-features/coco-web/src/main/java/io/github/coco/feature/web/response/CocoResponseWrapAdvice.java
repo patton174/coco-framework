@@ -2,6 +2,7 @@ package io.github.coco.feature.web.response;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
@@ -54,6 +55,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
 
     private final CocoSystemCodeProvider codeProvider;
 
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "The supplied ObjectMapper is an established extension "
+            + "point and must remain live so application modules can configure the mapper used by response wrapping.")
     private final ObjectMapper objectMapper;
 
     private final CocoResponseProperties responseProperties;
@@ -86,6 +89,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
      * @param objectMapper JSON 序列化器
      * @param responseProperties 统一响应配置
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW", justification = "Public compatibility constructors validate required "
+            + "dependencies through the implementation constructor; this class has no finalizer and preserves its null contract.")
     public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
             CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
             CocoResponseProperties responseProperties) {
@@ -105,6 +110,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
      * @param responseProperties 统一响应配置
      * @param traceProperties Trace 配置
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW", justification = "Public compatibility constructors validate required "
+            + "dependencies through the implementation constructor; this class has no finalizer and preserves its null contract.")
     public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
             CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
             CocoResponseProperties responseProperties, CocoTraceProperties traceProperties) {
@@ -123,6 +130,8 @@ public class CocoResponseWrapAdvice implements ResponseBodyAdvice<Object> {
      * @param responseProperties 统一响应配置
      * @param responseBodyFactory 响应体工厂
      */
+    @SuppressFBWarnings(value = "CT_CONSTRUCTOR_THROW", justification = "Public compatibility constructors validate required "
+            + "dependencies through the implementation constructor; this class has no finalizer and preserves its null contract.")
     public CocoResponseWrapAdvice(CocoMessageService messageService, CocoResponseWrapProperties properties,
             CocoSystemCodeProvider codeProvider, ObjectMapper objectMapper,
             CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
