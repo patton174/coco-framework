@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Locale;
+import java.util.ResourceBundle;
+import java.util.Set;
 
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageCode;
@@ -78,6 +80,39 @@ class DefaultCocoMessageServiceTest {
     }
 
     @Test
+    void fallsBackToConfiguredDefaultForUnsupportedContextLocale() {
+        LocaleContextHolder.setLocale(Locale.CANADA_FRENCH);
+        try {
+            String message = this.messageService.getMessage("sample.hello", "Coco");
+
+            assertEquals("你好，Coco", message);
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
+    }
+
+    @Test
+    void preservesChineseAndEnglishExactResourceBundleLocales() {
+        CocoMessageService frameworkMessageService = new DefaultCocoMessageService(
+                frameworkMessageSource(), new DefaultCocoLocaleResolver(this.properties), true);
+
+        assertEquals("未知错误", frameworkMessageService.getMessage("coco.error.unknown", Locale.CHINESE));
+        assertEquals("未知錯誤", frameworkMessageService.getMessage("coco.error.unknown", Locale.TAIWAN));
+        assertEquals("Unknown error", frameworkMessageService.getMessage("coco.error.unknown", Locale.US));
+        assertEquals("fallback", frameworkMessageService.getMessageOrDefault("coco.error.not-present", "fallback",
+                Locale.CHINESE));
+    }
+
+    @Test
+    void keepsCommonMessageBundleKeysAlignedAcrossSupportedLocales() {
+        Set<String> baseKeys = ResourceBundle.getBundle("coco-messages", Locale.ROOT).keySet();
+
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-messages", Locale.CHINESE).keySet());
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-messages", Locale.TAIWAN).keySet());
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-messages", Locale.US).keySet());
+    }
+
+    @Test
     void resolvesMessageCodeDefaultWhenResourceIsMissing() {
         String message = this.messageService.getMessage(SampleMessageCode.MISSING, "Coco");
 
@@ -113,6 +148,14 @@ class DefaultCocoMessageServiceTest {
     private static ResourceBundleMessageSource messageSource() {
         ResourceBundleMessageSource messageSource = new ResourceBundleMessageSource();
         messageSource.setBasenames("messages");
+        messageSource.setDefaultEncoding("UTF-8");
+        messageSource.setFallbackToSystemLocale(false);
+        return messageSource;
+    }
+
+    private static ResourceBundleMessageSource frameworkMessageSource() {
+        ResourceBundleMessageSource messageSource = new ResourceBundleMessageSource();
+        messageSource.setBasenames("coco-messages");
         messageSource.setDefaultEncoding("UTF-8");
         messageSource.setFallbackToSystemLocale(false);
         return messageSource;

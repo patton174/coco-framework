@@ -1,5 +1,6 @@
 package io.github.coco;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.i18n.CocoI18nProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -28,12 +29,17 @@ public class CocoCommonProperties {
 
     /**
      * <p>
-     * 返回 Coco 国际化配置快照。
+     * 返回 Coco 国际化配置。
      * </p>
      * @return 国际化配置
      */
+    @SuppressFBWarnings(
+            value = "EI_EXPOSE_REP",
+            justification = "The JavaBean getter must expose the live nested i18n properties "
+                    + "instance for Spring Binder and existing consumers; setI18n remains the "
+                    + "explicit replacement boundary.")
     public CocoI18nProperties getI18n() {
-        return copy(this.i18n);
+        return this.i18n;
     }
 
     /**
@@ -43,18 +49,6 @@ public class CocoCommonProperties {
      * @param i18n 国际化配置
      */
     public void setI18n(CocoI18nProperties i18n) {
-        this.i18n = copy(i18n);
-    }
-
-    private static CocoI18nProperties copy(CocoI18nProperties source) {
-        CocoI18nProperties copy = new CocoI18nProperties();
-        if (source == null) {
-            return copy;
-        }
-        copy.setBasename(source.getBasename());
-        copy.setDefaultLocale(source.getDefaultLocale());
-        copy.setFallbackToSystemLocale(source.isFallbackToSystemLocale());
-        copy.setUseCodeAsDefaultMessage(source.isUseCodeAsDefaultMessage());
-        return copy;
+        this.i18n = i18n == null ? new CocoI18nProperties() : i18n;
     }
 }

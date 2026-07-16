@@ -2,13 +2,12 @@ package io.github.coco;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -50,22 +49,26 @@ class CocoCommonConfigurationMetadataTest {
     }
 
     @Test
-    void exposesImmutableI18nConfigurationSnapshots() {
-        List<String> basenames = new ArrayList<>(List.of("application-messages"));
+    void preservesPublishedLiveI18nConfigurationContract() {
         CocoI18nProperties i18n = new CocoI18nProperties();
-        i18n.setBasename(basenames);
+        i18n.setBasename(List.of("application-messages"));
         CocoCommonProperties properties = new CocoCommonProperties();
         properties.setI18n(i18n);
-        basenames.add("late-mutation");
-        i18n.setDefaultLocale(Locale.US);
 
-        CocoI18nProperties snapshot = properties.getI18n();
+        CocoI18nProperties liveProperties = properties.getI18n();
+        liveProperties.getBasename().add("late-mutation");
+        liveProperties.setDefaultLocale(Locale.US);
 
-        assertEquals(List.of("application-messages"), snapshot.getBasename());
-        assertEquals(Locale.SIMPLIFIED_CHINESE, snapshot.getDefaultLocale());
-        assertThrows(UnsupportedOperationException.class, () -> snapshot.getBasename().add("other"));
-        snapshot.setDefaultLocale(Locale.CANADA);
-        assertEquals(Locale.SIMPLIFIED_CHINESE, properties.getI18n().getDefaultLocale());
+        assertSame(i18n, liveProperties);
+        assertSame(liveProperties, properties.getI18n());
+        assertEquals(List.of("application-messages", "late-mutation"),
+                properties.getI18n().getBasename());
+        assertEquals(Locale.US, properties.getI18n().getDefaultLocale());
+
+        CocoI18nProperties replacement = new CocoI18nProperties();
+        properties.setI18n(replacement);
+
+        assertSame(replacement, properties.getI18n());
     }
 
     @Test

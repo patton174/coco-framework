@@ -1,9 +1,11 @@
 package io.github.coco.i18n;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Coco 国际化配置属性。
@@ -23,9 +25,12 @@ import java.util.Locale;
  */
 public class CocoI18nProperties {
 
-    private List<String> basename = new ArrayList<>(List.of("coco-messages"));
+    private List<String> basename = mutableBasenames(List.of("coco-messages"));
 
     private Locale defaultLocale = Locale.SIMPLIFIED_CHINESE;
+
+    private List<String> supportedLanguages = new ArrayList<>(List.of(
+            Locale.SIMPLIFIED_CHINESE.toLanguageTag(), Locale.US.toLanguageTag()));
 
     private boolean fallbackToSystemLocale;
 
@@ -33,12 +38,19 @@ public class CocoI18nProperties {
 
     /**
      * <p>
-     * 返回消息资源 basename 列表。
+     * 返回消息资源 basename 的可变 backing list。
+     * 业务侧和 Spring Binder 可以继续通过 {@code getBasename().add(...)} 或
+     * {@code getBasename().remove(...)} 更新当前配置。
      * </p>
      * @return 消息资源 basename 列表
      */
+    @SuppressFBWarnings(
+            value = "EI_EXPOSE_REP",
+            justification = "The public JavaBean accessor must retain live list mutation "
+                    + "compatibility for Spring Binder and existing Java consumers; "
+                    + "message-source assembly takes an immutable snapshot.")
     public List<String> getBasename() {
-        return Collections.unmodifiableList(new ArrayList<>(this.basename));
+        return this.basename;
     }
 
     /**
@@ -49,8 +61,8 @@ public class CocoI18nProperties {
      */
     public void setBasename(List<String> basename) {
         this.basename = basename == null || basename.isEmpty()
-                ? new ArrayList<>(List.of("coco-messages"))
-                : new ArrayList<>(basename);
+                ? mutableBasenames(List.of("coco-messages"))
+                : mutableBasenames(basename);
     }
 
     /**
@@ -71,6 +83,29 @@ public class CocoI18nProperties {
      */
     public void setDefaultLocale(Locale defaultLocale) {
         this.defaultLocale = defaultLocale == null ? Locale.SIMPLIFIED_CHINESE : defaultLocale;
+    }
+
+    /**
+     * <p>
+     * 返回允许从请求或上下文直接采用的语言代码列表。
+     * </p>
+     * @return 受支持的 BCP 47 语言子标签列表
+     */
+    public List<String> getSupportedLanguages() {
+        return Collections.unmodifiableList(new ArrayList<>(this.supportedLanguages));
+    }
+
+    /**
+     * <p>
+     * 设置允许从请求或上下文直接采用的语言代码列表。
+     * </p>
+     * @param supportedLanguages 受支持的 BCP 47 语言子标签列表
+     */
+    public void setSupportedLanguages(List<String> supportedLanguages) {
+        this.supportedLanguages = supportedLanguages == null || supportedLanguages.isEmpty()
+                ? new ArrayList<>(List.of(Locale.SIMPLIFIED_CHINESE.toLanguageTag(),
+                        Locale.US.toLanguageTag()))
+                : new ArrayList<>(supportedLanguages);
     }
 
     /**
@@ -111,5 +146,9 @@ public class CocoI18nProperties {
      */
     public void setUseCodeAsDefaultMessage(boolean useCodeAsDefaultMessage) {
         this.useCodeAsDefaultMessage = useCodeAsDefaultMessage;
+    }
+
+    private static List<String> mutableBasenames(List<String> basenames) {
+        return new CopyOnWriteArrayList<>(basenames);
     }
 }
