@@ -370,24 +370,26 @@ class CocoWebAutoConfigurationTest {
     }
 
     @Test
-    void resolvesChineseLanguageOnlyAndFallsBackForUnsupportedTraditionalChineseHeader() {
+    void letsSpringSelectTheRootAndTraditionalChineseWebBundles() {
         this.webContextRunner.run(context -> {
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
             request.addHeader("Accept-Language", "zh");
             RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
 
-            assertEquals("Coco Web 功能消息资源已就绪。", messageService.getMessage("coco.feature.web.ready"));
+            assertEquals(ResourceBundle.getBundle("coco-feature-web-messages", Locale.ROOT)
+                    .getString("coco.feature.web.ready"), messageService.getMessage("coco.feature.web.ready"));
 
             request.removeHeader("Accept-Language");
             request.addHeader("Accept-Language", "zh-TW");
 
-            assertEquals("Coco Web 功能消息资源已就绪。", messageService.getMessage("coco.feature.web.ready"));
+            assertEquals(ResourceBundle.getBundle("coco-feature-web-messages", Locale.TAIWAN)
+                    .getString("coco.feature.web.ready"), messageService.getMessage("coco.feature.web.ready"));
         });
     }
 
     @Test
-    void fallsBackToCocoDefaultLocaleForUnsupportedAcceptLanguageHeader() {
+    void letsSpringUseTheRootBundleForUnknownAcceptLanguageHeader() {
         this.webContextRunner.run(context -> {
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
             request.addHeader("Accept-Language", "fr-CA");
@@ -395,7 +397,8 @@ class CocoWebAutoConfigurationTest {
 
             CocoMessageService messageService = context.getBean(CocoMessageService.class);
 
-            assertEquals("Coco Web 功能消息资源已就绪。", messageService.getMessage("coco.feature.web.ready"));
+            assertEquals(ResourceBundle.getBundle("coco-feature-web-messages", Locale.ROOT)
+                    .getString("coco.feature.web.ready"), messageService.getMessage("coco.feature.web.ready"));
         });
     }
 

@@ -1,11 +1,14 @@
 package io.github.coco.i18n;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 import io.github.coco.CocoCommonProperties;
 import org.junit.jupiter.api.Test;
@@ -95,5 +98,50 @@ class CocoI18nPropertiesTest {
         properties.getBasename().add(1, "shared-messages");
         properties.getBasename().remove("application-errors");
         assertThat(properties.getBasename()).containsExactly("shared-messages", "application-messages");
+    }
+
+    @Test
+    void supportedLanguagesAreDisabledByDefaultAndUseADefensiveExplicitAllowlist() {
+        CocoI18nProperties properties = new CocoI18nProperties();
+
+        assertThat(properties.getSupportedLanguages()).isEmpty();
+        List<String> configured = new ArrayList<>(List.of(Locale.US.toLanguageTag()));
+        properties.setSupportedLanguages(configured);
+        configured.clear();
+
+        List<String> snapshot = properties.getSupportedLanguages();
+        assertThat(snapshot).containsExactly("en-US");
+        assertThatThrownBy(() -> snapshot.add("fr-FR"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        properties.setSupportedLanguages(List.of("fr-FR"));
+        assertThat(snapshot).containsExactly("en-US");
+        assertThat(properties.getSupportedLanguages()).containsExactly("fr-FR");
+        properties.setSupportedLanguages(null);
+        assertThat(properties.getSupportedLanguages()).isEmpty();
+        properties.setSupportedLanguages(List.of());
+        assertThat(properties.getSupportedLanguages()).isEmpty();
+    }
+
+    @Test
+    void supportedLanguagesRejectNullAndBlankEntriesBeforeCopying() {
+        CocoI18nProperties properties = new CocoI18nProperties();
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> properties.setSupportedLanguages(java.util.Arrays.asList("en-US", null)))
+                .withMessage("supportedLanguages must contain only strict non-root BCP 47 language tags");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> properties.setSupportedLanguages(List.of("en-US", " ")))
+                .withMessage("supportedLanguages must contain only strict non-root BCP 47 language tags");
+    }
+
+    @Test
+    void supportedLanguagesRejectMalformedOrRootLanguageTags() {
+        CocoI18nProperties properties = new CocoI18nProperties();
+
+        for (String invalidTag : List.of("en-US@", "en--US", "ROOT", "und")) {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> properties.setSupportedLanguages(List.of(invalidTag)))
+                    .withMessage("supportedLanguages must contain only strict non-root BCP 47 language tags");
+        }
     }
 }

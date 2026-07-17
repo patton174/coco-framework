@@ -21,7 +21,10 @@ import io.github.coco.i18n.CocoLocaleFallbackPolicy;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-i18n}</li>
  * </ul>
+ * 空 {@code supportedLanguages} 不过滤请求语言；非空列表是显式允许列表。
+ *
  * @author patton174
+ *
  * @since 1.0.0
  */
 public final class DefaultCocoLocaleFallbackPolicy implements CocoLocaleFallbackPolicy {
@@ -32,15 +35,17 @@ public final class DefaultCocoLocaleFallbackPolicy implements CocoLocaleFallback
     @Override
     public Locale resolveLocale(Locale locale, CocoI18nProperties properties) {
         Objects.requireNonNull(properties, "properties must not be null");
-        if (locale == null || locale.getLanguage().isBlank()) {
+        if (locale == null) {
             return properties.getDefaultLocale();
         }
-        Locale normalized = Locale.forLanguageTag(locale.toLanguageTag());
+        if (properties.getSupportedLanguages().isEmpty()) {
+            return locale;
+        }
         boolean supported = properties.getSupportedLanguages().stream()
                 .filter(Objects::nonNull)
                 .map(String::trim)
-                .anyMatch(language -> matchesSupportedLocale(language, normalized));
-        return supported ? normalized : properties.getDefaultLocale();
+                .anyMatch(language -> matchesSupportedLocale(language, locale));
+        return supported ? locale : properties.getDefaultLocale();
     }
 
     private static boolean matchesSupportedLocale(String supportedLanguage, Locale requestedLocale) {

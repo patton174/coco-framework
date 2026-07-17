@@ -17,7 +17,10 @@ import java.util.Locale;
  *   <li>仓库：<a href="https://github.com/patton174/coco-framework">https://github.com/patton174/coco-framework</a></li>
  *   <li>模块：{@code coco-i18n}</li>
  * </ul>
+ * 自定义策略会完整替换默认语言过滤行为。
+ *
  * @author patton174
+ *
  * @since 1.0.0
  */
 @FunctionalInterface

@@ -3,6 +3,7 @@ package io.github.coco.i18n;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IllformedLocaleException;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -29,8 +30,8 @@ public class CocoI18nProperties {
 
     private Locale defaultLocale = Locale.SIMPLIFIED_CHINESE;
 
-    private List<String> supportedLanguages = new ArrayList<>(List.of(
-            Locale.SIMPLIFIED_CHINESE.toLanguageTag(), Locale.US.toLanguageTag()));
+    /** 空列表表示不过滤；非空列表表示显式 opt-in 允许列表。 */
+    private List<String> supportedLanguages = List.of();
 
     private boolean fallbackToSystemLocale;
 
@@ -102,10 +103,15 @@ public class CocoI18nProperties {
      * @param supportedLanguages 受支持的 BCP 47 语言子标签列表
      */
     public void setSupportedLanguages(List<String> supportedLanguages) {
-        this.supportedLanguages = supportedLanguages == null || supportedLanguages.isEmpty()
-                ? new ArrayList<>(List.of(Locale.SIMPLIFIED_CHINESE.toLanguageTag(),
-                        Locale.US.toLanguageTag()))
-                : new ArrayList<>(supportedLanguages);
+        if (supportedLanguages == null || supportedLanguages.isEmpty()) {
+            this.supportedLanguages = List.of();
+            return;
+        }
+        List<String> copiedLanguages = new ArrayList<>(supportedLanguages);
+        if (copiedLanguages.stream().anyMatch(language -> !isStrictLanguageTag(language))) {
+            throw new IllegalArgumentException("supportedLanguages must contain only strict non-root BCP 47 language tags");
+        }
+        this.supportedLanguages = List.copyOf(copiedLanguages);
     }
 
     /**
@@ -150,5 +156,19 @@ public class CocoI18nProperties {
 
     private static List<String> mutableBasenames(List<String> basenames) {
         return new CopyOnWriteArrayList<>(basenames);
+    }
+
+    private static boolean isStrictLanguageTag(String language) {
+        if (language == null || language.isBlank() || "root".equalsIgnoreCase(language)
+                || "und".equalsIgnoreCase(language)) {
+            return false;
+        }
+        try {
+            Locale locale = new Locale.Builder().setLanguageTag(language).build();
+            return !locale.equals(Locale.ROOT) && language.equalsIgnoreCase(locale.toLanguageTag());
+        }
+        catch (IllformedLocaleException exception) {
+            return false;
+        }
     }
 }

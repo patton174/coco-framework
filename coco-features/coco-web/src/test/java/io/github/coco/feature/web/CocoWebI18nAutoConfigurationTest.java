@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.List;
 import java.util.Locale;
 
 import io.github.coco.CocoCommonProperties;
@@ -60,7 +61,7 @@ class CocoWebI18nAutoConfigurationTest {
     }
 
     @Test
-    void preservesSupportedChineseLocaleAndFallsBackForUnsupportedLocalesInIsolatedWebImport() {
+    void preservesRequestLocalesInIsolatedWebImportWhenFilteringIsDisabled() {
         this.isolatedContextRunner.run(context -> {
             CocoLocaleResolver resolver = context.getBean(CocoLocaleResolver.class);
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/");
@@ -71,15 +72,43 @@ class CocoWebI18nAutoConfigurationTest {
 
             request.removeHeader("Accept-Language");
             request.addHeader("Accept-Language", "zh");
-            assertThat(resolver.resolveLocale()).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+            assertThat(resolver.resolveLocale()).isEqualTo(Locale.CHINESE);
 
             request.removeHeader("Accept-Language");
             request.addHeader("Accept-Language", "zh-TW");
-            assertThat(resolver.resolveLocale()).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+            assertThat(resolver.resolveLocale()).isEqualTo(Locale.TAIWAN);
 
             request.removeHeader("Accept-Language");
             request.addHeader("Accept-Language", "fr-CA");
-            assertThat(resolver.resolveLocale()).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+            assertThat(resolver.resolveLocale()).isEqualTo(Locale.CANADA_FRENCH);
+        });
+    }
+
+    @Test
+    void preservesAllRequestLocaleTagsWhenFilteringIsDisabled() {
+        this.isolatedContextRunner.run(context -> {
+            CocoLocaleResolver resolver = context.getBean(CocoLocaleResolver.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+            for (String languageTag : List.of("zh-TW", "zh-Hant-TW", "zh-HK", "zh-CN", "zh-Hans",
+                    "zh", "en-US", "ja-JP", "fr-FR", "zz-ZZ")) {
+                request.removeHeader("Accept-Language");
+                request.addHeader("Accept-Language", languageTag);
+                assertThat(resolver.resolveLocale().toLanguageTag()).isEqualTo(languageTag);
+            }
+        });
+    }
+
+    @Test
+    void treatsLocaleRootAsAPresentRequestLocale() {
+        this.isolatedContextRunner.run(context -> {
+            CocoLocaleResolver resolver = context.getBean(CocoLocaleResolver.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/");
+            request.addHeader("Accept-Language", "und");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+            assertThat(resolver.resolveLocale()).isSameAs(request.getLocale()).isEqualTo(Locale.ROOT);
         });
     }
 

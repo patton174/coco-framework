@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.Locale;
 import java.util.ResourceBundle;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageCode;
@@ -80,15 +81,31 @@ class DefaultCocoMessageServiceTest {
     }
 
     @Test
-    void fallsBackToConfiguredDefaultForUnsupportedContextLocale() {
+    void doesNotReplaceAnUnsupportedContextLocaleWhenFilteringIsDisabled() {
         LocaleContextHolder.setLocale(Locale.CANADA_FRENCH);
         try {
             String message = this.messageService.getMessage("sample.hello", "Coco");
 
-            assertEquals("你好，Coco", message);
+            assertEquals("sample.hello", message);
         } finally {
             LocaleContextHolder.resetLocaleContext();
         }
+    }
+
+    @Test
+    void resolvesFrameworkBundlesWithSpringCandidateLocalesWithoutFiltering() {
+        CocoMessageService frameworkMessageService = new DefaultCocoMessageService(
+                frameworkMessageSource(), new DefaultCocoLocaleResolver(this.properties), true);
+
+        requestLocales().forEach(locale -> {
+            LocaleContextHolder.setLocale(locale);
+            try {
+                assertEquals(frameworkBundleFor(locale).getString("coco.error.unknown"),
+                        frameworkMessageService.getMessage("coco.error.unknown"));
+            } finally {
+                LocaleContextHolder.resetLocaleContext();
+            }
+        });
     }
 
     @Test
@@ -96,7 +113,7 @@ class DefaultCocoMessageServiceTest {
         CocoMessageService frameworkMessageService = new DefaultCocoMessageService(
                 frameworkMessageSource(), new DefaultCocoLocaleResolver(this.properties), true);
 
-        assertEquals("未知错误", frameworkMessageService.getMessage("coco.error.unknown", Locale.CHINESE));
+        assertEquals("Unknown error", frameworkMessageService.getMessage("coco.error.unknown", Locale.CHINESE));
         assertEquals("未知錯誤", frameworkMessageService.getMessage("coco.error.unknown", Locale.TAIWAN));
         assertEquals("Unknown error", frameworkMessageService.getMessage("coco.error.unknown", Locale.US));
         assertEquals("fallback", frameworkMessageService.getMessageOrDefault("coco.error.not-present", "fallback",
@@ -159,6 +176,31 @@ class DefaultCocoMessageServiceTest {
         messageSource.setDefaultEncoding("UTF-8");
         messageSource.setFallbackToSystemLocale(false);
         return messageSource;
+    }
+
+    private static Stream<Locale> requestLocales() {
+        return Stream.of(
+                Locale.ROOT,
+                Locale.forLanguageTag("zh-TW"),
+                Locale.forLanguageTag("zh-Hant-TW"),
+                Locale.forLanguageTag("zh-HK"),
+                Locale.forLanguageTag("zh-CN"),
+                Locale.forLanguageTag("zh-Hans"),
+                Locale.forLanguageTag("zh"),
+                Locale.forLanguageTag("en-US"),
+                Locale.forLanguageTag("ja-JP"),
+                Locale.forLanguageTag("fr-FR"),
+                Locale.forLanguageTag("zz-ZZ"));
+    }
+
+    private static ResourceBundle frameworkBundleFor(Locale locale) {
+        String tag = locale.toLanguageTag();
+        Locale bundleLocale = switch (tag) {
+            case "zh-TW", "zh-Hant-TW" -> Locale.TAIWAN;
+            case "zh-CN", "zh-Hans" -> Locale.SIMPLIFIED_CHINESE;
+            default -> Locale.ROOT;
+        };
+        return ResourceBundle.getBundle("coco-messages", bundleLocale);
     }
 
     private enum SampleMessageCode implements CocoMessageCode {

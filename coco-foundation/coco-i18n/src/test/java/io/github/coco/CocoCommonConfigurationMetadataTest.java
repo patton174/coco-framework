@@ -44,6 +44,9 @@ class CocoCommonConfigurationMetadataTest {
         String content = new String(metadata.readAllBytes(), StandardCharsets.UTF_8);
         assertTrue(content.contains("\"name\": \"coco.common.i18n.basename\""));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.default-locale\""));
+        assertTrue(content.contains("\"name\": \"coco.common.i18n.supported-languages\""));
+        assertTrue(content.contains("\"defaultValue\": []"));
+        assertTrue(content.contains("空列表表示不过滤；非空列表表示显式 opt-in 允许列表。"));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.fallback-to-system-locale\""));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.use-code-as-default-message\""));
     }

@@ -68,6 +68,9 @@ FEATURE_CONSUMER_CLASS_FILE = Path(
 )
 I18N_BASENAME_CONSUMER_EVIDENCE = "COCO_I18N_BASENAME_LIVE_LIST_OK"
 COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE = "COCO_COMMON_LOCALE_FACTORY_ABI_OK"
+LOCALE_PASS_THROUGH_CONSUMER_EVIDENCE = (
+    "COCO_LOCALE_2_0_1_PASS_THROUGH_OK default=10 web=10 missing=2"
+)
 RUNTIME_FEATURE_CONSUMER_CLASS = (
     "io.github.coco.consumer.RuntimeFeatureRegistrationConsumer"
 )
@@ -169,11 +172,14 @@ def strip_ansi(value: str) -> str:
 
 
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError as error:
+        raise HarnessError(f"Cannot read class file for SHA-256: {path}.") from error
 
 
 def directory_digest(root: Path) -> str:
@@ -391,6 +397,20 @@ def validate_fixture_contracts(fixture_root: Path = FIXTURE_ROOT) -> None:
             "Feature fixture is missing required common locale factory ABI evidence: "
             f"{missing_common_locale_factory_tokens}."
         )
+    required_locale_pass_through_tokens = (
+        "CocoWebLocaleResolver",
+        "LocaleContextHolder.setLocale(",
+        "RequestContextHolder.setRequestAttributes(",
+        LOCALE_PASS_THROUGH_CONSUMER_EVIDENCE,
+    )
+    missing_locale_pass_through_tokens = [
+        token for token in required_locale_pass_through_tokens if token not in feature_source
+    ]
+    if missing_locale_pass_through_tokens:
+        raise HarnessError(
+            "Feature fixture is missing required 2.0.1 locale pass-through evidence: "
+            f"{missing_locale_pass_through_tokens}."
+        )
 
     runtime_source_path = fixture_root / "feature-api" / RUNTIME_FEATURE_CONSUMER_SOURCE
     if not runtime_source_path.is_file():
@@ -555,37 +575,49 @@ def assert_alignment_diagnostic(output: str, candidate_version: str) -> None:
 
 
 def assert_runtime_registration_evidence(output: str, classpath_name: str) -> str:
-    normalized = strip_ansi(output)
     expected_marker = f"COCO_RUNTIME_REGISTRATION_OK profile={classpath_name}"
-    for line in normalized.splitlines():
-        if line.startswith(expected_marker):
-            return line
-    raise HarnessError(
-        f"Runtime probe did not emit refreshed-context evidence for {classpath_name}.\n"
-        + normalized.rstrip()
+    return assert_exact_marker(
+        output,
+        expected_marker,
+        f"Runtime probe did not emit exactly one refreshed-context marker for {classpath_name}",
     )
 
 
 def assert_i18n_basename_consumer_evidence(output: str) -> str:
-    normalized = strip_ansi(output)
-    for line in normalized.splitlines():
-        if line.strip() == I18N_BASENAME_CONSUMER_EVIDENCE:
-            return line.strip()
-    raise HarnessError(
-        "Unchanged 2.0.1 consumer did not preserve the live basename-list runtime contract.\n"
-        + normalized.rstrip()
+    return assert_exact_marker(
+        output,
+        I18N_BASENAME_CONSUMER_EVIDENCE,
+        "Unchanged 2.0.1 consumer did not emit exactly one live basename-list marker",
     )
 
 
 def assert_common_locale_factory_consumer_evidence(output: str) -> str:
-    normalized = strip_ansi(output)
-    for line in normalized.splitlines():
-        if line.strip() == COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE:
-            return line.strip()
-    raise HarnessError(
-        "Unchanged 2.0.1 consumer did not preserve the common locale factory ABI.\n"
-        + normalized.rstrip()
+    return assert_exact_marker(
+        output,
+        COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE,
+        "Unchanged 2.0.1 consumer did not emit exactly one common locale factory marker",
     )
+
+
+def assert_locale_pass_through_consumer_evidence(output: str) -> str:
+    return assert_exact_marker(
+        output,
+        LOCALE_PASS_THROUGH_CONSUMER_EVIDENCE,
+        "Unchanged 2.0.1 consumer did not emit exactly one locale pass-through marker",
+    )
+
+
+def assert_exact_marker(output: str, marker: str, error_message: str) -> str:
+    normalized = strip_ansi(output)
+    matching_lines = [line.strip() for line in normalized.splitlines() if line.strip() == marker]
+    if len(matching_lines) != 1:
+        raise HarnessError(f"{error_message}.\n{normalized.rstrip()}")
+    return matching_lines[0]
+
+
+def assert_class_file_unchanged(path: Path, expected_hash: str, phase: str) -> None:
+    if sha256_file(path) != expected_hash:
+        raise HarnessError(f"{phase} changed the fixed 2.0.1 consumer class file.")
 
 
 def generated_java_files(output_directory: Path) -> set[str]:
@@ -803,54 +835,50 @@ def run_binary_compatibility(
 ) -> None:
     feature_fixture = harness.fixtures / "feature-api"
     class_file = feature_fixture / FEATURE_CONSUMER_CLASS_FILE
-    candidate_classpath = harness.build_classpath(
-        "feature-api",
-        candidate_version,
-        profile="aliases",
-        output_name="candidate-alias-classpath.txt",
-        clean=False,
-    )
-    if sha256_file(class_file) != baseline_hash:
-        raise HarnessError(
-            "Resolving the candidate classpath changed the 2.0.1 class file."
+    for profile, classpath_name in (("aliases", "candidate facades"), ("canonical", "canonical artifacts")):
+        assert_class_file_unchanged(class_file, baseline_hash, f"Before resolving {classpath_name}")
+        candidate_classpath = harness.build_classpath(
+            "feature-api",
+            candidate_version,
+            profile=profile,
+            output_name=f"binary-{profile}-classpath.txt",
+            clean=False,
         )
-
-    assert_artifacts_present(
-        candidate_classpath, ALIAS_FEATURE_ARTIFACTS, candidate_version
-    )
-    assert_artifacts_present(
-        candidate_classpath, CANONICAL_FEATURE_ARTIFACTS, candidate_version
-    )
-    assert_facades_source_free(
-        candidate_classpath,
-        ALIAS_FEATURE_ARTIFACTS,
-        candidate_version,
-        ("io/github/coco/feature/",),
-    )
-
-    runtime_classpath = os.pathsep.join(
-        [
-            str(feature_fixture / "target/classes"),
-            *(str(path) for path in candidate_classpath),
-        ]
-    )
-    result = run_command(
-        "run unchanged 2.0.1 class files on candidate facades",
-        [harness.java, "-cp", runtime_classpath, FEATURE_CONSUMER_CLASS],
-        cwd=feature_fixture,
-        env=harness.env,
-    )
-    output = strip_ansi(result.stdout)
-    evidence = assert_i18n_basename_consumer_evidence(output)
-    print(f"[EVID] {evidence}")
-    factory_evidence = assert_common_locale_factory_consumer_evidence(output)
-    print(f"[EVID] {factory_evidence}")
-    for class_entry in FEATURE_CLASS_ENTRIES:
-        fqcn = class_entry.removesuffix(".class").replace("/", ".")
-        if fqcn not in output:
-            raise HarnessError(
-                f"Binary consumer did not load {fqcn}.\n{output.rstrip()}"
+        assert_class_file_unchanged(class_file, baseline_hash, f"Resolving {classpath_name}")
+        assert_artifacts_present(candidate_classpath, CANONICAL_FEATURE_ARTIFACTS, candidate_version)
+        if profile == "aliases":
+            assert_artifacts_present(candidate_classpath, ALIAS_FEATURE_ARTIFACTS, candidate_version)
+            assert_facades_source_free(
+                candidate_classpath,
+                ALIAS_FEATURE_ARTIFACTS,
+                candidate_version,
+                ("io/github/coco/feature/",),
             )
+        else:
+            assert_artifacts_absent(candidate_classpath, ALIAS_FEATURE_ARTIFACTS, candidate_version)
+        runtime_classpath = os.pathsep.join(
+            [
+                str(feature_fixture / "target/classes"),
+                *(str(path) for path in candidate_classpath),
+            ]
+        )
+        result = run_command(
+            f"run unchanged fixed 2.0.1 class files on {classpath_name}",
+            [harness.java, "-cp", runtime_classpath, FEATURE_CONSUMER_CLASS],
+            cwd=feature_fixture,
+            env=harness.env,
+        )
+        output = strip_ansi(result.stdout)
+        print(f"[EVID] {assert_i18n_basename_consumer_evidence(output)}")
+        print(f"[EVID] {assert_common_locale_factory_consumer_evidence(output)}")
+        print(f"[EVID] {assert_locale_pass_through_consumer_evidence(output)}")
+        assert_class_file_unchanged(class_file, baseline_hash, f"Running on {classpath_name}")
+        for class_entry in FEATURE_CLASS_ENTRIES:
+            fqcn = class_entry.removesuffix(".class").replace("/", ".")
+            if fqcn not in output:
+                raise HarnessError(
+                    f"Binary consumer did not load {fqcn}.\n{output.rstrip()}"
+                )
 
 
 def compile_candidate_feature_consumers(
