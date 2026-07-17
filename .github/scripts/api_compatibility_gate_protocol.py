@@ -19,6 +19,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any
+from xml.etree import ElementTree
 
 
 SOURCE_WORKFLOW_NAME = "CI"
@@ -45,7 +46,7 @@ POLICY_FILES = (
     "japicmp-key.json",
 )
 JAPICMP_URL = (
-    "https://repo1.maven.org/maven2/com/github/siom79/japicmp/japicmp/0.23.1/"
+    "https://repo.maven.apache.org/maven2/com/github/siom79/japicmp/japicmp/0.23.1/"
     "japicmp-0.23.1-jar-with-dependencies.jar"
 )
 JAPICMP_SIZE = 5988558
@@ -63,6 +64,88 @@ MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_ENTRY_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 100
+MAX_JAR_ENTRIES = 2048
+MAX_JAR_ENTRY_BYTES = 8 * 1024 * 1024
+MAX_JAR_TOTAL_BYTES = 32 * 1024 * 1024
+MAX_JAR_COMPRESSION_RATIO = 100
+MAX_JAPICMP_XML_BYTES = 16 * 1024 * 1024
+JAPICMP_TIMEOUT_SECONDS = 60
+CLASS_NAME_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*")
+MEMBER_NAME_RE = re.compile(
+    r"(?:<class>|<init>\([A-Za-z0-9_$.,\[\]]*\)|"
+    r"[A-Za-z_$][A-Za-z0-9_$]*(?:\([A-Za-z0-9_$.,\[\]]*\))?)"
+)
+COORDINATE_RE = re.compile(
+    r"([A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*):"
+    r"([A-Za-z0-9][A-Za-z0-9_.-]*)"
+)
+MAVEN_VERSION_RE = re.compile(r"[0-9][A-Za-z0-9._-]*")
+JAPICMP_CATEGORIES = frozenset(
+    {
+        "ANNOTATION_ADDED",
+        "ANNOTATION_DEPRECATED_ADDED",
+        "ANNOTATION_MODIFIED",
+        "ANNOTATION_REMOVED",
+        "CLASS_GENERIC_TEMPLATE_CHANGED",
+        "CLASS_GENERIC_TEMPLATE_GENERICS_CHANGED",
+        "CLASS_LESS_ACCESSIBLE",
+        "CLASS_NO_LONGER_PUBLIC",
+        "CLASS_NOW_ABSTRACT",
+        "CLASS_NOW_CHECKED_EXCEPTION",
+        "CLASS_NOW_FINAL",
+        "CLASS_REMOVED",
+        "CLASS_TYPE_CHANGED",
+        "CONSTRUCTOR_LESS_ACCESSIBLE",
+        "CONSTRUCTOR_REMOVED",
+        "FIELD_GENERICS_CHANGED",
+        "FIELD_LESS_ACCESSIBLE",
+        "FIELD_LESS_ACCESSIBLE_THAN_IN_SUPERCLASS",
+        "FIELD_NO_LONGER_STATIC",
+        "FIELD_NO_LONGER_TRANSIENT",
+        "FIELD_NO_LONGER_VOLATILE",
+        "FIELD_NOW_FINAL",
+        "FIELD_NOW_STATIC",
+        "FIELD_NOW_TRANSIENT",
+        "FIELD_NOW_VOLATILE",
+        "FIELD_REMOVED",
+        "FIELD_REMOVED_IN_SUPERCLASS",
+        "FIELD_STATIC_AND_OVERRIDES_STATIC",
+        "FIELD_TYPE_CHANGED",
+        "INTERFACE_ADDED",
+        "INTERFACE_REMOVED",
+        "METHOD_ABSTRACT_ADDED_IN_IMPLEMENTED_INTERFACE",
+        "METHOD_ABSTRACT_ADDED_IN_SUPERCLASS",
+        "METHOD_ABSTRACT_ADDED_TO_CLASS",
+        "METHOD_ABSTRACT_NOW_DEFAULT",
+        "METHOD_ADDED_TO_INTERFACE",
+        "METHOD_ADDED_TO_PUBLIC_CLASS",
+        "METHOD_DEFAULT_ADDED_IN_IMPLEMENTED_INTERFACE",
+        "METHOD_IS_STATIC_AND_OVERRIDES_NOT_STATIC",
+        "METHOD_LESS_ACCESSIBLE",
+        "METHOD_LESS_ACCESSIBLE_THAN_IN_SUPERCLASS",
+        "METHOD_MOVED_TO_SUPERCLASS",
+        "METHOD_NEW_DEFAULT",
+        "METHOD_NEW_STATIC_ADDED_TO_INTERFACE",
+        "METHOD_NO_LONGER_STATIC",
+        "METHOD_NO_LONGER_THROWS_CHECKED_EXCEPTION",
+        "METHOD_NO_LONGER_VARARGS",
+        "METHOD_NON_STATIC_IN_INTERFACE_NOW_STATIC",
+        "METHOD_NOW_ABSTRACT",
+        "METHOD_NOW_FINAL",
+        "METHOD_NOW_STATIC",
+        "METHOD_NOW_THROWS_CHECKED_EXCEPTION",
+        "METHOD_NOW_VARARGS",
+        "METHOD_PARAMETER_GENERICS_CHANGED",
+        "METHOD_REMOVED",
+        "METHOD_REMOVED_IN_SUPERCLASS",
+        "METHOD_RETURN_TYPE_CHANGED",
+        "METHOD_RETURN_TYPE_GENERICS_CHANGED",
+        "METHOD_STATIC_IN_INTERFACE_NO_LONGER_STATIC",
+        "SUPERCLASS_ADDED",
+        "SUPERCLASS_MODIFIED_INCOMPATIBLE",
+        "SUPERCLASS_REMOVED",
+    }
+)
 
 
 class ProtocolError(RuntimeError):
@@ -290,6 +373,71 @@ def read_safe_zip(archive_bytes: bytes) -> dict[str, bytes]:
     return result
 
 
+def validate_inner_jar(name: str, data: bytes) -> None:
+    require(0 < len(data) <= MAX_ENTRY_BYTES, f"inner JAR size is invalid: {name}")
+    seen: set[str] = set()
+    folded: set[str] = set()
+    total = 0
+    try:
+        with zipfile.ZipFile(BytesIO(data), "r") as archive:
+            infos = archive.infolist()
+            require(
+                0 < len(infos) <= MAX_JAR_ENTRIES,
+                f"inner JAR entry count is invalid: {name}",
+            )
+            for info in infos:
+                entry_name = safe_path(info.filename)
+                require(
+                    entry_name not in seen and entry_name.casefold() not in folded,
+                    f"inner JAR has duplicate or case-colliding entries: {name}",
+                )
+                seen.add(entry_name)
+                folded.add(entry_name.casefold())
+                mode = info.external_attr >> 16
+                file_type = stat.S_IFMT(mode)
+                require(
+                    file_type in {0, stat.S_IFREG, stat.S_IFDIR}
+                    and not stat.S_ISLNK(mode),
+                    f"inner JAR special entry is forbidden: {name}",
+                )
+                require(
+                    not (info.flag_bits & 1),
+                    f"inner JAR encrypted entry is forbidden: {name}",
+                )
+                if info.is_dir():
+                    require(
+                        info.file_size == 0,
+                        f"inner JAR directory size is invalid: {name}",
+                    )
+                    continue
+                require(
+                    0 <= info.file_size <= MAX_JAR_ENTRY_BYTES,
+                    f"inner JAR entry is oversized: {name}",
+                )
+                require(
+                    info.compress_size >= 0,
+                    f"inner JAR compression metadata is invalid: {name}",
+                )
+                if info.file_size:
+                    require(
+                        info.compress_size > 0
+                        and info.file_size / info.compress_size
+                        <= MAX_JAR_COMPRESSION_RATIO,
+                        f"inner JAR compression ratio is unsafe: {name}",
+                    )
+                total += info.file_size
+                require(
+                    total <= MAX_JAR_TOTAL_BYTES,
+                    f"inner JAR total size is oversized: {name}",
+                )
+                require(
+                    len(archive.read(info)) == info.file_size,
+                    f"inner JAR entry size drift: {name}",
+                )
+    except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
+        raise ProtocolError(f"candidate JAR is invalid: {name}") from exc
+
+
 def policy_file(root: Path, name: str) -> Any:
     path = root / POLICY_ROOT / name
     require(
@@ -303,6 +451,86 @@ def policy_file(root: Path, name: str) -> Any:
         f"protected policy asset is not canonical: {name}",
     )
     return value
+
+
+def coordinate_parts(value: object) -> tuple[str, str]:
+    require(isinstance(value, str), "profile coordinate is invalid")
+    match = COORDINATE_RE.fullmatch(value)
+    require(match is not None, "profile coordinate is invalid")
+    return match.group(1), match.group(2)
+
+
+def validate_maven_central_url(url: object, coordinate: str) -> str:
+    require(isinstance(url, str), "baseline ledger URL is invalid")
+    group, artifact = coordinate_parts(coordinate)
+    parsed = urllib.parse.urlsplit(url)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ProtocolError("baseline ledger URL is invalid") from exc
+    require(
+        parsed.scheme == "https"
+        and parsed.netloc == "repo.maven.apache.org"
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and parsed.username is None
+        and parsed.password is None
+        and port is None,
+        "baseline ledger URL must use canonical Maven Central",
+    )
+    prefix = f"/maven2/{group.replace('.', '/')}/{artifact}/"
+    require(parsed.path.startswith(prefix), "baseline ledger URL path is invalid")
+    remainder = parsed.path.removeprefix(prefix)
+    parts = remainder.split("/")
+    require(len(parts) == 2, "baseline ledger URL path is invalid")
+    version, filename = parts
+    require(
+        MAVEN_VERSION_RE.fullmatch(version) is not None
+        and filename == f"{artifact}-{version}.jar"
+        and urllib.parse.unquote(parsed.path) == parsed.path,
+        "baseline ledger URL path is invalid",
+    )
+    return url
+
+
+def validate_allowlist(
+    value: object, baseline_names: list[str]
+) -> frozenset[tuple[str, str, str, str]]:
+    require(isinstance(value, list), "allowlist exceptions are invalid")
+    exceptions: list[tuple[str, str, str, str]] = []
+    for entry in value:
+        item = exact_keys(
+            entry,
+            {"artifact", "category", "class", "member"},
+            "allowlist exception is invalid",
+        )
+        artifact = item["artifact"]
+        class_name = item["class"]
+        member = item["member"]
+        category = item["category"]
+        require(
+            isinstance(artifact, str) and artifact in baseline_names,
+            "allowlist artifact is invalid",
+        )
+        require(
+            isinstance(class_name, str)
+            and CLASS_NAME_RE.fullmatch(class_name) is not None,
+            "allowlist class must be exact",
+        )
+        require(
+            isinstance(member, str) and MEMBER_NAME_RE.fullmatch(member) is not None,
+            "allowlist member must be exact",
+        )
+        require(
+            isinstance(category, str) and category in JAPICMP_CATEGORIES,
+            "allowlist category is invalid",
+        )
+        exceptions.append((artifact, class_name, member, category))
+    require(
+        exceptions == sorted(exceptions) and len(set(exceptions)) == len(exceptions),
+        "allowlist exceptions must be uniquely sorted",
+    )
+    return frozenset(exceptions)
 
 
 def load_policy(root: Path) -> dict[str, Any]:
@@ -349,11 +577,13 @@ def load_policy(root: Path) -> dict[str, Any]:
             isinstance(item["baseline"], bool) and isinstance(item["coordinate"], str),
             "profile artifact is invalid",
         )
+        _, artifact_id = coordinate_parts(item["coordinate"])
         require(
             isinstance(item["jar"], str)
             and JAR_NAME_RE.fullmatch(item["jar"]) is not None,
             "profile jar is invalid",
         )
+        require(item["jar"] == f"{artifact_id}.jar", "profile coordinate/JAR mismatch")
         names.append(item["jar"])
         if item["baseline"]:
             baseline_names.append(item["jar"])
@@ -387,10 +617,12 @@ def load_policy(root: Path) -> dict[str, Any]:
             and item["size"] <= MAX_ENTRY_BYTES,
             "baseline ledger size is invalid",
         )
-        require(
-            isinstance(item["url"], str) and item["url"].startswith("https://"),
-            "baseline ledger URL is invalid",
+        coordinate = next(
+            artifact["coordinate"]
+            for artifact in artifacts
+            if artifact["jar"] == item["jar"]
         )
+        validate_maven_central_url(item["url"], coordinate)
         require(item["jar"] not in ledger_by_jar, "baseline ledger has duplicates")
         ledger_by_jar[item["jar"]] = item
     require(
@@ -410,8 +642,12 @@ def load_policy(root: Path) -> dict[str, Any]:
         },
         "japicmp key is not pinned",
     )
-    require(isinstance(allowlist["exceptions"], list), "allowlist is invalid")
-    return {"artifacts": artifacts, "baselines": ledger_by_jar}
+    exceptions = validate_allowlist(allowlist["exceptions"], baseline_names)
+    return {
+        "artifacts": artifacts,
+        "baselines": ledger_by_jar,
+        "exceptions": exceptions,
+    }
 
 
 def validate_candidate_artifact(
@@ -477,11 +713,7 @@ def validate_candidate_artifact(
             and sha256_bytes(data) == claims[name]["sha256"],
             "candidate JAR claim mismatch",
         )
-        try:
-            with zipfile.ZipFile(BytesIO(data), "r") as jar:
-                require(jar.testzip() is None, "candidate JAR is corrupt")
-        except zipfile.BadZipFile as exc:
-            raise ProtocolError("candidate JAR is not a ZIP") from exc
+        validate_inner_jar(name, data)
         jars[name] = data
     return jars
 
@@ -694,17 +926,198 @@ def artifact_metadata(api: GitHubApi, binding: dict[str, Any]) -> dict[str, Any]
     return artifact
 
 
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: urllib.request.Request,
+        file_pointer: Any,
+        code: int,
+        message: str,
+        headers: Any,
+        new_url: str,
+    ) -> None:
+        return None
+
+
 def download(url: str, destination: Path, digest: str, size: int) -> None:
+    require(
+        url.startswith("https://repo.maven.apache.org/maven2/")
+        and "?" not in url
+        and "#" not in url,
+        "protected download URL is not canonical Maven Central",
+    )
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept-Encoding": "identity",
+            "Cache-Control": "no-cache, no-store",
+            "Pragma": "no-cache",
+            "User-Agent": "coco-api-compatibility-shadow/1",
+        },
+    )
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), NoRedirectHandler()
+    )
     try:
-        with urllib.request.urlopen(url, timeout=60) as response:
+        with opener.open(request, timeout=60) as response:
+            require(response.geturl() == url, "protected download redirected")
+            require(response.status == 200, "protected download status is invalid")
+            content_length = response.headers.get("Content-Length")
+            require(
+                content_length is not None and int(content_length) == size,
+                "protected download length header mismatch",
+            )
             data = response.read(size + 1)
-    except (urllib.error.URLError, TimeoutError) as exc:
+    except (
+        ValueError,
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+    ) as exc:
         raise ProtocolError("protected download failed") from exc
     require(
         len(data) == size and sha256_bytes(data) == digest,
         "protected download pin mismatch",
     )
     destination.write_bytes(data)
+
+
+def xml_tag(element: ElementTree.Element) -> str:
+    return element.tag.rsplit("}", 1)[-1]
+
+
+def behavior_member(element: ElementTree.Element, kind: str) -> str:
+    parameters: list[str] = []
+    for candidate in element.iter():
+        if xml_tag(candidate) == "parameter":
+            parameter_type = candidate.get("type")
+            require(
+                isinstance(parameter_type, str)
+                and CLASS_NAME_RE.fullmatch(parameter_type.removesuffix("[]"))
+                is not None,
+                "japicmp parameter type is invalid",
+            )
+            parameters.append(parameter_type)
+    if kind == "constructor":
+        return f"<init>({','.join(parameters)})"
+    name = element.get("name")
+    require(
+        isinstance(name, str) and re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", name),
+        "japicmp member name is invalid",
+    )
+    return f"{name}({','.join(parameters)})" if kind == "method" else name
+
+
+def parse_japicmp_findings(
+    xml_path: Path, artifact: str
+) -> frozenset[tuple[str, str, str, str]]:
+    require(
+        xml_path.is_file() and not xml_path.is_symlink(),
+        "japicmp XML output is missing",
+    )
+    data = xml_path.read_bytes()
+    require(
+        0 < len(data) <= MAX_JAPICMP_XML_BYTES,
+        "japicmp XML output size is invalid",
+    )
+    upper = data.upper()
+    require(
+        b"<!DOCTYPE" not in upper and b"<!ENTITY" not in upper, "unsafe japicmp XML"
+    )
+    try:
+        root = ElementTree.fromstring(data)
+    except ElementTree.ParseError as exc:
+        raise ProtocolError("japicmp XML output is invalid") from exc
+    require(xml_tag(root) == "japicmp", "japicmp XML root is invalid")
+
+    findings: set[tuple[str, str, str, str]] = set()
+
+    def walk(
+        element: ElementTree.Element,
+        class_name: str | None,
+        member: str,
+    ) -> None:
+        tag = xml_tag(element)
+        if tag == "class":
+            class_name = element.get("fullyQualifiedName") or element.get("name")
+            require(
+                isinstance(class_name, str)
+                and CLASS_NAME_RE.fullmatch(class_name) is not None,
+                "japicmp class name is invalid",
+            )
+            member = "<class>"
+        elif tag in {"method", "constructor", "field"}:
+            require(class_name is not None, "japicmp member has no class")
+            member = behavior_member(element, tag)
+        elif tag == "compatibilityChange":
+            require(class_name is not None, "japicmp change has no class")
+            category = element.get("type")
+            binary = element.get("binaryCompatible")
+            source = element.get("sourceCompatible")
+            require(
+                category in JAPICMP_CATEGORIES
+                and binary in {"true", "false"}
+                and source in {"true", "false"},
+                "japicmp compatibility change is invalid",
+            )
+            if binary == "false" or source == "false":
+                findings.add((artifact, class_name, member, category))
+        for child in element:
+            walk(child, class_name, member)
+
+    walk(root, None, "<class>")
+    return frozenset(findings)
+
+
+def invoke_japicmp(old_jar: Path, new_jar: Path, japicmp: Path, xml_path: Path) -> int:
+    require(not xml_path.exists(), "japicmp XML output path already exists")
+    command = [
+        "java",
+        "-Xmx512m",
+        "-XX:MaxMetaspaceSize=192m",
+        "-jar",
+        str(japicmp),
+        "--old",
+        str(old_jar),
+        "--new",
+        str(new_jar),
+        "--only-modified",
+        "--xml-file",
+        str(xml_path),
+        "--error-on-binary-incompatibility",
+        "--error-on-source-incompatibility",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=JAPICMP_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ProtocolError("japicmp timed out") from exc
+    require(result.returncode in {0, 1}, "japicmp execution failed")
+    return result.returncode
+
+
+def compare_jars(
+    artifact: str,
+    old_jar: Path,
+    new_jar: Path,
+    japicmp: Path,
+    xml_path: Path,
+    exceptions: frozenset[tuple[str, str, str, str]],
+) -> None:
+    returncode = invoke_japicmp(old_jar, new_jar, japicmp, xml_path)
+    findings = parse_japicmp_findings(xml_path, artifact)
+    if returncode == 0:
+        require(not findings, "japicmp exit/findings mismatch")
+        return
+    require(findings, "japicmp failed without incompatibility findings")
+    unallowed = findings - exceptions
+    if unallowed:
+        raise ProtocolError("breaking API or ABI change")
 
 
 def run_semantic_checks(
@@ -727,21 +1140,14 @@ def run_semantic_checks(
         new_jar.write_bytes(jars[name])
         baseline = policy["baselines"][name]
         download(baseline["url"], old_jar, baseline["sha256"], baseline["size"])
-        command = [
-            "java",
-            "-jar",
-            str(japicmp),
-            "--old",
-            str(old_jar),
-            "--new",
-            str(new_jar),
-            "--only-modified",
-            "--error-on-binary-incompatibility-modifications",
-            "--error-on-source-incompatibility-modifications",
-        ]
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise ProtocolError("breaking API or ABI change")
+        compare_jars(
+            name,
+            old_jar,
+            new_jar,
+            japicmp,
+            work / f"{name}.xml",
+            policy["exceptions"],
+        )
 
 
 def verify_remote_artifact(

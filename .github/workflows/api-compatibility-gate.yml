@@ -101,6 +101,7 @@ jobs:
     needs: bind
     if: needs.bind.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -131,9 +132,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location --proto '=https' --tlsv1.2 \
-            'https://repo1.maven.org/maven2/com/github/siom79/japicmp/japicmp/0.23.1/japicmp-0.23.1-jar-with-dependencies.jar' \
-            --output "${RUNNER_TEMP}/japicmp-0.23.1.jar"
+          tool_url='https://repo.maven.apache.org/maven2/com/github/siom79/japicmp/japicmp/0.23.1/japicmp-0.23.1-jar-with-dependencies.jar'
+          effective_url="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --noproxy '*' --max-redirs 0 \
+            --header 'Accept-Encoding: identity' \
+            --header 'Cache-Control: no-cache, no-store' \
+            --header 'Pragma: no-cache' \
+            --output "${RUNNER_TEMP}/japicmp-0.23.1.jar" \
+            --write-out '%{url_effective}' "${tool_url}")"
+          test "${effective_url}" = "${tool_url}"
           test "$(wc -c < "${RUNNER_TEMP}/japicmp-0.23.1.jar" | tr -d ' ')" = '5988558'
           echo 'f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7  '${RUNNER_TEMP}'/japicmp-0.23.1.jar' | sha256sum --check --status
       - id: verdict

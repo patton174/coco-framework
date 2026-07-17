@@ -28,11 +28,14 @@ producer 只能执行候选 Maven build，并上传短期 artifact：顶层 `man
 `verify-jars` 从 exact protected SHA checkout 并重新计算 canonical JSON policy bundle：
 
 - `public-api-profile.json` 定义排序的 32 项 inventory，其中 20 项有 baseline，12 项标记 n.a.；
-- `baseline-ledger.json` 只能覆盖那 20 项，且每个 baseline 的 HTTPS URL、size 和 SHA-256 都受约束；
-- `allowlist.json` 与 `japicmp-key.json` 同样必须 canonical；key 固定 japicmp `0.23.1` 的 URL、size `5988558` 和 SHA-256 `f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7`；
+- `baseline-ledger.json` 只能覆盖那 20 项，URL 必须精确匹配 `https://repo.maven.apache.org/maven2/<group>/<artifact>/<version>/<artifact>-<version>.jar`，并绑定 size 和 SHA-256；repo1、镜像、代理、查询参数、错误 coordinate/path 均拒绝；
+- `allowlist.json` 的每项规则必须是唯一排序的精确 `(artifact, class, member, category)`；禁止通配、artifact-wide、`MODIFIED` 或用 member 规则隐藏其他 category。受保护 verifier 解析自己生成的 japicmp XML 后逐 finding 应用规则，同 artifact 的任意其他不兼容仍阻断；
+- `japicmp-key.json` 必须 canonical；key 固定 japicmp `0.23.1` 的 `repo.maven.apache.org` URL、size `5988558` 和 SHA-256 `f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7`；
 - 任何 asset 缺失、symlink、非 canonical JSON、schema 偏差、inventory/ledger 偏差或 pin 偏差都 fail closed。基础 assets 合并前，路由保持 dormant，不能启用 shadow。
 
-verifier 独立下载 pinned japicmp fat JAR，验证 size/hash，然后安全解析 artifact，不信任 producer manifest 来决定 inventory。archive 必须且只能包含 profile 推导的 32 个 JAR 和一个 manifest；缺失、额外、重复、case collision、path traversal、backslash、symlink、加密 entry、损坏 ZIP、压缩炸弹、coordinate/JAR 交换都失败。验证器将合格 JAR 与 ledger baseline 重跑 japicmp API/ABI 语义；producer XML 永远不是输入。
+verifier 独立下载 pinned japicmp fat JAR，禁用 proxy、redirect 和 cache，复核 final URL、size/hash，然后安全解析 artifact，不信任 producer manifest 来决定 inventory。archive 必须且只能包含 profile 推导的 32 个 JAR 和一个 manifest；缺失、额外、重复、case collision、path traversal、backslash、symlink、加密 entry、损坏 ZIP、压缩炸弹、coordinate/JAR 交换都失败。每个 inner JAR 还独立限制 entry count、单 entry/总展开大小、压缩比、路径和 duplicate/case collision。
+
+验证器将合格 JAR 与 ledger baseline 用真实 japicmp 0.23.1 重跑 API/ABI 语义。固定 CLI flags 为 `--error-on-binary-incompatibility` 与 `--error-on-source-incompatibility`；JVM 固定 `-Xmx512m -XX:MaxMetaspaceSize=192m`，单 artifact 最长 60 秒，`verify-jars` job 最长 30 分钟。兼容比较必须 exit 0；不兼容比较 exit 1 且必须产生可严格解析的 protected XML findings。未知参数、缺 XML、其他 exit code 或超时 fail closed；producer XML 永远不是输入。
 
 ## 权限与发布
 
@@ -43,4 +46,4 @@ verifier 独立下载 pinned japicmp fat JAR，验证 size/hash，然后安全�
 
 ## 验收
 
-离线协议测试覆盖：breaking JAR 加伪 XML、policy/POM 污染、dirty tracked/untracked/index、缺失 policy、31/33 JAR、duplicate/case collision、zip bomb、stale run/attempt/head、fork、merge group 与 publisher 非法 token。每次路由变更还必须执行 Python 编译、Ruff、YAML 解析、可用 governance tests、`git diff --check` 和（若本 worktree 有 `.codegraph`）`codegraph sync .`。
+协议测试覆盖：breaking JAR 加伪 XML、policy/POM 污染、dirty tracked/untracked/index、缺失 policy、31/33 JAR、outer/inner duplicate/case collision/zip bomb/资源上限、stale run/attempt/head、fork、merge group、publisher 非法 token、严格 allowlist 与 Maven Central URL。真实集成测试必须用 JDK 编译 compatible/removed-method JAR，证明 japicmp 0.23.1 分别 exit 0/1、精确 `METHOD_REMOVED` 规则通过且同 artifact 其他 breaking finding 仍失败。每次路由变更还必须执行 Python 编译、Ruff、YAML 解析、可用 governance tests、`git diff --check` 和（若本 worktree 有 `.codegraph`）`codegraph sync .`。

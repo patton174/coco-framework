@@ -6,12 +6,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest import mock
 from urllib.parse import urlparse
 
 import api_compatibility_gate_protocol as protocol
@@ -36,7 +37,11 @@ def jar_bytes() -> bytes:
     return stream.getvalue()
 
 
-def write_policy(root: Path) -> None:
+def write_policy(
+    root: Path,
+    exceptions: list[dict[str, str]] | None = None,
+    baseline_url: str | None = None,
+) -> None:
     directory = root / protocol.POLICY_ROOT
     directory.mkdir(parents=True)
     profile = {
@@ -55,7 +60,11 @@ def write_policy(root: Path) -> None:
         "baselines": [
             {
                 "jar": name,
-                "url": "https://example.invalid/" + name,
+                "url": baseline_url
+                or (
+                    "https://repo.maven.apache.org/maven2/io/github/coco/"
+                    f"{name[:-4]}/2.0.1/{name[:-4]}-2.0.1.jar"
+                ),
                 "size": 5,
                 "sha256": "d" * 64,
             }
@@ -65,7 +74,10 @@ def write_policy(root: Path) -> None:
     values = {
         "public-api-profile.json": profile,
         "baseline-ledger.json": ledger,
-        "allowlist.json": {"schema_version": 1, "exceptions": []},
+        "allowlist.json": {
+            "schema_version": 1,
+            "exceptions": exceptions or [],
+        },
         "japicmp-key.json": {
             "schema_version": 1,
             "japicmp": {
@@ -78,6 +90,33 @@ def write_policy(root: Path) -> None:
     }
     for name, value in values.items():
         (directory / name).write_bytes(protocol.canonical_json(value) + b"\n")
+
+
+def build_java_jar(root: Path, label: str, source: str) -> Path:
+    source_root = root / label / "src" / "example"
+    classes = root / label / "classes"
+    source_root.mkdir(parents=True)
+    classes.mkdir(parents=True)
+    source_file = source_root / "Api.java"
+    source_file.write_text(source, encoding="utf-8")
+    javac = shutil.which("javac")
+    jar = shutil.which("jar")
+    if javac is None or jar is None:
+        raise unittest.SkipTest("JDK javac/jar are required")
+    subprocess.run(
+        [javac, "-d", str(classes), str(source_file)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = root / f"{label}.jar"
+    subprocess.run(
+        [jar, "--create", "--file", str(output), "-C", str(classes), "."],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return output
 
 
 def binding() -> dict:
@@ -181,6 +220,126 @@ class CandidateArtifactTests(unittest.TestCase):
                 protocol.ProtocolError, "missing protected policy asset"
             ):
                 protocol.load_policy(Path(directory))
+
+
+class ProtectedPolicyTests(unittest.TestCase):
+    def test_exact_removed_allowlist_is_retained_in_policy(self) -> None:
+        exception = {
+            "artifact": NAMES[0],
+            "class": "example.Api",
+            "member": "removed()",
+            "category": "METHOD_REMOVED",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_policy(root, [exception])
+            self.assertEqual(
+                frozenset(
+                    {
+                        (
+                            NAMES[0],
+                            "example.Api",
+                            "removed()",
+                            "METHOD_REMOVED",
+                        )
+                    }
+                ),
+                protocol.load_policy(root)["exceptions"],
+            )
+
+    def test_allowlist_requires_exact_artifact_class_member_and_category(self) -> None:
+        invalid = (
+            {
+                "artifact": NAMES[0],
+                "class": "example.*",
+                "member": "removed()",
+                "category": "METHOD_REMOVED",
+            },
+            {
+                "artifact": NAMES[0],
+                "class": "example.Api",
+                "member": "*",
+                "category": "METHOD_REMOVED",
+            },
+            {
+                "artifact": NAMES[0],
+                "class": "example.Api",
+                "member": "removed()",
+                "category": "MODIFIED",
+            },
+            {
+                "artifact": "*",
+                "class": "example.Api",
+                "member": "removed()",
+                "category": "METHOD_REMOVED",
+            },
+        )
+        for exception in invalid:
+            with (
+                self.subTest(exception=exception),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                write_policy(root, [exception])
+                with self.assertRaises(protocol.ProtocolError):
+                    protocol.load_policy(root)
+
+    def test_baseline_url_is_exact_canonical_maven_central_path(self) -> None:
+        invalid_urls = (
+            "https://repo1.maven.org/maven2/io/github/coco/coco-00/2.0.1/coco-00-2.0.1.jar",
+            "https://proxy.example/maven2/io/github/coco/coco-00/2.0.1/coco-00-2.0.1.jar",
+            "https://repo.maven.apache.org/maven2/io/github/coco/coco-00/2.0.1/other-2.0.1.jar",
+            "https://repo.maven.apache.org/maven2/io/github/coco/coco-00/2.0.1/coco-00-2.0.1.jar?cache=1",
+        )
+        for url in invalid_urls:
+            with self.subTest(url=url):
+                with self.assertRaises(protocol.ProtocolError):
+                    protocol.validate_maven_central_url(url, "io.github.coco:coco-00")
+
+
+class InnerJarLimitTests(unittest.TestCase):
+    @staticmethod
+    def make_jar(
+        entries: list[tuple[str, bytes]], compression: int = zipfile.ZIP_STORED
+    ) -> bytes:
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", compression) as archive:
+            for name, data in entries:
+                archive.writestr(name, data)
+        return stream.getvalue()
+
+    def test_inner_jar_rejects_paths_duplicates_and_case_collisions(self) -> None:
+        cases = (
+            self.make_jar([("../Api.class", b"x")]),
+            self.make_jar([("Api.class", b"x"), ("Api.class", b"x")]),
+            self.make_jar([("Api.class", b"x"), ("api.class", b"x")]),
+        )
+        for value in cases:
+            with self.subTest(size=len(value)):
+                with self.assertRaises(protocol.ProtocolError):
+                    protocol.validate_inner_jar("fixture.jar", value)
+
+    def test_inner_jar_rejects_entry_count_single_total_and_ratio_limits(self) -> None:
+        cases = (
+            self.make_jar(
+                [
+                    (f"entry-{index}.class", b"")
+                    for index in range(protocol.MAX_JAR_ENTRIES + 1)
+                ]
+            ),
+            self.make_jar([("large.class", b"x" * (protocol.MAX_JAR_ENTRY_BYTES + 1))]),
+            self.make_jar(
+                [
+                    (f"large-{index}.class", b"x" * (7 * 1024 * 1024))
+                    for index in range(5)
+                ]
+            ),
+            self.make_jar([("bomb.class", b"0" * 200_000)], zipfile.ZIP_DEFLATED),
+        )
+        for value in cases:
+            with self.subTest(size=len(value)):
+                with self.assertRaises(protocol.ProtocolError):
+                    protocol.validate_inner_jar("fixture.jar", value)
 
 
 class CheckoutTests(unittest.TestCase):
@@ -365,23 +524,6 @@ class BindingAndPublisherTests(unittest.TestCase):
         self.assertEqual(protocol.STATUS_CONTEXT, api.posts[-1][1]["context"])
         self.assertNotEqual("CI gate", api.posts[-1][1]["context"])
 
-    def test_breaking_jar_is_a_fixed_failure_token(self) -> None:
-        api = FakeApi()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            write_policy(root)
-            with mock.patch.object(
-                protocol,
-                "run_semantic_checks",
-                side_effect=protocol.ProtocolError("breaking API or ABI change"),
-            ):
-                self.assertEqual(
-                    protocol.FAIL_BREAKING,
-                    protocol.verify_remote_artifact(
-                        api, binding(), root, root / "japicmp.jar"
-                    ),
-                )
-
 
 class WorkflowContractTests(unittest.TestCase):
     @staticmethod
@@ -410,10 +552,28 @@ class WorkflowContractTests(unittest.TestCase):
         self,
     ) -> None:
         workflow = self.read(".github/workflows/api-compatibility-gate.yml")
+        protocol_source = self.read(
+            ".github/scripts/api_compatibility_gate_protocol.py"
+        )
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("workflow_run:", workflow)
         self.assertIn("verify-jars:", workflow)
+        self.assertIn("timeout-minutes: 30", workflow)
         self.assertIn("statuses: write", workflow)
+        self.assertIn("--noproxy '*' --max-redirs 0", workflow)
+        self.assertNotIn("curl --fail --location", workflow)
+        self.assertIn("repo.maven.apache.org", workflow)
+        self.assertNotIn("repo1.maven.org", workflow)
+        self.assertIn("%{url_effective}", workflow)
+        self.assertIn('"-Xmx512m"', protocol_source)
+        self.assertIn('"-XX:MaxMetaspaceSize=192m"', protocol_source)
+        self.assertIn("timeout=JAPICMP_TIMEOUT_SECONDS", protocol_source)
+        self.assertIn('"--error-on-binary-incompatibility"', protocol_source)
+        self.assertIn('"--error-on-source-incompatibility"', protocol_source)
+        self.assertNotIn("incompatibility-modifications", protocol_source)
+        self.assertIn("urllib.request.ProxyHandler({})", protocol_source)
+        self.assertIn("NoRedirectHandler()", protocol_source)
+        self.assertIn('"Cache-Control": "no-cache, no-store"', protocol_source)
         publisher = workflow.split("  publish:", 1)[1]
         self.assertNotIn("download-artifact", publisher)
         self.assertNotIn("--japicmp", publisher)
@@ -422,6 +582,108 @@ class WorkflowContractTests(unittest.TestCase):
         for line in workflow.splitlines():
             if "uses: actions/" in line:
                 self.assertRegex(line.split("@", 1)[1].split()[0], r"^[0-9a-f]{40}$")
+
+
+@unittest.skipUnless(
+    os.environ.get("COCO_JAPICMP_INTEGRATION_JAR"),
+    "set COCO_JAPICMP_INTEGRATION_JAR to run real japicmp integration",
+)
+class RealJapicmpIntegrationTests(unittest.TestCase):
+    def test_real_compatible_breaking_and_exact_removed_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            supplied = Path(os.environ["COCO_JAPICMP_INTEGRATION_JAR"])
+            self.assertEqual(protocol.JAPICMP_SIZE, supplied.stat().st_size)
+            japicmp = root / "japicmp-0.23.1.jar"
+            protocol.download(
+                protocol.JAPICMP_URL,
+                japicmp,
+                protocol.JAPICMP_SHA256,
+                protocol.JAPICMP_SIZE,
+            )
+            old = build_java_jar(
+                root,
+                "old",
+                """package example;
+public class Api {
+    public void keep() {}
+    public void removed() {}
+    public void other() {}
+}
+""",
+            )
+            compatible = build_java_jar(
+                root,
+                "compatible",
+                """package example;
+public class Api {
+    public void keep() {}
+    public void removed() {}
+    public void other() {}
+    public void added() {}
+}
+""",
+            )
+            one_removed = build_java_jar(
+                root,
+                "one-removed",
+                """package example;
+public class Api {
+    public void keep() {}
+    public void other() {}
+}
+""",
+            )
+            two_removed = build_java_jar(
+                root,
+                "two-removed",
+                """package example;
+public class Api {
+    public void keep() {}
+}
+""",
+            )
+            self.assertEqual(
+                0,
+                protocol.invoke_japicmp(
+                    old, compatible, japicmp, root / "compatible.xml"
+                ),
+            )
+            self.assertEqual(
+                1,
+                protocol.invoke_japicmp(
+                    old, one_removed, japicmp, root / "one-removed.xml"
+                ),
+            )
+            exact = frozenset(
+                {
+                    (
+                        NAMES[0],
+                        "example.Api",
+                        "removed()",
+                        "METHOD_REMOVED",
+                    )
+                }
+            )
+            protocol.compare_jars(
+                NAMES[0],
+                old,
+                one_removed,
+                japicmp,
+                root / "allowlisted.xml",
+                exact,
+            )
+            with self.assertRaisesRegex(
+                protocol.ProtocolError, "breaking API or ABI change"
+            ):
+                protocol.compare_jars(
+                    NAMES[0],
+                    old,
+                    two_removed,
+                    japicmp,
+                    root / "unallowlisted.xml",
+                    exact,
+                )
 
 
 if __name__ == "__main__":
