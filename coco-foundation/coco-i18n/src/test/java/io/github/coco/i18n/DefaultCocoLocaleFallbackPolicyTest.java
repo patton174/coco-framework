@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.stream.Stream;
 
 import io.github.coco.i18n.internal.DefaultCocoLocaleFallbackPolicy;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -45,6 +46,46 @@ class DefaultCocoLocaleFallbackPolicyTest {
                 .isSameAs(Locale.JAPAN);
     }
 
+    @Test
+    void privateUseTagDoesNotMatchLocaleRoot() {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage("x-private");
+
+        assertThat(this.policy.resolveLocale(Locale.ROOT, properties)).isSameAs(Locale.JAPAN);
+    }
+
+    @Test
+    void unicodeExtensionDoesNotMatchPlainLocale() {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage("en-u-ca-gregory");
+
+        assertThat(this.policy.resolveLocale(Locale.US, properties)).isSameAs(Locale.JAPAN);
+    }
+
+    @Test
+    void exactExtendedLocalePreservesTheRequestedObject() {
+        Locale extendedLocale = Locale.forLanguageTag("en-u-ca-gregory");
+        CocoI18nProperties properties = propertiesWithSupportedLanguage(extendedLocale.toLanguageTag());
+
+        assertThat(this.policy.resolveLocale(extendedLocale, properties)).isSameAs(extendedLocale);
+    }
+
+    @Test
+    void plainLanguageTagStillBroadlyMatchesRegionalLocaleWithoutMutatingConfiguration() {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage("en");
+        List<String> configuredLanguages = properties.getSupportedLanguages();
+
+        assertThat(this.policy.resolveLocale(Locale.US, properties)).isSameAs(Locale.US);
+        assertThat(configuredLanguages).containsExactly("en");
+        assertThat(properties.getSupportedLanguages()).containsExactly("en");
+    }
+
+    @Test
+    void regionalTagRequiresAnExactPlainLocaleMatch() {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage("en-US");
+
+        assertThat(this.policy.resolveLocale(Locale.US, properties)).isSameAs(Locale.US);
+        assertThat(this.policy.resolveLocale(Locale.UK, properties)).isSameAs(Locale.JAPAN);
+    }
+
     private static Stream<Locale> requestLocales() {
         return Stream.of(
                 Locale.ROOT,
@@ -62,5 +103,12 @@ class DefaultCocoLocaleFallbackPolicyTest {
 
     private static Stream<Locale> explicitAllowlistLocales() {
         return requestLocales().filter(locale -> !Locale.ROOT.equals(locale));
+    }
+
+    private static CocoI18nProperties propertiesWithSupportedLanguage(String languageTag) {
+        CocoI18nProperties properties = new CocoI18nProperties();
+        properties.setDefaultLocale(Locale.JAPAN);
+        properties.setSupportedLanguages(List.of(languageTag));
+        return properties;
     }
 }
