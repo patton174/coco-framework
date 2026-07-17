@@ -53,19 +53,13 @@ public final class DefaultCocoLocaleFallbackPolicy implements CocoLocaleFallback
             return false;
         }
         Locale supportedLocale = Locale.forLanguageTag(supportedLanguage.replace('_', '-'));
-        if (!supportedLocale.getExtensionKeys().isEmpty()) {
-            return supportedLocale.equals(requestedLocale);
-        }
-        if (supportedLocale.getLanguage().isEmpty()) {
-            return false;
-        }
-        if (!supportedLocale.getLanguage().equalsIgnoreCase(requestedLocale.getLanguage())) {
-            return false;
-        }
-        if (supportedLocale.getCountry().isEmpty() && supportedLocale.getScript().isEmpty()
-                && supportedLocale.getVariant().isEmpty()) {
-            return true;
-        }
-        return supportedLocale.equals(requestedLocale);
+        boolean broadLanguageMatch = !supportedLocale.getLanguage().isEmpty()
+                && supportedLocale.getCountry().isEmpty()
+                && supportedLocale.getScript().isEmpty()
+                && supportedLocale.getVariant().isEmpty()
+                && supportedLocale.getExtensionKeys().isEmpty();
+        return broadLanguageMatch
+                ? supportedLocale.getLanguage().equalsIgnoreCase(requestedLocale.getLanguage())
+                : supportedLocale.toLanguageTag().equalsIgnoreCase(requestedLocale.toLanguageTag());
     }
 }

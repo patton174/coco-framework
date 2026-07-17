@@ -49,7 +49,9 @@ class DefaultCocoLocaleFallbackPolicyTest {
     @Test
     void privateUseTagDoesNotMatchLocaleRoot() {
         CocoI18nProperties properties = propertiesWithSupportedLanguage("x-private");
+        Locale privateUseLocale = Locale.forLanguageTag("X-PRIVATE");
 
+        assertThat(this.policy.resolveLocale(privateUseLocale, properties)).isSameAs(privateUseLocale);
         assertThat(this.policy.resolveLocale(Locale.ROOT, properties)).isSameAs(Locale.JAPAN);
     }
 
@@ -84,6 +86,33 @@ class DefaultCocoLocaleFallbackPolicyTest {
 
         assertThat(this.policy.resolveLocale(Locale.US, properties)).isSameAs(Locale.US);
         assertThat(this.policy.resolveLocale(Locale.UK, properties)).isSameAs(Locale.JAPAN);
+        assertThat(this.policy.resolveLocale(Locale.forLanguageTag("en-US-u-ca-gregory"), properties))
+                .isSameAs(Locale.JAPAN);
+    }
+
+    @Test
+    void variantTagMatchesIgnoringCaseInBothDirections() {
+        assertTagMatchPreservesRequestedLocale("en-US-posix", "en-US-POSIX");
+        assertTagMatchPreservesRequestedLocale("en-US-POSIX", "en-US-posix");
+    }
+
+    @Test
+    void multipleVariantsMatchIgnoringCase() {
+        assertTagMatchPreservesRequestedLocale("sl-rozaj-biske", "SL-ROZAJ-BISKE");
+    }
+
+    @Test
+    void variantAndUnicodeExtensionMatchIgnoringCase() {
+        assertTagMatchPreservesRequestedLocale(
+                "en-US-posix-u-ca-gregory", "EN-us-POSIX-u-CA-GREGORY");
+    }
+
+    @Test
+    void differentVariantFallsBackToDefaultLocale() {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage("en-US-posix");
+
+        assertThat(this.policy.resolveLocale(Locale.forLanguageTag("en-US-revised"), properties))
+                .isSameAs(Locale.JAPAN);
     }
 
     private static Stream<Locale> requestLocales() {
@@ -110,5 +139,12 @@ class DefaultCocoLocaleFallbackPolicyTest {
         properties.setDefaultLocale(Locale.JAPAN);
         properties.setSupportedLanguages(List.of(languageTag));
         return properties;
+    }
+
+    private void assertTagMatchPreservesRequestedLocale(String supportedTag, String requestedTag) {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage(supportedTag);
+        Locale requestedLocale = Locale.forLanguageTag(requestedTag);
+
+        assertThat(this.policy.resolveLocale(requestedLocale, properties)).isSameAs(requestedLocale);
     }
 }
