@@ -20,6 +20,10 @@
 
 ## 专用身份
 
+公共 API 兼容性 shadow status 的候选执行、受保护重绑定、artifact 验证和发布权限拆分由
+[受信公共 API 兼容性 Shadow 门禁路由](2026-07-16-trusted-api-compatibility-gate-route.md)定义；
+该路线只使用内置 GitHub Actions token 发布非 required context，不使用本节的专用 Coco App。
+
 仓库安装一个仅服务于 Coco 的 GitHub App。仅允许精确 `main` 分支进入的 `coco-agent` environment 通过以下配置创建短期 installation token：
 
 - variable `COCO_AGENT_APP_CLIENT_ID`

@@ -1,0 +1,196 @@
+name: API Compatibility Trusted Shadow
+run-name: "API Compatibility Trusted Shadow / protected route"
+
+# This file is loaded only from the protected default branch for workflow_run.
+# It remains dormant until the protected policy bundle exists and the repository
+# variable is exactly true. It never changes CI gate.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      acknowledge_dormant:
+        description: Confirm protected policy preflight only
+        required: true
+        default: 'false'
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: api-compatibility-shadow-${{ github.repository_id }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  dormant-policy-preflight:
+    name: Dormant protected policy preflight
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.acknowledge_dormant == true &&
+      vars.COCO_API_COMPATIBILITY_TRUSTED_SHADOW != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/api_compatibility_gate_protocol.py
+            coco-support/coco-tools/public-api-compatibility
+      - name: Fail closed until protected policy assets exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"
+          if python .github/scripts/api_compatibility_gate_protocol.py check-policy --protected-root .; then
+            printf '%s\n' 'Protected policy is ready; shadow remains disabled until explicitly enabled.'
+          else
+            printf '%s\n' 'Protected policy assets are absent or invalid; route remains dormant.'
+          fi
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"
+
+  bind:
+    name: Bind exact candidate producer
+    if: github.event_name == 'workflow_run' && vars.COCO_API_COMPATIBILITY_TRUSTED_SHADOW == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      candidate_sha: ${{ steps.binding.outputs.candidate_sha }}
+      source_run_attempt: ${{ steps.binding.outputs.source_run_attempt }}
+      producer_outcome: ${{ steps.binding.outputs.producer_outcome }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/scripts/api_compatibility_gate_protocol.py
+      - id: binding
+        name: Bind source run and attempt from protected code
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"
+          python .github/scripts/api_compatibility_gate_protocol.py bind \
+            --event-path "${GITHUB_EVENT_PATH}" --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" --protected-sha "${GITHUB_SHA}" \
+            --source-run-id "${SOURCE_RUN_ID}" --output "${RUNNER_TEMP}/binding.json"
+          candidate_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["candidate_sha"])' "${RUNNER_TEMP}/binding.json")"
+          source_run_attempt="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_run_attempt"])' "${RUNNER_TEMP}/binding.json")"
+          producer_outcome="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["producer_outcome"])' "${RUNNER_TEMP}/binding.json")"
+          printf 'candidate_sha=%s\nsource_run_attempt=%s\nproducer_outcome=%s\n' "${candidate_sha}" "${source_run_attempt}" "${producer_outcome}" >> "${GITHUB_OUTPUT}"
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"
+
+  verify-jars:
+    name: Verify fresh API and ABI semantics
+    needs: bind
+    if: needs.bind.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      verdict: ${{ steps.verdict.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/api_compatibility_gate_protocol.py
+            coco-support/coco-tools/public-api-compatibility
+      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify protected policy before download
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"
+          python .github/scripts/api_compatibility_gate_protocol.py check-policy --protected-root .
+      - name: Download independently pinned japicmp 0.23.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            'https://repo1.maven.org/maven2/com/github/siom79/japicmp/japicmp/0.23.1/japicmp-0.23.1-jar-with-dependencies.jar' \
+            --output "${RUNNER_TEMP}/japicmp-0.23.1.jar"
+          test "$(wc -c < "${RUNNER_TEMP}/japicmp-0.23.1.jar" | tr -d ' ')" = '5988558'
+          echo 'f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7  '${RUNNER_TEMP}'/japicmp-0.23.1.jar' | sha256sum --check --status
+      - id: verdict
+        name: Safely parse candidate JAR artifact and re-run semantics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          python .github/scripts/api_compatibility_gate_protocol.py verify \
+            --event-path "${GITHUB_EVENT_PATH}" --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" --protected-sha "${GITHUB_SHA}" \
+            --source-run-id "${SOURCE_RUN_ID}" --protected-root . \
+            --japicmp "${RUNNER_TEMP}/japicmp-0.23.1.jar" --output "${RUNNER_TEMP}/verdict"
+          verdict="$(cat "${RUNNER_TEMP}/verdict")"
+          case "${verdict}" in PASS0000|FAIL0001|FAIL0002|FAIL0003|FAIL0004|FAIL0005) ;; *) exit 1 ;; esac
+          printf 'verdict=%s\n' "${verdict}" >> "${GITHUB_OUTPUT}"
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"
+
+  publish:
+    name: Publish trusted shadow status
+    needs: [bind, verify-jars]
+    if: always() && needs.bind.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/scripts/api_compatibility_gate_protocol.py
+      - name: Rebind exact run and publish fixed verifier token
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ needs.bind.outputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          SOURCE_RUN_ATTEMPT: ${{ needs.bind.outputs.source_run_attempt }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          VERDICT: ${{ needs.verify-jars.outputs.verdict || 'FAIL0005' }}
+        run: |
+          set -euo pipefail
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"
+          case "${VERDICT}" in PASS0000|FAIL0001|FAIL0002|FAIL0003|FAIL0004|FAIL0005) ;; *) exit 1 ;; esac
+          python .github/scripts/api_compatibility_gate_protocol.py publish \
+            --event-path "${GITHUB_EVENT_PATH}" --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" --protected-sha "${GITHUB_SHA}" \
+            --source-run-id "${SOURCE_RUN_ID}" --expected-candidate-sha "${CANDIDATE_SHA}" \
+            --expected-source-run-attempt "${SOURCE_RUN_ATTEMPT}" --verdict "${VERDICT}"
+          python .github/scripts/api_compatibility_gate_protocol.py assert-clean --root . --sha "${GITHUB_SHA}"

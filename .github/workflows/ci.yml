@@ -9,6 +9,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
@@ -34,6 +37,24 @@ jobs:
       contents: read
       security-events: write
     uses: ./.github/workflows/reusable-codeql.yml
+
+  api-compatibility-candidate:
+    name: API compatibility candidate (shadow)
+    if: >-
+       vars.COCO_API_COMPATIBILITY_TRUSTED_SHADOW == 'true' &&
+       (github.event_name == 'pull_request' ||
+        github.event_name == 'merge_group')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-api-compatibility-candidate.yml
+    with:
+      candidate_repository: >-
+        ${{ github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name || github.repository }}
+      candidate_sha: >-
+         ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha ||
+             github.event.merge_group.head_sha }}
+      source_event: ${{ github.event_name }}
 
   gate:
     name: CI gate
