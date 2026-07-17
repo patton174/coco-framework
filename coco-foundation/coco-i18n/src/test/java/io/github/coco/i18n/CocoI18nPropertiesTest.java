@@ -144,4 +144,49 @@ class CocoI18nPropertiesTest {
                     .withMessage("supportedLanguages must contain only strict non-root BCP 47 language tags");
         }
     }
+
+    @Test
+    void supportedLanguagesAcceptValidNoncanonicalExtensionOrdering() {
+        CocoI18nProperties properties = new CocoI18nProperties();
+        List<String> configured = List.of(
+                "en-b-bar-a-foo",
+                "en-u-nu-thai-ca-gregory",
+                "en-t-zh-cmn-hans-cn-h0-hybrid",
+                "en-t-iw-il-h0-hybrid");
+
+        properties.setSupportedLanguages(configured);
+
+        assertThat(properties.getSupportedLanguages()).containsExactlyElementsOf(configured);
+    }
+
+    @Test
+    void supportedLanguagesRejectRepeatedExtensionSingletonsAndKeys() {
+        CocoI18nProperties properties = new CocoI18nProperties();
+
+        for (String invalidTag : List.of(
+                "en-a-foo-a-bar",
+                "en-u-ca-gregory-ca-buddhist",
+                "en-t-h0-hybrid-h0-foo",
+                "en-t-h0")) {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> properties.setSupportedLanguages(List.of(invalidTag)))
+                    .withMessage("supportedLanguages must contain only strict non-root BCP 47 language tags");
+        }
+    }
+
+    @Test
+    void supportedLanguagesRejectDuplicateVariantsAttributesAndInvalidTransformedLanguage() {
+        CocoI18nProperties properties = new CocoI18nProperties();
+
+        for (String invalidTag : List.of(
+                "en-US-posix-posix",
+                "en-u-foobar-foobar-ca-gregory",
+                "en-t-419-h0-hybrid",
+                "en-t-foo-US-Hant-h0-hybrid",
+                "en-t-sl-rozaj-rozaj-h0-hybrid")) {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> properties.setSupportedLanguages(List.of(invalidTag)))
+                    .withMessage("supportedLanguages must contain only strict non-root BCP 47 language tags");
+        }
+    }
 }

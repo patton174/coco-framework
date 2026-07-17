@@ -60,6 +60,7 @@ public final class DefaultCocoLocaleFallbackPolicy implements CocoLocaleFallback
                 && supportedLocale.getExtensionKeys().isEmpty();
         return broadLanguageMatch
                 ? supportedLocale.getLanguage().equalsIgnoreCase(requestedLocale.getLanguage())
-                : supportedLocale.toLanguageTag().equalsIgnoreCase(requestedLocale.toLanguageTag());
+                : CocoLanguageTagNormalizer.semanticKey(supportedLocale)
+                        .equals(CocoLanguageTagNormalizer.semanticKey(requestedLocale));
     }
 }

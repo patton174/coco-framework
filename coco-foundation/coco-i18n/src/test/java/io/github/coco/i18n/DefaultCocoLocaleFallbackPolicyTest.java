@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
 
+import io.github.coco.i18n.internal.CocoLanguageTagNormalizer;
 import io.github.coco.i18n.internal.DefaultCocoLocaleFallbackPolicy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -115,6 +116,62 @@ class DefaultCocoLocaleFallbackPolicyTest {
                 .isSameAs(Locale.JAPAN);
     }
 
+    @Test
+    void transformedFieldsMatchRegardlessOfTkeyOrder() {
+        assertTagMatchPreservesRequestedLocale(
+                "en-t-es-419-h0-hybrid-m0-ungegn",
+                "en-t-es-419-m0-ungegn-h0-hybrid");
+    }
+
+    @Test
+    void transformedFieldValuesMustRemainEquivalent() {
+        assertTagFallsBack(
+                "en-t-es-419-h0-hybrid-m0-ungegn",
+                "en-t-es-419-m0-prprname-h0-hybrid");
+    }
+
+    @Test
+    void orderedSubtagSequencesAreNotConflated() {
+        assertTagFallsBack("sl-rozaj-biske", "sl-biske-rozaj");
+        assertTagFallsBack("en-x-foo-bar", "en-x-bar-foo");
+        assertTagFallsBack("en-a-foo-bar", "en-a-bar-foo");
+        assertTagFallsBack("en-t-m0-foo-bar", "en-t-m0-bar-foo");
+    }
+
+    @Test
+    void combinedVariantUnicodeTransformedAndPrivateUseTagMatchesSemantically() {
+        assertTagMatchPreservesRequestedLocale(
+                "en-US-posix-u-nu-thai-ca-gregory-t-es-419-h0-hybrid-m0-ungegn-x-foo-bar",
+                "EN-us-POSIX-t-es-419-m0-ungegn-h0-hybrid-u-ca-gregory-nu-thai-x-FOO-BAR");
+    }
+
+    @Test
+    void transformedExtlangMatchesItsCanonicalLanguage() {
+        assertTagMatchPreservesRequestedLocale(
+                "en-t-cmn-hans-cn-h0-hybrid",
+                "en-t-zh-cmn-hans-cn-h0-hybrid");
+    }
+
+    @Test
+    void transformedLegacyLanguageMatchesItsCanonicalLanguage() {
+        assertTagMatchPreservesRequestedLocale(
+                "en-t-he-il-h0-hybrid",
+                "en-t-iw-il-h0-hybrid");
+    }
+
+    @Test
+    void supportedTagValidationAndSemanticKeysUseTheSameNormalization() {
+        for (List<String> equivalentTags : List.of(
+                List.of("en-t-cmn-hans-cn-h0-hybrid", "en-t-zh-cmn-hans-cn-h0-hybrid"),
+                List.of("en-t-he-il-h0-hybrid", "en-t-iw-il-h0-hybrid"))) {
+            assertThat(equivalentTags)
+                    .allMatch(CocoLanguageTagNormalizer::isValidSupportedLanguageTag);
+            assertThat(CocoLanguageTagNormalizer.semanticKey(Locale.forLanguageTag(equivalentTags.get(0))))
+                    .isEqualTo(CocoLanguageTagNormalizer.semanticKey(
+                            Locale.forLanguageTag(equivalentTags.get(1))));
+        }
+    }
+
     private static Stream<Locale> requestLocales() {
         return Stream.of(
                 Locale.ROOT,
@@ -146,5 +203,12 @@ class DefaultCocoLocaleFallbackPolicyTest {
         Locale requestedLocale = Locale.forLanguageTag(requestedTag);
 
         assertThat(this.policy.resolveLocale(requestedLocale, properties)).isSameAs(requestedLocale);
+    }
+
+    private void assertTagFallsBack(String supportedTag, String requestedTag) {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage(supportedTag);
+
+        assertThat(this.policy.resolveLocale(Locale.forLanguageTag(requestedTag), properties))
+                .isSameAs(Locale.JAPAN);
     }
 }
