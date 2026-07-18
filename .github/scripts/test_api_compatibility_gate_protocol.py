@@ -30,10 +30,10 @@ OTHER_SHA = "c" * 40
 RUN_ID = 42
 ATTEMPT = 3
 WORKFLOW_ID = 7
-CANONICAL_POLICY_COMMIT = "3448107def68"
+CANONICAL_POLICY_COMMIT = "a094f95ce7118db04617eb55bc050154205c1fdc"
 NAMES = [f"coco-{index:02d}.jar" for index in range(32)]
 GOLDEN_POLICY_BUNDLE_SHA256 = (
-    "76833330a5ab368f9f1d9eb0bee787fd5a80164cd1565f77a15fd032ef14cad4"
+    "bb0fed58f1a21b4684c276099722c71f2c0d66dacc492bb4215ba7ea22c537e3"
 )
 REACTOR_ARTIFACT_IDS = sorted(
     [
@@ -658,7 +658,7 @@ class CandidateArtifactTests(unittest.TestCase):
 
 
 class CanonicalPolicyIntegrationTests(unittest.TestCase):
-    def test_check_policy_accepts_344_assets_and_rejects_wrong_cli_digest(
+    def test_check_policy_accepts_canonical_assets_and_rejects_wrong_cli_digest(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:

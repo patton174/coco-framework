@@ -55,7 +55,7 @@ JAPICMP_URL = (
     "japicmp-0.23.1-jar-with-dependencies.jar"
 )
 JAPICMP_SIZE = 5988558
-JAPICMP_SHA256 = "f2300dd9b8aca31c49a95dfad5a6794b4475f4e83809ad69f8f1e11d87014657"
+JAPICMP_SHA256 = "f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7"
 JAPICMP_MAVEN_PLUGIN_URL = (
     "https://repo.maven.apache.org/maven2/com/github/siom79/japicmp/"
     "japicmp-maven-plugin/0.23.1/japicmp-maven-plugin-0.23.1.jar"
