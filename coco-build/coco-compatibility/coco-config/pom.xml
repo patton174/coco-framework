@@ -17,6 +17,10 @@
     <!-- 2.x compatibility facade; new consumers should use coco-spring-boot-autoconfigure. -->
     <description>Deprecated source-free compatibility facade retained throughout the 2.x line. New consumers should use coco-spring-boot-autoconfigure, which owns the APIs and implementations previously published through this coordinate.</description>
 
+    <properties>
+        <coco.api.compatibility.candidate-jar>${maven.multiModuleProjectDirectory}/coco-spring/coco-spring-boot-autoconfigure/target/coco-spring-boot-autoconfigure-${project.version}.jar</coco.api.compatibility.candidate-jar>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>

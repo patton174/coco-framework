@@ -37,6 +37,8 @@ import net.sf.jsqlparser.expression.StringValue;
 import org.apache.ibatis.builder.StaticSqlSource;
 import org.apache.ibatis.mapping.MappedStatement;
 import org.apache.ibatis.mapping.SqlCommandType;
+import org.apache.ibatis.executor.statement.RoutingStatementHandler;
+import org.apache.ibatis.executor.statement.StatementHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -321,6 +323,98 @@ class CocoTenantAutoConfigurationTest {
     }
 
     @Test
+    void publishedBeforePrepareDirectCallStillBlocksAndPublishes() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
+        MappedStatement mappedStatement = mappedStatement("com.example.OrderMapper.updateShared",
+                SqlCommandType.UPDATE);
+        StatementHandler statementHandler = statementHandler(mappedStatement, new Object());
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThatThrownBy(() -> guard.beforePrepare(statementHandler, null, null))
+                .isInstanceOf(CocoForbiddenException.class)
+                .hasMessage("coco.feature.tenant.error.interceptor-ignore-blocked");
+        assertThat(events).singleElement()
+                .extracting(CocoTenantInterceptorIgnoreEvent::decision)
+                .isEqualTo(CocoTenantInterceptorIgnoreDecision.BLOCKED);
+    }
+
+    @Test
+    void normalUpdateLifecyclePublishesGovernanceOnlyOnce() throws Exception {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().setBlockUnlisted(false);
+        List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
+        Object parameter = new Object();
+        MappedStatement mappedStatement = mappedStatement("com.example.OrderMapper.updateShared",
+                SqlCommandType.UPDATE);
+        StatementHandler statementHandler = statementHandler(mappedStatement, parameter);
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThat(guard.willDoUpdate(null, mappedStatement, parameter)).isTrue();
+        guard.beforePrepare(statementHandler, null, null);
+
+        assertThat(events).singleElement()
+                .extracting(CocoTenantInterceptorIgnoreEvent::decision)
+                .isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
+    }
+
+    @Test
+    void publishedBeforePrepareGovernsOnlyWriteCommands() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().setBlockUnlisted(false);
+        List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        for (SqlCommandType commandType : List.of(
+                SqlCommandType.INSERT, SqlCommandType.UPDATE, SqlCommandType.DELETE)) {
+            events.clear();
+            MappedStatement mappedStatement = mappedStatement(
+                    "com.example.OrderMapper." + commandType.name().toLowerCase(), commandType);
+
+            guard.beforePrepare(statementHandler(mappedStatement, new Object()), null, null);
+
+            assertThat(events).singleElement()
+                    .extracting(CocoTenantInterceptorIgnoreEvent::decision)
+                    .isEqualTo(CocoTenantInterceptorIgnoreDecision.ALLOWED);
+        }
+
+        events.clear();
+        MappedStatement select = mappedStatement("com.example.OrderMapper.select", SqlCommandType.SELECT);
+        guard.beforePrepare(statementHandler(select, new Object()), null, null);
+        assertThat(events).isEmpty();
+    }
+
+    @Test
+    void publishedBeforePrepareDoesNothingWhenTenantIgnoreIsInactive() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        List<CocoTenantInterceptorIgnoreEvent> events = new ArrayList<>();
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, events::add);
+        MappedStatement update = mappedStatement("com.example.OrderMapper.update", SqlCommandType.UPDATE);
+
+        guard.beforePrepare(statementHandler(update, new Object()), null, null);
+
+        assertThat(events).isEmpty();
+    }
+
+    @Test
+    void publishedBeforePreparePropagatesPublisherFailure() {
+        CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
+        properties.getInterceptorIgnore().setBlockUnlisted(false);
+        IllegalStateException failure = new IllegalStateException("publisher-down");
+        CocoTenantInterceptorIgnoreGuard guard = new CocoTenantInterceptorIgnoreGuard(properties, event -> {
+            throw failure;
+        });
+        MappedStatement update = mappedStatement("com.example.OrderMapper.update", SqlCommandType.UPDATE);
+        InterceptorIgnoreHelper.handle(IgnoreStrategy.builder().tenantLine(true).build());
+
+        assertThatThrownBy(() -> guard.beforePrepare(statementHandler(update, new Object()), null, null))
+                .isSameAs(failure);
+    }
+
+    @Test
     void strictModeBlocksUnlistedBypassWhenCompatibilityBlockingIsDisabled() {
         CocoTenantSqlProperties properties = new CocoTenantSqlProperties();
         io.github.coco.feature.tenant.sql.CocoTenantInterceptorIgnoreProperties ignore =
@@ -452,6 +546,11 @@ class CocoTenantAutoConfigurationTest {
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
         return new MappedStatement.Builder(configuration, id,
                 new StaticSqlSource(configuration, "select 1"), commandType).build();
+    }
+
+    private static StatementHandler statementHandler(MappedStatement mappedStatement, Object parameter) {
+        return new RoutingStatementHandler(null, mappedStatement, parameter, RowBounds.DEFAULT, null,
+                mappedStatement.getBoundSql(parameter));
     }
 
     @Configuration(proxyBeanMethods = false)

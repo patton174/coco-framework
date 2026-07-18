@@ -68,14 +68,44 @@ public class CocoWebTraceAutoConfiguration {
             CocoWebRequestContextResolver requestContextResolver,
             CocoTraceIdValidator traceIdValidator,
             ObjectProvider<CocoFilterExceptionResponseWriter> exceptionResponseWriter) {
+        FilterRegistrationBean<CocoTraceFilter> registration = createTraceFilterRegistration(properties,
+                accessLogRecorders, requestContextResolver, traceIdValidator,
+                exceptionResponseWriter.getIfAvailable());
+        registration.setAsyncSupported(true);
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
+        return registration;
+    }
+
+    /**
+     * <p>
+     * 使用 2.0.1 参数列表创建 Trace 过滤器注册器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param accessLogRecorders 访问日志记录器提供器
+     * @param requestContextResolver Web 请求上下文解析器
+     * @param traceIdValidator TraceId 校验器
+     * @return Trace 过滤器注册器
+     */
+    @Deprecated(since = "2.0.2", forRemoval = false)
+    public FilterRegistrationBean<CocoTraceFilter> cocoTraceFilterRegistration(CocoWebProperties properties,
+            ObjectProvider<CocoAccessLogRecorder> accessLogRecorders,
+            CocoWebRequestContextResolver requestContextResolver,
+            CocoTraceIdValidator traceIdValidator) {
+        return createTraceFilterRegistration(properties, accessLogRecorders, requestContextResolver, traceIdValidator,
+                null);
+    }
+
+    private static FilterRegistrationBean<CocoTraceFilter> createTraceFilterRegistration(CocoWebProperties properties,
+            ObjectProvider<CocoAccessLogRecorder> accessLogRecorders,
+            CocoWebRequestContextResolver requestContextResolver,
+            CocoTraceIdValidator traceIdValidator,
+            CocoFilterExceptionResponseWriter exceptionResponseWriter) {
         FilterRegistrationBean<CocoTraceFilter> registration = new FilterRegistrationBean<>(
                 new CocoTraceFilter(properties.getTrace(), accessLogRecorders.orderedStream().toList(),
                         properties.getAccessLog(), requestContextResolver, traceIdValidator,
-                        exceptionResponseWriter.getIfAvailable()));
+                        exceptionResponseWriter));
         registration.setName("cocoTraceFilter");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
-        registration.setAsyncSupported(true);
-        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
         return registration;
     }
 }

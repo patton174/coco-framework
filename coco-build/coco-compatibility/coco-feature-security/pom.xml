@@ -16,6 +16,10 @@
     <name>Coco Feature Security Compatibility</name>
     <description>Source-free compatibility facade for the published coco-feature-security coordinate.</description>
 
+    <properties>
+        <coco.api.compatibility.candidate-jar>${maven.multiModuleProjectDirectory}/coco-features/coco-security/target/coco-security-${project.version}.jar</coco.api.compatibility.candidate-jar>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>

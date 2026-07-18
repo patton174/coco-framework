@@ -143,6 +143,21 @@ public class CocoWebContextAutoConfiguration {
 
     /**
      * <p>
+     * 使用 2.0.1 参数列表创建请求参数解析器。
+     * </p>
+     * @param properties Coco Web 配置属性
+     * @param payloadParameterResolver 请求体参数解析器
+     * @return 请求参数解析器
+     */
+    @Deprecated(since = "2.0.2", forRemoval = false)
+    public CocoRequestParameterResolver cocoRequestParameterResolver(CocoWebProperties properties,
+            CocoPayloadParameterResolver payloadParameterResolver) {
+        return new DefaultCocoRequestParameterResolver(properties.getContext().getParameter(),
+                payloadParameterResolver);
+    }
+
+    /**
+     * <p>
      * 创建默认 Coco Web 请求目标解析器�?     * </p>
      * @param properties Coco Web 配置属�?     * @return Web 请求目标解析�?     */
     @Bean

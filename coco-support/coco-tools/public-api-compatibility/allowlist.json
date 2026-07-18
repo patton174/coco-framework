@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 3,
+  "policyId": "coco-public-api-compatibility",
+  "profile": "public-api-compatibility",
+  "rules": [
+    {
+      "artifact": "coco-feature-model",
+      "class": "io.github.coco.feature.registry.CocoFeatureRegistryAutoConfiguration",
+      "member": "<class>",
+      "category": "REMOVED",
+      "reason": "The Spring auto-configuration moved to coco-spring-boot-autoconfigure while the feature model public contract remains in this artifact."
+    },
+    {
+      "artifact": "coco-i18n",
+      "class": "io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration",
+      "member": "<class>",
+      "category": "REMOVED",
+      "reason": "The legacy aggregate auto-configuration moved to coco-spring-boot-autoconfigure; coco-i18n retains its non-Spring public contracts."
+    },
+    {
+      "artifact": "coco-logging",
+      "class": "io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration",
+      "member": "<class>",
+      "category": "REMOVED",
+      "reason": "The legacy aggregate logging auto-configuration moved to coco-spring-boot-autoconfigure; coco-logging retains its logging contracts."
+    }
+  ]
+}
