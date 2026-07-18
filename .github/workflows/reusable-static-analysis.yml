@@ -59,8 +59,10 @@ jobs:
           python -m py_compile \
             .github/scripts/agent_review.py \
             .github/scripts/agent_issue_gate.py \
+            .github/scripts/api_compatibility_gate_protocol.py \
             .github/scripts/auto_merge.py \
             .github/scripts/test_agent_review.py \
+            .github/scripts/test_api_compatibility_gate_protocol.py \
             .github/scripts/test_auto_merge.py \
             .github/scripts/verify_sample_feature_coordinates.py \
             .github/scripts/test_verify_sample_feature_coordinates.py \
@@ -70,6 +72,7 @@ jobs:
             coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py \
             coco-support/coco-tools/compatibility-consumers/tests/test_run_compatibility_consumers.py
           python .github/scripts/test_agent_review.py
+          python .github/scripts/test_api_compatibility_gate_protocol.py
           python .github/scripts/test_auto_merge.py
           python .github/scripts/test_verify_sample_feature_coordinates.py
           python -B -m unittest discover \

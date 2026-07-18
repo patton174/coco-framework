@@ -63,6 +63,10 @@
 
 ## 信任边界
 
+公共 API 兼容性候选的无密钥 producer、默认分支 `workflow_run` 重绑定和 shadow status 发布遵循独立的
+[受信公共 API 兼容性 Shadow 门禁路由](2026-07-16-trusted-api-compatibility-gate-route.md)；它不使用
+本评审团的 `pull_request_target` 密钥路由，也不改变 `Agent jury gate`。
+
 Direct workflow 使用 `pull_request_target` / `pull_request_review`，并始终从受保护 base SHA
 读取路由器和共享评审实现：
 
