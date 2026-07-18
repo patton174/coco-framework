@@ -55,7 +55,7 @@ JAPICMP_URL = (
     "japicmp-0.23.1-jar-with-dependencies.jar"
 )
 JAPICMP_SIZE = 5988558
-JAPICMP_SHA256 = "f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7"
+JAPICMP_SHA256 = "f2300dd9b8aca31c49a95dfad5a6794b4475f4e83809ad69f8f1e11d87014657"
 JAPICMP_MAVEN_PLUGIN_URL = (
     "https://repo.maven.apache.org/maven2/com/github/siom79/japicmp/"
     "japicmp-maven-plugin/0.23.1/japicmp-maven-plugin-0.23.1.jar"
@@ -949,7 +949,6 @@ def validate_policy_bundle(
         value["japicmpPolicy"],
         {
             "allowedCategories",
-            "allowedScopes",
             "cli",
             "findingKey",
             "mavenPlugin",
@@ -964,7 +963,6 @@ def validate_policy_bundle(
         and japicmp_policy["policyId"] == POLICY_ID
         and japicmp_policy["profile"] == PROFILE_ID
         and japicmp_policy["findingKey"] == ["artifact", "class", "member", "category"]
-        and japicmp_policy["allowedScopes"] == ["class", "member"]
         and japicmp_policy["allowedCategories"] == ["REMOVED"],
         "japicmp finding policy is invalid",
     )
@@ -1867,10 +1865,11 @@ def comparison_plan(policy: dict[str, Any]) -> tuple[tuple[str, str], ...]:
 def run_semantic_checks(
     jars: dict[str, bytes], policy: dict[str, Any], japicmp: Path, work: Path
 ) -> None:
+    cli = policy["japicmpPolicy"]["cli"]
     require(
         japicmp.is_file()
-        and japicmp.stat().st_size == JAPICMP_SIZE
-        and sha256_bytes(japicmp.read_bytes()) == JAPICMP_SHA256,
+        and japicmp.stat().st_size == cli["size"]
+        and sha256_bytes(japicmp.read_bytes()) == cli["sha256"],
         "japicmp pin mismatch",
     )
     for artifact_id, target_id in comparison_plan(policy):

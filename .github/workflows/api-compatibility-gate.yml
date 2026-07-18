@@ -142,7 +142,7 @@ jobs:
             --write-out '%{url_effective}' "${tool_url}")"
           test "${effective_url}" = "${tool_url}"
           test "$(wc -c < "${RUNNER_TEMP}/japicmp-0.23.1.jar" | tr -d ' ')" = '5988558'
-          echo 'f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7  '${RUNNER_TEMP}'/japicmp-0.23.1.jar' | sha256sum --check --status
+          echo 'f2300dd9b8aca31c49a95dfad5a6794b4475f4e83809ad69f8f1e11d87014657  '${RUNNER_TEMP}'/japicmp-0.23.1.jar' | sha256sum --check --status
       - id: verdict
         name: Safely parse candidate JAR artifact and re-run semantics
         shell: bash

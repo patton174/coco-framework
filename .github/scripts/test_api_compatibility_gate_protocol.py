@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stderr
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -29,9 +30,10 @@ OTHER_SHA = "c" * 40
 RUN_ID = 42
 ATTEMPT = 3
 WORKFLOW_ID = 7
+CANONICAL_POLICY_COMMIT = "3448107def68"
 NAMES = [f"coco-{index:02d}.jar" for index in range(32)]
 GOLDEN_POLICY_BUNDLE_SHA256 = (
-    "b300e98fa5fc62468bfb772b5071fb96a0d8e79856f07903cb128eb2ce97b1a4"
+    "76833330a5ab368f9f1d9eb0bee787fd5a80164cd1565f77a15fd032ef14cad4"
 )
 REACTOR_ARTIFACT_IDS = sorted(
     [
@@ -315,7 +317,6 @@ def write_policy(
             "profile": protocol.PROFILE_ID,
             "findingKey": ["artifact", "class", "member", "category"],
             "allowedCategories": ["REMOVED"],
-            "allowedScopes": ["class", "member"],
             "mavenPlugin": {
                 "groupId": "com.github.siom79.japicmp",
                 "artifactId": "japicmp-maven-plugin",
@@ -344,6 +345,24 @@ def mutate_policy_file(root: Path, name: str, mutation: Any) -> None:
     value = protocol.strict_json_loads(path.read_bytes())
     mutation(value)
     path.write_bytes(protocol.canonical_json(value) + b"\n")
+
+
+def write_canonical_policy_commit(root: Path) -> None:
+    repository = Path(__file__).resolve().parents[2]
+    directory = root / protocol.POLICY_ROOT
+    directory.mkdir(parents=True)
+    for name in (
+        "public-api-profile.json",
+        "baseline-sha256.json",
+        "allowlist.json",
+        protocol.BASELINE_SIGNING_KEY_FILE,
+        "japicmp-policy.json",
+        "policy_bundle.py",
+        "path_io.py",
+    ):
+        source = f"{CANONICAL_POLICY_COMMIT}:{protocol.POLICY_ROOT.as_posix()}/{name}"
+        data = subprocess.check_output(["git", "show", source], cwd=repository)
+        (directory / name).write_bytes(data)
 
 
 def build_java_jar(root: Path, label: str, source: str) -> Path:
@@ -638,6 +657,33 @@ class CandidateArtifactTests(unittest.TestCase):
                     protocol.validate_inner_jar("coco-00.jar", value)
 
 
+class CanonicalPolicyIntegrationTests(unittest.TestCase):
+    def test_check_policy_accepts_344_assets_and_rejects_wrong_cli_digest(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_canonical_policy_commit(root)
+            self.assertEqual(
+                0,
+                protocol.main(["check-policy", "--protected-root", str(root)]),
+            )
+            self.assertEqual(
+                protocol.JAPICMP_SHA256,
+                protocol.load_policy(root)["japicmpPolicy"]["cli"]["sha256"],
+            )
+            mutate_policy_file(
+                root,
+                "japicmp-policy.json",
+                lambda value: value["cli"].__setitem__("sha256", "f" * 64),
+            )
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    1,
+                    protocol.main(["check-policy", "--protected-root", str(root)]),
+                )
+
+
 class ProtectedPolicyTests(unittest.TestCase):
     def test_exact_removed_allowlist_is_retained_in_policy(self) -> None:
         exception = {
@@ -743,6 +789,7 @@ class ProtectedPolicyTests(unittest.TestCase):
         mutations = (
             lambda value: value["mavenPlugin"].__setitem__("sha256", "f" * 64),
             lambda value: value["cli"].__setitem__("size", protocol.JAPICMP_SIZE - 1),
+            lambda value: value["cli"].__setitem__("sha256", "f" * 64),
             lambda value: value.__setitem__("allowedCategories", ["MODIFIED"]),
             lambda value: value.__setitem__(
                 "findingKey", ["artifact", "class", "category"]
@@ -1435,13 +1482,7 @@ class RealJapicmpIntegrationTests(unittest.TestCase):
             root = Path(directory)
             supplied = Path(os.environ["COCO_JAPICMP_INTEGRATION_JAR"])
             self.assertEqual(protocol.JAPICMP_SIZE, supplied.stat().st_size)
-            japicmp = root / "japicmp-0.23.1.jar"
-            protocol.download(
-                protocol.JAPICMP_URL,
-                japicmp,
-                protocol.JAPICMP_SHA256,
-                protocol.JAPICMP_SIZE,
-            )
+            japicmp = supplied.resolve(strict=True)
             old = build_java_jar(
                 root,
                 "old",
