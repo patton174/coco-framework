@@ -16,6 +16,10 @@
     <name>Coco Feature Web Compatibility</name>
     <description>Source-free 2.x compatibility JAR for the published coco-feature-web coordinate.</description>
 
+    <properties>
+        <coco.api.compatibility.candidate-jar>${maven.multiModuleProjectDirectory}/coco-features/coco-web/target/coco-web-${project.version}.jar</coco.api.compatibility.candidate-jar>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>

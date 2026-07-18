@@ -10,6 +10,7 @@ import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import io.github.coco.feature.runtime.condition.CocoRuntimeFeatureResolver;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import org.apache.commons.logging.Log;
@@ -72,6 +73,52 @@ public class CocoConfigAutoConfiguration {
         logFeaturePlan("startup-plan", plan, properties.getFeatures().toSelection(), codeSelection,
                 manifestWithoutProvenance);
         return plan;
+    }
+
+    /**
+     * <p>
+     * 使用 2.0.1 参数列表创建 Coco 功能启用计划。
+     * </p>
+     * @param properties Coco 配置属性
+     * @param configurers 业务方提供的 Coco 配置器
+     * @param beanFactory Spring Bean 工厂
+     * @return 最终功能启用计划
+     */
+    @Deprecated(since = "2.0.2", forRemoval = false)
+    public CocoFeaturePlan cocoFeaturePlan(CocoProperties properties, ObjectProvider<CocoConfigurer> configurers,
+            ConfigurableListableBeanFactory beanFactory) {
+        return CocoFeatureManifestLoader.load(Thread.currentThread().getContextClassLoader())
+                .map(manifest -> {
+                    CocoFeaturePlan plan = StandardCocoFeatures.fromManifest(manifest);
+                    logFeaturePlan("manifest:" + manifest.generatedBy(), plan,
+                            CocoFeatureSelection.empty(), CocoFeatureSelection.empty(), true);
+                    return plan;
+                })
+                .orElseGet(() -> {
+                    CocoFeatureSelection propertySelection = properties.getFeatures().toSelection();
+                    CocoFeatureSelection codeSelection = CocoFeatureSelectionCollector.collect(beanFactory, configurers);
+                    CocoFeaturePlan plan = StandardCocoFeatures.resolve(
+                            mergePublishedSelections(propertySelection, codeSelection));
+                    logFeaturePlan("runtime-configuration", plan, propertySelection, codeSelection, false);
+                    return plan;
+                });
+    }
+
+    private static CocoFeatureSelection mergePublishedSelections(CocoFeatureSelection propertySelection,
+            CocoFeatureSelection codeSelection) {
+        EnumSet<CocoFeature> enabled = EnumSet.noneOf(CocoFeature.class);
+        EnumSet<CocoFeature> disabled = EnumSet.noneOf(CocoFeature.class);
+        enabled.addAll(propertySelection.enabled());
+        disabled.addAll(propertySelection.disabled());
+        for (CocoFeature feature : codeSelection.enabled()) {
+            disabled.remove(feature);
+            enabled.add(feature);
+        }
+        for (CocoFeature feature : codeSelection.disabled()) {
+            enabled.remove(feature);
+            disabled.add(feature);
+        }
+        return CocoFeatureSelection.of(enabled, disabled);
     }
 
     /**

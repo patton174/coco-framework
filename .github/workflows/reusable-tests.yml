@@ -310,6 +310,7 @@ jobs:
     env:
       JAVA_TOOLCHAIN_VERSION: '21'
       PYTHONUTF8: '1'
+      PUBLIC_API_CANDIDATE_VERSION: '2.0.2-SNAPSHOT'
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -334,6 +335,23 @@ jobs:
           --candidate-version 2.0.2-SNAPSHOT
           --install-candidate
           --jdk-home "$JAVA_HOME"
+
+      # PR-head diagnostic only. The dormant 04c47a shadow route owns the
+      # protected-base verdict after its separately reviewed cutover.
+      - name: Run API and ABI compatibility self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_workspace="${RUNNER_TEMP}/coco-public-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e "${api_workspace}"
+          python coco-support/coco-tools/public-api-compatibility/run_public_api_compatibility.py \
+            --candidate-version "${PUBLIC_API_CANDIDATE_VERSION}" \
+            --jdk-home "${JAVA_HOME}" \
+            --work-directory "${api_workspace}"
+          test -s "${api_workspace}/public-api-attestation.json"
+          python coco-support/coco-tools/public-api-compatibility/run_regression_fixtures.py \
+            --candidate-version "${PUBLIC_API_CANDIDATE_VERSION}" \
+            --jdk-home "${JAVA_HOME}"
 
       - name: Verify candidate artifact ownership
         run: >-

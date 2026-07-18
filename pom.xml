@@ -84,9 +84,13 @@
         <spotbugs.version>4.10.2</spotbugs.version>
         <spotbugs-maven-plugin.version>4.10.2.0</spotbugs-maven-plugin.version>
         <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+        <japicmp-maven-plugin.version>0.23.1</japicmp-maven-plugin.version>
         <central.auto-publish>false</central.auto-publish>
         <central.wait-until>VALIDATED</central.wait-until>
         <coco.compatibility.release-artifacts>false</coco.compatibility.release-artifacts>
+        <coco.api.compatibility.candidate-jar>${project.build.directory}/${project.build.finalName}.jar</coco.api.compatibility.candidate-jar>
+        <coco.api.compatibility.baseline-directory>${project.build.directory}/missing-trusted-baseline</coco.api.compatibility.baseline-directory>
+        <coco.api.compatibility.report-run-id>untrusted-direct-invocation</coco.api.compatibility.report-run-id>
         <coco.enforcer.skip>false</coco.enforcer.skip>
         <project.build.outputTimestamp>2026-07-04T00:00:00Z</project.build.outputTimestamp>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -494,6 +498,55 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>public-api-compatibility</id>
+            <properties>
+                <coco.api.compatibility.baseline>2.0.1</coco.api.compatibility.baseline>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.siom79.japicmp</groupId>
+                        <artifactId>japicmp-maven-plugin</artifactId>
+                        <version>${japicmp-maven-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>public-api-compatibility</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>cmp</goal>
+                                </goals>
+                                <configuration>
+                                    <oldVersion>
+                                        <file>
+                                            <path>${coco.api.compatibility.baseline-directory}/${project.artifactId}-${coco.api.compatibility.baseline}.jar</path>
+                                        </file>
+                                    </oldVersion>
+                                    <newVersion>
+                                        <file>
+                                            <path>${coco.api.compatibility.candidate-jar}</path>
+                                        </file>
+                                    </newVersion>
+                                    <parameter>
+                                        <accessModifier>public</accessModifier>
+                                        <includeSynthetic>false</includeSynthetic>
+                                        <onlyModified>true</onlyModified>
+                                        <ignoreMissingClasses>true</ignoreMissingClasses>
+                                        <ignoreMissingOldVersion>true</ignoreMissingOldVersion>
+                                        <ignoreMissingOptionalDependency>true</ignoreMissingOptionalDependency>
+                                        <skipPomModules>true</skipPomModules>
+                                        <breakBuildOnModifications>false</breakBuildOnModifications>
+                                        <breakBuildOnBinaryIncompatibleModifications>false</breakBuildOnBinaryIncompatibleModifications>
+                                        <breakBuildOnSourceIncompatibleModifications>false</breakBuildOnSourceIncompatibleModifications>
+                                    </parameter>
+                                    <projectBuildDir>${project.build.directory}/public-api-compatibility/${coco.api.compatibility.report-run-id}</projectBuildDir>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>release</id>
             <properties>

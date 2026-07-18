@@ -70,7 +70,17 @@ jobs:
             coco-support/coco-tools/artifact-ownership/check_artifact_ownership.py \
             coco-support/coco-tools/artifact-ownership/tests/test_check_artifact_ownership.py \
             coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py \
-            coco-support/coco-tools/compatibility-consumers/tests/test_run_compatibility_consumers.py
+            coco-support/coco-tools/compatibility-consumers/tests/test_run_compatibility_consumers.py \
+            coco-support/coco-tools/public-api-compatibility/check_public_api_compatibility.py \
+            coco-support/coco-tools/public-api-compatibility/path_io.py \
+            coco-support/coco-tools/public-api-compatibility/policy_bundle.py \
+            coco-support/coco-tools/public-api-compatibility/run_regression_fixtures.py \
+            coco-support/coco-tools/public-api-compatibility/run_public_api_compatibility.py \
+            coco-support/coco-tools/public-api-compatibility/tests/test_attested_public_api_compatibility.py \
+            coco-support/coco-tools/public-api-compatibility/tests/test_check_public_api_compatibility.py \
+            coco-support/coco-tools/public-api-compatibility/tests/test_path_io.py \
+            coco-support/coco-tools/public-api-compatibility/tests/test_run_regression_fixtures.py \
+            coco-support/coco-tools/public-api-compatibility/tests/test_run_public_api_compatibility.py
           python .github/scripts/test_agent_review.py
           python .github/scripts/test_api_compatibility_gate_protocol.py
           python .github/scripts/test_auto_merge.py
@@ -84,6 +94,10 @@ jobs:
             -p 'test_*.py' \
             -v
           python -B -m unittest discover \
+            -s coco-support/coco-tools/public-api-compatibility/tests \
+            -p 'test_*.py' \
+            -v
+          python -B -m unittest discover \
             -s coco-support/coco-tools/artifact-ownership/tests \
             -p 'test_*.py' \
             -v
@@ -92,13 +106,15 @@ jobs:
             coco-support/coco-tools/tests \
             coco-support/coco-tools/artifact-ownership \
             coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py \
-            coco-support/coco-tools/compatibility-consumers/tests
+            coco-support/coco-tools/compatibility-consumers/tests \
+            coco-support/coco-tools/public-api-compatibility
           python -m ruff format --check \
             .github/scripts \
             coco-support/coco-tools/tests \
             coco-support/coco-tools/artifact-ownership \
             coco-support/coco-tools/compatibility-consumers/run_compatibility_consumers.py \
-            coco-support/coco-tools/compatibility-consumers/tests
+            coco-support/coco-tools/compatibility-consumers/tests \
+            coco-support/coco-tools/public-api-compatibility
           node --test .github/readme/tests/readme.test.mjs
           node .github/readme/scripts/render.mjs --check
 

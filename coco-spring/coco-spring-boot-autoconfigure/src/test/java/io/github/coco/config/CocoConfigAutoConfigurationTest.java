@@ -3,10 +3,12 @@ package io.github.coco.config;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URLClassLoader;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,6 +38,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 /**
  * Coco 配置自动装配测试。
@@ -70,6 +73,109 @@ class CocoConfigAutoConfigurationTest {
             assertTrue(manager.isEnabled(CocoFeature.WEB));
             assertTrue(manager.isEnabled(CocoFeature.TENANT));
         });
+    }
+
+    @Test
+    void publishedThreeArgumentFeaturePlanUsesPassedPropertiesAndConfigurersWithoutManifest() throws Exception {
+        CocoProperties properties = new CocoProperties();
+        CocoFeatureProperties features = new CocoFeatureProperties();
+        features.setDisabled(Set.of(CocoFeature.TENANT));
+        properties.setFeatures(features);
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("publishedApiConfigurer", new CocoConfigurer() {
+            @Override
+            public void configureFeatures(CocoFeatureRegistry features) {
+                features.disable(CocoFeature.DATA_PERMISSION);
+            }
+        });
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+
+        try (URLClassLoader noManifest = new URLClassLoader(new URL[0], null)) {
+            Thread.currentThread().setContextClassLoader(noManifest);
+            CocoFeaturePlan plan = new CocoConfigAutoConfiguration().cocoFeaturePlan(
+                    properties, beanFactory.getBeanProvider(CocoConfigurer.class), beanFactory);
+
+            assertFalse(plan.isEnabled(CocoFeature.TENANT));
+            assertFalse(plan.isEnabled(CocoFeature.DATA_PERMISSION));
+            assertTrue(plan.isEnabled(CocoFeature.WEB));
+        }
+        finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    @Test
+    void publishedThreeArgumentFeaturePlanShortCircuitsNullArgumentsWhenManifestExists() throws Exception {
+        Path manifestPath = this.tempDir.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
+        Files.createDirectories(manifestPath.getParent());
+        CocoFeaturePlan expected = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.TENANT)));
+        Files.writeString(manifestPath, CocoFeatureManifestLoader.write(
+                StandardCocoFeatures.toManifest(expected, "published-api-test")), StandardCharsets.UTF_8);
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+
+        try (URLClassLoader manifestClassLoader = new URLClassLoader(
+                new URL[] { this.tempDir.toUri().toURL() }, null)) {
+            Thread.currentThread().setContextClassLoader(manifestClassLoader);
+
+            CocoFeaturePlan actual = new CocoConfigAutoConfiguration().cocoFeaturePlan(null, null, null);
+
+            assertEquals(expected.enabledFeatures(), actual.enabledFeatures());
+            assertEquals(expected.disabledFeatures(), actual.disabledFeatures());
+        }
+        finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    @Test
+    void publishedThreeArgumentFeaturePlanKeepsNullBoundariesWithoutManifest() throws Exception {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        CocoProperties properties = new CocoProperties();
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+
+        try (URLClassLoader noManifest = new URLClassLoader(new URL[0], null)) {
+            Thread.currentThread().setContextClassLoader(noManifest);
+            CocoConfigAutoConfiguration configuration = new CocoConfigAutoConfiguration();
+
+            assertThrows(NullPointerException.class, () -> configuration.cocoFeaturePlan(
+                    null, beanFactory.getBeanProvider(CocoConfigurer.class), beanFactory));
+            assertThrows(NullPointerException.class,
+                    () -> configuration.cocoFeaturePlan(properties, null, beanFactory));
+            assertNotNull(configuration.cocoFeaturePlan(
+                    properties, beanFactory.getBeanProvider(CocoConfigurer.class), null));
+        }
+        finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    @Test
+    void publishedThreeArgumentFeaturePlanLetsCodeSelectionOverridePropertyConflict() throws Exception {
+        CocoProperties properties = new CocoProperties();
+        CocoFeatureProperties features = new CocoFeatureProperties();
+        features.setDisabled(Set.of(CocoFeature.WEB));
+        properties.setFeatures(features);
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("publishedApiOverride", new CocoConfigurer() {
+            @Override
+            public void configureFeatures(CocoFeatureRegistry features) {
+                features.enable(CocoFeature.WEB);
+            }
+        });
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+
+        try (URLClassLoader noManifest = new URLClassLoader(new URL[0], null)) {
+            Thread.currentThread().setContextClassLoader(noManifest);
+
+            CocoFeaturePlan plan = new CocoConfigAutoConfiguration().cocoFeaturePlan(
+                    properties, beanFactory.getBeanProvider(CocoConfigurer.class), beanFactory);
+
+            assertTrue(plan.isEnabled(CocoFeature.WEB));
+        }
+        finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     @Test
@@ -230,16 +336,23 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
-    void rootPropertiesIsolateNestedFeaturePropertiesAndBindThroughJavaBeans() {
+    void rootPropertiesPreservePublishedNestedFeatureIdentityAndBindThroughJavaBeans() {
         CocoFeatureProperties features = new CocoFeatureProperties();
         features.setEnabled(Set.of(CocoFeature.WEB));
         CocoProperties properties = new CocoProperties();
         properties.setFeatures(features);
+        assertSame(features, properties.getFeatures());
         features.setEnabled(Set.of(CocoFeature.OPENAPI));
 
-        assertEquals(Set.of(CocoFeature.WEB), properties.getFeatures().getEnabled());
-        CocoFeatureProperties snapshot = properties.getFeatures();
-        snapshot.setDisabled(Set.of(CocoFeature.TENANT));
+        assertEquals(Set.of(CocoFeature.OPENAPI), properties.getFeatures().getEnabled());
+        CocoFeatureProperties liveFeatures = properties.getFeatures();
+        liveFeatures.setDisabled(Set.of(CocoFeature.TENANT));
+        assertSame(liveFeatures, properties.getFeatures());
+        assertEquals(Set.of(CocoFeature.TENANT), properties.getFeatures().getDisabled());
+
+        properties.setFeatures(null);
+        assertNotNull(properties.getFeatures());
+        assertTrue(properties.getFeatures().getEnabled().isEmpty());
         assertTrue(properties.getFeatures().getDisabled().isEmpty());
 
         Binder binder = new Binder(new MapConfigurationPropertySource(Map.of(

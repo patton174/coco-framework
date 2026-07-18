@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 3,
+  "policyId": "coco-public-api-compatibility",
+  "profile": "public-api-compatibility",
+  "findingKey": ["artifact", "class", "member", "category"],
+  "allowedCategories": ["REMOVED"],
+  "mavenPlugin": {
+    "groupId": "com.github.siom79.japicmp",
+    "artifactId": "japicmp-maven-plugin",
+    "version": "0.23.1",
+    "url": "https://repo.maven.apache.org/maven2/com/github/siom79/japicmp/japicmp-maven-plugin/0.23.1/japicmp-maven-plugin-0.23.1.jar",
+    "size": 44670,
+    "sha256": "7df259e8be0c652259ef96416fcc6f2e7ef5e5a340a4df52783350abcd77c4bb"
+  },
+  "cli": {
+    "groupId": "com.github.siom79.japicmp",
+    "artifactId": "japicmp",
+    "version": "0.23.1",
+    "url": "https://repo.maven.apache.org/maven2/com/github/siom79/japicmp/japicmp/0.23.1/japicmp-0.23.1-jar-with-dependencies.jar",
+    "size": 5988558,
+    "sha256": "f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7"
+  }
+}

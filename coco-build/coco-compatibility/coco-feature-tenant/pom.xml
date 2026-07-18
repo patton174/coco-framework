@@ -16,6 +16,10 @@
     <name>Coco Feature Tenant Compatibility</name>
     <description>Source-free compatibility facade for the published coco-feature-tenant coordinate.</description>
 
+    <properties>
+        <coco.api.compatibility.candidate-jar>${maven.multiModuleProjectDirectory}/coco-features/coco-tenant/target/coco-tenant-${project.version}.jar</coco.api.compatibility.candidate-jar>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>

@@ -32,7 +32,7 @@ public class CocoProperties {
      * @return 功能开关配置
      */
     public CocoFeatureProperties getFeatures() {
-        return copy(this.features);
+        return this.features;
     }
 
     /**
@@ -42,15 +42,6 @@ public class CocoProperties {
      * @param features 功能开关配置
      */
     public void setFeatures(CocoFeatureProperties features) {
-        this.features = copy(features);
-    }
-
-    private static CocoFeatureProperties copy(CocoFeatureProperties source) {
-        CocoFeatureProperties copy = new CocoFeatureProperties();
-        if (source != null) {
-            copy.setEnabled(source.getEnabled());
-            copy.setDisabled(source.getDisabled());
-        }
-        return copy;
+        this.features = features == null ? new CocoFeatureProperties() : features;
     }
 }

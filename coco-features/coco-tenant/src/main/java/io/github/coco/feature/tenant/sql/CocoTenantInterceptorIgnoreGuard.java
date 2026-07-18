@@ -1,14 +1,18 @@
 package io.github.coco.feature.tenant.sql;
 
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
 
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
+import com.baomidou.mybatisplus.core.toolkit.PluginUtils;
 import com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor;
 import io.github.coco.feature.tenant.CocoTenantErrorCode;
 import org.apache.ibatis.executor.Executor;
+import org.apache.ibatis.executor.statement.StatementHandler;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
+import org.apache.ibatis.mapping.SqlCommandType;
 import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.slf4j.Logger;
@@ -40,6 +44,8 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
 
     private final CocoTenantInterceptorIgnoreEventPublisher eventPublisher;
 
+    private final ThreadLocal<MappedStatement> governedUpdate = new ThreadLocal<>();
+
     /**
      * <p>
      * 创建租户拦截器忽略治理 guard。
@@ -68,8 +74,33 @@ public final class CocoTenantInterceptorIgnoreGuard implements InnerInterceptor 
      */
     @Override
     public boolean willDoUpdate(Executor executor, MappedStatement ms, Object parameter) throws SQLException {
+        this.governedUpdate.remove();
         govern(ms);
+        this.governedUpdate.set(ms);
         return true;
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 2.0.1 二进制兼容入口。旧调用方直接进入该回调时继续执行完整治理；常规更新已在
+     * {@link #willDoUpdate(Executor, MappedStatement, Object)} 治理时只消费标记，避免重复发布事件。
+     * </p>
+     */
+    @Deprecated(since = "2.0.2", forRemoval = false)
+    @Override
+    public void beforePrepare(StatementHandler sh, Connection connection, Integer transactionTimeout) {
+        MappedStatement mappedStatement = PluginUtils.mpStatementHandler(sh).mappedStatement();
+        SqlCommandType commandType = mappedStatement.getSqlCommandType();
+        if (commandType != SqlCommandType.INSERT && commandType != SqlCommandType.UPDATE
+                && commandType != SqlCommandType.DELETE) {
+            return;
+        }
+        MappedStatement alreadyGoverned = this.governedUpdate.get();
+        this.governedUpdate.remove();
+        if (alreadyGoverned != mappedStatement) {
+            govern(mappedStatement);
+        }
     }
 
     private void govern(MappedStatement mappedStatement) {
