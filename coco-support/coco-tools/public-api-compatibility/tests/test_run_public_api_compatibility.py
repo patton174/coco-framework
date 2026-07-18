@@ -142,7 +142,7 @@ class TrustedPublicApiRunnerTest(unittest.TestCase):
         ledger = SCRIPT_DIR / "baseline-sha256.json"
         allowlist = SCRIPT_DIR / "allowlist.json"
         signing_key = SCRIPT_DIR / "baseline-signing-key.asc"
-        expected = "5b0ebf1b74838c3626fa51296c123ed0b817d2ade891b774bd4960f524c7b1ff"
+        expected = "9b1b9498184856ef71a7426e8b595a1122a3654eb03a6902b6f4132db2148c4a"
 
         self.assertIs(checker.policy_bundle_sha256, policy_bundle.policy_bundle_sha256)
         self.assertIs(

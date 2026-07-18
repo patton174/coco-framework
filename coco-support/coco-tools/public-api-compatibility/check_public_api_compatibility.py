@@ -240,7 +240,7 @@ def load_japicmp_policy(path: Path) -> dict[str, Any]:
             "url": "https://repo.maven.apache.org/maven2/com/github/siom79/japicmp/"
             "japicmp/0.23.1/japicmp-0.23.1-jar-with-dependencies.jar",
             "size": 5988558,
-            "sha256": "f2300dd9b8aca31c49a95dfad5a6794b4475f4e83809ad69f8f1e11d87014657",
+            "sha256": "f2300a8531b68e25b678247874a1eae13a07d6842a4a1236845481fc90c5c6c7",
         },
     }
     if data != expected:
