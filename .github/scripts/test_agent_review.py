@@ -7038,108 +7038,121 @@ class AgentReviewTests(unittest.TestCase):
             )
         self.assertEqual(1, client.calls)
 
-    def test_production_policy_routes_fit_without_omissions(self) -> None:
+    def production_policy_route_fixture(self) -> tuple[Path, dict, list[str]]:
         repository_root = Path(__file__).resolve().parents[2]
         value = review.load_config(repository_root / ".github/agent-review/config.json")
-        limit = review.normalized_limits(value)["policy_chars"]
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.split("\0")
+        tracked_files = sorted(
+            path for path in tracked if path and (repository_root / path).is_file()
+        )
+        representatives: list[str] = []
+        used: set[str] = set()
         for index, mapping in enumerate(value["spec_path_mappings"]):
-            for pattern in mapping["path_globs"]:
-                changed_path = (
-                    pattern.replace("**", "probe")
-                    .replace("*", "probe")
-                    .replace("?", "x")
+            matches = [
+                path
+                for path in tracked_files
+                if path not in used
+                and any(
+                    review.fnmatch.fnmatch(path, pattern)
+                    for pattern in mapping["path_globs"]
                 )
-                with self.subTest(route=index, changed_path=changed_path):
-                    omissions: list[str] = []
-                    sources = review.collect_policy(
-                        repository_root, value, [changed_path], omissions
-                    )
-                    self.assertEqual([], omissions)
-                    self.assertLess(
-                        sum(len(source["content"]) for source in sources), limit
-                    )
+            ]
+            self.assertTrue(
+                matches, f"Production policy route {index} has no tracked path"
+            )
+            representative = min(
+                matches,
+                key=lambda path: ((repository_root / path).stat().st_size, path),
+            )
+            representatives.append(representative)
+            used.add(representative)
+        return repository_root, value, representatives
 
-    def test_production_policy_budget_covers_issue_221_required_set(self) -> None:
-        repository_root = Path(__file__).resolve().parents[2]
-        value = review.load_config(repository_root / ".github/agent-review/config.json")
-        changed_paths = [
-            ".github/release/release-artifact-expectations.json",
-            ".github/scripts/release_file_count_preflight.py",
-            ".github/scripts/test_agent_review.py",
-            ".github/scripts/test_release_file_count_preflight.py",
-            ".github/workflows/release.yml",
-            ".github/workflows/reusable-static-analysis.yml",
-            "pom.xml",
-        ]
+    @staticmethod
+    def expected_production_policy_paths(
+        value: dict, changed_paths: list[str]
+    ) -> list[str]:
+        expected = list(value["protected_policy_paths"])
+        for mapping in value["spec_path_mappings"]:
+            if any(
+                review.fnmatch.fnmatch(path, pattern)
+                for path in changed_paths
+                for pattern in mapping["path_globs"]
+            ):
+                expected.extend(mapping["spec_paths"])
+        return list(dict.fromkeys(expected))
 
+    @staticmethod
+    def build_production_policy_context(
+        repository_root: Path, value: dict, changed_paths: list[str]
+    ) -> dict:
+        head_files = {
+            path: (repository_root / path).read_text(encoding="utf-8", errors="replace")
+            for path in changed_paths
+        }
         files = [
             {
                 "filename": path,
                 "status": "modified",
-                "additions": 1,
-                "deletions": 1,
-                "changes": 2,
-                "patch": "@@ -1 +1 @@\n-old\n+new",
+                "additions": 0,
+                "deletions": 0,
+                "changes": 0,
             }
             for path in changed_paths
         ]
-        context = review.build_context(
-            FakeContextClient({}),
+        return review.build_context(
+            FakeContextClient(head_files),
             REPOSITORY,
             {
-                "number": 221,
-                "title": "Central capacity preflight",
+                "number": 223,
+                "title": "Production policy route budget",
                 "body": "",
                 "base": {"sha": BASE_SHA},
                 "head": {"sha": HEAD_SHA},
             },
             files,
             [],
-            None,
+            "",
             repository_root,
             value,
         )
-        sources = context["trusted"]["policy"]
 
-        self.assertFalse(
-            [
-                omission
-                for omission in context["omissions"]
-                if "trusted policy" in omission
-            ]
-        )
-        self.assertEqual(
-            [
-                "AGENTS.md",
-                ".github/agent-review/policy.md",
-                "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md",
-                "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md",
-                "coco-support/coco-document/architecture/module-layout.md",
-            ],
-            [source["source"] for source in sources],
-        )
-        source_sizes = {source["source"]: len(source["content"]) for source in sources}
-        self.assertEqual(
-            3_785,
-            source_sizes["coco-support/coco-document/architecture/module-layout.md"],
-        )
-        self.assertEqual(50_905, sum(source_sizes.values()))
-        self.assertEqual(100_000, review.normalized_limits(value)["policy_chars"])
+    def test_production_policy_routes_fit_without_omissions(self) -> None:
+        repository_root, value, representatives = self.production_policy_route_fixture()
+        limit = review.normalized_limits(value)["policy_chars"]
+        for index, changed_path in enumerate(representatives):
+            with self.subTest(route=index, changed_path=changed_path):
+                context = self.build_production_policy_context(
+                    repository_root, value, [changed_path]
+                )
+                sources = context["trusted"]["policy"]
+                expected = self.expected_production_policy_paths(value, [changed_path])
+                self.assertFalse(
+                    [
+                        omission
+                        for omission in context["omissions"]
+                        if "trusted policy" in omission
+                    ]
+                )
+                self.assertEqual(expected, [source["source"] for source in sources])
+                self.assertTrue(
+                    set(value["spec_path_mappings"][index]["spec_paths"])
+                    <= set(expected)
+                )
+                self.assertLess(
+                    sum(len(source["content"]) for source in sources), limit
+                )
 
     def test_production_policy_budget_covers_all_routes_and_fails_near_overflow(
         self,
     ) -> None:
-        repository_root = Path(__file__).resolve().parents[2]
-        value = review.load_config(repository_root / ".github/agent-review/config.json")
-        changed_paths = [
-            ".github/scripts/test_agent_review.py",
-            "pom.xml",
-            "coco-api/src/main/java/io/github/coco/api/CocoFeature.java",
-            "coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/CocoWebAutoConfiguration.java",
-            "coco-features/coco-feature-audit/src/main/java/io/github/coco/feature/audit/CocoAudit.java",
-            "coco-foundation/coco-logging/src/main/java/io/github/coco/logging/CocoLogging.java",
-            "coco-build/coco-maven-plugin/src/main/java/io/github/coco/maven/CocoGenerateMojo.java",
-        ]
+        repository_root, value, changed_paths = self.production_policy_route_fixture()
         expected_paths = list(
             dict.fromkeys(
                 [
@@ -7152,23 +7165,42 @@ class AgentReviewTests(unittest.TestCase):
                 ]
             )
         )
-        omissions: list[str] = []
-
-        sources = review.collect_policy(
-            repository_root, value, changed_paths, omissions
+        context = self.build_production_policy_context(
+            repository_root, value, changed_paths
         )
+        sources = context["trusted"]["policy"]
         required_chars = sum(len(source["content"]) for source in sources)
+        limit = review.normalized_limits(value)["policy_chars"]
+        headroom = limit - required_chars
 
-        self.assertEqual([], omissions)
+        self.assertFalse(
+            [
+                omission
+                for omission in context["omissions"]
+                if "trusted policy" in omission
+            ]
+        )
         self.assertEqual(expected_paths, [source["source"] for source in sources])
-        self.assertEqual(95_765, required_chars)
-        self.assertLess(required_chars, review.normalized_limits(value)["policy_chars"])
+        for source in sources:
+            self.assertEqual(
+                (repository_root / source["source"]).read_text(
+                    encoding="utf-8", errors="replace"
+                ),
+                source["content"],
+            )
+        self.assertEqual(100_000, limit)
+        self.assertGreater(headroom, 0)
 
-        value["context_budget"]["protected_policy_and_specs_limit"] = required_chars - 1
+        overflow_value = json.loads(json.dumps(value))
+        overflow_value["context_budget"]["protected_policy_and_specs_limit"] = (
+            required_chars - 1
+        )
         with self.assertRaisesRegex(
             review.ReviewError, "Required trusted policy exceeds the context budget"
         ):
-            review.collect_policy(repository_root, value, changed_paths, [])
+            self.build_production_policy_context(
+                repository_root, overflow_value, changed_paths
+            )
 
 
 if __name__ == "__main__":
