@@ -4,7 +4,9 @@ import java.util.Locale;
 import java.util.Objects;
 
 import io.github.coco.i18n.CocoI18nProperties;
+import io.github.coco.i18n.CocoLocaleFallbackPolicy;
 import io.github.coco.i18n.CocoLocaleResolver;
+import io.github.coco.i18n.internal.DefaultCocoLocaleFallbackPolicy;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.context.request.RequestAttributes;
@@ -32,6 +34,8 @@ public final class CocoWebLocaleResolver implements CocoLocaleResolver {
 
     private final CocoI18nProperties properties;
 
+    private final CocoLocaleFallbackPolicy fallbackPolicy;
+
     /**
      * <p>
      * 创建 Coco Web 请求语言解析器。
@@ -39,7 +43,21 @@ public final class CocoWebLocaleResolver implements CocoLocaleResolver {
      * @param properties Coco 国际化配置
      */
     public CocoWebLocaleResolver(CocoI18nProperties properties) {
+        this(properties, new DefaultCocoLocaleFallbackPolicy());
+    }
+
+    /**
+     * <p>
+     * 创建使用指定回退策略的 Coco Web 请求语言解析器。
+     * </p>
+     * @param properties Coco 国际化配置
+     * @param fallbackPolicy 请求语言回退策略
+     */
+    public CocoWebLocaleResolver(CocoI18nProperties properties,
+            CocoLocaleFallbackPolicy fallbackPolicy) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
+        this.fallbackPolicy = Objects.requireNonNull(fallbackPolicy,
+                "fallbackPolicy must not be null");
     }
 
     /**
@@ -47,8 +65,7 @@ public final class CocoWebLocaleResolver implements CocoLocaleResolver {
      */
     @Override
     public Locale resolveLocale() {
-        Locale requestLocale = resolveRequestLocale();
-        return requestLocale == null ? this.properties.getDefaultLocale() : requestLocale;
+        return this.fallbackPolicy.resolveLocale(resolveRequestLocale(), this.properties);
     }
 
     /**

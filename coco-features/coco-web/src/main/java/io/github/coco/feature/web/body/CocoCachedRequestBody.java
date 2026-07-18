@@ -41,16 +41,17 @@ public record CocoCachedRequestBody(byte[] content, String sha256, long length, 
      * @param length 请求体长度
      * @param cached 是否真实缓存了请求体
      */
-    public CocoCachedRequestBody {
-        content = content == null ? new byte[0] : content.clone();
-        length = Math.max(0L, length);
+    public CocoCachedRequestBody(byte[] content, String sha256, long length, boolean cached) {
+        byte[] copiedContent = content == null ? new byte[0] : content.clone();
+        this.content = copiedContent;
+        this.cached = cached;
         if (cached) {
-            sha256 = normalizeSha256(sha256, content);
-            length = content.length;
+            this.sha256 = normalizeSha256(sha256, copiedContent);
+            this.length = copiedContent.length;
         }
         else {
-            sha256 = null;
-            length = 0L;
+            this.sha256 = null;
+            this.length = 0L;
         }
     }
 

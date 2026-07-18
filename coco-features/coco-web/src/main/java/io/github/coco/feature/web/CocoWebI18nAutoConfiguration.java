@@ -1,9 +1,12 @@
 package io.github.coco.feature.web;
 
 import io.github.coco.CocoCommonProperties;
+import io.github.coco.i18n.CocoLocaleFallbackPolicy;
 import io.github.coco.i18n.CocoLocaleResolver;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.i18n.internal.DefaultCocoLocaleFallbackPolicy;
 import io.github.coco.feature.web.i18n.CocoWebLocaleResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
@@ -35,11 +38,37 @@ public class CocoWebI18nAutoConfiguration {
      * @param properties Coco 通用配置属性
      * @return Coco Web 请求语言解析器
      */
-    @Bean
+    @Bean("cocoWebLocaleResolver")
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
+    public CocoLocaleResolver cocoWebLocaleResolverBean(ObjectProvider<CocoCommonProperties> properties,
+            ObjectProvider<CocoLocaleFallbackPolicy> fallbackPolicies) {
+        CocoCommonProperties checkedProperties = properties.getIfAvailable(CocoCommonProperties::new);
+        CocoLocaleFallbackPolicy fallbackPolicy = fallbackPolicies
+                .getIfAvailable(DefaultCocoLocaleFallbackPolicy::new);
+        return cocoWebLocaleResolver(checkedProperties, fallbackPolicy);
+    }
+
+    /**
+     * Creates the published one-argument resolver factory with the default fallback policy.
+     *
+     * @param properties Coco common properties
+     * @return Coco Web locale resolver
+     */
     public CocoLocaleResolver cocoWebLocaleResolver(CocoCommonProperties properties) {
-        return new CocoWebLocaleResolver(properties.getI18n());
+        return cocoWebLocaleResolver(properties, new DefaultCocoLocaleFallbackPolicy());
+    }
+
+    /**
+     * Creates a resolver with an explicit fallback policy.
+     *
+     * @param properties Coco common properties
+     * @param fallbackPolicy locale fallback policy
+     * @return Coco Web locale resolver
+     */
+    public CocoLocaleResolver cocoWebLocaleResolver(CocoCommonProperties properties,
+            CocoLocaleFallbackPolicy fallbackPolicy) {
+        return new CocoWebLocaleResolver(properties.getI18n(), fallbackPolicy);
     }
 
     /**

@@ -2,18 +2,35 @@ package io.github.coco.common.autoconfigure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
+
+import io.github.coco.CocoCommonProperties;
+import io.github.coco.i18n.CocoLocaleFallbackPolicy;
+import io.github.coco.i18n.CocoLocaleResolver;
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.i18n.CocoMessageCode;
 import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.context.support.StaticMessageSource;
 
 /**
@@ -36,6 +53,32 @@ class CocoCommonAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CocoCommonAutoConfiguration.class));
+
+    @Test
+    void keepsPublishedOneArgumentLocaleResolverFactoryBinaryLinkable() throws Throwable {
+        MethodHandle factory = MethodHandles.publicLookup().findVirtual(
+                CocoCommonAutoConfiguration.class,
+                "cocoLocaleResolver",
+                MethodType.methodType(CocoLocaleResolver.class, CocoCommonProperties.class));
+
+        CocoLocaleResolver resolver = (CocoLocaleResolver) factory.invokeExact(
+                new CocoCommonAutoConfiguration(), new CocoCommonProperties());
+
+        assertEquals(Locale.SIMPLIFIED_CHINESE, resolver.resolveLocale());
+    }
+
+    @Test
+    void beanFactoryPathUsesCustomLocaleFallbackPolicyWithoutReplacingIt() {
+        CocoLocaleFallbackPolicy customPolicy = (locale, properties) -> Locale.CANADA_FRENCH;
+
+        this.contextRunner
+                .withBean(CocoLocaleFallbackPolicy.class, () -> customPolicy)
+                .run(context -> {
+                    assertSame(customPolicy, context.getBean(CocoLocaleFallbackPolicy.class));
+                    assertEquals(Locale.CANADA_FRENCH,
+                            context.getBean(CocoLocaleResolver.class).resolveLocale());
+                });
+    }
 
     @Test
     void createsCocoMessageService() {
@@ -116,6 +159,66 @@ class CocoCommonAutoConfigurationTest {
                 });
     }
 
+    @Test
+    void createsStableMessageSourceSnapshotsWhileTheLiveBasenameListChangesConcurrently()
+            throws InterruptedException {
+        List<String> configuredBasenames = IntStream.range(0, 128)
+                .mapToObj(index -> "application-messages-" + index)
+                .toList();
+        CocoCommonProperties properties = new CocoCommonProperties();
+        properties.getI18n().setBasename(configuredBasenames);
+        List<String> liveBasenames = properties.getI18n().getBasename();
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        ObjectProvider<CocoMessageBundleRegistrar> registrars =
+                beanFactory.getBeanProvider(CocoMessageBundleRegistrar.class);
+        CocoCommonAutoConfiguration configuration = new CocoCommonAutoConfiguration();
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        Thread writer = new Thread(() -> {
+            try {
+                await(start, failure);
+                for (int index = 0; index < 20_000 && failure.get() == null; index++) {
+                    liveBasenames.add("changing-messages");
+                    liveBasenames.remove("changing-messages");
+                }
+            }
+            catch (Throwable ex) {
+                failure.compareAndSet(null, ex);
+            }
+        }, "coco-i18n-basename-writer");
+        Thread reader = new Thread(() -> {
+            await(start, failure);
+            try {
+                for (int index = 0; index < 2_000 && failure.get() == null; index++) {
+                    MessageSource source = configuration.cocoMessageSource(properties, registrars);
+                    List<String> snapshot = new ArrayList<>(
+                            ((ResourceBundleMessageSource) source).getBasenameSet());
+                    if (snapshot.isEmpty() || !"coco-messages".equals(snapshot.get(snapshot.size() - 1))) {
+                        throw new AssertionError("Framework bundle was not last in the snapshot: " + snapshot);
+                    }
+                    snapshot.remove("coco-messages");
+                    snapshot.remove("changing-messages");
+                    if (!configuredBasenames.equals(snapshot)) {
+                        throw new AssertionError("Observed partial or reordered basename snapshot: " + snapshot);
+                    }
+                }
+            }
+            catch (Throwable ex) {
+                failure.compareAndSet(null, ex);
+            }
+        }, "coco-i18n-basename-reader");
+
+        writer.start();
+        reader.start();
+        start.countDown();
+        writer.join();
+        reader.join();
+
+        assertTrue(failure.get() == null,
+                () -> "Concurrent basename snapshot failed: " + failure.get());
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class UserMessageSourceConfiguration {
 
@@ -133,6 +236,16 @@ class CocoCommonAutoConfigurationTest {
         @Bean
         CocoMessageBundleRegistrar moduleMessageBundleRegistrar() {
             return registry -> registry.add("module-messages");
+        }
+    }
+
+    private static void await(CountDownLatch start, AtomicReference<Throwable> failure) {
+        try {
+            start.await();
+        }
+        catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            failure.compareAndSet(null, ex);
         }
     }
 

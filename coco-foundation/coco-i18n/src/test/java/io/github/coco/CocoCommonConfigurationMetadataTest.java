@@ -2,13 +2,12 @@ package io.github.coco;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -45,27 +44,36 @@ class CocoCommonConfigurationMetadataTest {
         String content = new String(metadata.readAllBytes(), StandardCharsets.UTF_8);
         assertTrue(content.contains("\"name\": \"coco.common.i18n.basename\""));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.default-locale\""));
+        assertTrue(content.contains("\"name\": \"coco.common.i18n.supported-languages\""));
+        assertTrue(content.contains("\"defaultValue\": []"));
+        assertTrue(content.contains("空列表表示不过滤；非空列表表示显式 opt-in 允许列表。"));
+        assertTrue(content.contains("匹配遵循 JDK Locale 规范化语义，不执行 IANA 注册表别名扩展；"
+                + "BU\\/MM 等已弃用 Preferred-Value 别名保持不同。"));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.fallback-to-system-locale\""));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.use-code-as-default-message\""));
     }
 
     @Test
-    void exposesImmutableI18nConfigurationSnapshots() {
-        List<String> basenames = new ArrayList<>(List.of("application-messages"));
+    void preservesPublishedLiveI18nConfigurationContract() {
         CocoI18nProperties i18n = new CocoI18nProperties();
-        i18n.setBasename(basenames);
+        i18n.setBasename(List.of("application-messages"));
         CocoCommonProperties properties = new CocoCommonProperties();
         properties.setI18n(i18n);
-        basenames.add("late-mutation");
-        i18n.setDefaultLocale(Locale.US);
 
-        CocoI18nProperties snapshot = properties.getI18n();
+        CocoI18nProperties liveProperties = properties.getI18n();
+        liveProperties.getBasename().add("late-mutation");
+        liveProperties.setDefaultLocale(Locale.US);
 
-        assertEquals(List.of("application-messages"), snapshot.getBasename());
-        assertEquals(Locale.SIMPLIFIED_CHINESE, snapshot.getDefaultLocale());
-        assertThrows(UnsupportedOperationException.class, () -> snapshot.getBasename().add("other"));
-        snapshot.setDefaultLocale(Locale.CANADA);
-        assertEquals(Locale.SIMPLIFIED_CHINESE, properties.getI18n().getDefaultLocale());
+        assertSame(i18n, liveProperties);
+        assertSame(liveProperties, properties.getI18n());
+        assertEquals(List.of("application-messages", "late-mutation"),
+                properties.getI18n().getBasename());
+        assertEquals(Locale.US, properties.getI18n().getDefaultLocale());
+
+        CocoI18nProperties replacement = new CocoI18nProperties();
+        properties.setI18n(replacement);
+
+        assertSame(replacement, properties.getI18n());
     }
 
     @Test

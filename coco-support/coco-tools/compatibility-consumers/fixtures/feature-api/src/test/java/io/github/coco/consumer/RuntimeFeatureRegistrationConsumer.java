@@ -73,8 +73,9 @@ public final class RuntimeFeatureRegistrationConsumer {
         List<String> autoConfigurationBeans = FEATURE_REGISTRATIONS.stream()
                 .map(registration -> verifyRegistration(context, featurePlan, registration))
                 .toList();
-        System.out.println("COCO_RUNTIME_REGISTRATION_OK profile=" + profile
-                + " context=" + sourceContext.getClass().getName()
+        System.out.println("COCO_RUNTIME_REGISTRATION_OK profile=" + profile);
+        System.out.println("COCO_RUNTIME_REGISTRATION_DETAILS context="
+                + sourceContext.getClass().getName()
                 + " featurePlanBeans=" + featurePlanBeans.keySet()
                 + " features=" + FEATURE_REGISTRATIONS.stream()
                         .map(registration -> registration.feature().id())

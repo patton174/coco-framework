@@ -20,6 +20,8 @@ import io.github.coco.exception.CocoCommonErrorCode;
 import io.github.coco.exception.CocoException;
 import io.github.coco.exception.CocoExceptions;
 import io.github.coco.exception.type.CocoRequestException;
+import io.github.coco.i18n.CocoLocaleFallbackPolicy;
+import io.github.coco.i18n.CocoLocaleResolver;
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.logging.access.CocoAccessLog;
@@ -143,6 +145,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
@@ -364,6 +367,81 @@ class CocoWebAutoConfigurationTest {
 
             assertEquals("Operation succeeded.", messageService.getMessage("coco.web.response.success"));
         });
+    }
+
+    @Test
+    void letsSpringSelectTheRootAndTraditionalChineseWebBundles() {
+        this.webContextRunner.run(context -> {
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            request.addHeader("Accept-Language", "zh");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+            assertEquals(ResourceBundle.getBundle("coco-feature-web-messages", Locale.ROOT)
+                    .getString("coco.feature.web.ready"), messageService.getMessage("coco.feature.web.ready"));
+
+            request.removeHeader("Accept-Language");
+            request.addHeader("Accept-Language", "zh-TW");
+
+            assertEquals(ResourceBundle.getBundle("coco-feature-web-messages", Locale.TAIWAN)
+                    .getString("coco.feature.web.ready"), messageService.getMessage("coco.feature.web.ready"));
+        });
+    }
+
+    @Test
+    void letsSpringUseTheRootBundleForUnknownAcceptLanguageHeader() {
+        this.webContextRunner.run(context -> {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+            request.addHeader("Accept-Language", "fr-CA");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+            CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+            assertEquals(ResourceBundle.getBundle("coco-feature-web-messages", Locale.ROOT)
+                    .getString("coco.feature.web.ready"), messageService.getMessage("coco.feature.web.ready"));
+        });
+    }
+
+    @Test
+    void customLocaleFallbackPolicyCanOverrideUnsupportedAcceptLanguageHandling() {
+        this.webContextRunner
+                .withBean(CocoLocaleFallbackPolicy.class, () -> (locale, properties) -> Locale.US)
+                .run(context -> {
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    request.addHeader("Accept-Language", "fr-CA");
+                    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+                    CocoMessageService messageService = context.getBean(CocoMessageService.class);
+
+                    assertEquals("Coco web feature message bundle is ready.",
+                            messageService.getMessage("coco.feature.web.ready"));
+                });
+    }
+
+    @Test
+    void supportedLanguagesPropertyCanAcceptAdditionalRequestLanguage() {
+        this.webContextRunner
+                .withPropertyValues(
+                        "coco.common.i18n.default-locale=en-US",
+                        "coco.common.i18n.supported-languages=fr")
+                .run(context -> {
+                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users");
+                    request.addHeader("Accept-Language", "fr-CA");
+                    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+                    CocoLocaleResolver localeResolver = context.getBean(CocoLocaleResolver.class);
+
+                    assertEquals(Locale.CANADA_FRENCH, localeResolver.resolveLocale());
+                });
+    }
+
+    @Test
+    void keepsWebMessageBundleKeysAlignedAcrossSupportedLocales() {
+        Set<String> baseKeys = ResourceBundle.getBundle("coco-feature-web-messages", Locale.ROOT).keySet();
+
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-feature-web-messages", Locale.CHINESE).keySet());
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-feature-web-messages", Locale.TAIWAN).keySet());
+        assertEquals(baseKeys, ResourceBundle.getBundle("coco-feature-web-messages", Locale.US).keySet());
     }
 
     @Test
