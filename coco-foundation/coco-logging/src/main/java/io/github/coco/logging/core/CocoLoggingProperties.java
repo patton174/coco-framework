@@ -1,5 +1,7 @@
 package io.github.coco.logging.core;
 
+import java.util.Locale;
+
 import io.github.coco.logging.access.CocoAccessLogProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -115,7 +117,7 @@ public class CocoLoggingProperties {
      * @return 异步日志配置
      */
     public AsyncProperties getAsync() {
-        return this.async;
+        return copy(this.async);
     }
 
     /**
@@ -125,7 +127,7 @@ public class CocoLoggingProperties {
      * @param async 异步日志配置
      */
     public void setAsync(AsyncProperties async) {
-        this.async = async == null ? new AsyncProperties() : async;
+        this.async = copy(async);
     }
 
     /**
@@ -135,7 +137,7 @@ public class CocoLoggingProperties {
      * @return Node 终端日志渲染器配置
      */
     public NodeRendererProperties getNodeRenderer() {
-        return this.nodeRenderer;
+        return copy(this.nodeRenderer);
     }
 
     /**
@@ -145,7 +147,7 @@ public class CocoLoggingProperties {
      * @param nodeRenderer Node 终端日志渲染器配置
      */
     public void setNodeRenderer(NodeRendererProperties nodeRenderer) {
-        this.nodeRenderer = nodeRenderer == null ? new NodeRendererProperties() : nodeRenderer;
+        this.nodeRenderer = copy(nodeRenderer);
     }
 
     /**
@@ -155,7 +157,7 @@ public class CocoLoggingProperties {
      * @return 访问日志配置
      */
     public CocoAccessLogProperties getAccessLog() {
-        return this.accessLog;
+        return copy(this.accessLog);
     }
 
     /**
@@ -165,7 +167,38 @@ public class CocoLoggingProperties {
      * @param accessLog 访问日志配置
      */
     public void setAccessLog(CocoAccessLogProperties accessLog) {
-        this.accessLog = accessLog == null ? new CocoAccessLogProperties() : accessLog;
+        this.accessLog = copy(accessLog);
+    }
+
+    private static AsyncProperties copy(AsyncProperties source) {
+        AsyncProperties copy = new AsyncProperties();
+        if (source != null) {
+            copy.setEnabled(source.isEnabled());
+            copy.setQueueCapacity(source.getQueueCapacity());
+        }
+        return copy;
+    }
+
+    private static NodeRendererProperties copy(NodeRendererProperties source) {
+        NodeRendererProperties copy = new NodeRendererProperties();
+        if (source != null) {
+            copy.setEnabled(source.isEnabled());
+            copy.setJarOnly(source.isJarOnly());
+            copy.setCommand(source.getCommand());
+            copy.setColor(source.getColor());
+        }
+        return copy;
+    }
+
+    private static CocoAccessLogProperties copy(CocoAccessLogProperties source) {
+        CocoAccessLogProperties copy = new CocoAccessLogProperties();
+        if (source != null) {
+            copy.setEnabled(source.isEnabled());
+            copy.setLevel(source.getLevel());
+            copy.setStyle(source.getStyle());
+            copy.setLoggerName(source.getLoggerName());
+        }
+        return copy;
     }
 
     /**
@@ -336,7 +369,9 @@ public class CocoLoggingProperties {
          * @param color 颜色模式，支持 {@code always}、{@code auto}、{@code never}
          */
         public void setColor(String color) {
-            String checkedColor = color == null || color.isBlank() ? "always" : color.trim().toLowerCase();
+            String checkedColor = color == null || color.isBlank()
+                    ? "always"
+                    : color.trim().toLowerCase(Locale.ROOT);
             this.color = switch (checkedColor) {
                 case "auto", "never" -> checkedColor;
                 default -> "always";

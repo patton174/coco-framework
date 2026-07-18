@@ -2,18 +2,37 @@ package io.github.coco.config;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.api.feature.CocoFeatureRegistry;
 import io.github.coco.api.feature.CocoFeatures;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
-import io.github.coco.i18n.CocoMessageService;
+import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureSelection;
+import io.github.coco.feature.model.StandardCocoFeatures;
+import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -36,6 +55,9 @@ import org.springframework.context.annotation.Configuration;
  */
 @SuppressWarnings("deprecation")
 class CocoConfigAutoConfigurationTest {
+
+    @TempDir
+    Path tempDir;
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CocoConfigAutoConfiguration.class));
@@ -78,7 +100,7 @@ class CocoConfigAutoConfigurationTest {
     }
 
     @Test
-    void codeConfigurationCanOverrideApplicationProperties() {
+    void propertyDisableWinsOverCodeEnable() {
         this.contextRunner
                 .withUserConfiguration(AnnotatedCocoConfiguration.class)
                 .withPropertyValues("coco.features.disabled[0]=tenant")
@@ -86,9 +108,66 @@ class CocoConfigAutoConfigurationTest {
                     CocoFeatureManager manager = context.getBean(CocoFeatureManager.class);
                     CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
 
-                    assertTrue(manager.isEnabled(CocoFeature.TENANT));
-                    assertTrue(plan.enabledFeatures().contains(CocoFeature.TENANT));
+                    assertFalse(manager.isEnabled(CocoFeature.TENANT));
+                    assertFalse(plan.enabledFeatures().contains(CocoFeature.TENANT));
                 });
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void runtimeConfigurationLogsOnlyDependencyPropagatedFeatures(CapturedOutput output) {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.features.disabled[0]=tenant",
+                        "coco.features.disabled[1]=mybatis-plus")
+                .run(context -> {
+                    CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
+
+                    assertEquals(java.util.Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
+                            plan.disabledByDependencyFeatures());
+                });
+
+        assertTrue(output.getAll().contains("disabledByDependency=[codegen, data-permission]"));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void manifestWithoutProvenanceLogsDependencyImpactWithoutAttributingCause(CapturedOutput output) throws Exception {
+        Path manifestPath = this.tempDir.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION);
+        Files.createDirectories(manifestPath.getParent());
+        CocoFeaturePlan buildPlan = StandardCocoFeatures.resolve(
+                CocoFeatureSelection.ofDisabled(java.util.Set.of(CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS)));
+        Files.writeString(manifestPath, CocoFeatureManifestLoader.write(
+                StandardCocoFeatures.toManifest(buildPlan, "test")), StandardCharsets.UTF_8);
+
+        try (URLClassLoader classLoader = new URLClassLoader(
+                new java.net.URL[] { this.tempDir.toUri().toURL() }, getClass().getClassLoader())) {
+            this.contextRunner.withClassLoader(classLoader).run(context -> {
+                CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
+
+                assertFalse(plan.isEnabled(CocoFeature.TENANT));
+                assertFalse(plan.isEnabled(CocoFeature.MYBATIS_PLUS));
+            });
+        }
+
+        assertTrue(output.getAll().contains("dependencyAffected=[codegen, data-permission, tenant]"));
+        assertTrue(output.getAll().contains("dependencyProvenance=unknown"));
+        assertFalse(output.getAll().contains("disabledByDependency="));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void codeConfigurationLogsOnlyDependencyPropagatedFeatures(CapturedOutput output) {
+        this.contextRunner
+                .withUserConfiguration(DependencyDisabledCocoConfiguration.class)
+                .run(context -> {
+                    CocoFeaturePlan plan = context.getBean(CocoFeaturePlan.class);
+
+                    assertEquals(java.util.Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION, CocoFeature.CODEGEN),
+                            plan.disabledByDependencyFeatures());
+                });
+
+        assertTrue(output.getAll().contains("disabledByDependency=[codegen, data-permission]"));
     }
 
     @Test
@@ -133,6 +212,56 @@ class CocoConfigAutoConfigurationTest {
         assertEquals(java.util.Set.of(CocoFeature.TENANT), selection.disabled());
     }
 
+    @Test
+    void featurePropertiesExposeImmutableCollectionSnapshots() {
+        Set<CocoFeature> enabled = new LinkedHashSet<>(Set.of(CocoFeature.WEB));
+        Set<CocoFeature> disabled = new LinkedHashSet<>(Set.of(CocoFeature.TENANT));
+        CocoFeatureProperties properties = new CocoFeatureProperties();
+        properties.setEnabled(enabled);
+        properties.setDisabled(disabled);
+        enabled.add(CocoFeature.OPENAPI);
+        disabled.add(CocoFeature.DATA_PERMISSION);
+
+        assertEquals(Set.of(CocoFeature.WEB), properties.getEnabled());
+        assertEquals(Set.of(CocoFeature.TENANT), properties.getDisabled());
+        assertThrows(UnsupportedOperationException.class, () -> properties.getEnabled().add(CocoFeature.OPENAPI));
+        assertThrows(UnsupportedOperationException.class,
+                () -> properties.getDisabled().add(CocoFeature.DATA_PERMISSION));
+    }
+
+    @Test
+    void rootPropertiesIsolateNestedFeaturePropertiesAndBindThroughJavaBeans() {
+        CocoFeatureProperties features = new CocoFeatureProperties();
+        features.setEnabled(Set.of(CocoFeature.WEB));
+        CocoProperties properties = new CocoProperties();
+        properties.setFeatures(features);
+        features.setEnabled(Set.of(CocoFeature.OPENAPI));
+
+        assertEquals(Set.of(CocoFeature.WEB), properties.getFeatures().getEnabled());
+        CocoFeatureProperties snapshot = properties.getFeatures();
+        snapshot.setDisabled(Set.of(CocoFeature.TENANT));
+        assertTrue(properties.getFeatures().getDisabled().isEmpty());
+
+        Binder binder = new Binder(new MapConfigurationPropertySource(Map.of(
+                "coco.features.enabled[0]", "web",
+                "coco.features.disabled[0]", "tenant")));
+        assertTrue(binder.bind("coco", Bindable.ofInstance(properties)).isBound());
+        assertEquals(Set.of(CocoFeature.WEB), properties.getFeatures().getEnabled());
+        assertEquals(Set.of(CocoFeature.TENANT), properties.getFeatures().getDisabled());
+    }
+
+    @Test
+    void preservesPublishedConfigurationPropertiesApi() throws ReflectiveOperationException {
+        assertEquals(CocoProperties.class, Class.forName("io.github.coco.config.CocoProperties"));
+        assertNotNull(CocoProperties.class.getConstructor());
+        assertEquals(CocoFeatureProperties.class, CocoProperties.class.getMethod("getFeatures").getReturnType());
+        assertNotNull(CocoProperties.class.getMethod("setFeatures", CocoFeatureProperties.class));
+        assertEquals(Set.class, CocoFeatureProperties.class.getMethod("getEnabled").getReturnType());
+        assertEquals(Set.class, CocoFeatureProperties.class.getMethod("getDisabled").getReturnType());
+        assertNotNull(CocoFeatureProperties.class.getMethod("setEnabled", Set.class));
+        assertNotNull(CocoFeatureProperties.class.getMethod("setDisabled", Set.class));
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class UserCocoConfiguration {
 
@@ -151,5 +280,10 @@ class CocoConfigAutoConfigurationTest {
     @Configuration(proxyBeanMethods = false)
     @CocoFeatures(enabled = CocoFeature.TENANT)
     static class AnnotatedCocoConfiguration {
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @CocoFeatures(disabled = { CocoFeature.TENANT, CocoFeature.MYBATIS_PLUS })
+    static class DependencyDisabledCocoConfiguration {
     }
 }

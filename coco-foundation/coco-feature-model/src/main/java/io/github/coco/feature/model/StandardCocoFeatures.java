@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -30,40 +31,33 @@ import io.github.coco.api.feature.CocoFeature;
 public final class StandardCocoFeatures {
 
     private static final List<CocoFeatureDefinition> FEATURES = List.of(
-            feature(CocoFeature.WEB, "coco-feature-web",
-                    "io.github.coco.feature.web.CocoWebAutoConfiguration"),
-            feature(CocoFeature.MYBATIS_PLUS, "coco-feature-mybatis-plus",
+            feature(CocoFeature.WEB, "coco-web",
+                    "io.github.coco.feature.web.CocoWebAutoConfiguration",
+                    Set.of("coco-web", "coco-feature-web")),
+            feature(CocoFeature.MYBATIS_PLUS, "coco-mybatis-plus",
                     "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration",
-                    Set.of(
-                            "coco-feature-mybatis-plus",
-                            "mybatis",
-                            "mybatis-plus",
-                            "mybatis-plus-annotation",
-                            "mybatis-plus-core",
-                            "mybatis-plus-extension",
-                            "mybatis-plus-jsqlparser-4.9",
-                            "mybatis-plus-jsqlparser-common",
-                            "mybatis-plus-spring",
-                            "mybatis-plus-spring-boot-autoconfigure",
-                            "mybatis-plus-spring-boot-native-image",
-                            "mybatis-plus-spring-boot4-starter",
-                            "mybatis-spring")),
-            feature(CocoFeature.AUDIT, "coco-feature-audit",
-                    "io.github.coco.feature.audit.CocoAuditAutoConfiguration"),
-            feature(CocoFeature.SECURITY, "coco-feature-security",
-                    "io.github.coco.feature.security.CocoSecurityAutoConfiguration"),
-            feature(CocoFeature.TENANT, "coco-feature-tenant",
+                    Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus")),
+            feature(CocoFeature.AUDIT, "coco-audit",
+                    "io.github.coco.feature.audit.CocoAuditAutoConfiguration",
+                    Set.of("coco-audit", "coco-feature-audit")),
+            feature(CocoFeature.SECURITY, "coco-security",
+                    "io.github.coco.feature.security.CocoSecurityAutoConfiguration",
+                    Set.of("coco-security", "coco-feature-security")),
+            feature(CocoFeature.TENANT, "coco-tenant",
                     "io.github.coco.feature.tenant.CocoTenantAutoConfiguration",
+                    Set.of("coco-tenant", "coco-feature-tenant"),
                     CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
-            feature(CocoFeature.DATA_PERMISSION, "coco-feature-data-permission",
+            feature(CocoFeature.DATA_PERMISSION, "coco-data-permission",
                     "io.github.coco.feature.datapermission.CocoDataPermissionAutoConfiguration",
+                    Set.of("coco-data-permission", "coco-feature-data-permission"),
                     CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
-            feature(CocoFeature.OPENAPI, "coco-feature-openapi",
+            feature(CocoFeature.OPENAPI, "coco-openapi",
                     "io.github.coco.feature.openapi.CocoOpenApiAutoConfiguration",
+                    Set.of("coco-openapi", "coco-feature-openapi"),
                     CocoFeature.WEB, CocoFeature.SECURITY),
             feature(CocoFeature.CODEGEN, "coco-feature-codegen",
                     "io.github.coco.feature.codegen.CocoCodegenAutoConfiguration",
-                    Set.of("coco-feature-codegen", "freemarker"),
+                    Set.of("coco-feature-codegen"),
                     CocoFeature.MYBATIS_PLUS)
     );
 
@@ -89,6 +83,27 @@ public final class StandardCocoFeatures {
     public static Map<CocoFeature, CocoFeatureDefinition> allByFeature() {
         return FEATURES.stream()
                 .collect(Collectors.toUnmodifiableMap(CocoFeatureDefinition::feature, Function.identity()));
+    }
+
+    /**
+     * <p>
+     * 返回功能定义对应的 canonical 与 2.x 兼容 artifactId。
+     * </p>
+     * <p>
+     * 第三方传递裁剪项不会被视为 Coco 功能制品。
+     * </p>
+     * @param definition 功能定义
+     * @return 等价 Coco 制品 artifactId
+     */
+    public static Set<String> equivalentArtifactIds(CocoFeatureDefinition definition) {
+        CocoFeatureDefinition checkedDefinition = Objects.requireNonNull(definition,
+                "definition must not be null");
+        Set<String> artifactIds = new HashSet<>();
+        artifactIds.add(checkedDefinition.artifactId());
+        checkedDefinition.pruneArtifactIds().stream()
+                .filter(artifactId -> artifactId.startsWith("coco-"))
+                .forEach(artifactIds::add);
+        return Set.copyOf(artifactIds);
     }
 
     /**
@@ -172,7 +187,8 @@ public final class StandardCocoFeatures {
      * 从构建期功能清单还原最终功能启用计划。
      * </p>
      * <p>
-     * 清单中的启用状态是构建期已经计算完成的结果，运行期不再重复合并业务配置。
+     * 清单中的启用状态表示构建产物实际可用的能力，不代表最终运行态；最终运行计划由
+     * {@link #resolveRuntimePlan(CocoFeatureManifest, CocoFeatureSelection)} 在该边界内继续解析。
      * </p>
      * @param manifest 构建期功能清单
      * @return 最终功能启用计划
@@ -193,32 +209,152 @@ public final class StandardCocoFeatures {
         return new CocoFeaturePlan(enabled, disabled, FEATURES);
     }
 
-    private static void validateManifest(CocoFeatureManifest manifest) {
+    /**
+     * <p>
+     * 在构建清单给出的能力可用边界内解析运行期功能计划。
+     * </p>
+     * <p>
+     * 清单中的启用集合表示构建产物实际携带的能力。运行期配置可以继续缩小该集合，但不能重新启用构建时
+     * 已裁剪的能力；发生冲突时会立即失败，避免条件装配与实际 classpath 不一致。
+     * </p>
+     * @param manifest 构建期功能清单；为空时按无构建清单模式解析
+     * @param runtimeSelection profile、外部配置、命令行或启动早期代码声明形成的运行期选择
+     * @return 最终运行期功能计划
+     * @throws IllegalStateException 运行期请求启用构建产物中不可用的能力时抛出
+     */
+    public static CocoFeaturePlan resolveRuntimePlan(CocoFeatureManifest manifest,
+            CocoFeatureSelection runtimeSelection) {
+        CocoFeatureSelection requestedSelection = runtimeSelection == null
+                ? CocoFeatureSelection.empty()
+                : runtimeSelection;
+        if (manifest == null) {
+            return resolve(requestedSelection);
+        }
+
+        CocoFeaturePlan availabilityPlan = fromManifest(manifest);
+        EnumSet<CocoFeature> unavailable = EnumSet.noneOf(CocoFeature.class);
+        unavailable.addAll(requestedSelection.enabled());
+        unavailable.removeAll(requestedSelection.disabled());
+        unavailable.removeAll(availabilityPlan.enabledFeatures());
+        if (!unavailable.isEmpty()) {
+            String featureIds = unavailable.stream()
+                    .map(CocoFeature::id)
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            throw new IllegalStateException("Coco features are not available in the build feature manifest: "
+                    + featureIds + ". Rebuild the application with these features available.");
+        }
+
+        CocoFeatureSelection buildAvailability = CocoFeatureSelection.of(
+                availabilityPlan.enabledFeatures(), availabilityPlan.disabledFeatures());
+        return resolve(buildAvailability.merge(requestedSelection));
+    }
+
+    /**
+     * <p>
+     * 校验功能清单的 schema、唯一性、标准元数据和启用依赖闭包。
+     * </p>
+     * <p>
+     * 当前 schema 必须包含全部标准功能；1.0 清单继续允许稀疏条目，但已出现的条目仍必须与当前
+     * old/canonical 等价坐标和稳定 FQCN 一致。
+     * </p>
+     * @param manifest 待校验的功能清单
+     * @throws IllegalArgumentException 清单不完整或与标准功能定义不一致时抛出
+     */
+    public static void validateManifest(CocoFeatureManifest manifest) {
+        Objects.requireNonNull(manifest, "manifest must not be null");
         if (!CocoFeatureManifest.SUPPORTED_SCHEMA_VERSIONS.contains(manifest.schemaVersion())) {
             throw new IllegalArgumentException("Unsupported Coco feature manifest schema version '"
                     + manifest.schemaVersion() + "'. Supported schema versions: "
                     + CocoFeatureManifest.SUPPORTED_SCHEMA_VERSIONS + ".");
         }
+        Map<CocoFeature, CocoFeatureDefinition> definitions = allByFeature();
         Set<String> featureIds = new HashSet<>();
+        Map<CocoFeature, CocoFeatureManifestEntry> entriesByFeature = new java.util.EnumMap<>(CocoFeature.class);
         for (CocoFeatureManifestEntry entry : manifest.features()) {
-            requireManifestFeature(entry.id());
+            CocoFeature feature = requireManifestFeature(entry.id());
             if (!featureIds.add(entry.id())) {
                 throw new IllegalArgumentException("Duplicate Coco feature manifest entry '" + entry.id() + "'.");
             }
+            CocoFeatureDefinition definition = definitions.get(feature);
+            validateManifestEntry(entry, definition);
+            entriesByFeature.put(feature, entry);
         }
+        if (CocoFeatureManifest.CURRENT_SCHEMA_VERSION.equals(manifest.schemaVersion())
+                && entriesByFeature.size() != FEATURES.size()) {
+            Set<String> missing = FEATURES.stream()
+                    .map(CocoFeatureDefinition::feature)
+                    .filter(feature -> !entriesByFeature.containsKey(feature))
+                    .map(CocoFeature::id)
+                    .collect(Collectors.toCollection(java.util.TreeSet::new));
+            throw new IllegalArgumentException("Coco feature manifest schema '"
+                    + CocoFeatureManifest.CURRENT_SCHEMA_VERSION + "' is missing standard features: "
+                    + String.join(", ", missing) + ".");
+        }
+        for (Map.Entry<CocoFeature, CocoFeatureManifestEntry> manifestEntry : entriesByFeature.entrySet()) {
+            if (!manifestEntry.getValue().enabled()) {
+                continue;
+            }
+            for (CocoFeature dependency : definitions.get(manifestEntry.getKey()).dependencies()) {
+                CocoFeatureManifestEntry dependencyEntry = entriesByFeature.get(dependency);
+                if (dependencyEntry == null || !dependencyEntry.enabled()) {
+                    throw new IllegalArgumentException("Enabled Coco feature manifest entry '"
+                            + manifestEntry.getKey().id() + "' requires enabled feature '"
+                            + dependency.id() + "'.");
+                }
+            }
+        }
+    }
+
+    private static void validateManifestEntry(CocoFeatureManifestEntry entry,
+            CocoFeatureDefinition definition) {
+        Set<String> equivalentArtifactIds = equivalentArtifactIds(definition);
+        if (!equivalentArtifactIds.contains(entry.artifactId())) {
+            throw inconsistentManifestEntry(entry.id(), "artifactId", entry.artifactId(), equivalentArtifactIds);
+        }
+        if (!definition.autoConfigurationClassName().equals(entry.autoConfigurationClassName())) {
+            throw inconsistentManifestEntry(entry.id(), "autoConfigurationClassName",
+                    entry.autoConfigurationClassName(), Set.of(definition.autoConfigurationClassName()));
+        }
+        if (definition.defaultEnabled() != entry.defaultEnabled()) {
+            throw inconsistentManifestEntry(entry.id(), "defaultEnabled", entry.defaultEnabled(),
+                    Set.of(definition.defaultEnabled()));
+        }
+        Set<String> expectedDependencies = definition.dependencies().stream()
+                .map(CocoFeature::id)
+                .collect(Collectors.toUnmodifiableSet());
+        Set<String> actualDependencies = uniqueManifestValues(entry.id(), "dependencies", entry.dependencies());
+        if (!expectedDependencies.equals(actualDependencies)) {
+            throw inconsistentManifestEntry(entry.id(), "dependencies", actualDependencies, expectedDependencies);
+        }
+        Set<String> pruneArtifactIds = uniqueManifestValues(entry.id(), "pruneArtifactIds",
+                entry.pruneArtifactIds());
+        if (!pruneArtifactIds.contains(entry.artifactId())
+                || !equivalentArtifactIds.containsAll(pruneArtifactIds)) {
+            throw inconsistentManifestEntry(entry.id(), "pruneArtifactIds", pruneArtifactIds,
+                    equivalentArtifactIds);
+        }
+    }
+
+    private static Set<String> uniqueManifestValues(String featureId, String fieldName, List<String> values) {
+        Set<String> uniqueValues = new HashSet<>(values);
+        if (uniqueValues.size() != values.size()) {
+            throw new IllegalArgumentException("Duplicate value in Coco feature manifest entry '"
+                    + featureId + "' field '" + fieldName + "'.");
+        }
+        return Set.copyOf(uniqueValues);
+    }
+
+    private static IllegalArgumentException inconsistentManifestEntry(String featureId, String fieldName,
+            Object actual, Set<?> expected) {
+        return new IllegalArgumentException("Coco feature manifest entry '" + featureId + "' has inconsistent "
+                + fieldName + " '" + actual + "'; expected " + expected + ".");
     }
 
     private static CocoFeature requireManifestFeature(String featureId) {
         return CocoFeature.fromId(featureId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown Coco feature id '" + featureId
                         + "' in feature manifest."));
-    }
-
-    private static CocoFeatureDefinition feature(CocoFeature feature, String artifactId, String autoConfigurationClassName,
-            CocoFeature... dependencies) {
-        return new CocoFeatureDefinition(feature, artifactId, autoConfigurationClassName, true, dependencies.length == 0
-                ? Set.of()
-                : Set.of(dependencies));
     }
 
     private static CocoFeatureDefinition feature(CocoFeature feature, String artifactId, String autoConfigurationClassName,

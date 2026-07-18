@@ -1,5 +1,6 @@
 package io.github.coco;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.i18n.CocoI18nProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -32,6 +33,11 @@ public class CocoCommonProperties {
      * </p>
      * @return 国际化配置
      */
+    @SuppressFBWarnings(
+            value = "EI_EXPOSE_REP",
+            justification = "The JavaBean getter must expose the live nested i18n properties "
+                    + "instance for Spring Binder and existing consumers; setI18n remains the "
+                    + "explicit replacement boundary.")
     public CocoI18nProperties getI18n() {
         return this.i18n;
     }

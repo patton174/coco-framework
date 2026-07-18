@@ -1,0 +1,4 @@
+Coco Framework 2.x source-free compatibility facade.
+
+The implementation, source code, and API documentation are published by the
+canonical artifact declared as this facade's compile dependency.

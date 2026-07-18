@@ -17,6 +17,10 @@
 
     <dependencies>
         <dependency>
+            <groupId>io.github.patton174</groupId>
+            <artifactId>coco-context</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot</artifactId>
         </dependency>

@@ -1,24 +1,27 @@
 package io.github.coco.config;
 
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.github.coco.api.CocoConfigurer;
 import io.github.coco.api.feature.CocoFeature;
-import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureSelection;
-import io.github.coco.feature.model.StandardCocoFeatures;
+import io.github.coco.feature.runtime.condition.CocoRuntimeFeatureResolver;
+import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
 /**
  * Coco 配置自动装配。
@@ -48,32 +51,27 @@ public class CocoConfigAutoConfiguration {
      * 创建 Coco 功能启用计划。
      * </p>
      * <p>
-     * 优先读取构建期生成的功能清单；清单不存在时，回退到配置文件、{@link CocoConfigurer} 和
-     * {@code @CocoFeatures} 声明合并后的运行期解析结果。
+     * 返回启动早期已经供条件判断使用的单一计划，并校验 Bean 阶段才发现的 {@link CocoConfigurer} 和
+     * {@code @CocoFeatures} 声明不会改变该计划。
      * </p>
      * @param properties Coco 配置属性
      * @param configurers 业务方提供的 Coco 配置器
      * @param beanFactory Spring Bean 工厂，用于查找注解声明
+     * @param environment Spring 运行环境
      * @return 最终功能启用计划
      */
     @Bean
     @ConditionalOnMissingBean
     public CocoFeaturePlan cocoFeaturePlan(CocoProperties properties, ObjectProvider<CocoConfigurer> configurers,
-            ConfigurableListableBeanFactory beanFactory) {
-        return CocoFeatureManifestLoader.load(Thread.currentThread().getContextClassLoader())
-                .map(manifest -> {
-                    CocoFeaturePlan plan = StandardCocoFeatures.fromManifest(manifest);
-                    logFeaturePlan("manifest:" + manifest.generatedBy(), plan,
-                            CocoFeatureSelection.empty(), CocoFeatureSelection.empty());
-                    return plan;
-                })
-                .orElseGet(() -> {
-                    CocoFeatureSelection propertySelection = properties.getFeatures().toSelection();
-                    CocoFeatureSelection codeSelection = CocoFeatureSelectionCollector.collect(beanFactory, configurers);
-                    CocoFeaturePlan plan = StandardCocoFeatures.resolve(propertySelection.merge(codeSelection));
-                    logFeaturePlan("runtime-configuration", plan, propertySelection, codeSelection);
-                    return plan;
-                });
+            ConfigurableListableBeanFactory beanFactory, Environment environment) {
+        CocoRuntimeFeatureResolver resolver = new CocoRuntimeFeatureResolver();
+        CocoFeatureSelection codeSelection = CocoFeatureSelectionCollector.collect(beanFactory, configurers);
+        CocoFeaturePlan plan = resolver.resolveWithCodeSelection(
+                environment, beanFactory.getBeanClassLoader(), codeSelection);
+        boolean manifestWithoutProvenance = CocoFeatureManifestLoader.load(beanFactory.getBeanClassLoader()).isPresent();
+        logFeaturePlan("startup-plan", plan, properties.getFeatures().toSelection(), codeSelection,
+                manifestWithoutProvenance);
+        return plan;
     }
 
     /**
@@ -91,6 +89,48 @@ public class CocoConfigAutoConfiguration {
 
     /**
      * <p>
+     * 拒绝 Bean 阶段提供的自定义计划覆盖启动早期计划。
+     * </p>
+     * <p>
+     * 条件判断无法读取普通 Bean，因此自定义计划即使值相同也不能替代启动早期持有的计划对象。
+     * </p>
+     * @param featurePlan Spring 容器最终暴露的功能计划 Bean
+     * @param featureManager Spring 容器最终暴露的功能管理器
+     * @param environment Spring 运行环境
+     * @param beanFactory Spring Bean 工厂
+     * @return 单例初始化校验器
+     */
+    @Bean
+    public SmartInitializingSingleton cocoFeaturePlanConsistencyValidator(CocoFeaturePlan featurePlan,
+            CocoFeatureManager featureManager, Environment environment,
+            ConfigurableListableBeanFactory beanFactory) {
+        CocoFeaturePlan startupPlan = new CocoRuntimeFeatureResolver()
+                .resolve(environment, beanFactory.getBeanClassLoader());
+        if (featurePlan != startupPlan) {
+            throw new IllegalStateException("A custom CocoFeaturePlan bean cannot replace the startup feature plan "
+                    + "after conditions were evaluated. Express feature selection through coco.features.* or "
+                    + "@CocoFeatures on a SpringApplication primary source.");
+        }
+        if (!startupPlan.enabledFeatures().equals(featureManager.enabledFeatures())
+                || !startupPlan.disabledFeatures().equals(featureManager.disabledFeatures())) {
+            throw inconsistentFeatureManager();
+        }
+        for (CocoFeature feature : CocoFeature.values()) {
+            if (featureManager.isEnabled(feature) != startupPlan.isEnabled(feature)) {
+                throw inconsistentFeatureManager();
+            }
+        }
+        return () -> {
+        };
+    }
+
+    private IllegalStateException inconsistentFeatureManager() {
+        return new IllegalStateException("A custom CocoFeatureManager bean disagrees with the startup "
+                + "feature plan after conditions were evaluated.");
+    }
+
+    /**
+     * <p>
      * 注册配置模块内置的国际化消息资源。
      * </p>
      * @return 消息资源注册器
@@ -102,21 +142,43 @@ public class CocoConfigAutoConfiguration {
     }
 
     private static void logFeaturePlan(String source, CocoFeaturePlan plan, CocoFeatureSelection propertySelection,
-            CocoFeatureSelection codeSelection) {
+            CocoFeatureSelection codeSelection, boolean manifestWithoutProvenance) {
         if (!LOGGER.isInfoEnabled()) {
             return;
         }
         LOGGER.info("Coco features resolved from " + source
                 + ": enabled=" + featureIds(plan.enabledFeatures())
                 + ", disabled=" + featureIds(plan.disabledFeatures())
-                + ", disabledByDependency=" + featureIds(plan.disabledByDependencyFeatures())
+                + dependencyDiagnostic(plan, propertySelection.merge(codeSelection), manifestWithoutProvenance)
                 + ", propertySelection=" + describeSelection(propertySelection)
                 + ", codeSelection=" + describeSelection(codeSelection) + ".");
+    }
+
+    private static String dependencyDiagnostic(CocoFeaturePlan plan, CocoFeatureSelection selection,
+            boolean manifestWithoutProvenance) {
+        if (manifestWithoutProvenance) {
+            return ", dependencyAffected=" + featureIds(plan.disabledByDependencyFeatures())
+                    + ", dependencyProvenance=unknown";
+        }
+        return ", disabledByDependency=" + featureIds(disabledByDependencyFeatures(plan, selection));
     }
 
     private static String describeSelection(CocoFeatureSelection selection) {
         CocoFeatureSelection target = selection == null ? CocoFeatureSelection.empty() : selection;
         return "{enabled=" + featureIds(target.enabled()) + ", disabled=" + featureIds(target.disabled()) + "}";
+    }
+
+    private static Set<CocoFeature> disabledByDependencyFeatures(CocoFeaturePlan plan,
+            CocoFeatureSelection selection) {
+        EnumSet<CocoFeature> disabledByDependency = EnumSet.noneOf(CocoFeature.class);
+        for (io.github.coco.feature.model.CocoFeatureDefinition definition : plan.definitions()) {
+            if (plan.disabledFeatures().contains(definition.feature())
+                    && !selection.disabled().contains(definition.feature())
+                    && !plan.enabledFeatures().containsAll(definition.dependencies())) {
+                disabledByDependency.add(definition.feature());
+            }
+        }
+        return disabledByDependency.isEmpty() ? Set.of() : Set.copyOf(disabledByDependency);
     }
 
     private static String featureIds(Set<CocoFeature> features) {

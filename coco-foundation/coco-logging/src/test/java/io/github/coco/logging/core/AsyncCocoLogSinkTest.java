@@ -2,23 +2,32 @@ package io.github.coco.logging.core;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
+
+import io.github.coco.context.trace.CocoTraceContext;
 
 /**
  * Coco 异步日志输出器测试。
@@ -198,24 +207,22 @@ class AsyncCocoLogSinkTest {
     }
 
     @Test
-    void writesSynchronouslyAfterCloseWithoutNotifyingDrop() {
+    void rejectsRecordsSubmittedAfterCloseWithoutCountingOverflowDrop() {
         CapturingSink delegate = new CapturingSink();
         List<DropEvent> drops = new CopyOnWriteArrayList<>();
         AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 1,
                 (level, handleName, totalDropped) -> drops.add(new DropEvent(level, handleName, totalDropped)));
         sink.close();
-        String callerThreadName = Thread.currentThread().getName();
 
-        sink.log(record(CocoLogLevel.INFO, "after-close"));
+        assertThrows(IllegalStateException.class, () -> sink.log(record(CocoLogLevel.INFO, "after-close")));
 
-        assertEquals(List.of("after-close"), delegate.messages());
-        assertTrue(delegate.loggedOnThread("after-close", callerThreadName));
+        assertTrue(delegate.messages().isEmpty());
         assertEquals(0L, sink.droppedRecordCount());
         assertTrue(drops.isEmpty());
     }
 
     @Test
-    void deliversRecordsSubmittedConcurrentlyWithClose() throws Exception {
+    void drainsEveryRecordAcceptedBeforeConcurrentCloseWithoutCountingRejectionsAsDrops() throws Exception {
         CapturingSink delegate = new CapturingSink();
         int recordCount = 200;
         AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, recordCount,
@@ -223,6 +230,8 @@ class AsyncCocoLogSinkTest {
                 });
         ExecutorService executor = Executors.newFixedThreadPool(9);
         CountDownLatch start = new CountDownLatch(1);
+        List<String> acceptedMessages = new CopyOnWriteArrayList<>();
+        AtomicInteger rejectedRecords = new AtomicInteger();
         try {
             List<Future<?>> futures = new ArrayList<>(recordCount + 1);
             futures.add(executor.submit(() -> {
@@ -233,7 +242,14 @@ class AsyncCocoLogSinkTest {
                 int messageIndex = index;
                 futures.add(executor.submit(() -> {
                     await(start);
-                    sink.log(record(CocoLogLevel.INFO, "record-" + messageIndex));
+                    String message = "record-" + messageIndex;
+                    try {
+                        sink.log(record(CocoLogLevel.INFO, message));
+                        acceptedMessages.add(message);
+                    }
+                    catch (IllegalStateException ex) {
+                        rejectedRecords.incrementAndGet();
+                    }
                 }));
             }
 
@@ -242,13 +258,255 @@ class AsyncCocoLogSinkTest {
                 future.get(5L, TimeUnit.SECONDS);
             }
 
-            assertTrue(delegate.awaitMessages(recordCount));
-            assertEquals(recordCount, new HashSet<>(delegate.messages()).size());
+            assertTrue(delegate.awaitMessages(acceptedMessages.size()));
+            assertEquals(new HashSet<>(acceptedMessages), new HashSet<>(delegate.messages()));
+            assertEquals(acceptedMessages.size(), delegate.messages().size());
+            assertEquals(recordCount, acceptedMessages.size() + rejectedRecords.get());
             assertEquals(0L, sink.droppedRecordCount());
         }
         finally {
             sink.close();
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void closeWaitsForAcceptedDirectWriteToComplete() throws Exception {
+        CountDownLatch directWriteEntered = new CountDownLatch(1);
+        CountDownLatch releaseDirectWrite = new CountDownLatch(1);
+        CountDownLatch directWriteCompleted = new CountDownLatch(1);
+        CocoLogSink delegate = record -> {
+            directWriteEntered.countDown();
+            await(releaseDirectWrite);
+            directWriteCompleted.countDown();
+        };
+        AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> directWrite = executor.submit(() -> sink.log(record(CocoLogLevel.ERROR, "direct")));
+            assertTrue(directWriteEntered.await(2L, TimeUnit.SECONDS));
+
+            Future<?> close = executor.submit(sink::close);
+            assertThrows(TimeoutException.class, () -> close.get(100L, TimeUnit.MILLISECONDS));
+            assertEquals(1L, directWriteCompleted.getCount());
+
+            releaseDirectWrite.countDown();
+            directWrite.get(5L, TimeUnit.SECONDS);
+            close.get(5L, TimeUnit.SECONDS);
+            assertEquals(0L, directWriteCompleted.getCount());
+        }
+        finally {
+            releaseDirectWrite.countDown();
+            sink.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void reentrantDirectDelegateCloseFailsClearlyWithoutDeadlock() {
+        AtomicReference<AsyncCocoLogSink> sinkReference = new AtomicReference<>();
+        AtomicReference<IllegalStateException> closeFailure = new AtomicReference<>();
+        CapturingSink delegate = new CapturingSink() {
+            @Override
+            public void log(CocoLogRecord record) {
+                try {
+                    sinkReference.get().close();
+                }
+                catch (IllegalStateException ex) {
+                    closeFailure.set(ex);
+                }
+                super.log(record);
+            }
+        };
+        try (AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 1)) {
+            sinkReference.set(sink);
+
+            sink.log(record(CocoLogLevel.ERROR, "direct-reentrant-close"));
+
+            assertEquals(List.of("direct-reentrant-close"), delegate.messages());
+            assertTrue(closeFailure.get().getMessage().contains("cannot complete close"));
+        }
+    }
+
+    @Test
+    void restoresSubmittingThreadMdcAndTraceForEachAsyncRecordOnReusedThreads() throws Exception {
+        ContextCapturingSink delegate = new ContextCapturingSink();
+        ExecutorService submitter = Executors.newSingleThreadExecutor();
+        try (AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 8)) {
+            submitter.submit(() -> {
+                MDC.put("request", "first");
+                CocoTraceContext.setTraceId("trace-first");
+                sink.log(record(CocoLogLevel.INFO, "first"));
+
+                MDC.put("request", "second");
+                CocoTraceContext.setTraceId("trace-second");
+                sink.log(record(CocoLogLevel.INFO, "second"));
+
+                MDC.clear();
+                CocoTraceContext.clear();
+                sink.log(record(CocoLogLevel.INFO, "empty"));
+            }).get(5L, TimeUnit.SECONDS);
+
+            assertTrue(delegate.awaitMessages(3));
+            assertEquals(List.of(
+                    new ContextCapture("first", Map.of("request", "first"), "trace-first"),
+                    new ContextCapture("second", Map.of("request", "second"), "trace-second"),
+                    new ContextCapture("empty", Map.of(), null)), delegate.contexts());
+        }
+        finally {
+            submitter.shutdownNow();
+            MDC.clear();
+            CocoTraceContext.clear();
+        }
+    }
+
+    @Test
+    void restoresOriginalWorkerMdcAndTraceAfterAsyncWrites() throws Exception {
+        Map<String, String> originalWorkerMdc = Map.of("worker", "original", "shared", "worker-value");
+        AtomicReference<Map<String, String>> workerMdcAfterDrain = new AtomicReference<>();
+        AtomicReference<String> workerTraceAfterDrain = new AtomicReference<>();
+        ThreadFactory workerThreadFactory = runnable -> {
+            Thread thread = new Thread(() -> {
+                MDC.setContextMap(originalWorkerMdc);
+                CocoTraceContext.setTraceId("worker-trace");
+                try {
+                    runnable.run();
+                }
+                finally {
+                    workerMdcAfterDrain.set(currentMdc());
+                    workerTraceAfterDrain.set(CocoTraceContext.currentTraceId().orElse(null));
+                    MDC.clear();
+                    CocoTraceContext.clear();
+                }
+            }, "coco-log-writer-context-test");
+            thread.setDaemon(true);
+            return thread;
+        };
+        ContextCapturingSink delegate = new ContextCapturingSink();
+        MDC.setContextMap(Map.of("request", "submitted", "shared", "submission-value"));
+        CocoTraceContext.setTraceId("submitted-trace");
+        try (AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 8,
+                (level, handleName, totalDropped) -> {
+                }, workerThreadFactory)) {
+            sink.log(record(CocoLogLevel.INFO, "context"));
+            assertTrue(delegate.awaitMessages(1));
+        }
+        finally {
+            MDC.clear();
+            CocoTraceContext.clear();
+        }
+
+        assertEquals(List.of(new ContextCapture("context",
+                Map.of("request", "submitted", "shared", "submission-value"), "submitted-trace")),
+                delegate.contexts());
+        assertEquals(originalWorkerMdc, workerMdcAfterDrain.get());
+        assertEquals("worker-trace", workerTraceAfterDrain.get());
+    }
+
+    @Test
+    void interruptedCloseFailsClearlyPreservesInterruptAndAllowsRetry() throws Exception {
+        CountDownLatch directWriteEntered = new CountDownLatch(1);
+        CountDownLatch releaseDirectWrite = new CountDownLatch(1);
+        CocoLogSink delegate = record -> {
+            directWriteEntered.countDown();
+            await(releaseDirectWrite);
+        };
+        AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+        AtomicReference<Boolean> interruptedAfterClose = new AtomicReference<>(Boolean.FALSE);
+        CountDownLatch closeStarted = new CountDownLatch(1);
+        try {
+            Future<?> directWrite = executor.submit(() -> sink.log(record(CocoLogLevel.ERROR, "direct")));
+            assertTrue(directWriteEntered.await(2L, TimeUnit.SECONDS));
+            Thread closeThread = new Thread(() -> {
+                closeStarted.countDown();
+                try {
+                    sink.close();
+                }
+                catch (Throwable ex) {
+                    closeFailure.set(ex);
+                }
+                finally {
+                    interruptedAfterClose.set(Thread.currentThread().isInterrupted());
+                }
+            }, "coco-log-close-interrupt-test");
+            closeThread.start();
+            assertTrue(closeStarted.await(2L, TimeUnit.SECONDS));
+
+            closeThread.interrupt();
+            closeThread.join(2000L);
+
+            assertFalse(closeThread.isAlive());
+            assertTrue(closeFailure.get() instanceof IllegalStateException);
+            assertTrue(closeFailure.get().getCause() instanceof InterruptedException);
+            assertTrue(interruptedAfterClose.get());
+            assertFalse(directWrite.isDone());
+
+            releaseDirectWrite.countDown();
+            directWrite.get(5L, TimeUnit.SECONDS);
+            assertDoesNotThrow(sink::close);
+        }
+        finally {
+            releaseDirectWrite.countDown();
+            sink.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void continuesDrainingAfterAsyncDelegateFailure() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        CapturingSink delegate = new CapturingSink() {
+            @Override
+            public void log(CocoLogRecord record) {
+                if (attempts.incrementAndGet() == 1) {
+                    throw new IllegalStateException("delegate failed");
+                }
+                super.log(record);
+            }
+        };
+        try (AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 8)) {
+            sink.log(record(CocoLogLevel.INFO, "fails"));
+            sink.log(record(CocoLogLevel.INFO, "after-failure"));
+
+            assertTrue(delegate.awaitMessages(1));
+            assertEquals(List.of("after-failure"), delegate.messages());
+        }
+    }
+
+    @Test
+    void workerDelegateCloseFailsClearlyAndStillDrainsAcceptedRecords() throws Exception {
+        CountDownLatch firstRecordEntered = new CountDownLatch(1);
+        CountDownLatch closeRequested = new CountDownLatch(1);
+        AtomicReference<AsyncCocoLogSink> sinkReference = new AtomicReference<>();
+        AtomicReference<IllegalStateException> closeFailure = new AtomicReference<>();
+        CapturingSink delegate = new CapturingSink() {
+            @Override
+            public void log(CocoLogRecord record) {
+                super.log(record);
+                if ("first".equals(record.message())) {
+                    firstRecordEntered.countDown();
+                    await(closeRequested);
+                    try {
+                        sinkReference.get().close();
+                    }
+                    catch (IllegalStateException ex) {
+                        closeFailure.set(ex);
+                    }
+                }
+            }
+        };
+        try (AsyncCocoLogSink sink = new AsyncCocoLogSink(delegate, 2)) {
+            sinkReference.set(sink);
+            sink.log(record(CocoLogLevel.INFO, "first"));
+            assertTrue(firstRecordEntered.await(2L, TimeUnit.SECONDS));
+            sink.log(record(CocoLogLevel.INFO, "second"));
+            closeRequested.countDown();
+
+            assertTrue(delegate.awaitMessages(2));
+            assertEquals(List.of("first", "second"), delegate.messages());
+            assertTrue(closeFailure.get().getMessage().contains("cannot complete close"));
         }
     }
 
@@ -266,6 +524,11 @@ class AsyncCocoLogSinkTest {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(ex);
         }
+    }
+
+    private static Map<String, String> currentMdc() {
+        Map<String, String> context = MDC.getCopyOfContextMap();
+        return context == null ? Map.of() : Map.copyOf(context);
     }
 
     private static CocoLogRecord record(CocoLogLevel level, String message) {
@@ -289,6 +552,9 @@ class AsyncCocoLogSinkTest {
     }
 
     private record CapturedLog(String message, String threadName) {
+    }
+
+    private record ContextCapture(String message, Map<String, String> mdcContext, String traceId) {
     }
 
     private static class CapturingSink implements CocoLogSink {
@@ -317,6 +583,24 @@ class AsyncCocoLogSinkTest {
                 Thread.sleep(10L);
             }
             return this.records.size() >= count;
+        }
+    }
+
+    private static final class ContextCapturingSink extends CapturingSink {
+
+        private final List<ContextCapture> contexts = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void log(CocoLogRecord record) {
+            this.contexts.add(new ContextCapture(record.message(), currentMdc(),
+                    CocoTraceContext.currentTraceId().orElse(null)));
+            MDC.put("delegate", record.message());
+            CocoTraceContext.setTraceId("delegate-" + record.message());
+            super.log(record);
+        }
+
+        private List<ContextCapture> contexts() {
+            return this.contexts;
         }
     }
 

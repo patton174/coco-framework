@@ -2,6 +2,7 @@ package io.github.coco.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.EnumSet;
@@ -60,5 +61,16 @@ class CocoFeatureManagerTest {
         assertFalse(manager.isEnabled(CocoFeature.OPENAPI));
         assertTrue(manager.enabledFeatures().contains(CocoFeature.WEB));
         assertTrue(manager.disabledFeatures().contains(CocoFeature.OPENAPI));
+    }
+
+    @Test
+    void exposesImmutableFeatureSnapshots() {
+        CocoFeatureManager manager = new DefaultCocoFeatureManager(Set.of(CocoFeature.OPENAPI));
+
+        assertThrows(UnsupportedOperationException.class,
+                () -> manager.enabledFeatures().add(CocoFeature.OPENAPI));
+        assertThrows(UnsupportedOperationException.class,
+                () -> manager.disabledFeatures().add(CocoFeature.WEB));
+        assertFalse(manager.isEnabled(CocoFeature.OPENAPI));
     }
 }

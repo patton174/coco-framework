@@ -112,6 +112,11 @@ class CocoSampleBusinessIntegrationTest {
                 "/sample/secure/encryption/orders");
     }
 
+    @Test
+    void configuresPortableNodeRendererCommand() throws Exception {
+        assertApplicationYamlProperty("coco.logging.node-renderer.command", "${COCO_NODE_COMMAND:node}");
+    }
+
     /**
      * <p>
      * 示例项目应该提供可直接导入 Postman 的测试集和环境变量文件，避免使用者手工拼装请求头、签名和加密参数。

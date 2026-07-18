@@ -39,7 +39,11 @@ final class OnCocoFeatureCondition extends SpringBootCondition {
     public ConditionOutcome getMatchOutcome(ConditionContext context, AnnotatedTypeMetadata metadata) {
         Map<String, Object> attributes = metadata.getAnnotationAttributes(
                 ConditionalOnCocoFeature.class.getName());
-        CocoFeature feature = (CocoFeature) attributes.get("value");
+        Object value = attributes == null ? null : attributes.get("value");
+        if (!(value instanceof CocoFeature feature)) {
+            ConditionMessage.Builder message = ConditionMessage.forCondition(ConditionalOnCocoFeature.class);
+            return ConditionOutcome.noMatch(message.because("feature declaration is missing"));
+        }
         boolean enabled = new CocoRuntimeFeatureResolver()
                 .resolve(context.getEnvironment(), context.getClassLoader())
                 .isEnabled(feature);

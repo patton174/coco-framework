@@ -777,7 +777,6 @@ def collect_policy(
     unique_paths = list(dict.fromkeys(paths))
     limit = normalized_limits(config)["policy_chars"]
     sources: list[dict[str, str]] = []
-    used = 0
     for relative in unique_paths:
         path = safe_base_file(base_root, str(relative))
         if not path.is_file():
@@ -788,21 +787,21 @@ def collect_policy(
             omissions.append(f"trusted policy missing at base: {relative}")
             continue
         content = path.read_text(encoding="utf-8", errors="replace")
-        remaining = limit - used
-        if remaining <= 0:
+        candidate_sources = [
+            *sources,
+            {"source": str(relative), "content": content},
+        ]
+        serialized_chars = len(canonical_json(candidate_sources))
+        if serialized_chars > limit:
             if str(relative) in required_paths:
                 raise ReviewError(
-                    f"Required trusted policy exceeds the context budget: {relative}"
+                    "Required trusted policy exceeds the context budget: "
+                    f"{relative} serializes to {serialized_chars} characters "
+                    f"with prior sources; limit is {limit}."
                 )
             omissions.append(f"trusted policy omitted by budget: {relative}")
             continue
-        if str(relative) in required_paths and len(content) > remaining:
-            raise ReviewError(
-                f"Required trusted policy exceeds the context budget: {relative}"
-            )
-        clipped = clip_text(content, remaining, f"trusted policy {relative}", omissions)
-        sources.append({"source": str(relative), "content": clipped})
-        used += len(clipped)
+        sources = candidate_sources
     return sources
 
 

@@ -26,6 +26,8 @@ public final class CocoRequestContextValueCodec {
 
     private static final String LIST_PREFIX = "coco:list:";
 
+    private static final int MAX_LIST_SIZE = 10_000;
+
     private CocoRequestContextValueCodec() {
     }
 
@@ -70,26 +72,32 @@ public final class CocoRequestContextValueCodec {
         String payload = value.substring(LIST_PREFIX.length());
         int separatorIndex = payload.indexOf('|');
         String sizeSegment = separatorIndex < 0 ? payload : payload.substring(0, separatorIndex);
-        int expectedSize = parsePositiveInteger(sizeSegment, "list size");
+        int expectedSize = parseNonNegativeInteger(sizeSegment, "list size");
         if (expectedSize == 0) {
+            if (separatorIndex >= 0) {
+                throw new IllegalArgumentException("structured list payload contains trailing content");
+            }
             return List.of();
         }
         if (separatorIndex < 0) {
             throw new IllegalArgumentException("structured list payload is incomplete");
         }
         int cursor = separatorIndex + 1;
-        List<String> values = new ArrayList<>(expectedSize);
+        if (expectedSize > MAX_LIST_SIZE || expectedSize > maximumItemCount(payload.length() - cursor)) {
+            throw new IllegalArgumentException("structured list size exceeds payload limit");
+        }
+        List<String> values = new ArrayList<>();
         for (int index = 0; index < expectedSize; index++) {
             int colonIndex = payload.indexOf(':', cursor);
             if (colonIndex < 0) {
                 throw new IllegalArgumentException("structured list item length is missing");
             }
-            int itemLength = parsePositiveInteger(payload.substring(cursor, colonIndex), "item length");
+            int itemLength = parseNonNegativeInteger(payload.substring(cursor, colonIndex), "item length");
             int itemStart = colonIndex + 1;
-            int itemEnd = itemStart + itemLength;
-            if (itemEnd > payload.length()) {
+            if (itemLength > payload.length() - itemStart) {
                 throw new IllegalArgumentException("structured list item exceeds payload length");
             }
+            int itemEnd = itemStart + itemLength;
             values.add(payload.substring(itemStart, itemEnd));
             cursor = itemEnd;
             if (index + 1 < expectedSize) {
@@ -116,9 +124,17 @@ public final class CocoRequestContextValueCodec {
         return value != null && value.startsWith(LIST_PREFIX);
     }
 
-    private static int parsePositiveInteger(String value, String label) {
+    private static int maximumItemCount(int remainingLength) {
+        return (remainingLength + 1) / 3;
+    }
+
+    private static int parseNonNegativeInteger(String value, String label) {
         try {
-            return Integer.parseInt(value);
+            int parsed = Integer.parseInt(value);
+            if (parsed < 0) {
+                throw new IllegalArgumentException(label + " must not be negative");
+            }
+            return parsed;
         }
         catch (NumberFormatException ex) {
             throw new IllegalArgumentException(label + " is invalid", ex);

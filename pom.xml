@@ -45,18 +45,28 @@
         <module>coco-foundation/coco-feature-model</module>
         <module>coco-foundation/coco-i18n</module>
         <module>coco-foundation/coco-logging</module>
-        <module>coco-spring/coco-config</module>
         <module>coco-spring/coco-spring-boot-autoconfigure</module>
         <module>coco-spring/coco-spring-boot-starter</module>
+        <module>coco-support/coco-test-support</module>
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
-        <module>coco-support/coco-test</module>
+        <module>coco-build/coco-compatibility/coco-config</module>
+        <module>coco-build/coco-compatibility/coco-feature-runtime</module>
+        <module>coco-build/coco-compatibility/coco-feature-web</module>
+        <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
+        <module>coco-build/coco-compatibility/coco-feature-audit</module>
+        <module>coco-build/coco-compatibility/coco-feature-security</module>
+        <module>coco-build/coco-compatibility/coco-feature-tenant</module>
+        <module>coco-build/coco-compatibility/coco-feature-data-permission</module>
+        <module>coco-build/coco-compatibility/coco-feature-openapi</module>
+        <module>coco-build/coco-compatibility/coco-test</module>
     </modules>
 
     <properties>
         <revision>1.0.0-SNAPSHOT</revision>
         <java.version>17</java.version>
         <spring-boot.version>4.1.0</spring-boot.version>
+        <springdoc-openapi.version>3.0.3</springdoc-openapi.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <maven.version>3.9.16</maven.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
@@ -71,10 +81,12 @@
         <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
         <maven-plugin-plugin.version>3.15.2</maven-plugin-plugin.version>
+        <spotbugs.version>4.10.2</spotbugs.version>
         <spotbugs-maven-plugin.version>4.10.2.0</spotbugs-maven-plugin.version>
         <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
         <central.auto-publish>false</central.auto-publish>
         <central.wait-until>VALIDATED</central.wait-until>
+        <coco.compatibility.release-artifacts>false</coco.compatibility.release-artifacts>
         <coco.enforcer.skip>false</coco.enforcer.skip>
         <project.build.outputTimestamp>2026-07-04T00:00:00Z</project.build.outputTimestamp>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -132,7 +144,17 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-web</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-web</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-mybatis-plus</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -142,7 +164,22 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-audit</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-audit-jdbc</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-audit</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-security</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -152,12 +189,42 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-tenant</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-tenant</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-data-permission</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-data-permission</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-openapi</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-replay-redis</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-rate-limit</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-observability</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -182,6 +249,11 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-test-support</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-test</artifactId>
                 <version>${revision}</version>
             </dependency>
@@ -194,6 +266,16 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-jsqlparser-4.9</artifactId>
                 <version>${mybatis-plus.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-annotations</artifactId>
+                <version>${spotbugs.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-common</artifactId>
+                <version>${springdoc-openapi.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -414,6 +496,9 @@
     <profiles>
         <profile>
             <id>release</id>
+            <properties>
+                <coco.compatibility.release-artifacts>true</coco.compatibility.release-artifacts>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -432,6 +517,36 @@
                                             <message>Release profile requires a non-SNAPSHOT revision, for example -Drevision=1.0.0.</message>
                                         </requireReleaseVersion>
                                     </rules>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>attach-compatibility-sources</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classesDirectory>${project.basedir}/../facade-attachments</classesDirectory>
+                                    <classifier>sources</classifier>
+                                    <skipIfEmpty>true</skipIfEmpty>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>attach-compatibility-javadocs</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classesDirectory>${project.basedir}/../facade-attachments</classesDirectory>
+                                    <classifier>javadoc</classifier>
+                                    <skipIfEmpty>true</skipIfEmpty>
                                 </configuration>
                             </execution>
                         </executions>

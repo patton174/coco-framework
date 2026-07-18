@@ -10,9 +10,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -28,6 +30,7 @@ import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
@@ -36,9 +39,13 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.project.MavenProject;
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.collection.CollectRequest;
+import org.eclipse.aether.graph.Exclusion;
 import org.eclipse.aether.repository.RemoteRepository;
-import org.eclipse.aether.resolution.ArtifactRequest;
-import org.eclipse.aether.resolution.ArtifactResolutionException;
+import org.eclipse.aether.resolution.ArtifactResult;
+import org.eclipse.aether.resolution.DependencyRequest;
+import org.eclipse.aether.resolution.DependencyResolutionException;
+import org.eclipse.aether.resolution.DependencyResult;
 
 /**
  * Coco 功能装配 Maven Goal。
@@ -87,8 +94,13 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     @Parameter(property = "coco.features.featureGroupId", defaultValue = "io.github.patton174")
     private String featureGroupId;
 
-    @Parameter(property = "coco.features.featureVersion", defaultValue = "${project.version}")
+    @Parameter(property = "coco.features.featureVersion")
     private String featureVersion;
+
+    @Parameter(defaultValue = "${plugin}", readonly = true)
+    private PluginDescriptor pluginDescriptor;
+
+    private String resolvedFeatureVersion;
 
     @Parameter(property = "coco.features.skip", defaultValue = "false")
     private boolean skip;
@@ -117,6 +129,7 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         }
 
         CocoFeaturePlan plan = resolveFeaturePlan();
+        validateFeatureArtifactVersions();
         writeManifest(plan);
         applyFeatureDependencies(plan);
         pruneDisabledFeatureArtifacts(plan);
@@ -133,8 +146,8 @@ public final class CocoFeaturesMojo extends AbstractMojo {
             CocoFeatureSelection annotationSelection = new CocoAnnotatedFeatureScanner()
                     .scan(this.classesDirectory.toPath(), classpathUrls());
 
-            CocoFeaturePlan plan = StandardCocoFeatures.resolve(
-                    applicationSelection.merge(parameterSelection).merge(annotationSelection));
+            CocoFeatureSelection selection = applicationSelection.merge(parameterSelection).merge(annotationSelection);
+            CocoFeaturePlan plan = StandardCocoFeatures.resolve(selection);
             logResolvedFeaturePlan(plan, applicationSelection, parameterSelection, annotationSelection);
             return plan;
         }
@@ -149,28 +162,76 @@ public final class CocoFeaturesMojo extends AbstractMojo {
      * </p>
      * @param plan 最终功能启用计划
      */
-    void applyFeatureDependencies(CocoFeaturePlan plan) {
-        Set<String> existingDependencies = this.project.getDependencies().stream()
-                .map(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+    void applyFeatureDependencies(CocoFeaturePlan plan) throws MojoExecutionException {
+        String targetFeatureVersion = effectiveFeatureVersion();
+        List<Dependency> dependenciesToAdd = new java.util.ArrayList<>();
+        Set<Artifact> resolvedClosure = new LinkedHashSet<>();
 
         for (CocoFeatureDefinition definition : plan.definitions()) {
             if (!plan.isEnabled(definition.feature())) {
                 continue;
             }
-            String coordinate = this.featureGroupId + ":" + definition.artifactId();
-            if (existingDependencies.contains(coordinate)) {
-                continue;
+            Set<String> equivalentArtifactIds = StandardCocoFeatures.equivalentArtifactIds(definition);
+            List<Dependency> declared = this.project.getDependencies().stream()
+                    .filter(dependency -> this.featureGroupId.equals(dependency.getGroupId()))
+                    .filter(dependency -> equivalentArtifactIds.contains(dependency.getArtifactId()))
+                    .toList();
+            List<Dependency> runtimeDeclared = declared.stream()
+                    .filter(this::isRuntimeDependency)
+                    .toList();
+            if (!declared.isEmpty() && runtimeDeclared.isEmpty()) {
+                String coordinates = declared.stream()
+                        .map(this::dependencyDescription)
+                        .sorted()
+                        .collect(Collectors.joining(", "));
+                throw new MojoExecutionException("Coco feature '" + definition.feature().id()
+                        + "' is declared only with non-runtime dependencies: " + coordinates
+                        + ". Use non-optional compile or runtime scope.");
             }
-            Dependency dependency = new Dependency();
-            dependency.setGroupId(this.featureGroupId);
-            dependency.setArtifactId(definition.artifactId());
-            dependency.setVersion(this.featureVersion);
-            dependency.setScope(Artifact.SCOPE_RUNTIME);
-            this.project.getModel().addDependency(dependency);
-            resolveRuntimeArtifact(dependency).ifPresent(this.project.getArtifacts()::add);
-            existingDependencies.add(coordinate);
+            Dependency dependency = runtimeDeclared.stream()
+                    .filter(candidate -> definition.artifactId().equals(candidate.getArtifactId()))
+                    .findFirst()
+                    .orElseGet(() -> runtimeDeclared.stream().findFirst()
+                            .orElseGet(() -> newRuntimeDependency(definition, targetFeatureVersion)));
+            String dependencyVersion = nonBlank(dependency.getVersion());
+            if (dependencyVersion == null) {
+                dependency.setVersion(targetFeatureVersion);
+                dependencyVersion = targetFeatureVersion;
+            }
+            if (!targetFeatureVersion.equals(dependencyVersion)) {
+                throw new MojoExecutionException("Coco feature dependency " + dependencyDescription(dependency)
+                        + " does not match Coco version " + targetFeatureVersion + ".");
+            }
+            if (declared.isEmpty()) {
+                dependenciesToAdd.add(dependency);
+            }
+            resolvedClosure.addAll(resolveRuntimeClosure(dependency, targetFeatureVersion));
         }
+        dependenciesToAdd.forEach(this.project.getModel()::addDependency);
+        mergeResolvedArtifacts(resolvedClosure);
+    }
+
+    private Dependency newRuntimeDependency(CocoFeatureDefinition definition, String version) {
+        Dependency dependency = new Dependency();
+        dependency.setGroupId(this.featureGroupId);
+        dependency.setArtifactId(definition.artifactId());
+        dependency.setVersion(version);
+        dependency.setScope(Artifact.SCOPE_RUNTIME);
+        return dependency;
+    }
+
+    private boolean isRuntimeDependency(Dependency dependency) {
+        String scope = nonBlank(dependency.getScope());
+        return !dependency.isOptional() && (scope == null
+                || Artifact.SCOPE_COMPILE.equals(scope)
+                || Artifact.SCOPE_RUNTIME.equals(scope));
+    }
+
+    private String dependencyDescription(Dependency dependency) {
+        String scope = nonBlank(dependency.getScope());
+        return dependency.getGroupId() + ":" + dependency.getArtifactId() + ":" + dependency.getVersion()
+                + " (scope=" + (scope == null ? Artifact.SCOPE_COMPILE : scope)
+                + ", optional=" + dependency.isOptional() + ")";
     }
 
     /**
@@ -187,6 +248,9 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         if (disabledArtifactIds.isEmpty()) {
             return;
         }
+        this.project.getModel().getDependencies()
+                .removeIf(dependency -> isPrunableCoordinate(
+                        dependency.getGroupId(), dependency.getArtifactId(), disabledArtifactIds));
         this.project.setArtifacts(pruneArtifacts(this.project.getArtifacts(), disabledArtifactIds));
         if (this.project.getDependencyArtifacts() != null) {
             this.project.setDependencyArtifacts(pruneArtifacts(this.project.getDependencyArtifacts(), disabledArtifactIds));
@@ -219,56 +283,198 @@ public final class CocoFeaturesMojo extends AbstractMojo {
      * @return 需要裁剪时返回 {@code true}
      */
     private boolean isPrunableArtifact(Artifact artifact, Set<String> excludedArtifactIds) {
-        String artifactId = artifact.getArtifactId();
-        if (!excludedArtifactIds.contains(artifactId)) {
-            return false;
-        }
-        String groupId = artifact.getGroupId();
-        if (artifactId.startsWith("coco-feature-")) {
-            return this.featureGroupId.equals(groupId);
-        }
-        if (artifactId.startsWith("mybatis-plus")) {
-            return "com.baomidou".equals(groupId);
-        }
-        return ("mybatis".equals(artifactId) || "mybatis-spring".equals(artifactId))
-                && "org.mybatis".equals(groupId);
+        return isPrunableCoordinate(artifact.getGroupId(), artifact.getArtifactId(), excludedArtifactIds);
     }
 
-    /**
-     * <p>
-     * 尝试解析已注入的运行期功能模块 artifact。
-     * </p>
-     * @param dependency 功能模块依赖
-     * @return 解析到的 Maven artifact；解析器不可用或解析失败时返回空结果
-     */
-    private Optional<Artifact> resolveRuntimeArtifact(Dependency dependency) {
+    private boolean isPrunableCoordinate(String groupId, String artifactId, Set<String> excludedArtifactIds) {
+        return this.featureGroupId.equals(groupId) && excludedArtifactIds.contains(artifactId);
+    }
+
+    void validateFeatureArtifactVersions() throws MojoExecutionException {
+        this.resolvedFeatureVersion = resolveFeatureVersion();
+    }
+
+    private String effectiveFeatureVersion() throws MojoExecutionException {
+        if (this.resolvedFeatureVersion == null) {
+            this.resolvedFeatureVersion = resolveFeatureVersion();
+        }
+        return this.resolvedFeatureVersion;
+    }
+
+    private String resolveFeatureVersion() throws MojoExecutionException {
+        String configuredVersion = nonBlank(this.featureVersion);
+        String pluginVersion = pluginVersion();
+        List<Artifact> cocoArtifacts = resolvedCocoArtifacts();
+
+        if (configuredVersion != null) {
+            validateCocoArtifactVersions(configuredVersion, cocoArtifacts);
+            return configuredVersion;
+        }
+
+        if (pluginVersion != null) {
+            validateCocoArtifactVersions(pluginVersion, cocoArtifacts);
+            return pluginVersion;
+        }
+
+        Map<String, List<String>> artifactsByVersion = new LinkedHashMap<>();
+        for (Artifact artifact : cocoArtifacts) {
+            String artifactVersion = nonBlank(artifact.getBaseVersion());
+            if (artifactVersion == null) {
+                continue;
+            }
+            artifactsByVersion.computeIfAbsent(artifactVersion, ignored -> new java.util.ArrayList<>())
+                    .add(coordinate(artifact));
+        }
+        if (artifactsByVersion.size() > 1) {
+            List<String> mixedArtifacts = artifactsByVersion.values().stream()
+                    .flatMap(Collection::stream)
+                    .sorted()
+                    .toList();
+            throw new MojoExecutionException("Coco artifacts must use one version: "
+                    + String.join(", ", mixedArtifacts) + ".");
+        }
+        if (artifactsByVersion.size() == 1) {
+            return artifactsByVersion.keySet().iterator().next();
+        }
+        throw new MojoExecutionException("Unable to determine the Coco feature version. Configure "
+                + "coco.features.featureVersion or run the goal from a versioned Coco Maven plugin or project.");
+    }
+
+    private void validateCocoArtifactVersions(String expectedVersion, List<Artifact> cocoArtifacts)
+            throws MojoExecutionException {
+        List<String> misalignedArtifacts = cocoArtifacts.stream()
+                .filter(artifact -> !expectedVersion.equals(artifact.getBaseVersion()))
+                .map(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId() + ":"
+                        + artifact.getBaseVersion())
+                .sorted()
+                .toList();
+        if (!misalignedArtifacts.isEmpty()) {
+            throw new MojoExecutionException("Coco feature artifact versions must align with '"
+                    + expectedVersion + "': " + String.join(", ", misalignedArtifacts) + ".");
+        }
+    }
+
+    private List<Artifact> resolvedCocoArtifacts() {
+        if (this.project == null || this.project.getArtifacts() == null) {
+            return List.of();
+        }
+        return this.project.getArtifacts().stream()
+                .filter(artifact -> this.featureGroupId.equals(artifact.getGroupId()))
+                .filter(artifact -> artifact.getArtifactId() != null && artifact.getArtifactId().startsWith("coco-"))
+                .sorted(Comparator.comparing(this::coordinate))
+                .toList();
+    }
+
+    private String pluginVersion() {
+        String descriptorVersion = this.pluginDescriptor == null ? null : nonBlank(this.pluginDescriptor.getVersion());
+        if (descriptorVersion != null) {
+            return descriptorVersion;
+        }
+        return nonBlank(CocoFeaturesMojo.class.getPackage().getImplementationVersion());
+    }
+
+    private String coordinate(Artifact artifact) {
+        return artifact.getGroupId() + ":" + artifact.getArtifactId() + ":" + artifact.getBaseVersion();
+    }
+
+    private static String nonBlank(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private Set<Artifact> resolveRuntimeClosure(Dependency dependency, String expectedCocoVersion)
+            throws MojoExecutionException {
         if (this.repositorySystem == null || this.repositorySystemSession == null) {
-            return Optional.empty();
+            throw new MojoExecutionException("Maven Resolver is required to resolve the runtime dependency closure "
+                    + "for " + dependency.getGroupId() + ":" + dependency.getArtifactId() + ".");
         }
         try {
-            org.eclipse.aether.artifact.Artifact artifact = new org.eclipse.aether.artifact.DefaultArtifact(
-                    dependency.getGroupId(), dependency.getArtifactId(), "jar", dependency.getVersion());
-            ArtifactRequest request = new ArtifactRequest(artifact, this.remoteRepositories, null);
-            File file = this.repositorySystem.resolveArtifact(this.repositorySystemSession, request)
-                    .getArtifact()
-                    .getFile();
-            DefaultArtifact mavenArtifact = new DefaultArtifact(
-                    dependency.getGroupId(),
-                    dependency.getArtifactId(),
-                    dependency.getVersion(),
-                    Artifact.SCOPE_RUNTIME,
-                    "jar",
-                    null,
-                    new DefaultArtifactHandler("jar"));
-            mavenArtifact.setFile(file);
-            return Optional.of(mavenArtifact);
+            String type = nonBlank(dependency.getType()) == null ? "jar" : dependency.getType().trim();
+            String classifier = nonBlank(dependency.getClassifier()) == null ? "" : dependency.getClassifier().trim();
+            org.eclipse.aether.artifact.Artifact rootArtifact = new org.eclipse.aether.artifact.DefaultArtifact(
+                    dependency.getGroupId(), dependency.getArtifactId(), classifier, type, dependency.getVersion());
+            List<Exclusion> exclusions = dependency.getExclusions().stream()
+                    .map(exclusion -> new Exclusion(exclusion.getGroupId(), exclusion.getArtifactId(), "*", "*"))
+                    .toList();
+            org.eclipse.aether.graph.Dependency rootDependency = new org.eclipse.aether.graph.Dependency(
+                    rootArtifact, Artifact.SCOPE_RUNTIME, false, exclusions);
+            CollectRequest collectRequest = new CollectRequest(rootDependency,
+                    this.remoteRepositories == null ? List.of() : this.remoteRepositories);
+            DependencyRequest request = new DependencyRequest(collectRequest, (node, parents) -> {
+                org.eclipse.aether.graph.Dependency candidate = node.getDependency();
+                if (candidate == null) {
+                    return true;
+                }
+                String scope = candidate.getScope();
+                return !candidate.isOptional()
+                        && (Artifact.SCOPE_COMPILE.equals(scope) || Artifact.SCOPE_RUNTIME.equals(scope));
+            });
+            DependencyResult result = this.repositorySystem.resolveDependencies(
+                    this.repositorySystemSession, request);
+            if (!result.getCollectExceptions().isEmpty()) {
+                throw new MojoExecutionException("Failed to collect runtime dependency closure for "
+                        + dependencyDescription(dependency) + ".", result.getCollectExceptions().get(0));
+            }
+            Set<Artifact> resolved = new LinkedHashSet<>();
+            for (ArtifactResult artifactResult : result.getArtifactResults()) {
+                resolved.add(toMavenArtifact(requireResolvedArtifact(artifactResult)));
+            }
+            boolean directResolved = resolved.stream()
+                    .anyMatch(artifact -> dependency.getGroupId().equals(artifact.getGroupId())
+                            && dependency.getArtifactId().equals(artifact.getArtifactId())
+                            && dependency.getVersion().equals(artifact.getBaseVersion()));
+            if (!directResolved) {
+                throw new MojoExecutionException("Resolved runtime closure is missing direct feature dependency "
+                        + dependency.getGroupId() + ":" + dependency.getArtifactId() + ":"
+                        + dependency.getVersion() + ".");
+            }
+            validateCocoArtifactVersions(expectedCocoVersion, resolved.stream()
+                    .filter(artifact -> this.featureGroupId.equals(artifact.getGroupId()))
+                    .filter(artifact -> artifact.getArtifactId().startsWith("coco-"))
+                    .toList());
+            return Set.copyOf(resolved);
         }
-        catch (ArtifactResolutionException ex) {
-            getLog().warn("Unable to resolve Coco feature artifact "
-                    + dependency.getGroupId() + ":" + dependency.getArtifactId() + ":" + dependency.getVersion()
-                    + ". The dependency was still added to the Maven model.", ex);
-            return Optional.empty();
+        catch (DependencyResolutionException ex) {
+            throw new MojoExecutionException("Failed to resolve runtime dependency closure for "
+                    + dependencyDescription(dependency) + ".", ex);
         }
+    }
+
+    private org.eclipse.aether.artifact.Artifact requireResolvedArtifact(ArtifactResult result)
+            throws MojoExecutionException {
+        org.eclipse.aether.artifact.Artifact artifact = result.getArtifact();
+        if (artifact == null || artifact.getFile() == null || !artifact.getFile().isFile()
+                || !result.getExceptions().isEmpty()) {
+            throw new MojoExecutionException("Runtime dependency artifact was not resolved to a readable file: "
+                    + result + ".");
+        }
+        return artifact;
+    }
+
+    private Artifact toMavenArtifact(org.eclipse.aether.artifact.Artifact artifact) {
+        String classifier = artifact.getClassifier().isBlank() ? null : artifact.getClassifier();
+        DefaultArtifact mavenArtifact = new DefaultArtifact(
+                artifact.getGroupId(), artifact.getArtifactId(), artifact.getBaseVersion(),
+                Artifact.SCOPE_RUNTIME, artifact.getExtension(), classifier,
+                new DefaultArtifactHandler(artifact.getExtension()));
+        mavenArtifact.setFile(artifact.getFile());
+        mavenArtifact.setResolved(true);
+        return mavenArtifact;
+    }
+
+    private void mergeResolvedArtifacts(Set<Artifact> resolvedClosure) {
+        Set<Artifact> artifacts = new LinkedHashSet<>();
+        if (this.project.getArtifacts() != null) {
+            artifacts.addAll(this.project.getArtifacts());
+        }
+        artifacts.addAll(resolvedClosure);
+        this.project.setArtifacts(artifacts);
+
+        Set<Artifact> dependencyArtifacts = new LinkedHashSet<>();
+        if (this.project.getDependencyArtifacts() != null) {
+            dependencyArtifacts.addAll(this.project.getDependencyArtifacts());
+        }
+        dependencyArtifacts.addAll(resolvedClosure);
+        this.project.setDependencyArtifacts(dependencyArtifacts);
     }
 
     /**
@@ -352,12 +558,26 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                 + ", annotations=" + describeSelection(annotationSelection)
                 + "}: enabled=" + featureIds(plan.enabledFeatures())
                 + ", disabled=" + featureIds(plan.disabledFeatures())
-                + ", disabledByDependency=" + featureIds(plan.disabledByDependencyFeatures()) + ".");
+                + ", disabledByDependency=" + featureIds(disabledByDependencyFeatures(plan,
+                        applicationSelection.merge(parameterSelection).merge(annotationSelection))) + ".");
     }
 
     private static String describeSelection(CocoFeatureSelection selection) {
         CocoFeatureSelection target = selection == null ? CocoFeatureSelection.empty() : selection;
         return "{enabled=" + featureIds(target.enabled()) + ", disabled=" + featureIds(target.disabled()) + "}";
+    }
+
+    private static Set<CocoFeature> disabledByDependencyFeatures(CocoFeaturePlan plan,
+            CocoFeatureSelection selection) {
+        EnumSet<CocoFeature> disabledByDependency = EnumSet.noneOf(CocoFeature.class);
+        for (CocoFeatureDefinition definition : plan.definitions()) {
+            if (plan.disabledFeatures().contains(definition.feature())
+                    && !selection.disabled().contains(definition.feature())
+                    && !plan.enabledFeatures().containsAll(definition.dependencies())) {
+                disabledByDependency.add(definition.feature());
+            }
+        }
+        return disabledByDependency.isEmpty() ? Set.of() : Set.copyOf(disabledByDependency);
     }
 
     private static String featureIds(Set<CocoFeature> features) {

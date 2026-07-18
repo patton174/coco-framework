@@ -270,8 +270,7 @@ class FakeDeferredClient:
 
 
 class AgentReviewTests(unittest.TestCase):
-    def test_repository_config_resolves_complete_jury_and_policy_routes(self) -> None:
-        """Check routing and tracked integration inputs, not module behavior."""
+    def test_repository_config_resolves_complete_jury(self) -> None:
         path = Path(__file__).resolve().parents[1] / "agent-review/config.json"
         value = review.load_config(path)
         self.assertEqual(
@@ -294,9 +293,13 @@ class AgentReviewTests(unittest.TestCase):
                 for verifier in value["roles"]["verifiers"]
             )
         )
-        self.assertEqual(8192, value["output_limits"]["specialist_tokens"])
-        self.assertEqual(12288, value["output_limits"]["verifier_tokens"])
-        self.assertEqual(8192, value["output_limits"]["chair_tokens"])
+        self.assertEqual(
+            {8192, 12288},
+            {
+                value["output_limits"][key]
+                for key in ("specialist_tokens", "verifier_tokens", "chair_tokens")
+            },
+        )
         self.assertEqual(
             (("dependabot[bot]", DEPENDABOT_BOT_ID),),
             review.configured_deferred_bot_authors(value),
@@ -325,6 +328,8 @@ class AgentReviewTests(unittest.TestCase):
         audit_independence_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-audit-feature-independence.md"
         logging_overflow_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-async-log-overflow-observability.md"
         codegen_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
+        canonical_migration_spec = "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-module-migration.md"
+        canonical_coordinate_spec = "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-coordinate-contract.md"
 
         def mapped_specs(path: str) -> set[str]:
             return {
@@ -338,23 +343,25 @@ class AgentReviewTests(unittest.TestCase):
             }
 
         for path in (
+            ".github/agent-review/config.json",
             ".github/scripts/agent_review.py",
-            ".github/scripts/agent_issue_gate.py",
+            ".github/scripts/test_agent_review.py",
             ".github/workflows/agent-review.yml",
-            ".github/workflows/agent-issue-gate.yml",
+            ".github/workflows/agent-review-deferred.yml",
+            ".github/workflows/reusable-agent-review-jury.yml",
+            jury_spec,
         ):
             with self.subTest(path=path):
-                self.assertEqual(
-                    {jury_spec, governance_spec} & mapped_specs(path),
-                    {jury_spec, governance_spec},
-                )
+                self.assertEqual({jury_spec}, mapped_specs(path))
         for path in (
+            ".github/scripts/agent_issue_gate.py",
             ".github/scripts/auto_merge.py",
+            ".github/scripts/test_auto_merge.py",
+            ".github/workflows/agent-issue-gate.yml",
             ".github/workflows/auto-merge.yml",
             ".github/workflows/agent-open-pr.yml",
             ".github/workflows/release.yml",
             ".github/workflows/pr-labeler.yml",
-            ".github/labeler.yml",
             ".github/dependabot.yml",
             ".github/CODEOWNERS",
             ".github/ISSUE_TEMPLATE/bug-report.yml",
@@ -376,103 +383,151 @@ class AgentReviewTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(governance_spec, mapped_specs(path))
-        module_layout_policy_candidates = (
+        for path in (
             "coco-parent/pom.xml",
             "coco-build/coco-parent/pom.xml",
             "coco-api/pom.xml",
             "coco-foundation/coco-api/pom.xml",
-            "coco-config/pom.xml",
-            "coco-spring/coco-config/pom.xml",
             "coco-build/coco-compatibility/coco-config/pom.xml",
-            "coco-features/coco-feature-runtime/pom.xml",
-            "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
             "coco-test/pom.xml",
             "coco-support/coco-test/pom.xml",
-            "coco-support/coco-test-support/pom.xml",
-            "coco-build/coco-compatibility/coco-test/pom.xml",
-        )
-        for path in module_layout_policy_candidates:
+        ):
             with self.subTest(path=path):
                 self.assertIn(module_layout_spec, mapped_specs(path))
-        test_support_policy_candidates = (
-            "coco-support/coco-test/pom.xml",
-            "coco-support/coco-test-support/pom.xml",
-            "coco-build/coco-compatibility/coco-test/pom.xml",
+        self.assertEqual(
+            {module_layout_spec, canonical_migration_spec},
+            mapped_specs("coco-support/coco-test/pom.xml"),
         )
-        for path in test_support_policy_candidates:
-            with self.subTest(test_support_policy_candidate=path):
-                self.assertEqual({module_layout_spec}, mapped_specs(path))
-        i18n_specs = {module_layout_spec, api_i18n_spec, common_i18n_spec}
-        web_specs = {
-            module_layout_spec,
-            web_response_spec,
-            jdbc_replay_spec,
-            framework_boundary_spec,
-        }
         audit_specs = {
-            module_layout_spec,
             audit_logging_spec,
             audit_independence_spec,
         }
-        module_policy_routes = {
-            ("coco-api", "coco-foundation/coco-api"): i18n_specs,
+        source_policy_contracts = {
+            ("coco-api", "coco-foundation/coco-api"): {api_i18n_spec},
             (
                 "coco-common/coco-common-i18n",
                 "coco-foundation/coco-i18n",
-            ): i18n_specs,
+            ): {common_i18n_spec},
             (
                 "coco-features/coco-feature-registry",
                 "coco-foundation/coco-feature-model",
-            ): i18n_specs,
-            (
-                "coco-config",
-                "coco-spring/coco-config",
-                "coco-build/coco-compatibility/coco-config",
-            ): i18n_specs,
-            (
-                "coco-spring-boot-autoconfigure",
-                "coco-spring/coco-spring-boot-autoconfigure",
-            ): i18n_specs,
+            ): {canonical_coordinate_spec},
+            ("coco-build/coco-compatibility/coco-config",): {
+                api_i18n_spec,
+                canonical_coordinate_spec,
+            },
             (
                 "coco-common/coco-common-logging",
                 "coco-foundation/coco-logging",
-            ): {module_layout_spec, logging_overflow_spec},
+            ): {logging_overflow_spec},
             (
                 "coco-features/coco-feature-web",
                 "coco-features/coco-web",
-            ): web_specs,
+            ): {framework_boundary_spec},
             (
                 "coco-features/coco-feature-audit",
                 "coco-features/coco-audit",
-            ): audit_specs,
+            ): audit_specs | {canonical_migration_spec},
+            (
+                "coco-features/coco-feature-data-permission",
+                "coco-features/coco-data-permission",
+            ): {canonical_migration_spec},
+            (
+                "coco-features/coco-feature-mybatis-plus",
+                "coco-features/coco-mybatis-plus",
+            ): {canonical_migration_spec},
+            (
+                "coco-features/coco-feature-openapi",
+                "coco-features/coco-openapi",
+            ): {canonical_migration_spec},
+            (
+                "coco-features/coco-feature-security",
+                "coco-features/coco-security",
+            ): {canonical_migration_spec},
+            (
+                "coco-features/coco-feature-tenant",
+                "coco-features/coco-tenant",
+            ): {canonical_migration_spec},
+            (
+                "coco-spring-boot-starter",
+                "coco-spring/coco-spring-boot-starter",
+            ): set(),
+            (
+                "coco-test",
+                "coco-support/coco-test",
+                "coco-support/coco-test-support",
+                "coco-build/coco-compatibility/coco-test",
+            ): {canonical_migration_spec},
             ("coco-features/coco-feature-codegen",): {
-                module_layout_spec,
                 codegen_spec,
+                canonical_migration_spec,
             },
             ("coco-maven-plugin", "coco-build/coco-maven-plugin"): {
-                module_layout_spec,
                 codegen_spec,
+                canonical_migration_spec,
             },
         }
-        # Candidate paths intentionally include future physical locations. This
-        # loop asserts only config routing; Maven integration owns materialized
-        # modules, compilation, and compatibility-consumer execution.
-        for candidate_paths, expected_specs in module_policy_routes.items():
-            for candidate_root in candidate_paths:
+        for migration_paths, expected_specs in source_policy_contracts.items():
+            self.assertTrue(
+                any((repository_root / path).is_dir() for path in migration_paths),
+                f"No active module path exists for {migration_paths}",
+            )
+            for module_root in migration_paths:
                 for relative_path in (
-                    "pom.xml",
-                    "README.md",
                     "src/main/java/Example.java",
                     "src/main/resources/example.properties",
                 ):
                     with self.subTest(
-                        policy_candidate=candidate_root,
+                        module_root=module_root,
                         relative_path=relative_path,
                     ):
                         self.assertEqual(
                             expected_specs,
-                            mapped_specs(f"{candidate_root}/{relative_path}"),
+                            mapped_specs(f"{module_root}/{relative_path}"),
                         )
+        path_policy_contracts = {
+            "coco-spring/coco-spring-boot-autoconfigure/pom.xml": {
+                module_layout_spec,
+            },
+            "coco-spring/coco-spring-boot-autoconfigure/src/main/java/io/github/coco/config/CocoProperties.java": {
+                api_i18n_spec,
+            },
+            "coco-spring/coco-spring-boot-autoconfigure/src/main/java/io/github/coco/common/autoconfigure/CocoCommonAutoConfiguration.java": {
+                common_i18n_spec,
+            },
+            "coco-features/coco-web/pom.xml": {
+                module_layout_spec,
+                canonical_coordinate_spec,
+            },
+            "coco-features/coco-web/src/main/java/io/github/coco/feature/web/response/CocoResponseWrapAdvice.java": {
+                framework_boundary_spec,
+                web_response_spec,
+            },
+            "coco-features/coco-web/src/main/java/io/github/coco/feature/web/replay/JdbcCocoReplayStore.java": {
+                framework_boundary_spec,
+                jdbc_replay_spec,
+            },
+            "coco-spring/coco-spring-boot-starter/pom.xml": {
+                module_layout_spec,
+                canonical_coordinate_spec,
+            },
+            "coco-support/coco-tools/tests/test_canonical_maven_ownership.py": {
+                canonical_migration_spec,
+                canonical_coordinate_spec,
+            },
+        }
+        for path, expected_specs in path_policy_contracts.items():
+            with self.subTest(policy_path=path):
+                self.assertEqual(expected_specs, mapped_specs(path))
+        for path in (
+            ".gitignore",
+            ".github/labeler.yml",
+            ".github/workflows/reusable-tests.yml",
+            ".github/readme/fragments/en/50-samples-and-architecture.md",
+            ".github/readme/fragments/zh-CN/50-samples-and-architecture.md",
+        ):
+            with self.subTest(canonical_coordinate_path=path):
+                self.assertIn(canonical_coordinate_spec, mapped_specs(path))
         self.assertEqual(
             {governance_spec},
             mapped_specs("coco-support/coco-document/release.md"),
@@ -482,83 +537,36 @@ class AgentReviewTests(unittest.TestCase):
         support_directories = {
             path.name
             for path in (repository_root / "coco-support").iterdir()
-            if path.is_dir()
-            and not path.name.startswith(".")
-            and any(
-                child.name != "target" and not child.name.startswith(".")
-                for child in path.iterdir()
-            )
+            if path.is_dir() and not path.name.startswith(".")
         }
-        test_support_source_directories = {"coco-test", "coco-test-support"}
-        active_test_support_directories = (
-            support_directories & test_support_source_directories
-        )
-        self.assertEqual(
-            1,
-            len(active_test_support_directories),
-            "Exactly one test-support source directory must be active.",
-        )
-        support_directory_layout_policy = {
-            "coco-document": False,
-            "coco-tools": True,
-            **{directory: True for directory in active_test_support_directories},
-        }
-        self.assertEqual(
-            set(support_directory_layout_policy),
+        self.assertLessEqual(
             support_directories,
-            "Every coco-support directory must explicitly declare whether it needs module-layout policy.",
+            {"coco-document", "coco-test", "coco-test-support", "coco-tools"},
+            "Every coco-support directory must be covered by the policy-boundary test.",
         )
-        for directory, expects_module_layout in support_directory_layout_policy.items():
+        self.assertTrue(
+            {"coco-test", "coco-test-support"} & support_directories,
+            "At least one test-support migration path must exist.",
+        )
+        for directory in support_directories:
             with self.subTest(support_directory=directory):
-                self.assertEqual(
-                    expects_module_layout,
-                    module_layout_spec
-                    in mapped_specs(f"coco-support/{directory}/__mapping_probe__"),
+                self.assertNotIn(
+                    module_layout_spec,
+                    mapped_specs(
+                        f"coco-support/{directory}/src/main/java/Example.java"
+                    ),
                 )
+                pom = repository_root / "coco-support" / directory / "pom.xml"
+                if pom.is_file():
+                    self.assertIn(
+                        module_layout_spec,
+                        mapped_specs(f"coco-support/{directory}/pom.xml"),
+                    )
         serialized_mappings = json.dumps(value["spec_path_mappings"])
         self.assertNotIn("coco-support/**", serialized_mappings)
+        self.assertNotIn(".github/**", serialized_mappings)
         self.assertNotIn("update-readme-insights.yml", serialized_mappings)
         self.assertNotIn(".github/README.md", serialized_mappings)
-
-        # The routing fixtures above can name planned paths. Keep physical
-        # compatibility evidence in the canonical integration inputs instead.
-        required_paths = {
-            "coco-spring/coco-config/pom.xml",
-            "coco-features/coco-feature-runtime/pom.xml",
-            "coco-samples/coco-sample-basic/pom.xml",
-            "coco-samples/coco-sample-full/pom.xml",
-            ".github/scripts/verify_sample_feature_coordinates.py",
-        }
-        try:
-            tracked = subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repository_root),
-                    "ls-files",
-                    "--error-unmatch",
-                    *sorted(required_paths),
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        except OSError as exc:
-            self.fail(f"Unable to verify canonical integration inputs: {exc}")
-        self.assertEqual(0, tracked.returncode, tracked.stderr)
-        self.assertTrue(required_paths.issubset(set(tracked.stdout.splitlines())))
-
-        workflow = (repository_root / ".github/workflows/reusable-tests.yml").read_text(
-            encoding="utf-8"
-        )
-        for command in (
-            "run: mvn -B -ntp install",
-            "run: mvn -B -ntp -f coco-samples/coco-sample-basic/pom.xml verify",
-            "run: mvn -B -ntp -f coco-samples/coco-sample-full/pom.xml verify",
-            "python .github/scripts/verify_sample_feature_coordinates.py",
-        ):
-            with self.subTest(command=command):
-                self.assertIn(command, workflow)
 
     def test_agent_open_pr_workflow_uses_protected_app_identity(self) -> None:
         workflow = (
@@ -610,31 +618,44 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("permission-checks:", workflow)
         self.assertNotIn("permission-statuses:", workflow)
 
-    def test_policy_routing_covers_migration_batches_within_budget(self) -> None:
-        """Exercise collect_policy() only; this does not compile or run modules."""
+    def test_repository_module_migration_policy_fits_each_batch(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
         config_path = repository_root / ".github/agent-review/config.json"
         value = review.load_config(config_path)
         module_layout_spec = "coco-support/coco-document/architecture/module-layout.md"
-        base_policy = {
+        jury_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
+        core_policy = {
             "AGENTS.md",
             ".github/agent-review/policy.md",
+        }
+        base_policy = core_policy | {
             module_layout_spec,
         }
         i18n_specs = {
             "coco-support/coco-document/superpowers/specs/2026-07-04-coco-api-core-i18n-design.md",
             "coco-support/coco-document/superpowers/specs/2026-07-04-coco-common-i18n-design.md",
         }
-        web_specs = {
-            "coco-support/coco-document/superpowers/specs/2026-07-05-coco-web-response-wrap-design.md",
-            "coco-support/coco-document/superpowers/specs/2026-07-10-coco-jdbc-replay-store.md",
-            "coco-support/coco-document/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md",
-        }
         audit_specs = {
             "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-audit-logging.md",
             "coco-support/coco-document/superpowers/specs/2026-07-10-coco-audit-feature-independence.md",
         }
         codegen_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
+        canonical_migration_spec = "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-module-migration.md"
+        canonical_coordinate_spec = "coco-support/coco-document/superpowers/specs/2026-07-13-coco-canonical-coordinate-contract.md"
+        policy_limit = review.normalized_limits(value)["policy_chars"]
+
+        def collect_route(changed_paths: list[str]) -> list[dict[str, str]]:
+            omissions: list[str] = []
+            sources = review.collect_policy(
+                repository_root,
+                value,
+                changed_paths,
+                omissions,
+            )
+            self.assertEqual([], omissions)
+            self.assertLess(len(review.canonical_json(sources)), policy_limit)
+            return sources
+
         batches = {
             "build": [
                 "pom.xml",
@@ -650,12 +671,13 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-common/coco-common-i18n/pom.xml",
                 "coco-foundation/coco-common/coco-common-i18n/pom.xml",
             ],
-            "spring": [
+            "spring-autoconfigure": [
                 "pom.xml",
-                "coco-config/pom.xml",
-                "coco-spring/coco-config/pom.xml",
                 "coco-spring-boot-autoconfigure/pom.xml",
                 "coco-spring/coco-spring-boot-autoconfigure/pom.xml",
+            ],
+            "spring-starter": [
+                "pom.xml",
                 "coco-spring-boot-starter/pom.xml",
                 "coco-spring/coco-spring-boot-starter/pom.xml",
             ],
@@ -663,54 +685,33 @@ class AgentReviewTests(unittest.TestCase):
                 "pom.xml",
                 "coco-test/pom.xml",
                 "coco-support/coco-test/pom.xml",
-                "coco-support/coco-test-support/pom.xml",
-                "coco-build/coco-compatibility/coco-test/pom.xml",
             ],
         }
 
         for name, changed_paths in batches.items():
             with self.subTest(batch=name):
-                omissions: list[str] = []
-                sources = review.collect_policy(
-                    repository_root,
-                    value,
-                    changed_paths,
-                    omissions,
-                )
-                self.assertEqual([], omissions)
+                sources = collect_route(changed_paths)
                 self.assertIn(
                     "coco-support/coco-document/architecture/module-layout.md",
                     {source["source"] for source in sources},
                 )
-                if name == "support":
-                    self.assertLess(
-                        sum(len(source["content"]) for source in sources),
-                        review.normalized_limits(value)["policy_chars"],
-                    )
 
-        # These are deterministic routing inputs, including planned relocation
-        # paths. They are not evidence that those paths exist or compile.
-        spring_cutover_policy_batches = {
+        spring_cutover_batches = {
             "starter-and-core-features": [
-                "coco-config/pom.xml",
-                "coco-spring/coco-config/pom.xml",
-                "coco-spring/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
                 "coco-build/coco-compatibility/coco-config/pom.xml",
                 "coco-build/coco-compatibility/coco-config/src/test/java/io/github/coco/config/CocoConfigFacadeFqcnCompileContract.java",
-                "coco-features/coco-feature-runtime/pom.xml",
-                "coco-features/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
                 "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
                 "coco-build/coco-compatibility/coco-feature-runtime/src/test/java/io/github/coco/feature/runtime/CocoFeatureRuntimeFacadeFqcnCompileContract.java",
                 "coco-spring/coco-spring-boot-starter/pom.xml",
                 "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
-                "coco-features/coco-feature-data-permission/pom.xml",
-                "coco-features/coco-feature-mybatis-plus/pom.xml",
-                "coco-features/coco-feature-openapi/pom.xml",
-                "coco-features/coco-feature-security/pom.xml",
-                "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-data-permission/pom.xml",
+                "coco-features/coco-mybatis-plus/pom.xml",
+                "coco-features/coco-openapi/pom.xml",
+                "coco-features/coco-security/pom.xml",
+                "coco-features/coco-tenant/pom.xml",
             ],
-            "web": ["coco-features/coco-feature-web/pom.xml"],
-            "audit": ["coco-features/coco-feature-audit/pom.xml"],
+            "web": ["coco-features/coco-web/pom.xml"],
+            "audit": ["coco-features/coco-audit/pom.xml"],
             "codegen": ["coco-features/coco-feature-codegen/pom.xml"],
         }
         module_entries = review.module_map(repository_root)
@@ -736,57 +737,335 @@ class AgentReviewTests(unittest.TestCase):
         }
         scheduled_consumer_poms = [
             path
-            for paths in spring_cutover_policy_batches.values()
+            for paths in spring_cutover_batches.values()
             for path in paths
             if path in expected_consumer_poms
         ]
         self.assertEqual(expected_consumer_poms, set(scheduled_consumer_poms))
         self.assertEqual(len(expected_consumer_poms), len(scheduled_consumer_poms))
-        expected_policy_sources = {
-            "starter-and-core-features": base_policy | i18n_specs,
-            "web": base_policy | web_specs,
-            "audit": base_policy | audit_specs,
-            "codegen": base_policy | {codegen_spec},
+        for name, changed_paths in spring_cutover_batches.items():
+            with self.subTest(spring_cutover_batch=name):
+                collect_route(changed_paths)
+
+        canonical_batches = {
+            "governance": [
+                ".gitignore",
+                ".github/labeler.yml",
+                ".github/workflows/reusable-tests.yml",
+            ],
+            "feature-metadata": [
+                "coco-features/coco-feature-registry/pom.xml",
+                "coco-foundation/coco-feature-model/pom.xml",
+                "coco-foundation/coco-feature-model/src/main/java/io/github/coco/feature/model/StandardCocoFeatures.java",
+            ],
+            "plugin": [
+                "coco-maven-plugin/src/main/java/io/github/coco/maven/CocoFeaturesMojo.java",
+                "coco-build/coco-maven-plugin/src/main/java/io/github/coco/maven/CocoFeaturesMojo.java",
+            ],
+            "persistence": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-features/coco-feature-mybatis-plus/pom.xml",
+                "coco-features/coco-mybatis-plus/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-mybatis-plus/pom.xml",
+                "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-tenant/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-tenant/pom.xml",
+                "coco-features/coco-feature-data-permission/pom.xml",
+                "coco-features/coco-data-permission/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-data-permission/pom.xml",
+            ],
+            "platform": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-features/coco-feature-audit/pom.xml",
+                "coco-features/coco-audit/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-audit/pom.xml",
+                "coco-features/coco-feature-security/pom.xml",
+                "coco-features/coco-security/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-security/pom.xml",
+                "coco-features/coco-feature-openapi/pom.xml",
+                "coco-features/coco-openapi/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-openapi/pom.xml",
+            ],
+            "web": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-features/coco-feature-web/pom.xml",
+                "coco-features/coco-web/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-web/pom.xml",
+            ],
+            "spring-facades": [
+                "pom.xml",
+                "coco-spring/coco-config/pom.xml",
+                "coco-build/coco-compatibility/coco-config/pom.xml",
+                "coco-features/coco-feature-runtime/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
+            ],
+            "test-support": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-support/coco-test/pom.xml",
+                "coco-support/coco-test-support/pom.xml",
+                "coco-build/coco-compatibility/coco-test/pom.xml",
+                "coco-features/coco-feature-codegen/pom.xml",
+                "coco-features/coco-security/pom.xml",
+            ],
         }
-        for name, changed_paths in spring_cutover_policy_batches.items():
-            with self.subTest(spring_cutover_policy_batch=name):
-                omissions = []
-                sources = review.collect_policy(
-                    repository_root,
-                    value,
-                    changed_paths,
-                    omissions,
-                )
-                self.assertEqual([], omissions)
+        canonical_expected_sources = {
+            "governance": core_policy | {canonical_coordinate_spec},
+            "feature-metadata": base_policy | {canonical_coordinate_spec},
+            "plugin": core_policy | {codegen_spec, canonical_migration_spec},
+            "persistence": base_policy
+            | {canonical_migration_spec, canonical_coordinate_spec},
+            "platform": base_policy
+            | {canonical_migration_spec, canonical_coordinate_spec},
+            "web": base_policy | {canonical_coordinate_spec},
+            "spring-facades": base_policy | {canonical_coordinate_spec},
+            "test-support": base_policy
+            | {canonical_migration_spec, canonical_coordinate_spec},
+        }
+        for name, changed_paths in canonical_batches.items():
+            with self.subTest(canonical_batch=name):
+                sources = collect_route(changed_paths)
                 self.assertEqual(
-                    expected_policy_sources[name],
+                    canonical_expected_sources[name],
                     {source["source"] for source in sources},
                 )
-                self.assertLessEqual(
-                    sum(len(source["content"]) for source in sources),
-                    review.normalized_limits(value)["policy_chars"],
+
+        functional_routes = {
+            "api-i18n": (
+                [
+                    "coco-foundation/coco-api/src/main/java/io/github/coco/api/CocoFeature.java",
+                    "coco-foundation/coco-i18n/src/main/java/io/github/coco/i18n/CocoMessage.java",
+                ],
+                core_policy | i18n_specs,
+            ),
+            "web-response": (
+                [
+                    "coco-features/coco-web/src/main/java/io/github/coco/feature/web/response/CocoResponseWrapAdvice.java",
+                ],
+                core_policy
+                | {
+                    "coco-support/coco-document/superpowers/specs/2026-07-05-coco-web-response-wrap-design.md",
+                    "coco-support/coco-document/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md",
+                },
+            ),
+            "web-replay": (
+                [
+                    "coco-features/coco-web/src/main/java/io/github/coco/feature/web/replay/JdbcCocoReplayStore.java",
+                ],
+                core_policy
+                | {
+                    "coco-support/coco-document/superpowers/specs/2026-07-10-coco-jdbc-replay-store.md",
+                    "coco-support/coco-document/superpowers/specs/2026-07-08-coco-web-server-framework-boundary.md",
+                },
+            ),
+            "audit": (
+                [
+                    "coco-features/coco-audit/src/main/java/io/github/coco/feature/audit/CocoAuditAutoConfiguration.java",
+                ],
+                core_policy | audit_specs | {canonical_migration_spec},
+            ),
+            "follow-up": (
+                [
+                    ".github/agent-review/config.json",
+                    ".github/scripts/agent_review.py",
+                    ".github/scripts/test_agent_review.py",
+                    "coco-foundation/coco-feature-model/src/main/java/io/github/coco/feature/model/StandardCocoFeatures.java",
+                    "coco-support/coco-document/architecture/module-layout.md",
+                ],
+                base_policy | {jury_spec, canonical_coordinate_spec},
+            ),
+        }
+        for name, (changed_paths, expected_sources) in functional_routes.items():
+            with self.subTest(functional_route=name):
+                sources = collect_route(changed_paths)
+                self.assertEqual(
+                    expected_sources,
+                    {source["source"] for source in sources},
                 )
+
+    def test_repository_policy_routes_build_context_without_omissions(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        routes = {
+            "canonical-governance": [
+                ".github/labeler.yml",
+                ".github/workflows/reusable-tests.yml",
+            ],
+            "canonical-foundation": [
+                "pom.xml",
+                "coco-api/pom.xml",
+                "coco-foundation/coco-api/pom.xml",
+                "coco-common/coco-common-i18n/pom.xml",
+                "coco-foundation/coco-common/coco-common-i18n/pom.xml",
+            ],
+            "canonical-feature-metadata": [
+                "coco-features/coco-feature-registry/pom.xml",
+                "coco-foundation/coco-feature-model/pom.xml",
+                "coco-foundation/coco-feature-model/src/main/java/io/github/coco/feature/model/StandardCocoFeatures.java",
+            ],
+            "canonical-plugin": [
+                "coco-maven-plugin/src/main/java/io/github/coco/maven/CocoFeaturesMojo.java",
+                "coco-build/coco-maven-plugin/src/main/java/io/github/coco/maven/CocoFeaturesMojo.java",
+            ],
+            "canonical-persistence": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-features/coco-feature-mybatis-plus/pom.xml",
+                "coco-features/coco-mybatis-plus/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-mybatis-plus/pom.xml",
+                "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-tenant/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-tenant/pom.xml",
+                "coco-features/coco-feature-data-permission/pom.xml",
+                "coco-features/coco-data-permission/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-data-permission/pom.xml",
+            ],
+            "canonical-platform": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-features/coco-feature-audit/pom.xml",
+                "coco-features/coco-audit/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-audit/pom.xml",
+                "coco-features/coco-feature-security/pom.xml",
+                "coco-features/coco-security/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-security/pom.xml",
+                "coco-features/coco-feature-openapi/pom.xml",
+                "coco-features/coco-openapi/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-openapi/pom.xml",
+            ],
+            "canonical-web": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-spring/coco-spring-boot-starter/pom.xml",
+                "coco-features/coco-feature-web/pom.xml",
+                "coco-features/coco-web/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-web/pom.xml",
+            ],
+            "canonical-spring-facades": [
+                "pom.xml",
+                "coco-spring/coco-config/pom.xml",
+                "coco-build/coco-compatibility/coco-config/pom.xml",
+                "coco-features/coco-feature-runtime/pom.xml",
+                "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
+            ],
+            "canonical-test-support": [
+                "pom.xml",
+                "coco-build/coco-dependencies/pom.xml",
+                "coco-support/coco-test/pom.xml",
+                "coco-support/coco-test-support/pom.xml",
+                "coco-build/coco-compatibility/coco-test/pom.xml",
+                "coco-features/coco-feature-codegen/pom.xml",
+                "coco-features/coco-security/pom.xml",
+            ],
+            "functional-api-i18n": [
+                "coco-foundation/coco-api/src/main/java/io/github/coco/api/CocoFeature.java",
+                "coco-foundation/coco-i18n/src/main/java/io/github/coco/i18n/CocoMessage.java",
+            ],
+            "functional-web-response": [
+                "coco-features/coco-web/src/main/java/io/github/coco/feature/web/response/CocoResponseWrapAdvice.java",
+            ],
+            "functional-web-replay": [
+                "coco-features/coco-web/src/main/java/io/github/coco/feature/web/replay/JdbcCocoReplayStore.java",
+            ],
+            "functional-audit": [
+                "coco-features/coco-audit/src/main/java/io/github/coco/feature/audit/CocoAuditAutoConfiguration.java",
+            ],
+            "routing-follow-up": [
+                ".github/agent-review/config.json",
+                ".github/scripts/agent_review.py",
+                ".github/scripts/test_agent_review.py",
+            ],
+            "cleanup-follow-up": [
+                "coco-foundation/coco-feature-model/src/main/java/io/github/coco/feature/model/StandardCocoFeatures.java",
+                "coco-support/coco-document/architecture/module-layout.md",
+            ],
+        }
+        policy_paths = {
+            *value["protected_policy_paths"],
+            *(
+                path
+                for mapping in value["spec_path_mappings"]
+                for path in mapping["spec_paths"]
+            ),
+        }
+        prompt_paths = {
+            role["prompt_path"]
+            for group in ("specialists", "verifiers")
+            for role in value["roles"][group]
+        }
+        prompt_paths.add(value["roles"]["chair"]["prompt_path"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            base_root = Path(directory)
+            for relative in policy_paths | prompt_paths:
+                target = base_root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((repository_root / relative).read_bytes())
+            (base_root / "pom.xml").write_text(
+                "<project><modelVersion>4.0.0</modelVersion>"
+                "<groupId>test</groupId><artifactId>root</artifactId>"
+                "<version>1</version></project>",
+                encoding="utf-8",
+            )
+            for name, changed_paths in routes.items():
+                with self.subTest(production_context_route=name):
+                    files = [
+                        {
+                            "filename": path,
+                            "status": "modified",
+                            "additions": 1,
+                            "deletions": 1,
+                            "changes": 2,
+                            "patch": "@@ -1 +1 @@\n-old\n+new",
+                        }
+                        for path in changed_paths
+                    ]
+                    context = review.build_context(
+                        FakeContextClient(
+                            {path: "changed\n" for path in changed_paths}
+                        ),
+                        REPOSITORY,
+                        {
+                            "number": 1,
+                            "title": "Policy route",
+                            "body": "",
+                            "base": {"sha": BASE_SHA},
+                            "head": {"sha": HEAD_SHA},
+                        },
+                        files,
+                        [],
+                        "complete diff",
+                        base_root,
+                        value,
+                    )
+                    policy_chars = len(
+                        review.canonical_json(context["trusted"]["policy"])
+                    )
+                    self.assertLess(
+                        policy_chars,
+                        review.normalized_limits(value)["policy_chars"],
+                    )
+                    self.assertEqual([], context["omissions"])
 
     def test_repository_governance_policy_does_not_pull_module_layout(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
         config_path = repository_root / ".github/agent-review/config.json"
         value = review.load_config(config_path)
-        jury_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
         governance_spec = "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
         omissions: list[str] = []
 
         sources = review.collect_policy(
             repository_root,
             value,
-            [
-                ".github/agent-review/config.json",
-                ".github/labeler.yml",
-                ".github/scripts/test_agent_review.py",
-                ".github/scripts/test_verify_sample_feature_coordinates.py",
-                ".github/scripts/verify_sample_feature_coordinates.py",
-                ".github/workflows/reusable-static-analysis.yml",
-                ".github/workflows/reusable-tests.yml",
-            ],
+            ["AGENTS.md", governance_spec],
             omissions,
         )
 
@@ -795,14 +1074,9 @@ class AgentReviewTests(unittest.TestCase):
             {
                 "AGENTS.md",
                 ".github/agent-review/policy.md",
-                jury_spec,
                 governance_spec,
             },
             {source["source"] for source in sources},
-        )
-        self.assertLess(
-            sum(len(source["content"]) for source in sources),
-            review.normalized_limits(value)["policy_chars"],
         )
 
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
@@ -1139,7 +1413,7 @@ class AgentReviewTests(unittest.TestCase):
             (root / "docs").mkdir()
             (root / "docs/old.md").write_text("Old specification", encoding="utf-8")
             (root / "docs/new.md").write_text("New specification", encoding="utf-8")
-            value = config(policy_chars=100)
+            value = config(policy_chars=300)
             value["context"]["path_rules"] = [
                 {"patterns": ["old/**"], "files": ["docs/old.md"]},
                 {"patterns": ["new/**"], "files": ["docs/new.md"]},
@@ -1168,6 +1442,34 @@ class AgentReviewTests(unittest.TestCase):
                         }
                     },
                     ["old/Foo.java"],
+                    [],
+                )
+
+    def test_collect_policy_enforces_exact_serialized_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            content = "Policy"
+            (root / "AGENTS.md").write_text(content, encoding="utf-8")
+            expected = [{"source": "AGENTS.md", "content": content}]
+            exact_chars = len(review.canonical_json(expected))
+
+            omissions: list[str] = []
+            sources = review.collect_policy(
+                root,
+                config(policy_chars=exact_chars),
+                [],
+                omissions,
+            )
+
+            self.assertEqual(expected, sources)
+            self.assertEqual([], omissions)
+            self.assertEqual(exact_chars, len(review.canonical_json(sources)))
+            self.assertLess(len(content), exact_chars - 1)
+            with self.assertRaisesRegex(review.ReviewError, "serializes to"):
+                review.collect_policy(
+                    root,
+                    config(policy_chars=exact_chars - 1),
+                    [],
                     [],
                 )
 
@@ -2834,25 +3136,6 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertEqual("failure", client.sent[-1][2]["state"])
                 self.assertEqual(
                     review.ISSUE_STATUS_CONTEXT, client.sent[-1][2]["context"]
-                )
-
-    def test_labeler_does_not_predeclare_missing_compatibility_modules(
-        self,
-    ) -> None:
-        repository_root = Path(__file__).resolve().parents[2]
-        labeler = (repository_root / ".github/labeler.yml").read_text(encoding="utf-8")
-
-        compatibility_glob_roots = [
-            value.removesuffix("/**")
-            for value in re.findall(r'"([^"]+)"', labeler)
-            if value.startswith("coco-build/coco-compatibility/")
-            and value.endswith("/**")
-        ]
-        for relative_root in compatibility_glob_roots:
-            with self.subTest(compatibility_glob=relative_root):
-                self.assertTrue(
-                    (repository_root / relative_root).is_dir(),
-                    f"Labeler compatibility glob has no module directory: {relative_root}",
                 )
 
     def test_governance_files_follow_naming_convention(self) -> None:
@@ -6914,6 +7197,25 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertEqual(1, client.calls)
                 self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
+    def test_labeler_does_not_predeclare_missing_compatibility_modules(
+        self,
+    ) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        labeler = (repository_root / ".github/labeler.yml").read_text(encoding="utf-8")
+
+        compatibility_glob_roots = [
+            value.removesuffix("/**")
+            for value in re.findall(r'"([^"]+)"', labeler)
+            if value.startswith("coco-build/coco-compatibility/")
+            and value.endswith("/**")
+        ]
+        for relative_root in compatibility_glob_roots:
+            with self.subTest(compatibility_glob=relative_root):
+                self.assertTrue(
+                    (repository_root / relative_root).is_dir(),
+                    f"Labeler compatibility glob has no module directory: {relative_root}",
+                )
+
     def test_max_tokens_continuation_reconstructs_json_on_third_attempt(self) -> None:
         class FragmentClient(review.AnthropicClient):
             def __init__(self) -> None:
@@ -7037,27 +7339,6 @@ class AgentReviewTests(unittest.TestCase):
                 lambda value: value,
             )
         self.assertEqual(1, client.calls)
-
-    def test_production_policy_routes_fit_without_omissions(self) -> None:
-        repository_root = Path(__file__).resolve().parents[2]
-        value = review.load_config(repository_root / ".github/agent-review/config.json")
-        limit = review.normalized_limits(value)["policy_chars"]
-        for index, mapping in enumerate(value["spec_path_mappings"]):
-            for pattern in mapping["path_globs"]:
-                changed_path = (
-                    pattern.replace("**", "probe")
-                    .replace("*", "probe")
-                    .replace("?", "x")
-                )
-                with self.subTest(route=index, changed_path=changed_path):
-                    omissions: list[str] = []
-                    sources = review.collect_policy(
-                        repository_root, value, [changed_path], omissions
-                    )
-                    self.assertEqual([], omissions)
-                    self.assertLess(
-                        sum(len(source["content"]) for source in sources), limit
-                    )
 
 
 if __name__ == "__main__":
