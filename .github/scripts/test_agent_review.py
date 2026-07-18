@@ -7038,19 +7038,34 @@ class AgentReviewTests(unittest.TestCase):
             )
         self.assertEqual(1, client.calls)
 
-    def production_policy_route_fixture(self) -> tuple[Path, dict, list[str]]:
+    @staticmethod
+    def head_blob_text(repository_root: Path, head_sha: str, path: str) -> str:
+        return subprocess.run(
+            ["git", "cat-file", "blob", f"{head_sha}:{path}"],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+        ).stdout.decode("utf-8", errors="replace")
+
+    def production_policy_route_fixture(
+        self,
+    ) -> tuple[Path, dict, str, list[str]]:
         repository_root = Path(__file__).resolve().parents[2]
         value = review.load_config(repository_root / ".github/agent-review/config.json")
-        tracked = subprocess.run(
-            ["git", "ls-files", "-z"],
+        head_sha = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD^{commit}"],
             cwd=repository_root,
             check=True,
             capture_output=True,
             text=True,
-        ).stdout.split("\0")
-        tracked_files = sorted(
-            path for path in tracked if path and (repository_root / path).is_file()
-        )
+        ).stdout.strip()
+        tracked = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "-z", head_sha],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+        ).stdout.split(b"\0")
+        tracked_files = sorted(path.decode("utf-8") for path in tracked if path)
         representatives: list[str] = []
         used: set[str] = set()
         for index, mapping in enumerate(value["spec_path_mappings"]):
@@ -7066,13 +7081,10 @@ class AgentReviewTests(unittest.TestCase):
             self.assertTrue(
                 matches, f"Production policy route {index} has no tracked path"
             )
-            representative = min(
-                matches,
-                key=lambda path: ((repository_root / path).stat().st_size, path),
-            )
+            representative = matches[0]
             representatives.append(representative)
             used.add(representative)
-        return repository_root, value, representatives
+        return repository_root, value, head_sha, representatives
 
     @staticmethod
     def expected_production_policy_paths(
@@ -7090,10 +7102,13 @@ class AgentReviewTests(unittest.TestCase):
 
     @staticmethod
     def build_production_policy_context(
-        repository_root: Path, value: dict, changed_paths: list[str]
+        repository_root: Path,
+        value: dict,
+        head_sha: str,
+        changed_paths: list[str],
     ) -> dict:
         head_files = {
-            path: (repository_root / path).read_text(encoding="utf-8", errors="replace")
+            path: AgentReviewTests.head_blob_text(repository_root, head_sha, path)
             for path in changed_paths
         }
         files = [
@@ -7114,7 +7129,7 @@ class AgentReviewTests(unittest.TestCase):
                 "title": "Production policy route budget",
                 "body": "",
                 "base": {"sha": BASE_SHA},
-                "head": {"sha": HEAD_SHA},
+                "head": {"sha": head_sha},
             },
             files,
             [],
@@ -7124,12 +7139,14 @@ class AgentReviewTests(unittest.TestCase):
         )
 
     def test_production_policy_routes_fit_without_omissions(self) -> None:
-        repository_root, value, representatives = self.production_policy_route_fixture()
+        repository_root, value, head_sha, representatives = (
+            self.production_policy_route_fixture()
+        )
         limit = review.normalized_limits(value)["policy_chars"]
         for index, changed_path in enumerate(representatives):
             with self.subTest(route=index, changed_path=changed_path):
                 context = self.build_production_policy_context(
-                    repository_root, value, [changed_path]
+                    repository_root, value, head_sha, [changed_path]
                 )
                 sources = context["trusted"]["policy"]
                 expected = self.expected_production_policy_paths(value, [changed_path])
@@ -7149,10 +7166,29 @@ class AgentReviewTests(unittest.TestCase):
                     sum(len(source["content"]) for source in sources), limit
                 )
 
+    def test_production_policy_route_representatives_ignore_worktree_state(
+        self,
+    ) -> None:
+        with (
+            patch.object(
+                Path, "is_file", side_effect=AssertionError("worktree")
+            ) as is_file,
+            patch.object(Path, "stat", side_effect=AssertionError("worktree")) as stat,
+        ):
+            _, _, first_head, first = self.production_policy_route_fixture()
+            _, _, second_head, second = self.production_policy_route_fixture()
+
+        self.assertEqual(first_head, second_head)
+        self.assertEqual(first, second)
+        is_file.assert_not_called()
+        stat.assert_not_called()
+
     def test_production_policy_budget_covers_all_routes_and_fails_near_overflow(
         self,
     ) -> None:
-        repository_root, value, changed_paths = self.production_policy_route_fixture()
+        repository_root, value, head_sha, changed_paths = (
+            self.production_policy_route_fixture()
+        )
         expected_paths = list(
             dict.fromkeys(
                 [
@@ -7166,7 +7202,7 @@ class AgentReviewTests(unittest.TestCase):
             )
         )
         context = self.build_production_policy_context(
-            repository_root, value, changed_paths
+            repository_root, value, head_sha, changed_paths
         )
         sources = context["trusted"]["policy"]
         required_chars = sum(len(source["content"]) for source in sources)
@@ -7199,7 +7235,7 @@ class AgentReviewTests(unittest.TestCase):
             review.ReviewError, "Required trusted policy exceeds the context budget"
         ):
             self.build_production_policy_context(
-                repository_root, overflow_value, changed_paths
+                repository_root, overflow_value, head_sha, changed_paths
             )
 
 
