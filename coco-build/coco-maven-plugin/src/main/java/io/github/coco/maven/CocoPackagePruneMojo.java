@@ -261,7 +261,8 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
                 return true;
             }
             String scope = candidate.getScope();
-            return !candidate.isOptional()
+            boolean directDependency = parents.size() == 1;
+            return (!candidate.isOptional() || directDependency)
                     && (Artifact.SCOPE_COMPILE.equals(scope) || Artifact.SCOPE_RUNTIME.equals(scope));
         });
         try {

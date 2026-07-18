@@ -54,6 +54,7 @@ import org.apache.maven.project.DependencyResolutionResult;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectDependenciesResolver;
 import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.graph.DefaultDependencyNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -257,6 +258,63 @@ class CocoPackagePruneMojoTest {
                         indexReferences(archivePath, "BOOT-INF/classpath.idx")))
                 .isEqualTo(difference(indexReferences(originalArchive, "BOOT-INF/layers.idx"),
                         indexReferences(archivePath, "BOOT-INF/layers.idx")));
+        assertIndexesMatchLibraries(archivePath);
+    }
+
+    @Test
+    void keepsUnrelatedDirectOptionalDependencyWhenFeatureClosureIsPruned() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("direct-optional-root"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeManifest(classesDirectory, Set.of(CocoFeature.MYBATIS_PLUS));
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        writeMybatisArchive(archivePath);
+
+        MavenProject project = project(baseDir, buildDirectory, classesDirectory);
+        project.getModel().addDependency(
+                dependency("io.github.patton174", "coco-spring-boot-starter", "1.0.0-SNAPSHOT"));
+        Dependency directOptional = dependency("com.example", "mybatis-extra", "1.0.0");
+        directOptional.setOptional(true);
+        project.getModel().addDependency(directOptional);
+        project.setArtifacts(mybatisArchiveArtifacts());
+
+        org.eclipse.aether.graph.Dependency optionalRoot =
+                resolvedDependency("com.example", "mybatis-extra", "1.0.0").setOptional(true);
+        org.eclipse.aether.graph.Dependency optionalTransitive =
+                resolvedDependency("com.example", "transitive-optional", "1.0.0").setOptional(true);
+        DefaultDependencyNode projectRoot = new DefaultDependencyNode(
+                (org.eclipse.aether.artifact.Artifact) null);
+        DefaultDependencyNode transitiveParent = new DefaultDependencyNode(
+                resolvedDependency("com.example", "transitive-parent", "1.0.0"));
+        org.eclipse.aether.graph.Dependency survivingWeb =
+                resolvedDependency("io.github.patton174", "coco-web", "1.0.0-SNAPSHOT");
+        org.eclipse.aether.graph.Dependency survivingAudit =
+                resolvedDependency("io.github.patton174", "coco-audit", "1.0.0-SNAPSHOT");
+
+        CocoPackagePruneMojo mojo = newMojo();
+        set(mojo, "project", project);
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> {
+            assertThat(request.getResolutionFilter().accept(
+                    new DefaultDependencyNode(optionalRoot), List.of(projectRoot))).isTrue();
+            assertThat(request.getResolutionFilter().accept(
+                    new DefaultDependencyNode(optionalTransitive), List.of(transitiveParent, projectRoot))).isFalse();
+            return List.of(survivingWeb, survivingAudit, optionalRoot);
+        }));
+        set(mojo, "repositorySystemSession", repositorySystemSession());
+        set(mojo, "classesDirectory", classesDirectory.toFile());
+        set(mojo, "buildDirectory", buildDirectory.toFile());
+        set(mojo, "finalName", "demo");
+
+        mojo.execute();
+
+        String optionalEntry = "BOOT-INF/lib/mybatis-extra-1.0.0.jar";
+        assertThat(bootLibraries(archivePath)).contains(optionalEntry);
+        assertThat(indexReferences(archivePath, "BOOT-INF/classpath.idx")).contains(optionalEntry);
+        assertThat(indexReferences(archivePath, "BOOT-INF/layers.idx")).contains(optionalEntry);
+        assertThat(bootLibraries(archivePath)).doesNotContain(
+                "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar");
+        assertThat(directOptional.isOptional()).isTrue();
         assertIndexesMatchLibraries(archivePath);
     }
 
