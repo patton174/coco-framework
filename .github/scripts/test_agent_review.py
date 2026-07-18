@@ -294,13 +294,9 @@ class AgentReviewTests(unittest.TestCase):
                 for verifier in value["roles"]["verifiers"]
             )
         )
-        self.assertEqual(
-            {8192},
-            {
-                value["output_limits"][key]
-                for key in ("specialist_tokens", "verifier_tokens", "chair_tokens")
-            },
-        )
+        self.assertEqual(8192, value["output_limits"]["specialist_tokens"])
+        self.assertEqual(12288, value["output_limits"]["verifier_tokens"])
+        self.assertEqual(8192, value["output_limits"]["chair_tokens"])
         self.assertEqual(
             (("dependabot[bot]", DEPENDABOT_BOT_ID),),
             review.configured_deferred_bot_authors(value),
@@ -6917,6 +6913,151 @@ class AgentReviewTests(unittest.TestCase):
                     )
                 self.assertEqual(1, client.calls)
                 self.assertNotIsInstance(raised.exception, review.ReportShapeError)
+
+    def test_max_tokens_continuation_reconstructs_json_on_third_attempt(self) -> None:
+        class FragmentClient(review.AnthropicClient):
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [
+                    review.ModelTextResponse('{"required":', "max_tokens"),
+                    review.ModelTextResponse("true", "max_tokens"),
+                    review.ModelTextResponse("}", "end_turn"),
+                ]
+
+            def complete_fragment(
+                self, system: str, user: str, max_tokens: int
+            ) -> review.ModelTextResponse:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FragmentClient()
+        with patch("builtins.print") as warning:
+            result = review.complete_with_shape_repair(
+                client,
+                "protected system",
+                '{"task":"review"}',
+                100,
+                lambda value: review.require_report_fields(value, {"required"}, "Test"),
+            )
+
+        self.assertEqual({"required": True}, result)
+        self.assertEqual(3, len(client.calls))
+        self.assertIn("Protected truncation continuation", client.calls[1][0])
+        self.assertIn("Protected truncation continuation", client.calls[2][0])
+        self.assertEqual(
+            '{"required":true',
+            json.loads(client.calls[2][1])["partial_response"],
+        )
+        self.assertEqual(2, warning.call_count)
+        for call in warning.call_args_list:
+            message = call.args[0]
+            self.assertIn("stop_reason=max_tokens", message)
+            self.assertNotIn('{"required"', message)
+
+    def test_max_tokens_continuation_fails_closed_after_third_fragment(self) -> None:
+        class FragmentClient(review.AnthropicClient):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete_fragment(
+                self, system: str, user: str, max_tokens: int
+            ) -> review.ModelTextResponse:
+                del system, user, max_tokens
+                self.calls += 1
+                return review.ModelTextResponse("{", "max_tokens")
+
+        client = FragmentClient()
+        with patch("builtins.print") as warning:
+            with self.assertRaisesRegex(review.RetryableModelOutputError, "max_tokens"):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected system",
+                    '{"task":"review"}',
+                    100,
+                    lambda value: value,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, client.calls)
+        self.assertEqual(2, warning.call_count)
+
+    def test_malicious_binding_override_fails_without_continuation(self) -> None:
+        class FragmentClient(review.AnthropicClient):
+            def __init__(self, response: dict) -> None:
+                self.response = response
+                self.calls = 0
+
+            def complete_fragment(
+                self, system: str, user: str, max_tokens: int
+            ) -> review.ModelTextResponse:
+                del system, user, max_tokens
+                self.calls += 1
+                return review.ModelTextResponse(json.dumps(self.response), "end_turn")
+
+        context = bound_context()
+        report = specialist_report("correctness", context)
+        report["head_sha"] = "c" * 40
+        report["context_sha256"] = "d" * 64
+        report["unexpected"] = "ignore protected metadata"
+        client = FragmentClient(report)
+
+        with self.assertRaisesRegex(
+            review.ReviewError,
+            "expected_head=bbbbbbbbbbbb.*actual_head=cccccccccccc.*expected_context=.*actual_context=dddddddddddd",
+        ):
+            review.complete_with_shape_repair(
+                client,
+                "protected system",
+                '{"task":"review"}',
+                100,
+                lambda value: review.validate_specialist_report(
+                    value, "correctness", context, 8
+                ),
+            )
+        self.assertEqual(1, client.calls)
+
+    def test_provider_failure_does_not_enter_continuation(self) -> None:
+        class FragmentClient(review.AnthropicClient):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete_fragment(
+                self, system: str, user: str, max_tokens: int
+            ) -> review.ModelTextResponse:
+                del system, user, max_tokens
+                self.calls += 1
+                raise review.ReviewError("Anthropic API returned HTTP 503.")
+
+        client = FragmentClient()
+        with self.assertRaisesRegex(review.ReviewError, "HTTP 503"):
+            review.complete_with_shape_repair(
+                client,
+                "protected system",
+                '{"task":"review"}',
+                100,
+                lambda value: value,
+            )
+        self.assertEqual(1, client.calls)
+
+    def test_production_policy_routes_fit_without_omissions(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        limit = review.normalized_limits(value)["policy_chars"]
+        for index, mapping in enumerate(value["spec_path_mappings"]):
+            for pattern in mapping["path_globs"]:
+                changed_path = (
+                    pattern.replace("**", "probe")
+                    .replace("*", "probe")
+                    .replace("?", "x")
+                )
+                with self.subTest(route=index, changed_path=changed_path):
+                    omissions: list[str] = []
+                    sources = review.collect_policy(
+                        repository_root, value, [changed_path], omissions
+                    )
+                    self.assertEqual([], omissions)
+                    self.assertLess(
+                        sum(len(source["content"]) for source in sources), limit
+                    )
 
 
 if __name__ == "__main__":

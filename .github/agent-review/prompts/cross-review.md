@@ -53,21 +53,22 @@ result and `context_gaps`.
 
 ## Output Contract
 
-Return exactly one valid JSON object with this shape:
+Return exactly one compact valid JSON object with this shape:
 
 {
   "schema_version": 1,
   "role": "evidence-verifier|policy-skeptic",
   "head_sha": "<protected-head-sha>",
   "context_sha256": "<protected-context-sha256>",
-  "evidence": "<concise-summary-of-the-scope-and-evidence-checked>",
-  "verifications": [
+  "status": "COMPLETE|NOT_NEEDED",
+  "evidence": "<one concise scope summary>",
+  "reviews": [
     {
       "finding_id": "<existing-p0-through-p3-finding-id>",
-      "status": "AGREE|DISAGREE|UNVERIFIED",
-      "reason": "<concise-verification-reason>",
-      "evidence": "<checked-evidence-or-specific-counter-evidence>",
-      "verification": "<independent-check-performed-or-needed>"
+      "action": "AGREE|DISAGREE|UNVERIFIED",
+      "reason": "<one concise verification reason>",
+      "evidence": "<one checked fact or counter-evidence>",
+      "verification": "<one independent check performed or needed>"
     }
   ],
   "context_gaps": [
@@ -75,9 +76,11 @@ Return exactly one valid JSON object with this shape:
   ]
 }
 
-Use only the listed fields. `evidence` is required even when there are no
-P0/P1/P2/P3 candidates; in that case state that the bound specialist reports
-contained no findings to verify and return an empty `verifications` array. Use
-an empty `context_gaps` array when there are no gaps. Do not output Markdown,
-code fences, comments, prefixes, suffixes, a final verdict, new findings, or
-hidden reasoning.
+Use only the listed fields. Keep every string to one sentence and no more than
+240 characters; do not repeat a candidate's prose. `status` is `COMPLETE` when
+there are candidates and `NOT_NEEDED` otherwise. `evidence` is required even
+when there are no P0/P1/P2/P3 candidates; in that case state that the bound
+specialist reports contained no findings to verify and return an empty `reviews`
+array. Use an empty `context_gaps` array when there are no gaps. Do not output
+Markdown, code fences, comments, prefixes, suffixes, a final verdict, new
+findings, or hidden reasoning.
