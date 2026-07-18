@@ -97,8 +97,99 @@ jobs:
           }
 
           sample_jar='coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar'
+          original_jar='coco-samples/coco-sample-basic/target/coco-prune.original.jar'
           jar_entries="${RUNNER_TEMP}/coco-sample-basic-jar-entries.txt"
           jar tf "${sample_jar}" > "${jar_entries}"
+          test -f "${original_jar}"
+          python - "${sample_jar}" "${original_jar}" <<'PY'
+          import json
+          import sys
+          import zipfile
+
+          def libraries(archive):
+              names = [
+                  name for name in archive.namelist()
+                  if name.startswith("BOOT-INF/lib/") and name.endswith(".jar")
+              ]
+              assert len(names) == len(set(names)), "duplicate BOOT-INF/lib entry"
+              return set(names)
+
+          def index_references(archive, name):
+              content = archive.read(name).decode("utf-8")
+              references = []
+              for line in content.splitlines():
+                  stripped = line.strip()
+                  if "BOOT-INF/lib/" not in stripped:
+                      continue
+                  assert stripped.startswith('- "') and stripped.endswith('"'), (
+                      f"malformed {name} library line: {line!r}"
+                  )
+                  reference = stripped[3:-1]
+                  assert reference.startswith("BOOT-INF/lib/") and reference.endswith(".jar")
+                  references.append(reference)
+              assert len(references) == len(set(references)), f"duplicate {name} reference"
+              return set(references)
+
+          expected_removed_libraries = (
+              "BOOT-INF/lib/HikariCP-7.0.2.jar",
+              "BOOT-INF/lib/coco-data-permission-1.0.0-SNAPSHOT.jar",
+              "BOOT-INF/lib/coco-feature-codegen-1.0.0-SNAPSHOT.jar",
+              "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+              "BOOT-INF/lib/coco-tenant-1.0.0-SNAPSHOT.jar",
+              "BOOT-INF/lib/freemarker-2.3.34.jar",
+              "BOOT-INF/lib/jsqlparser-4.9.jar",
+              "BOOT-INF/lib/mybatis-3.5.19.jar",
+              "BOOT-INF/lib/mybatis-plus-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-annotation-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-core-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-extension-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-jsqlparser-4.9-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-spring-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-spring-boot-autoconfigure-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.17.jar",
+              "BOOT-INF/lib/mybatis-spring-4.0.0.jar",
+              "BOOT-INF/lib/spring-boot-jdbc-4.1.0.jar",
+              "BOOT-INF/lib/spring-boot-persistence-4.1.0.jar",
+              "BOOT-INF/lib/spring-boot-sql-4.1.0.jar",
+              "BOOT-INF/lib/spring-boot-transaction-4.1.0.jar",
+              "BOOT-INF/lib/spring-jdbc-7.0.8.jar",
+              "BOOT-INF/lib/spring-tx-7.0.8.jar",
+          )
+
+          with zipfile.ZipFile(sys.argv[1]) as current, zipfile.ZipFile(sys.argv[2]) as original:
+              current_libraries = libraries(current)
+              original_libraries = libraries(original)
+              current_classpath = index_references(current, "BOOT-INF/classpath.idx")
+              current_layers = index_references(current, "BOOT-INF/layers.idx")
+              original_classpath = index_references(original, "BOOT-INF/classpath.idx")
+              original_layers = index_references(original, "BOOT-INF/layers.idx")
+
+              assert current_classpath == current_libraries
+              assert current_layers == current_libraries
+              assert original_classpath == original_libraries
+              assert original_layers == original_libraries
+              assert current_classpath == current_layers
+              assert original_classpath == original_layers
+
+              removed_libraries = original_libraries - current_libraries
+              removed_classpath = original_classpath - current_classpath
+              removed_layers = original_layers - current_layers
+              added_libraries = current_libraries - original_libraries
+              assert added_libraries == set()
+              assert tuple(sorted(removed_libraries)) == expected_removed_libraries
+              assert tuple(sorted(removed_classpath)) == expected_removed_libraries
+              assert tuple(sorted(removed_layers)) == expected_removed_libraries
+
+              manifest = json.loads(current.read("META-INF/coco/features.json"))
+          states = {entry["id"]: entry["enabled"] for entry in manifest["features"]}
+          assert {feature for feature, enabled in states.items() if enabled} == {
+              "audit", "openapi", "security", "web"
+          }
+          assert states["codegen"] is False
+          assert states["mybatis-plus"] is False
+          PY
           for feature in web audit security openapi; do
             canonical_count="$(grep -c "BOOT-INF/lib/coco-${feature}-" "${jar_entries}" || true)"
             if (( canonical_count != 1 )); then
@@ -106,19 +197,11 @@ jobs:
               exit 1
             fi
           done
-          grep 'BOOT-INF/lib/coco-feature-codegen-' "${jar_entries}"
           assert_no_match \
             'BOOT-INF/lib/coco-feature-(web|mybatis-plus|audit|security|tenant|data-permission|openapi)-' \
             "${jar_entries}"
-          assert_no_match 'BOOT-INF/lib/coco-(mybatis-plus|tenant|data-permission)-' "${jar_entries}"
-          assert_no_match 'BOOT-INF/lib/(mybatis|mybatis-plus)-' "${jar_entries}"
-          jar xf "${sample_jar}" \
-            BOOT-INF/classpath.idx BOOT-INF/layers.idx
-          test -f BOOT-INF/classpath.idx
-          test -f BOOT-INF/layers.idx
-          assert_no_match \
-            'coco-feature-(web|mybatis-plus|audit|security|tenant|data-permission|openapi)-|coco-(mybatis-plus|tenant|data-permission)-|/(mybatis|mybatis-plus)-' \
-            BOOT-INF/classpath.idx BOOT-INF/layers.idx
+          disabled_closure_pattern='BOOT-INF/lib/(coco-feature-codegen-|coco-(mybatis-plus|tenant|data-permission)-|freemarker-|HikariCP-|jsqlparser-|mybatis[^/]*-|spring-boot-(jdbc|persistence|sql|transaction)-|spring-(jdbc|tx)-)'
+          assert_no_match "${disabled_closure_pattern}" "${jar_entries}"
 
       - name: Verify sample feature coordinates
         run: >-
@@ -156,6 +239,31 @@ jobs:
           fi
           grep 'BOOT-INF/lib/coco-feature-codegen-' "${jar_entries}"
           grep 'BOOT-INF/lib/h2-' "${jar_entries}"
+          python - coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar <<'PY'
+          import sys
+          import zipfile
+
+          def index_references(archive, name):
+              references = []
+              for line in archive.read(name).decode("utf-8").splitlines():
+                  stripped = line.strip()
+                  if "BOOT-INF/lib/" not in stripped:
+                      continue
+                  assert stripped.startswith('- "') and stripped.endswith('"')
+                  references.append(stripped[3:-1])
+              assert len(references) == len(set(references)), f"duplicate {name} reference"
+              return set(references)
+
+          with zipfile.ZipFile(sys.argv[1]) as full:
+              codegen_libraries = {
+                  name for name in full.namelist()
+                  if name.startswith("BOOT-INF/lib/coco-feature-codegen-") and name.endswith(".jar")
+              }
+              assert len(codegen_libraries) == 1
+              codegen_library = next(iter(codegen_libraries))
+              assert codegen_library in index_references(full, "BOOT-INF/classpath.idx")
+              assert codegen_library in index_references(full, "BOOT-INF/layers.idx")
+          PY
 
       - name: Verify full sample feature coordinates
         run: >-

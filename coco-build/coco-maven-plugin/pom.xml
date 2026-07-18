@@ -108,6 +108,18 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <coco.fixture.projectVersion>${project.version}</coco.fixture.projectVersion>
+                        <coco.fixture.revision>${revision}</coco.fixture.revision>
+                        <coco.fixture.pluginArtifact>${project.build.directory}/${project.build.finalName}.jar</coco.fixture.pluginArtifact>
+                        <coco.fixture.outerLocalRepository>${settings.localRepository}</coco.fixture.outerLocalRepository>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.feature.model.CocoFeaturePlan;
@@ -28,14 +29,11 @@ import org.apache.maven.model.Model;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.project.DependencyResolutionRequest;
+import org.apache.maven.project.DependencyResolutionResult;
 import org.apache.maven.project.MavenProject;
-import org.eclipse.aether.RepositorySystem;
+import org.apache.maven.project.ProjectDependenciesResolver;
 import org.eclipse.aether.RepositorySystemSession;
-import org.eclipse.aether.resolution.ArtifactRequest;
-import org.eclipse.aether.resolution.ArtifactResult;
-import org.eclipse.aether.resolution.DependencyRequest;
-import org.eclipse.aether.resolution.DependencyResolutionException;
-import org.eclipse.aether.resolution.DependencyResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -175,7 +173,7 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
-    void prunesOnlyDisabledCocoMybatisArtifactsAndKeepsThirdPartyArtifacts() throws Exception {
+    void leavesDisabledFeatureArtifactsAvailableUntilPackagePruning() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("classpath"));
         Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
@@ -218,8 +216,7 @@ class CocoFeaturesMojoTest {
         assertThat(manifest.enabledFeatureIds()).contains("audit").doesNotContain("mybatis-plus");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("io.github.patton174:coco-audit")
-                .doesNotContain(
+                .contains(
                         "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus");
         assertThat(project.getArtifacts())
@@ -235,8 +232,7 @@ class CocoFeaturesMojoTest {
                         "org.mybatis:mybatis",
                         "org.mybatis:mybatis-extra",
                         "org.mybatis:mybatis-spring",
-                        "org.springframework:spring-jdbc")
-                .doesNotContain(
+                        "org.springframework:spring-jdbc",
                         "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus");
         assertThat(project.getDependencyArtifacts())
@@ -252,8 +248,7 @@ class CocoFeaturesMojoTest {
                         "org.mybatis:mybatis",
                         "org.mybatis:mybatis-extra",
                         "org.mybatis:mybatis-spring",
-                        "org.springframework:spring-jdbc")
-                .doesNotContain(
+                        "org.springframework:spring-jdbc",
                         "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-mybatis-plus");
     }
@@ -294,18 +289,16 @@ class CocoFeaturesMojoTest {
 
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
-                .doesNotContain("io.github.patton174:coco-mybatis-plus",
-                        "io.github.patton174:coco-feature-codegen");
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker");
         assertThat(project.getArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
-                .doesNotContain("io.github.patton174:coco-mybatis-plus",
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker",
+                        "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-codegen");
         assertThat(project.getDependencyArtifacts())
                 .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .contains("org.mybatis:mybatis", "org.freemarker:freemarker")
-                .doesNotContain("io.github.patton174:coco-mybatis-plus",
+                .contains("org.mybatis:mybatis", "org.freemarker:freemarker",
+                        "io.github.patton174:coco-mybatis-plus",
                         "io.github.patton174:coco-feature-codegen");
     }
 
@@ -328,7 +321,7 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
-    void failsClosedWhenRuntimeArtifactResolverIsUnavailable() throws Exception {
+    void failsClosedWhenProjectDependencyResolverIsUnavailable() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("resolver-unavailable"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
         MavenProject project = project(baseDir, output);
@@ -339,7 +332,7 @@ class CocoFeaturesMojoTest {
 
         assertThatThrownBy(() -> mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB)))
                 .isInstanceOf(MojoExecutionException.class)
-                .hasMessageContaining("Maven Resolver is required");
+                .hasMessageContaining("Maven project dependency resolver is required");
         assertThat(project.getModel().getDependencies()).isEmpty();
         assertThat(project.getArtifacts()).isEmpty();
     }
@@ -349,20 +342,124 @@ class CocoFeaturesMojoTest {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("resolver-fails"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
         MavenProject project = project(baseDir, output);
+        Dependency businessDependency = dependency("com.example", "business-root");
+        project.getModel().addDependency(businessDependency);
+        List<Dependency> originalDependencies = project.getModel().getDependencies();
+        Set<Artifact> existingArtifacts = new LinkedHashSet<>(List.of(
+                artifact("com.example", "business-root"),
+                artifact("com.example", "business-transitive")));
+        Set<Artifact> existingDependencyArtifacts = new LinkedHashSet<>(List.of(
+                artifact("com.example", "business-root")));
+        project.setArtifacts(existingArtifacts);
+        project.setDependencyArtifacts(existingDependencyArtifacts);
         CocoFeaturesMojo mojo = new CocoFeaturesMojo();
         set(mojo, "project", project);
         set(mojo, "featureGroupId", "io.github.patton174");
         set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
-        set(mojo, "repositorySystem", failingRepositorySystem());
+        set(mojo, "projectDependenciesResolver", failingProjectDependenciesResolver());
         set(mojo, "repositorySystemSession", repositorySystemSession());
-        set(mojo, "remoteRepositories", List.of());
         mojo.setLog(noOpLog());
 
-        assertThatThrownBy(() -> mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB)))
+        assertThatThrownBy(() -> mojo.applyFeatureDependencies(planWith(CocoFeature.WEB, CocoFeature.AUDIT)))
                 .isInstanceOf(MojoExecutionException.class)
-                .hasMessageContaining("Failed to resolve runtime dependency closure");
-        assertThat(project.getModel().getDependencies()).isEmpty();
-        assertThat(project.getArtifacts()).isEmpty();
+                .hasMessageContaining("Failed to resolve the refreshed Coco feature dependency closure");
+        assertThat(project.getModel().getDependencies()).isSameAs(originalDependencies)
+                .containsExactly(businessDependency);
+        assertThat(originalDependencies).containsExactly(businessDependency);
+        assertThat(project.getArtifacts()).isSameAs(existingArtifacts)
+                .containsExactlyElementsOf(existingArtifacts);
+        assertThat(project.getDependencyArtifacts()).isSameAs(existingDependencyArtifacts)
+                .containsExactlyElementsOf(existingDependencyArtifacts);
+    }
+
+    @Test
+    void collectionAndUnresolvedFailuresDoNotPublishAnyProjectMutation() throws Exception {
+        for (boolean collectionFailure : List.of(true, false)) {
+            Path baseDir = Files.createDirectories(this.tempDir.resolve(
+                    collectionFailure ? "collection-error" : "unresolved-dependency"));
+            Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+            MavenProject project = project(baseDir, output);
+            Dependency businessDependency = dependency("com.example", "business-root");
+            project.getModel().addDependency(businessDependency);
+            List<Dependency> originalDependencies = project.getModel().getDependencies();
+            Set<Artifact> existingArtifacts = new LinkedHashSet<>(List.of(
+                    artifact("com.example", "business-root"),
+                    artifact("com.example", "business-transitive")));
+            Set<Artifact> existingDependencyArtifacts = new LinkedHashSet<>(List.of(
+                    artifact("com.example", "business-root")));
+            project.setArtifacts(existingArtifacts);
+            project.setDependencyArtifacts(existingDependencyArtifacts);
+            org.eclipse.aether.graph.Dependency unresolved = resolvedDependency(
+                    "io.github.patton174", "coco-web", "1.0.0-SNAPSHOT", Artifact.SCOPE_COMPILE);
+            DependencyResolutionResult result = dependencyResolutionResult(
+                    List.of(),
+                    collectionFailure ? List.of() : List.of(unresolved),
+                    collectionFailure ? List.of(new IllegalStateException("collection failed")) : List.of(),
+                    collectionFailure ? List.of() : List.of(new IllegalStateException("resolution failed")));
+            CocoFeaturesMojo mojo = newMojo(project);
+            set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+            set(mojo, "projectDependenciesResolver", (ProjectDependenciesResolver) request -> result);
+
+            assertThatThrownBy(() -> mojo.applyFeatureDependencies(planWith(CocoFeature.WEB, CocoFeature.AUDIT)))
+                    .isInstanceOf(MojoExecutionException.class)
+                    .hasMessageContaining(collectionFailure ? "Failed to collect" : "Failed to resolve");
+            assertThat(project.getModel().getDependencies()).isSameAs(originalDependencies)
+                    .containsExactly(businessDependency);
+            assertThat(originalDependencies).containsExactly(businessDependency);
+            assertThat(project.getArtifacts()).isSameAs(existingArtifacts)
+                    .containsExactlyElementsOf(existingArtifacts);
+            assertThat(project.getDependencyArtifacts()).isSameAs(existingDependencyArtifacts)
+                    .containsExactlyElementsOf(existingDependencyArtifacts);
+        }
+    }
+
+    @Test
+    void missingVersionIsStagedWithoutMutatingTheDeclaredDependencyWhenResolutionFails() throws Exception {
+        for (boolean collectionFailure : List.of(true, false)) {
+            Path baseDir = Files.createDirectories(this.tempDir.resolve(
+                    collectionFailure ? "null-version-collection-error" : "null-version-unresolved"));
+            Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+            MavenProject project = project(baseDir, output);
+            Dependency declaredWeb = dependency("io.github.patton174", "coco-web");
+            declaredWeb.setVersion(null);
+            project.getModel().addDependency(declaredWeb);
+            List<Dependency> originalDependencies = project.getModel().getDependencies();
+            Set<Artifact> existingArtifacts = new LinkedHashSet<>(List.of(
+                    artifact("com.example", "business-root"),
+                    artifact("com.example", "business-transitive")));
+            Set<Artifact> existingDependencyArtifacts = new LinkedHashSet<>(List.of(
+                    artifact("com.example", "business-root")));
+            project.setArtifacts(existingArtifacts);
+            project.setDependencyArtifacts(existingDependencyArtifacts);
+            org.eclipse.aether.graph.Dependency unresolved = resolvedDependency(
+                    "io.github.patton174", "coco-audit", "1.0.0-SNAPSHOT", Artifact.SCOPE_COMPILE);
+            DependencyResolutionResult result = dependencyResolutionResult(
+                    List.of(),
+                    collectionFailure ? List.of() : List.of(unresolved),
+                    collectionFailure ? List.of(new IllegalStateException("collection failed")) : List.of(),
+                    collectionFailure ? List.of() : List.of(new IllegalStateException("resolution failed")));
+            CocoFeaturesMojo mojo = newMojo(project);
+            set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+            set(mojo, "projectDependenciesResolver", (ProjectDependenciesResolver) request -> {
+                assertThat(request.getMavenProject().getDependencies())
+                        .filteredOn(dependency -> "coco-web".equals(dependency.getArtifactId()))
+                        .extracting(Dependency::getVersion)
+                        .containsExactly("1.0.0-SNAPSHOT");
+                return result;
+            });
+
+            assertThatThrownBy(() -> mojo.applyFeatureDependencies(planWith(CocoFeature.WEB, CocoFeature.AUDIT)))
+                    .isInstanceOf(MojoExecutionException.class)
+                    .hasMessageContaining(collectionFailure ? "Failed to collect" : "Failed to resolve");
+            assertThat(project.getModel().getDependencies()).isSameAs(originalDependencies)
+                    .containsExactly(declaredWeb);
+            assertThat(originalDependencies.get(0)).isSameAs(declaredWeb);
+            assertThat(declaredWeb.getVersion()).isNull();
+            assertThat(project.getArtifacts()).isSameAs(existingArtifacts)
+                    .containsExactlyElementsOf(existingArtifacts);
+            assertThat(project.getDependencyArtifacts()).isSameAs(existingDependencyArtifacts)
+                    .containsExactlyElementsOf(existingDependencyArtifacts);
+        }
     }
 
     @Test
@@ -374,6 +471,9 @@ class CocoFeaturesMojoTest {
         legacyWeb.setVersion("2.0.2");
         project.getModel().addDependency(legacyWeb);
         CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "projectDependenciesResolver", (ProjectDependenciesResolver) request -> {
+            throw new AssertionError("Declared compatibility dependencies must not trigger classpath refresh.");
+        });
         set(mojo, "featureGroupId", "io.github.patton174");
         set(mojo, "featureVersion", "2.0.2");
 
@@ -414,24 +514,264 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
-    void addsResolvedTransitiveClosureToBothMavenArtifactViews() throws Exception {
+    void atomicallyPublishesResolvedClosureAndDirectFeatureRootsToTheirMavenProjectViews() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("transitive-closure"));
         Path output = Files.createDirectories(baseDir.resolve("target/classes"));
         MavenProject project = project(baseDir, output);
+        Artifact existingArtifact = artifact("com.example", "existing-artifact");
+        Artifact existingDependencyArtifact = artifact("com.example", "existing-dependency-artifact");
+        project.setArtifacts(new LinkedHashSet<>(Set.of(existingArtifact)));
+        project.setDependencyArtifacts(new LinkedHashSet<>(Set.of(existingDependencyArtifact)));
         CocoFeaturesMojo mojo = newMojo(project);
         set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
-        set(mojo, "repositorySystem", repositorySystemReturning(request -> java.util.List.of(
-                withResolvedFile(request.getCollectRequest().getRoot().getArtifact()),
-                resolvedArtifact("com.example", "feature-runtime", "3.2.1"))));
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> {
+            assertThat(request.getMavenProject()).isNotSameAs(project);
+            assertThat(request.getMavenProject().getDependencies())
+                    .extracting(Dependency::getArtifactId)
+                    .contains("coco-web");
+            return java.util.List.of(
+                    resolvedDependency("io.github.patton174", "coco-web", "1.0.0-SNAPSHOT",
+                            Artifact.SCOPE_COMPILE),
+                    resolvedDependency("com.example", "feature-runtime", "3.2.1", Artifact.SCOPE_RUNTIME));
+        }));
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .singleElement()
+                .satisfies(dependency -> {
+                    assertThat(dependency.getArtifactId()).isEqualTo("coco-web");
+                    assertThat(dependency.getScope()).isEqualTo(Artifact.SCOPE_COMPILE);
+                });
+        assertThat(project.getArtifacts())
+                .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
+                .containsExactly(
+                        "com.example:existing-artifact",
+                        "io.github.patton174:coco-web",
+                        "com.example:feature-runtime");
+        assertThat(project.getDependencyArtifacts())
+                .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
+                .containsExactly(
+                        "com.example:existing-dependency-artifact",
+                        "io.github.patton174:coco-web");
+        assertThat(project.getArtifacts())
+                .filteredOn(artifact -> "coco-web".equals(artifact.getArtifactId()))
+                .allSatisfy(artifact -> assertThat(artifact.getScope()).isEqualTo(Artifact.SCOPE_COMPILE));
+        assertThat(project.getArtifacts())
+                .filteredOn(artifact -> "feature-runtime".equals(artifact.getArtifactId()))
+                .allSatisfy(artifact -> assertThat(artifact.getScope()).isEqualTo(Artifact.SCOPE_RUNTIME));
+        assertThat(project.getDependencyArtifacts())
+                .filteredOn(artifact -> "coco-web".equals(artifact.getArtifactId()))
+                .allSatisfy(artifact -> assertThat(artifact.getScope()).isEqualTo(Artifact.SCOPE_COMPILE));
+        assertThat(project.getDependencyArtifacts())
+                .extracting(Artifact::getArtifactId)
+                .doesNotContain("feature-runtime");
+    }
+
+    @Test
+    void replacesMediatedConflictsAndPreservesDeterministicMavenProjectViewOrder() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("mediated-conflict"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        Artifact unrelatedBefore = artifact("com.example", "unrelated-before", "1.0.0");
+        Artifact oldShared = artifact("com.example", "shared-library", "1.0.0");
+        Artifact unrelatedAfter = artifact("com.example", "unrelated-after", "1.0.0");
+        project.setArtifacts(new LinkedHashSet<>(List.of(unrelatedBefore, oldShared, unrelatedAfter)));
+        Artifact unrelatedDirect = artifact("com.example", "unrelated-direct", "1.0.0");
+        Artifact staleDirectFeature = artifact("io.github.patton174", "coco-web", "0.9.0");
+        project.setDependencyArtifacts(new LinkedHashSet<>(List.of(unrelatedDirect, staleDirectFeature)));
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> List.of(
+                resolvedDependency("io.github.patton174", "coco-web", "1.0.0-SNAPSHOT",
+                        Artifact.SCOPE_COMPILE),
+                resolvedDependency("com.example", "shared-library", "2.0.0", Artifact.SCOPE_RUNTIME),
+                resolvedDependency("com.example", "resolved-tail", "1.0.0", Artifact.SCOPE_RUNTIME))));
 
         mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
 
         assertThat(project.getArtifacts())
-                .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .containsExactlyInAnyOrder("io.github.patton174:coco-web", "com.example:feature-runtime");
+                .extracting(artifact -> artifact.getArtifactId() + ":" + artifact.getVersion())
+                .containsExactly(
+                        "unrelated-before:1.0.0",
+                        "unrelated-after:1.0.0",
+                        "coco-web:1.0.0-SNAPSHOT",
+                        "shared-library:2.0.0",
+                        "resolved-tail:1.0.0");
         assertThat(project.getDependencyArtifacts())
-                .extracting(artifact -> artifact.getGroupId() + ":" + artifact.getArtifactId())
-                .containsExactlyInAnyOrder("io.github.patton174:coco-web", "com.example:feature-runtime");
+                .extracting(artifact -> artifact.getArtifactId() + ":" + artifact.getVersion())
+                .containsExactly("unrelated-direct:1.0.0", "coco-web:1.0.0-SNAPSHOT");
+    }
+
+    @Test
+    void preservesDifferentClassifierAndTypeArtifactsWhenReplacingMavenConflictIds() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("classifier-type-conflicts"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        Artifact testsClassifier = artifact(
+                "com.example", "shared-library", "1.0.0", "jar", "tests");
+        Artifact zipType = artifact(
+                "com.example", "shared-library", "1.0.0", "zip", null);
+        Artifact oldPlainJar = artifact("com.example", "shared-library", "1.0.0");
+        project.setArtifacts(new LinkedHashSet<>(List.of(testsClassifier, zipType, oldPlainJar)));
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> List.of(
+                resolvedDependency("io.github.patton174", "coco-web", "1.0.0-SNAPSHOT",
+                        Artifact.SCOPE_COMPILE),
+                resolvedDependency("com.example", "shared-library", "2.0.0", Artifact.SCOPE_RUNTIME))));
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getArtifacts())
+                .extracting(artifact -> artifact.getArtifactId() + ":" + artifact.getType() + ":"
+                        + artifact.getClassifier() + ":" + artifact.getVersion())
+                .containsExactly(
+                        "shared-library:jar:tests:1.0.0",
+                        "shared-library:zip:null:1.0.0",
+                        "coco-web:jar:null:1.0.0-SNAPSHOT",
+                        "shared-library:jar:null:2.0.0");
+    }
+
+    @Test
+    void rollsBackModelAndBothProjectViewsWhenSecondSetterRejectsPublication() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("setter-rollback"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject baseProject = project(baseDir, output);
+        FailingDependencyArtifactsProject project = new FailingDependencyArtifactsProject(baseProject.getModel());
+        project.setFile(baseProject.getFile());
+        Dependency businessDependency = dependency("com.example", "business-root");
+        project.getModel().addDependency(businessDependency);
+        List<Dependency> originalDependencies = project.getModel().getDependencies();
+        Set<Artifact> existingArtifacts = new LinkedHashSet<>(List.of(
+                artifact("com.example", "business-root"),
+                artifact("com.example", "business-transitive")));
+        Set<Artifact> existingDependencyArtifacts = new LinkedHashSet<>(List.of(
+                artifact("com.example", "business-root")));
+        project.setArtifacts(existingArtifacts);
+        project.setDependencyArtifacts(existingDependencyArtifacts);
+        project.failNextDependencyArtifactsPublication();
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> List.of(
+                resolvedDependency("io.github.patton174", "coco-web", "1.0.0-SNAPSHOT",
+                        Artifact.SCOPE_COMPILE),
+                resolvedDependency("com.example", "feature-runtime", "3.2.1", Artifact.SCOPE_RUNTIME))));
+
+        assertThatThrownBy(() -> mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB)))
+                .isInstanceOf(MojoExecutionException.class)
+                .hasMessageContaining("Failed to publish resolved Coco feature dependency views")
+                .hasRootCauseMessage("dependencyArtifacts publication failed");
+        assertThat(project.getModel().getDependencies()).isSameAs(originalDependencies)
+                .containsExactly(businessDependency);
+        assertThat(originalDependencies).containsExactly(businessDependency);
+        assertThat(project.getArtifacts()).isSameAs(existingArtifacts)
+                .containsExactlyElementsOf(existingArtifacts);
+        assertThat(project.getDependencyArtifacts()).isSameAs(existingDependencyArtifacts)
+                .containsExactlyElementsOf(existingDependencyArtifacts);
+    }
+
+    @Test
+    void appliesCompileRuntimeOptionalScopeFilterToTheStagedProjectResolution() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("resolution-filter"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> {
+            assertThat(request.getResolutionFilter().accept(
+                    dependencyNode("compile", Artifact.SCOPE_COMPILE, false), List.of())).isTrue();
+            assertThat(request.getResolutionFilter().accept(
+                    dependencyNode("runtime", Artifact.SCOPE_RUNTIME, false), List.of())).isTrue();
+            assertThat(request.getResolutionFilter().accept(
+                    dependencyNode("provided", Artifact.SCOPE_PROVIDED, false), List.of())).isFalse();
+            assertThat(request.getResolutionFilter().accept(
+                    dependencyNode("test", Artifact.SCOPE_TEST, false), List.of())).isFalse();
+            assertThat(request.getResolutionFilter().accept(
+                    dependencyNode("optional", Artifact.SCOPE_COMPILE, true), List.of())).isFalse();
+            return List.of(resolvedDependency("io.github.patton174", "coco-web", "1.0.0-SNAPSHOT",
+                    Artifact.SCOPE_COMPILE));
+        }));
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getArtifacts()).extracting(Artifact::getArtifactId).containsExactly("coco-web");
+    }
+
+    @Test
+    void preservesNullDependencyArtifactsWhilePublishingTheResolvedClosure() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("null-direct-artifacts"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.setDependencyArtifacts(null);
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> java.util.List.of(
+                resolvedDependency("io.github.patton174", "coco-web", "1.0.0-SNAPSHOT",
+                        Artifact.SCOPE_COMPILE),
+                resolvedDependency("com.example", "feature-runtime", "3.2.1", Artifact.SCOPE_RUNTIME))));
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getDependencyArtifacts()).isNull();
+        assertThat(project.getArtifacts())
+                .extracting(Artifact::getArtifactId)
+                .containsExactly("coco-web", "feature-runtime");
+    }
+
+    @Test
+    void resolvesAllNewFeatureRootsTogetherBeforePublishingAnyProjectMutation() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("aggregate-resolution"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+        AtomicInteger resolutions = new AtomicInteger();
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> {
+            resolutions.incrementAndGet();
+            assertThat(project.getModel().getDependencies()).isEmpty();
+            assertThat(request.getMavenProject().getDependencyArtifacts()).isNull();
+            assertThat(request.getMavenProject().getDependencies())
+                    .extracting(Dependency::getArtifactId)
+                    .containsExactly("coco-web", "coco-audit");
+            return request.getMavenProject().getDependencies().stream()
+                    .map(dependency -> resolvedDependency(
+                            dependency.getGroupId(), dependency.getArtifactId(), dependency.getVersion(),
+                            dependency.getScope()))
+                    .toList();
+        }));
+
+        mojo.applyFeatureDependencies(planWith(CocoFeature.WEB, CocoFeature.AUDIT));
+
+        assertThat(resolutions).hasValue(1);
+        assertThat(project.getModel().getDependencies())
+                .extracting(Dependency::getArtifactId)
+                .containsExactly("coco-web", "coco-audit");
+    }
+
+    @Test
+    void doesNotRedeclareFeaturesAlreadyResolvedThroughTheStarter() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("starter-classpath"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        MavenProject project = project(baseDir, output);
+        project.getModel().addDependency(dependency("io.github.patton174", "coco-spring-boot-starter"));
+        Set<Artifact> starterClasspath = new LinkedHashSet<>(List.of(
+                artifact("io.github.patton174", "coco-api"),
+                artifact("io.github.patton174", "coco-web"),
+                artifact("org.springframework", "spring-context"),
+                artifact("com.fasterxml.jackson.core", "jackson-databind")));
+        project.setArtifacts(starterClasspath);
+        project.setDependencyArtifacts(new LinkedHashSet<>(starterClasspath));
+        CocoFeaturesMojo mojo = newMojo(project);
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+
+        mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB));
+
+        assertThat(project.getModel().getDependencies())
+                .extracting(Dependency::getArtifactId)
+                .containsExactly("coco-spring-boot-starter");
+        assertThat(project.getArtifacts()).containsExactlyElementsOf(starterClasspath);
+        assertThat(project.getDependencyArtifacts()).containsExactlyElementsOf(starterClasspath);
     }
 
     @Test
@@ -441,8 +781,8 @@ class CocoFeaturesMojoTest {
         MavenProject project = project(baseDir, output);
         CocoFeaturesMojo mojo = newMojo(project);
         set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
-        set(mojo, "repositorySystem", repositorySystemReturning(request -> java.util.List.of(
-                resolvedArtifact("com.example", "feature-runtime", "3.2.1"))));
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> java.util.List.of(
+                resolvedDependency("com.example", "feature-runtime", "3.2.1", Artifact.SCOPE_RUNTIME))));
 
         assertThatThrownBy(() -> mojo.applyFeatureDependencies(planWithOnly(CocoFeature.WEB)))
                 .isInstanceOf(MojoExecutionException.class)
@@ -574,8 +914,13 @@ class CocoFeaturesMojoTest {
     }
 
     private Artifact artifact(String groupId, String artifactId, String version) {
+        return artifact(groupId, artifactId, version, "jar", null);
+    }
+
+    private Artifact artifact(String groupId, String artifactId, String version,
+            String type, String classifier) {
         return new DefaultArtifact(groupId, artifactId, version,
-                Artifact.SCOPE_RUNTIME, "jar", null, new DefaultArtifactHandler("jar"));
+                Artifact.SCOPE_RUNTIME, type, classifier, new DefaultArtifactHandler(type));
     }
 
     private Dependency dependency(String groupId, String artifactId) {
@@ -587,51 +932,71 @@ class CocoFeaturesMojoTest {
     }
 
     private CocoFeaturePlan planWithOnly(CocoFeature feature) {
+        return planWith(feature);
+    }
+
+    private CocoFeaturePlan planWith(CocoFeature... features) {
         EnumSet<CocoFeature> disabled = EnumSet.allOf(CocoFeature.class);
-        disabled.remove(feature);
-        return new CocoFeaturePlan(Set.of(feature), disabled, StandardCocoFeatures.all());
+        disabled.removeAll(List.of(features));
+        return new CocoFeaturePlan(Set.of(features), disabled, StandardCocoFeatures.all());
     }
 
     private CocoFeaturesMojo newMojo(MavenProject project) throws Exception {
         CocoFeaturesMojo mojo = new CocoFeaturesMojo();
         set(mojo, "project", project);
         set(mojo, "featureGroupId", "io.github.patton174");
-        set(mojo, "repositorySystem", repositorySystemReturning(request -> java.util.List.of(
-                withResolvedFile(request.getCollectRequest().getRoot().getArtifact()))));
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request ->
+                request.getMavenProject().getDependencies().stream()
+                        .map(dependency -> resolvedDependency(
+                                dependency.getGroupId(), dependency.getArtifactId(), dependency.getVersion(),
+                                dependency.getScope() == null ? Artifact.SCOPE_COMPILE : dependency.getScope()))
+                        .toList()));
         set(mojo, "repositorySystemSession", repositorySystemSession());
-        set(mojo, "remoteRepositories", List.of());
         return mojo;
     }
 
-    private RepositorySystem repositorySystemReturning(
-            java.util.function.Function<DependencyRequest,
-                    java.util.List<org.eclipse.aether.artifact.Artifact>> resolution) {
-        return (RepositorySystem) Proxy.newProxyInstance(
-                RepositorySystem.class.getClassLoader(),
-                new Class<?>[] { RepositorySystem.class },
-                (proxy, method, arguments) -> {
-                    if ("resolveDependencies".equals(method.getName())) {
-                        DependencyRequest request = (DependencyRequest) arguments[1];
-                        DependencyResult result = new DependencyResult(request);
-                        result.setArtifactResults(resolution.apply(request).stream()
-                                .map(artifact -> new ArtifactResult(new ArtifactRequest(artifact, List.of(), null))
-                                        .setArtifact(artifact))
-                                .toList());
-                        return result;
-                    }
-                    return proxyObjectMethod(proxy, method.getName(), arguments);
+    private ProjectDependenciesResolver projectDependenciesResolverReturning(
+            java.util.function.Function<DependencyResolutionRequest,
+                    java.util.List<org.eclipse.aether.graph.Dependency>> resolution) {
+        return request -> dependencyResolutionResult(resolution.apply(request));
+    }
+
+    private DependencyResolutionResult dependencyResolutionResult(
+            List<org.eclipse.aether.graph.Dependency> resolvedDependencies) {
+        return dependencyResolutionResult(resolvedDependencies, List.of(), List.of(), List.of());
+    }
+
+    private DependencyResolutionResult dependencyResolutionResult(
+            List<org.eclipse.aether.graph.Dependency> resolvedDependencies,
+            List<org.eclipse.aether.graph.Dependency> unresolvedDependencies,
+            List<Exception> collectionErrors, List<Exception> resolutionErrors) {
+        return (DependencyResolutionResult) Proxy.newProxyInstance(
+                DependencyResolutionResult.class.getClassLoader(),
+                new Class<?>[] { DependencyResolutionResult.class },
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getDependencies", "getResolvedDependencies" -> resolvedDependencies;
+                    case "getUnresolvedDependencies" -> unresolvedDependencies;
+                    case "getCollectionErrors" -> collectionErrors;
+                    case "getResolutionErrors" -> resolutionErrors;
+                    case "getDependencyGraph" -> null;
+                    default -> proxyObjectMethod(proxy, method.getName(), arguments);
                 });
     }
 
-    private org.eclipse.aether.artifact.Artifact withResolvedFile(
-            org.eclipse.aether.artifact.Artifact artifact) {
-        return artifact.setFile(resolvedArtifactFile(artifact.getArtifactId(), artifact.getVersion()).toFile());
+    private org.eclipse.aether.graph.Dependency resolvedDependency(String groupId, String artifactId,
+            String version, String scope) {
+        org.eclipse.aether.artifact.Artifact artifact = new org.eclipse.aether.artifact.DefaultArtifact(
+                groupId, artifactId, "jar", version)
+                .setFile(resolvedArtifactFile(artifactId, version).toFile());
+        return new org.eclipse.aether.graph.Dependency(artifact, scope);
     }
 
-    private org.eclipse.aether.artifact.Artifact resolvedArtifact(String groupId, String artifactId,
-            String version) {
-        return new org.eclipse.aether.artifact.DefaultArtifact(groupId, artifactId, "jar", version)
-                .setFile(resolvedArtifactFile(artifactId, version).toFile());
+    private org.eclipse.aether.graph.DependencyNode dependencyNode(String artifactId, String scope,
+            boolean optional) {
+        org.eclipse.aether.artifact.Artifact artifact = new org.eclipse.aether.artifact.DefaultArtifact(
+                "com.example", artifactId, "jar", "1.0.0");
+        return new org.eclipse.aether.graph.DefaultDependencyNode(
+                new org.eclipse.aether.graph.Dependency(artifact, scope, optional));
     }
 
     private Path resolvedArtifactFile(String artifactId, String version) {
@@ -651,19 +1016,12 @@ class CocoFeaturesMojoTest {
         }
     }
 
-    private RepositorySystem failingRepositorySystem() {
-        return (RepositorySystem) Proxy.newProxyInstance(
-                RepositorySystem.class.getClassLoader(),
-                new Class<?>[] { RepositorySystem.class },
-                (proxy, method, arguments) -> {
-                    if ("resolveDependencies".equals(method.getName())) {
-                        DependencyRequest request = (DependencyRequest) arguments[1];
-                        DependencyResult result = new DependencyResult(request);
-                        throw new DependencyResolutionException(result, "artifact unavailable",
-                                new IllegalStateException("artifact unavailable"));
-                    }
-                    return proxyObjectMethod(proxy, method.getName(), arguments);
-                });
+    private ProjectDependenciesResolver failingProjectDependenciesResolver() {
+        return request -> {
+            DependencyResolutionResult result = dependencyResolutionResult(List.of());
+            throw new org.apache.maven.project.DependencyResolutionException(
+                    result, "artifact unavailable", new IllegalStateException("artifact unavailable"));
+        };
     }
 
     private RepositorySystemSession repositorySystemSession() {
@@ -728,5 +1086,27 @@ class CocoFeaturesMojoTest {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static final class FailingDependencyArtifactsProject extends MavenProject {
+
+        private boolean failNextDependencyArtifactsPublication;
+
+        private FailingDependencyArtifactsProject(Model model) {
+            super(model);
+        }
+
+        private void failNextDependencyArtifactsPublication() {
+            this.failNextDependencyArtifactsPublication = true;
+        }
+
+        @Override
+        public void setDependencyArtifacts(Set<Artifact> dependencyArtifacts) {
+            if (this.failNextDependencyArtifactsPublication) {
+                this.failNextDependencyArtifactsPublication = false;
+                throw new IllegalStateException("dependencyArtifacts publication failed");
+            }
+            super.setDependencyArtifacts(dependencyArtifacts);
+        }
     }
 }

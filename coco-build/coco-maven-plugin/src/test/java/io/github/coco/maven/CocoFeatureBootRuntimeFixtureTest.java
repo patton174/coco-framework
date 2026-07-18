@@ -29,13 +29,10 @@ import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
+import org.apache.maven.project.DependencyResolutionResult;
 import org.apache.maven.project.MavenProject;
-import org.eclipse.aether.RepositorySystem;
+import org.apache.maven.project.ProjectDependenciesResolver;
 import org.eclipse.aether.RepositorySystemSession;
-import org.eclipse.aether.resolution.ArtifactRequest;
-import org.eclipse.aether.resolution.ArtifactResult;
-import org.eclipse.aether.resolution.DependencyRequest;
-import org.eclipse.aether.resolution.DependencyResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.loader.tools.Library;
@@ -147,6 +144,9 @@ class CocoFeatureBootRuntimeFixtureTest {
         set(mojo, "classesDirectory", classesDirectory.toFile());
         set(mojo, "buildDirectory", this.tempDir.resolve("target").toFile());
         set(mojo, "finalName", "demo");
+        set(mojo, "projectDependenciesResolver",
+                (ProjectDependenciesResolver) request -> dependencyResolutionResult(List.of()));
+        set(mojo, "repositorySystemSession", repositorySystemSession());
 
         mojo.execute();
 
@@ -169,34 +169,38 @@ class CocoFeatureBootRuntimeFixtureTest {
         set(mojo, "project", project);
         set(mojo, "featureGroupId", "io.github.patton174");
         set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
-        set(mojo, "repositorySystem", repositorySystem(featureJar, transitiveJar));
+        set(mojo, "projectDependenciesResolver", projectDependenciesResolver(featureJar, transitiveJar));
         set(mojo, "repositorySystemSession", repositorySystemSession());
-        set(mojo, "remoteRepositories", List.of());
         return mojo;
     }
 
-    private RepositorySystem repositorySystem(Path featureJar, Path transitiveJar) {
-        return (RepositorySystem) Proxy.newProxyInstance(
-                RepositorySystem.class.getClassLoader(), new Class<?>[] {RepositorySystem.class},
-                (proxy, method, arguments) -> {
-                    if ("resolveDependencies".equals(method.getName())) {
-                        DependencyRequest request = (DependencyRequest) arguments[1];
-                        org.eclipse.aether.artifact.Artifact direct = request.getCollectRequest()
-                                .getRoot().getArtifact().setFile(featureJar.toFile());
-                        org.eclipse.aether.artifact.Artifact transitive =
-                                new org.eclipse.aether.artifact.DefaultArtifact(
-                                        "com.example", "feature-runtime", "jar", "3.2.1")
-                                        .setFile(transitiveJar.toFile());
-                        DependencyResult result = new DependencyResult(request);
-                        result.setArtifactResults(List.of(result(direct), result(transitive)));
-                        return result;
-                    }
-                    return objectMethod(proxy, method.getName(), arguments);
-                });
+    private ProjectDependenciesResolver projectDependenciesResolver(Path featureJar, Path transitiveJar) {
+        return request -> {
+            org.eclipse.aether.graph.Dependency direct = new org.eclipse.aether.graph.Dependency(
+                    new org.eclipse.aether.artifact.DefaultArtifact(
+                            "io.github.patton174", "coco-web", "jar", "1.0.0-SNAPSHOT")
+                            .setFile(featureJar.toFile()),
+                    Artifact.SCOPE_COMPILE);
+            org.eclipse.aether.graph.Dependency transitive = new org.eclipse.aether.graph.Dependency(
+                    new org.eclipse.aether.artifact.DefaultArtifact(
+                            "com.example", "feature-runtime", "jar", "3.2.1")
+                            .setFile(transitiveJar.toFile()),
+                    Artifact.SCOPE_RUNTIME);
+            return dependencyResolutionResult(List.of(direct, transitive));
+        };
     }
 
-    private ArtifactResult result(org.eclipse.aether.artifact.Artifact artifact) {
-        return new ArtifactResult(new ArtifactRequest(artifact, List.of(), null)).setArtifact(artifact);
+    private DependencyResolutionResult dependencyResolutionResult(
+            List<org.eclipse.aether.graph.Dependency> resolvedDependencies) {
+        return (DependencyResolutionResult) Proxy.newProxyInstance(
+                DependencyResolutionResult.class.getClassLoader(),
+                new Class<?>[] {DependencyResolutionResult.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getDependencies", "getResolvedDependencies" -> resolvedDependencies;
+                    case "getUnresolvedDependencies", "getCollectionErrors", "getResolutionErrors" -> List.of();
+                    case "getDependencyGraph" -> null;
+                    default -> objectMethod(proxy, method.getName(), arguments);
+                });
     }
 
     private RepositorySystemSession repositorySystemSession() {

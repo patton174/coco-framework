@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.patton174</groupId>
+        <artifactId>coco-parent</artifactId>
+        <version>@coco.fixture.version@</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>io.github.coco.fixture</groupId>
+    <artifactId>no-starter-web-test-compile</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.patton174</groupId>
+            <artifactId>coco-api</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.github.patton174</groupId>
+                <artifactId>coco-maven-plugin</artifactId>
+                <version>@coco.fixture.version@</version>
+            </plugin>
+            <plugin>
+                <groupId>io.github.coco.fixture</groupId>
+                <artifactId>project-view-dump-plugin</artifactId>
+                <version>1.0.0</version>
+                <executions>
+                    <execution>
+                        <id>dump-project-before-coco-features</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>dump-project</goal>
+                        </goals>
+                        <configuration>
+                            <outputFile>${project.build.directory}/project-before.txt</outputFile>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>dump-project-after-coco-features</id>
+                        <phase>process-test-resources</phase>
+                        <goals>
+                            <goal>dump-project</goal>
+                        </goals>
+                        <configuration>
+                            <outputFile>${project.build.directory}/project-after.txt</outputFile>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>starter</id>
+            <dependencies>
+                <dependency>
+                    <groupId>io.github.patton174</groupId>
+                    <artifactId>coco-spring-boot-starter</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-test</artifactId>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>mediation</id>
+            <dependencies>
+                <dependency>
+                    <groupId>io.github.coco.fixture.mediation</groupId>
+                    <artifactId>deep-root</artifactId>
+                    <version>1.0.0</version>
+                </dependency>
+                <dependency>
+                    <groupId>io.github.coco.fixture.mediation</groupId>
+                    <artifactId>same-depth-root</artifactId>
+                    <version>1.0.0</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+</project>

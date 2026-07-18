@@ -1,0 +1,700 @@
+package io.github.coco.maven;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.jar.JarOutputStream;
+import java.util.regex.Pattern;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+
+import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Exclusion;
+import org.apache.maven.model.Model;
+import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.xml.sax.SAXException;
+
+/**
+ * 无 Starter Web 功能真实 Maven 生命周期测试。
+ * <p>
+ * 验证业务项目只声明 {@code coco-api} 时，{@code coco:features} 在 {@code process-classes}
+ * 注入的 Web 功能完整编译闭包仍会被后续 {@code test-compile} 使用。
+ * </p>
+ * @author patton174
+ * @since 1.0.0
+ */
+class CocoNoStarterWebTestCompileFixtureTest {
+
+    private static final String PLUGIN_GROUP_ID = "io.github.patton174";
+    private static final String PLUGIN_ARTIFACT_ID = "coco-maven-plugin";
+    private static final String MEDIATION_GROUP_ID = "io.github.coco.fixture.mediation";
+    private static final String DISABLED_FEATURES =
+            "audit,codegen,data-permission,mybatis-plus,openapi,security,tenant";
+    private static final String DUAL_FEATURE_DISABLED_FEATURES =
+            "codegen,data-permission,mybatis-plus,openapi,security,tenant";
+    private static final Pattern FEATURE_EXECUTION = Pattern.compile(
+            "coco-maven-plugin:([^:\\s]+):features \\(coco-feature-assembly\\)");
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void isolatedReactorCopyKeepsLegalTargetPackagesAndSkipsModuleBuildOutput() throws Exception {
+        Path source = Files.createDirectories(this.tempDir.resolve("copy-source"));
+        Files.writeString(source.resolve("pom.xml"),
+                "<project><modules><module>module</module></modules></project>", StandardCharsets.UTF_8);
+        Path rootBuildOutput = source.resolve("target/classes/Root.class");
+        Files.createDirectories(rootBuildOutput.getParent());
+        Files.write(rootBuildOutput, new byte[] {1});
+        Path module = Files.createDirectories(source.resolve("module"));
+        Files.writeString(module.resolve("pom.xml"),
+                "<project><modules><module>nested</module></modules></project>", StandardCharsets.UTF_8);
+        Path nestedModule = Files.createDirectories(module.resolve("nested"));
+        Files.writeString(nestedModule.resolve("pom.xml"), "<project />", StandardCharsets.UTF_8);
+        Path legalPackage = module.resolve("src/main/java/example/context/target/TargetType.java");
+        Files.createDirectories(legalPackage.getParent());
+        Files.writeString(legalPackage, "package example.context.target;", StandardCharsets.UTF_8);
+        Path legalResource = module.resolve("src/main/resources/target/retained.txt");
+        Files.createDirectories(legalResource.getParent());
+        Files.writeString(legalResource, "retained", StandardCharsets.UTF_8);
+        Path buildOutput = module.resolve("target/classes/Stale.class");
+        Files.createDirectories(buildOutput.getParent());
+        Files.write(buildOutput, new byte[] {1});
+        Path nestedBuildOutput = nestedModule.resolve("target/classes/Nested.class");
+        Files.createDirectories(nestedBuildOutput.getParent());
+        Files.write(nestedBuildOutput, new byte[] {1});
+        Path nonReactor = Files.createDirectories(source.resolve("fixtures/non-reactor"));
+        Files.writeString(nonReactor.resolve("pom.xml"), "<project />", StandardCharsets.UTF_8);
+        Path nonReactorTarget = nonReactor.resolve("target/retained.txt");
+        Files.createDirectories(nonReactorTarget.getParent());
+        Files.writeString(nonReactorTarget, "retained", StandardCharsets.UTF_8);
+        Path uppercaseTarget = module.resolve("src/test/resources/TARGET/retained.txt");
+        Files.createDirectories(uppercaseTarget.getParent());
+        Files.writeString(uppercaseTarget, "retained", StandardCharsets.UTF_8);
+
+        Path destination = this.tempDir.resolve("copy-destination");
+        copyReactorSources(source, destination);
+
+        assertThat(destination.resolve(source.relativize(legalPackage))).isRegularFile();
+        assertThat(destination.resolve(source.relativize(legalResource))).isRegularFile();
+        assertThat(destination.resolve(source.relativize(nonReactorTarget))).isRegularFile();
+        assertThat(destination.resolve(source.relativize(uppercaseTarget))).isRegularFile();
+        assertThat(destination.resolve("target")).doesNotExist();
+        assertThat(destination.resolve("module/target")).doesNotExist();
+        assertThat(destination.resolve("module/nested/target")).doesNotExist();
+        assertThatThrownBy(() -> copyReactorSources(source, source.resolve("copied-inside-source")))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("must not be inside the source reactor");
+    }
+
+    @Test
+    void featureAssemblyRefreshesNoStarterClasspathAndPreservesTheStarterClasspath() throws Exception {
+        Path repositoryRoot = Path.of("../..").toAbsolutePath().normalize();
+        String projectVersion = requiredSystemProperty("coco.fixture.projectVersion");
+        String revision = requiredSystemProperty("coco.fixture.revision");
+        Path outerLocalRepository = Path.of(requiredSystemProperty("coco.fixture.outerLocalRepository"));
+        assertThat(projectVersion).isEqualTo(revision);
+        Path localRepository = this.tempDir.resolve("repository");
+        Path settings = writeFixtureSettings(this.tempDir.resolve("settings.xml"), outerLocalRepository);
+        Path candidatePluginArtifact = installFixturePrerequisites(
+                repositoryRoot, localRepository, settings, revision);
+        installDumpPluginFixture(repositoryRoot, localRepository, settings);
+
+        Path fixtureSource = repositoryRoot.resolve(
+                "coco-build/coco-maven-plugin/src/test/resources/fixtures/no-starter-web-test-compile");
+        Path fixture = this.tempDir.resolve("no-starter-fixture");
+        copyDirectory(fixtureSource, fixture);
+        configureFixtureVersions(fixture.resolve("pom.xml"), projectVersion, projectVersion);
+        String output = runMaven(fixture, localRepository, settings,
+                "-Drevision=" + revision,
+                "-Dcoco.features.disabled=" + DISABLED_FEATURES,
+                "test-compile");
+
+        assertThat(output).contains("Coco feature manifest generated with 1 enabled features.");
+        assertExecutedPluginMatchesWorkspace(output, projectVersion, candidatePluginArtifact, localRepository);
+        String before = Files.readString(fixture.resolve("target/project-before.txt"));
+        String after = Files.readString(fixture.resolve("target/project-after.txt"));
+        assertThat(before)
+                .contains("coco-api")
+                .doesNotContain("coco-web", "spring-web");
+        assertThat(after)
+                .contains("coco-api", "coco-web", "spring-web")
+                .contains("dependencies=", "artifacts=", "dependencyArtifacts=",
+                        "compileClasspath=", "compileClasspathOrder=", "runtimeClasspathOrder=",
+                        "testClasspath=", "testClasspathOrder=");
+        assertThat(fixture.resolve(
+                "target/test-classes/io/github/coco/fixture/WebFeatureClasspathProbe.class")).isRegularFile();
+
+        Path starterFixture = this.tempDir.resolve("starter-fixture");
+        copyDirectory(fixtureSource, starterFixture);
+        configureFixtureVersions(starterFixture.resolve("pom.xml"), projectVersion, projectVersion);
+        String starterOutput = runMaven(starterFixture, localRepository, settings,
+                "-Drevision=" + revision,
+                "-Pstarter",
+                "test-compile");
+        String starterBefore = Files.readString(starterFixture.resolve("target/project-before.txt"));
+        String starterAfter = Files.readString(starterFixture.resolve("target/project-after.txt"));
+        assertThat(starterOutput).contains("Coco feature manifest generated with 8 enabled features.");
+        assertExecutedPluginMatchesWorkspace(starterOutput, projectVersion, candidatePluginArtifact, localRepository);
+        assertThat(jarCount(starterBefore, "testClasspath=")).isEqualTo(109);
+        assertThat(jarCount(starterAfter, "testClasspath=")).isEqualTo(109);
+        assertThat(line(starterAfter, "dependencies="))
+                .contains("coco-api", "coco-spring-boot-starter")
+                .doesNotContain("coco-web");
+
+        installMediationArtifacts(localRepository, projectVersion);
+        Path mediationFixture = this.tempDir.resolve("mediation-fixture");
+        copyDirectory(fixtureSource, mediationFixture);
+        configureFixtureVersions(mediationFixture.resolve("pom.xml"), projectVersion, projectVersion);
+        String mediationOutput = runMaven(mediationFixture, localRepository, settings,
+                "-Drevision=" + revision,
+                "-Pmediation",
+                "-Dcoco.features.disabled=" + DUAL_FEATURE_DISABLED_FEATURES,
+                "-Dcoco.features.featureGroupId=" + MEDIATION_GROUP_ID,
+                "process-test-resources");
+        assertThat(mediationOutput).contains("Coco feature manifest generated with 2 enabled features.");
+        assertExecutedPluginMatchesWorkspace(
+                mediationOutput, projectVersion, candidatePluginArtifact, localRepository);
+        String mediationBefore = Files.readString(mediationFixture.resolve("target/project-before.txt"));
+        String mediationAfter = Files.readString(mediationFixture.resolve("target/project-after.txt"));
+        assertThat(line(mediationBefore, "artifacts="))
+                .contains(MEDIATION_GROUP_ID + ":shared-library:1.0.0")
+                .contains(MEDIATION_GROUP_ID + ":same-depth-library:1.0.0")
+                .doesNotContain(
+                        MEDIATION_GROUP_ID + ":shared-library:2.0.0",
+                        MEDIATION_GROUP_ID + ":same-depth-library:2.0.0");
+        assertThat(line(mediationAfter, "artifacts="))
+                .contains(
+                        MEDIATION_GROUP_ID + ":shared-library:2.0.0:compile",
+                        MEDIATION_GROUP_ID + ":same-depth-library:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":feature-order-library:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":excluded-parent:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":runtime-library:1.0.0:runtime")
+                .doesNotContain(
+                        MEDIATION_GROUP_ID + ":shared-library:1.0.0",
+                        MEDIATION_GROUP_ID + ":same-depth-library:2.0.0",
+                        MEDIATION_GROUP_ID + ":feature-order-library:2.0.0",
+                        MEDIATION_GROUP_ID + ":excluded-leaf",
+                        MEDIATION_GROUP_ID + ":optional-library",
+                        MEDIATION_GROUP_ID + ":provided-library",
+                        MEDIATION_GROUP_ID + ":test-library");
+        assertThat(line(mediationAfter, "dependencyArtifacts="))
+                .contains(
+                        MEDIATION_GROUP_ID + ":deep-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":same-depth-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":coco-web:" + projectVersion + ":compile",
+                        MEDIATION_GROUP_ID + ":coco-audit:" + projectVersion + ":compile")
+                .doesNotContain("shared-library", "same-depth-library", "deep-middle",
+                        "runtime-library", "excluded-parent");
+        assertThat(listValues(mediationAfter, "artifactOrder="))
+                .containsSubsequence(
+                        MEDIATION_GROUP_ID + ":deep-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":deep-middle:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":same-depth-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":same-depth-library:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":coco-web:" + projectVersion + ":compile",
+                        MEDIATION_GROUP_ID + ":shared-library:2.0.0:compile",
+                        MEDIATION_GROUP_ID + ":excluded-parent:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":runtime-library:1.0.0:runtime",
+                        MEDIATION_GROUP_ID + ":feature-order-library:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":coco-audit:" + projectVersion + ":compile");
+        assertThat(listValues(mediationAfter, "dependencyOrder="))
+                .containsSubsequence(
+                        MEDIATION_GROUP_ID + ":deep-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":same-depth-root:1.0.0:compile",
+                        MEDIATION_GROUP_ID + ":coco-web:" + projectVersion + ":compile",
+                        MEDIATION_GROUP_ID + ":coco-audit:" + projectVersion + ":compile");
+        List<String> expectedCompileClasspathOrder = List.of(
+                "deep-root-1.0.0.jar",
+                "deep-middle-1.0.0.jar",
+                "same-depth-root-1.0.0.jar",
+                "same-depth-library-1.0.0.jar",
+                "coco-web-" + projectVersion + ".jar",
+                "shared-library-2.0.0.jar",
+                "feature-order-library-1.0.0.jar",
+                "coco-audit-" + projectVersion + ".jar");
+        assertThat(fileNames(listValues(mediationAfter, "compileClasspathOrder=")))
+                .containsSubsequence(expectedCompileClasspathOrder)
+                .doesNotContain(
+                        "shared-library-1.0.0.jar",
+                        "same-depth-library-2.0.0.jar",
+                        "feature-order-library-2.0.0.jar",
+                        "runtime-library-1.0.0.jar");
+        List<String> expectedRuntimeClasspathOrder = new java.util.ArrayList<>(expectedCompileClasspathOrder);
+        expectedRuntimeClasspathOrder.add(
+                expectedRuntimeClasspathOrder.indexOf("feature-order-library-1.0.0.jar"),
+                "runtime-library-1.0.0.jar");
+        for (String prefix : List.of("runtimeClasspathOrder=", "testClasspathOrder=")) {
+            assertThat(fileNames(listValues(mediationAfter, prefix)))
+                    .containsSubsequence(expectedRuntimeClasspathOrder)
+                    .doesNotContain(
+                            "shared-library-1.0.0.jar",
+                            "same-depth-library-2.0.0.jar",
+                            "feature-order-library-2.0.0.jar");
+        }
+
+        Path wrongVersionFixture = this.tempDir.resolve("wrong-version-fixture");
+        copyDirectory(fixtureSource, wrongVersionFixture);
+        String wrongVersion = "0.0.0-coco-fixture-missing";
+        configureFixtureVersions(wrongVersionFixture.resolve("pom.xml"), projectVersion, wrongVersion);
+        MavenResult wrongVersionResult = invokeMaven(wrongVersionFixture, localRepository, settings,
+                "-Drevision=" + revision,
+                "-Dcoco.features.disabled=" + DISABLED_FEATURES,
+                "test-compile");
+        assertThat(wrongVersionResult.finished()).as(wrongVersionResult.output()).isTrue();
+        assertThat(wrongVersionResult.exitCode()).as(wrongVersionResult.output()).isNotZero();
+        assertThat(wrongVersionResult.output())
+                .contains(PLUGIN_GROUP_ID + ":" + PLUGIN_ARTIFACT_ID + ":" + wrongVersion);
+    }
+
+    private Path installFixturePrerequisites(Path repositoryRoot, Path localRepository, Path settings,
+            String revision) throws Exception {
+        Path isolatedReactor = this.tempDir.resolve("prerequisite-reactor");
+        copyReactorSources(repositoryRoot, isolatedReactor);
+        runMaven(isolatedReactor, localRepository, settings,
+                "-Drevision=" + revision,
+                "-Dmaven.test.skip=true",
+                "-Dgpg.skip=true",
+                "-pl",
+                ":coco-parent,:coco-dependencies,:coco-maven-plugin,:coco-spring-boot-starter",
+                "-am",
+                "install");
+        Path candidatePluginArtifact = isolatedReactor.resolve(
+                "coco-build/coco-maven-plugin/target/coco-maven-plugin-" + revision + ".jar");
+        assertThat(candidatePluginArtifact).isRegularFile();
+        return candidatePluginArtifact;
+    }
+
+    private void installDumpPluginFixture(Path repositoryRoot, Path localRepository, Path settings)
+            throws Exception {
+        Path source = repositoryRoot.resolve(
+                "coco-build/coco-maven-plugin/src/test/resources/fixtures/project-view-dump-plugin");
+        Path fixture = this.tempDir.resolve("project-view-dump-plugin");
+        copyDirectory(source, fixture);
+        runMaven(fixture, localRepository, settings, "-DskipTests", "install");
+    }
+
+    private void installMediationArtifacts(Path localRepository, String featureVersion) throws Exception {
+        installFixtureArtifact(localRepository, "shared-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "shared-library", "2.0.0", List.of());
+        installFixtureArtifact(localRepository, "same-depth-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "same-depth-library", "2.0.0", List.of());
+        installFixtureArtifact(localRepository, "excluded-leaf", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "optional-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "provided-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "test-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "runtime-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "feature-order-library", "1.0.0", List.of());
+        installFixtureArtifact(localRepository, "feature-order-library", "2.0.0", List.of());
+
+        Dependency excludedLeaf = fixtureDependency("excluded-leaf", "1.0.0");
+        installFixtureArtifact(localRepository, "excluded-parent", "1.0.0", List.of(excludedLeaf));
+        installFixtureArtifact(localRepository, "deep-middle", "1.0.0",
+                List.of(fixtureDependency("shared-library", "1.0.0")));
+        installFixtureArtifact(localRepository, "deep-root", "1.0.0",
+                List.of(fixtureDependency("deep-middle", "1.0.0")));
+        installFixtureArtifact(localRepository, "same-depth-root", "1.0.0",
+                List.of(fixtureDependency("same-depth-library", "1.0.0")));
+
+        Dependency excludedParent = fixtureDependency("excluded-parent", "1.0.0");
+        Exclusion exclusion = new Exclusion();
+        exclusion.setGroupId(MEDIATION_GROUP_ID);
+        exclusion.setArtifactId("excluded-leaf");
+        excludedParent.addExclusion(exclusion);
+        Dependency optionalLibrary = fixtureDependency("optional-library", "1.0.0");
+        optionalLibrary.setOptional(true);
+        Dependency providedLibrary = fixtureDependency("provided-library", "1.0.0");
+        providedLibrary.setScope("provided");
+        Dependency testLibrary = fixtureDependency("test-library", "1.0.0");
+        testLibrary.setScope("test");
+        Dependency runtimeLibrary = fixtureDependency("runtime-library", "1.0.0");
+        runtimeLibrary.setScope("runtime");
+        installFixtureArtifact(localRepository, "coco-web", featureVersion, List.of(
+                fixtureDependency("shared-library", "2.0.0"),
+                fixtureDependency("same-depth-library", "2.0.0"),
+                excludedParent,
+                optionalLibrary,
+                providedLibrary,
+                testLibrary,
+                runtimeLibrary,
+                fixtureDependency("feature-order-library", "1.0.0")));
+        installFixtureArtifact(localRepository, "coco-audit", featureVersion,
+                List.of(fixtureDependency("feature-order-library", "2.0.0")));
+    }
+
+    private void installFixtureArtifact(Path localRepository, String artifactId, String version,
+            List<Dependency> dependencies) throws Exception {
+        Path artifactDirectory = localRepository.resolve(MEDIATION_GROUP_ID.replace('.', '/'))
+                .resolve(artifactId)
+                .resolve(version);
+        Files.createDirectories(artifactDirectory);
+        Path jar = artifactDirectory.resolve(artifactId + "-" + version + ".jar");
+        try (JarOutputStream ignored = new JarOutputStream(Files.newOutputStream(jar))) {
+            // Empty JARs are sufficient for a resolver mediation fixture.
+        }
+
+        Model model = new Model();
+        model.setModelVersion("4.0.0");
+        model.setGroupId(MEDIATION_GROUP_ID);
+        model.setArtifactId(artifactId);
+        model.setVersion(version);
+        model.setPackaging("jar");
+        dependencies.forEach(model::addDependency);
+        try (var writer = Files.newBufferedWriter(
+                artifactDirectory.resolve(artifactId + "-" + version + ".pom"), StandardCharsets.UTF_8)) {
+            new MavenXpp3Writer().write(writer, model);
+        }
+    }
+
+    private static Dependency fixtureDependency(String artifactId, String version) {
+        Dependency dependency = new Dependency();
+        dependency.setGroupId(MEDIATION_GROUP_ID);
+        dependency.setArtifactId(artifactId);
+        dependency.setVersion(version);
+        return dependency;
+    }
+
+    private Path writeFixtureSettings(Path settings, Path outerLocalRepository) throws IOException {
+        String cacheUrl = outerLocalRepository.toAbsolutePath().normalize().toUri().toASCIIString();
+        Files.writeString(settings, """
+                <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+                          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0
+                                              https://maven.apache.org/xsd/settings-1.2.0.xsd">
+                  <profiles>
+                    <profile>
+                      <id>fixture-repositories</id>
+                      <repositories>
+                        <repository>
+                          <id>fixture-local-cache</id>
+                          <url>%s</url>
+                          <releases><enabled>true</enabled></releases>
+                          <snapshots><enabled>true</enabled><updatePolicy>never</updatePolicy></snapshots>
+                        </repository>
+                        <repository>
+                          <id>central</id>
+                          <url>https://repo.maven.apache.org/maven2</url>
+                          <releases><enabled>true</enabled></releases>
+                          <snapshots><enabled>false</enabled></snapshots>
+                        </repository>
+                      </repositories>
+                      <pluginRepositories>
+                        <pluginRepository>
+                          <id>fixture-local-cache</id>
+                          <url>%s</url>
+                          <releases><enabled>true</enabled></releases>
+                          <snapshots><enabled>true</enabled><updatePolicy>never</updatePolicy></snapshots>
+                        </pluginRepository>
+                        <pluginRepository>
+                          <id>central</id>
+                          <url>https://repo.maven.apache.org/maven2</url>
+                          <releases><enabled>true</enabled></releases>
+                          <snapshots><enabled>false</enabled></snapshots>
+                        </pluginRepository>
+                      </pluginRepositories>
+                    </profile>
+                  </profiles>
+                  <activeProfiles>
+                    <activeProfile>fixture-repositories</activeProfile>
+                  </activeProfiles>
+                </settings>
+                """.formatted(cacheUrl, cacheUrl), StandardCharsets.UTF_8);
+        return settings;
+    }
+
+    private void assertExecutedPluginMatchesWorkspace(String output, String expectedVersion,
+            Path workspacePluginArtifact, Path localRepository) throws Exception {
+        List<String> executedVersions = FEATURE_EXECUTION.matcher(output).results()
+                .map(result -> result.group(1))
+                .distinct()
+                .toList();
+        assertThat(executedVersions).as(output).containsExactly(expectedVersion);
+
+        String actualVersion = executedVersions.get(0);
+        Path installedPluginArtifact = localRepository.resolve(Path.of(
+                PLUGIN_GROUP_ID.replace('.', '/'), PLUGIN_ARTIFACT_ID, actualVersion,
+                PLUGIN_ARTIFACT_ID + "-" + actualVersion + ".jar"));
+        assertThat(workspacePluginArtifact).isRegularFile();
+        assertThat(installedPluginArtifact).isRegularFile();
+        byte[] workspaceHash = sha256(workspacePluginArtifact);
+        byte[] installedHash = sha256(installedPluginArtifact);
+        assertThat(installedHash).isEqualTo(workspaceHash);
+        System.out.println("Verified executed plugin " + PLUGIN_GROUP_ID + ":" + PLUGIN_ARTIFACT_ID + ":"
+                + actualVersion + " SHA-256=" + HexFormat.of().formatHex(installedHash));
+    }
+
+    private static byte[] sha256(Path file) throws Exception {
+        return MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file));
+    }
+
+    private static void configureFixtureVersions(Path pom, String parentVersion, String pluginVersion)
+            throws Exception {
+        DocumentBuilderFactory documentBuilderFactory = DocumentBuilderFactory.newInstance();
+        documentBuilderFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        Document document = documentBuilderFactory.newDocumentBuilder().parse(pom.toFile());
+        Element project = document.getDocumentElement();
+        directChild(directChild(project, "parent"), "version").setTextContent(parentVersion);
+
+        Element plugins = directChild(directChild(project, "build"), "plugins");
+        Element cocoPlugin = null;
+        for (Node node = plugins.getFirstChild(); node != null; node = node.getNextSibling()) {
+            if (node instanceof Element plugin && "plugin".equals(plugin.getTagName())
+                    && PLUGIN_ARTIFACT_ID.equals(directChild(plugin, "artifactId").getTextContent().trim())) {
+                cocoPlugin = plugin;
+                break;
+            }
+        }
+        if (cocoPlugin == null) {
+            throw new IllegalStateException("Fixture Coco Maven plugin declaration is missing: " + pom);
+        }
+        directChild(cocoPlugin, "version").setTextContent(pluginVersion);
+
+        var transformer = TransformerFactory.newInstance().newTransformer();
+        transformer.setOutputProperty(OutputKeys.ENCODING, StandardCharsets.UTF_8.name());
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+        transformer.transform(new DOMSource(document), new StreamResult(pom.toFile()));
+    }
+
+    private static Element directChild(Element parent, String name) {
+        for (Node node = parent.getFirstChild(); node != null; node = node.getNextSibling()) {
+            if (node instanceof Element element && name.equals(element.getTagName())) {
+                return element;
+            }
+        }
+        throw new IllegalStateException("Missing <" + name + "> below <" + parent.getTagName() + ">");
+    }
+
+    private String runMaven(Path workingDirectory, Path localRepository, Path settings, String... arguments)
+            throws Exception {
+        MavenResult result = invokeMaven(workingDirectory, localRepository, settings, arguments);
+        assertThat(result.finished()).as(result.output()).isTrue();
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        return result.output();
+    }
+
+    private MavenResult invokeMaven(Path workingDirectory, Path localRepository, Path settings, String... arguments)
+            throws Exception {
+        List<String> command = new ArrayList<>();
+        command.add(mavenExecutable());
+        command.add("-B");
+        command.add("-ntp");
+        command.add("-Dstyle.color=never");
+        command.add("-s");
+        command.add(settings.toString());
+        command.add("-Dmaven.repo.local=" + localRepository);
+        command.addAll(List.of(arguments));
+        Process process = new ProcessBuilder(command)
+                .directory(workingDirectory.toFile())
+                .redirectErrorStream(true)
+                .start();
+        CompletableFuture<byte[]> outputFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                return process.getInputStream().readAllBytes();
+            }
+            catch (IOException ex) {
+                throw new java.io.UncheckedIOException(ex);
+            }
+        });
+        boolean finished = process.waitFor(600, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            process.waitFor(10, TimeUnit.SECONDS);
+        }
+        String output = new String(outputFuture.get(30, TimeUnit.SECONDS), StandardCharsets.UTF_8);
+        return new MavenResult(finished, process.exitValue(), output);
+    }
+
+    private static void copyDirectory(Path source, Path target) throws IOException {
+        try (var paths = Files.walk(source)) {
+            for (Path path : paths.toList()) {
+                Path relativePath = source.relativize(path);
+                if (relativePath.getNameCount() > 0
+                        && ("target".equals(relativePath.getName(0).toString())
+                                || ".flattened-pom.xml".equals(relativePath.toString()))) {
+                    continue;
+                }
+                Path destination = target.resolve(relativePath);
+                if (Files.isDirectory(path)) {
+                    Files.createDirectories(destination);
+                }
+                else {
+                    Files.copy(path, destination);
+                }
+            }
+        }
+    }
+
+    private static void copyReactorSources(Path source, Path target) throws IOException {
+        Path normalizedSource = source.toAbsolutePath().normalize();
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        if (normalizedTarget.startsWith(normalizedSource)) {
+            throw new IOException("The isolated reactor destination must not be inside the source reactor.");
+        }
+        Set<Path> reactorModuleRoots = reactorModuleRoots(normalizedSource);
+        Files.walkFileTree(normalizedSource, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
+                    throws IOException {
+                Path relative = normalizedSource.relativize(directory);
+                if (relative.getNameCount() > 0) {
+                    String name = directory.getFileName().toString();
+                    boolean moduleBuildDirectory = "target".equals(name)
+                            && reactorModuleRoots.contains(directory.getParent().toAbsolutePath().normalize());
+                    if (moduleBuildDirectory || ".codegraph".equals(name) || ".worktrees".equals(name)) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                }
+                Files.createDirectories(normalizedTarget.resolve(relative));
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                String name = file.getFileName().toString();
+                if (!".git".equals(name) && !".flattened-pom.xml".equals(name)) {
+                    Path destination = normalizedTarget.resolve(normalizedSource.relativize(file));
+                    Files.createDirectories(destination.getParent());
+                    Files.copy(file, destination);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    private static Set<Path> reactorModuleRoots(Path reactorRoot) throws IOException {
+        Set<Path> moduleRoots = new LinkedHashSet<>();
+        ArrayDeque<Path> pending = new ArrayDeque<>();
+        pending.add(reactorRoot);
+        while (!pending.isEmpty()) {
+            Path moduleRoot = pending.removeFirst().toAbsolutePath().normalize();
+            if (!moduleRoots.add(moduleRoot)) {
+                continue;
+            }
+            Path pom = moduleRoot.resolve("pom.xml");
+            if (!Files.isRegularFile(pom)) {
+                throw new IOException("Reactor module has no pom.xml: " + moduleRoot + ".");
+            }
+            for (String declaredModule : declaredModules(pom)) {
+                Path child = moduleRoot.resolve(declaredModule).toAbsolutePath().normalize();
+                if (!child.startsWith(reactorRoot) || !Files.isDirectory(child)) {
+                    throw new IOException("Reactor module path is invalid: " + declaredModule + ".");
+                }
+                pending.addLast(child);
+            }
+        }
+        return Set.copyOf(moduleRoots);
+    }
+
+    private static List<String> declaredModules(Path pom) throws IOException {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
+            Element project = factory.newDocumentBuilder().parse(pom.toFile()).getDocumentElement();
+            List<String> modules = new ArrayList<>();
+            for (Element modulesElement : directChildren(project, "modules")) {
+                for (Element module : directChildren(modulesElement, "module")) {
+                    String value = module.getTextContent().trim();
+                    if (value.isEmpty()) {
+                        throw new IOException("Reactor module declaration is empty in " + pom + ".");
+                    }
+                    modules.add(value);
+                }
+            }
+            return List.copyOf(modules);
+        }
+        catch (ParserConfigurationException | SAXException ex) {
+            throw new IOException("Failed to parse reactor pom.xml: " + pom + ".", ex);
+        }
+    }
+
+    private static List<Element> directChildren(Element parent, String name) {
+        List<Element> children = new ArrayList<>();
+        for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child instanceof Element element) {
+                String elementName = element.getLocalName() == null
+                        ? element.getNodeName() : element.getLocalName();
+                if (name.equals(elementName)) {
+                    children.add(element);
+                }
+            }
+        }
+        return children;
+    }
+
+    private static long jarCount(String dump, String prefix) {
+        String classpath = line(dump, prefix);
+        return classpath.split("\\.jar", -1).length - 1L;
+    }
+
+    private static List<String> listValues(String dump, String prefix) {
+        String value = line(dump, prefix).substring(prefix.length());
+        if ("[]".equals(value)) {
+            return List.of();
+        }
+        return List.of(value.substring(1, value.length() - 1).split(","));
+    }
+
+    private static List<String> fileNames(List<String> entries) {
+        return entries.stream()
+                .map(Path::of)
+                .map(Path::getFileName)
+                .map(Path::toString)
+                .toList();
+    }
+
+    private static String line(String dump, String prefix) {
+        return dump.lines()
+                .filter(candidate -> candidate.startsWith(prefix))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Missing dump line: " + prefix));
+    }
+
+    private static String mavenExecutable() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? "mvn.cmd"
+                : "mvn";
+    }
+
+    private static String requiredSystemProperty(String name) {
+        String value = System.getProperty(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Missing required system property: " + name);
+        }
+        return value.trim();
+    }
+
+    private record MavenResult(boolean finished, int exitCode, String output) {
+    }
+}
