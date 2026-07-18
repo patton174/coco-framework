@@ -58,7 +58,7 @@ jobs:
 
       - name: Build exact candidate JARs
         working-directory: .api-candidate
-        run: mvn -B -ntp -DskipTests clean package
+        run: mvn -B -ntp -Drevision=2.0.2-SNAPSHOT -DskipTests clean package
 
       - name: Verify candidate checkout is exact and clean after build
         working-directory: .api-candidate
