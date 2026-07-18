@@ -160,6 +160,20 @@ class CocoI18nPropertiesTest {
     }
 
     @Test
+    void supportedLanguagesRejectOuterExtlangAndAcceptPreferredPrimaryLanguage() {
+        CocoI18nProperties properties = new CocoI18nProperties();
+
+        for (String invalidTag : List.of("en-cmn", "zh-cmn")) {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> properties.setSupportedLanguages(List.of(invalidTag)))
+                    .withMessage("supportedLanguages must contain only strict non-root BCP 47 language tags");
+        }
+        properties.setSupportedLanguages(List.of("cmn"));
+
+        assertThat(properties.getSupportedLanguages()).containsExactly("cmn");
+    }
+
+    @Test
     void supportedLanguagesRejectRepeatedExtensionSingletonsAndKeys() {
         CocoI18nProperties properties = new CocoI18nProperties();
 

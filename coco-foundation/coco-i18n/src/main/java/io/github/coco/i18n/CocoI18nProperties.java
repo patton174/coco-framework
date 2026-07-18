@@ -31,7 +31,10 @@ public class CocoI18nProperties {
 
     private Locale defaultLocale = Locale.SIMPLIFIED_CHINESE;
 
-    /** 空列表表示不过滤；非空列表表示显式 opt-in 允许列表。 */
+    /**
+     * 空列表表示不过滤；非空列表表示显式 opt-in 允许列表。匹配遵循 JDK {@link Locale}
+     * 规范化语义，不执行 IANA 注册表别名扩展；BU/MM 等已弃用 Preferred-Value 别名保持不同。
+     */
     private List<String> supportedLanguages = List.of();
 
     private boolean fallbackToSystemLocale;

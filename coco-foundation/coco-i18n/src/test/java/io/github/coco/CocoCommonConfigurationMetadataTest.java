@@ -47,6 +47,8 @@ class CocoCommonConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.common.i18n.supported-languages\""));
         assertTrue(content.contains("\"defaultValue\": []"));
         assertTrue(content.contains("空列表表示不过滤；非空列表表示显式 opt-in 允许列表。"));
+        assertTrue(content.contains("匹配遵循 JDK Locale 规范化语义，不执行 IANA 注册表别名扩展；"
+                + "BU\\/MM 等已弃用 Preferred-Value 别名保持不同。"));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.fallback-to-system-locale\""));
         assertTrue(content.contains("\"name\": \"coco.common.i18n.use-code-as-default-message\""));
     }

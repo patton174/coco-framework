@@ -63,7 +63,7 @@ public final class CocoLanguageTagNormalizer {
 
     private static boolean hasValidStructure(String languageTag) {
         String[] subtags = languageTag.toLowerCase(Locale.ROOT).split("-");
-        if (!hasUniqueOuterVariants(subtags)) {
+        if (hasOuterExtlang(subtags) || !hasUniqueOuterVariants(subtags)) {
             return false;
         }
         Set<String> singletons = new HashSet<>();
@@ -93,6 +93,12 @@ public final class CocoLanguageTagNormalizer {
             index = end - 1;
         }
         return true;
+    }
+
+    private static boolean hasOuterExtlang(String[] subtags) {
+        return subtags.length > 1
+                && subtags[0].length() >= 2 && subtags[0].length() <= 3
+                && subtags[1].length() == 3 && isAlpha(subtags[1]);
     }
 
     private static boolean hasUniqueUnicodeStructure(String[] subtags, int start, int end) {

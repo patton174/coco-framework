@@ -92,6 +92,18 @@ class DefaultCocoLocaleFallbackPolicyTest {
     }
 
     @Test
+    void deprecatedPreferredValueRegionsRemainDistinct() {
+        CocoI18nProperties properties = propertiesWithSupportedLanguage("en-BU");
+        Locale burma = Locale.forLanguageTag("en-BU");
+        Locale myanmar = Locale.forLanguageTag("en-MM");
+
+        assertThat(this.policy.resolveLocale(burma, properties)).isSameAs(burma);
+        assertThat(this.policy.resolveLocale(myanmar, properties)).isSameAs(Locale.JAPAN);
+        assertThat(CocoLanguageTagNormalizer.semanticKey(burma))
+                .isNotEqualTo(CocoLanguageTagNormalizer.semanticKey(myanmar));
+    }
+
+    @Test
     void variantTagMatchesIgnoringCaseInBothDirections() {
         assertTagMatchPreservesRequestedLocale("en-US-posix", "en-US-POSIX");
         assertTagMatchPreservesRequestedLocale("en-US-POSIX", "en-US-posix");
