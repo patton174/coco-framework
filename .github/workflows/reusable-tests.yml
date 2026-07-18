@@ -65,43 +65,12 @@ jobs:
         run: mvn -B -ntp -f coco-samples/coco-sample-basic/pom.xml verify
 
       - name: Verify sample feature pruning
-        shell: bash
-        run: |
-          set -euo pipefail
-          assert_no_match() {
-            local pattern="$1"
-            local grep_status
-            shift
-            set +e
-            grep -E "${pattern}" "$@"
-            grep_status=$?
-            set -e
-            case "${grep_status}" in
-              0)
-                echo "::error::Forbidden dependency pattern matched: ${pattern}"
-                return 1
-                ;;
-              1) return 0 ;;
-              *)
-                echo "::error::grep failed with status ${grep_status}."
-                return "${grep_status}"
-                ;;
-            esac
-          }
-
-          sample_jar='coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar'
-          jar_entries="${RUNNER_TEMP}/coco-sample-basic-jar-entries.txt"
-          jar tf "${sample_jar}" > "${jar_entries}"
-          grep 'BOOT-INF/lib/coco-feature' "${jar_entries}"
-          assert_no_match 'coco-feature-(mybatis-plus|tenant|data-permission)-' "${jar_entries}"
-          assert_no_match 'BOOT-INF/lib/(mybatis|mybatis-plus)-' "${jar_entries}"
-          jar xf "${sample_jar}" \
-            BOOT-INF/classpath.idx BOOT-INF/layers.idx
-          test -f BOOT-INF/classpath.idx
-          test -f BOOT-INF/layers.idx
-          assert_no_match \
-            'coco-feature-(mybatis-plus|tenant|data-permission)-|/(mybatis|mybatis-plus)-' \
-            BOOT-INF/classpath.idx BOOT-INF/layers.idx
+        run: >-
+          python .github/scripts/verify_sample_feature_coordinates.py
+          --archive coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar
+          --required-features web audit security openapi
+          --forbidden-features mybatis-plus tenant data-permission codegen
+          --forbidden-library-prefixes mybatis-
 
       - name: Verify sample business flow with Python
         run: python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
@@ -110,14 +79,12 @@ jobs:
         run: mvn -B -ntp -f coco-samples/coco-sample-full/pom.xml verify
 
       - name: Verify full sample feature composition
-        shell: bash
-        run: |
-          for feature in web mybatis-plus audit security tenant data-permission openapi codegen; do
-            jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
-              | grep "BOOT-INF/lib/coco-feature-${feature}-"
-          done
-          jar tf coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar \
-            | grep 'BOOT-INF/lib/h2-'
+        run: >-
+          python .github/scripts/verify_sample_feature_coordinates.py
+          --archive coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar
+          --required-features web mybatis-plus audit security tenant data-permission openapi
+          --required-library-prefixes h2-
+          --require-codegen
 
       - name: Verify full sample business flow with Python
         run: python coco-samples/coco-sample-full/scripts/verify_business_flow.py

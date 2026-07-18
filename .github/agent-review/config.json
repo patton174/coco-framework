@@ -194,6 +194,7 @@
         "coco-features/**",
         "coco-support/pom.xml",
         "coco-support/coco-test/**",
+        "coco-support/coco-test-support/**",
         "coco-support/coco-tools/**",
         "docs/architecture/module-layout.md",
         "coco-support/coco-document/architecture/module-layout.md"
@@ -211,6 +212,7 @@
         "coco-foundation/coco-i18n/**",
         "coco-config/**",
         "coco-spring/coco-config/**",
+        "coco-build/coco-compatibility/coco-config/**",
         "coco-spring-boot-autoconfigure/**",
         "coco-spring/coco-spring-boot-autoconfigure/**",
         "coco-features/coco-feature-registry/**",
