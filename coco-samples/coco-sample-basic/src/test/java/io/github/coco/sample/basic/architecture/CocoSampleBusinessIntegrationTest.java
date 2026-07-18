@@ -89,9 +89,10 @@ class CocoSampleBusinessIntegrationTest {
             addIfPresent(disabledFeatures, source.getProperty("coco.features.disabled[0]"));
             addIfPresent(disabledFeatures, source.getProperty("coco.features.disabled[1]"));
             addIfPresent(disabledFeatures, source.getProperty("coco.features.disabled[2]"));
+            addIfPresent(disabledFeatures, source.getProperty("coco.features.disabled[3]"));
         }
 
-        assertEquals(List.of("mybatis-plus", "tenant", "data-permission"), disabledFeatures);
+        assertEquals(List.of("codegen", "mybatis-plus", "tenant", "data-permission"), disabledFeatures);
     }
 
     /**

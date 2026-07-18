@@ -155,13 +155,16 @@ public final class CocoFeaturesMojo extends AbstractMojo {
      */
     void applyFeatureDependencies(CocoFeaturePlan plan) throws MojoExecutionException {
         String targetFeatureVersion = effectiveFeatureVersion();
+        List<Dependency> stagedProjectDependencies = new java.util.ArrayList<>(
+                this.project.getModel().getDependencies());
         List<Dependency> dependenciesToAdd = new java.util.ArrayList<>();
+        boolean dependenciesChanged = false;
         for (CocoFeatureDefinition definition : plan.definitions()) {
             if (!plan.isEnabled(definition.feature())) {
                 continue;
             }
             Set<String> equivalentArtifactIds = StandardCocoFeatures.equivalentArtifactIds(definition);
-            List<Dependency> declared = this.project.getDependencies().stream()
+            List<Dependency> declared = stagedProjectDependencies.stream()
                     .filter(dependency -> this.featureGroupId.equals(dependency.getGroupId()))
                     .filter(dependency -> equivalentArtifactIds.contains(dependency.getArtifactId()))
                     .toList();
@@ -189,22 +192,37 @@ public final class CocoFeaturesMojo extends AbstractMojo {
                             .orElseGet(() -> newCompileDependency(definition, targetFeatureVersion)));
             String dependencyVersion = nonBlank(dependency.getVersion());
             if (dependencyVersion == null) {
-                dependency.setVersion(targetFeatureVersion);
+                Dependency versionedDependency = dependency.clone();
+                versionedDependency.setVersion(targetFeatureVersion);
+                replaceDependency(stagedProjectDependencies, dependency, versionedDependency);
+                dependency = versionedDependency;
                 dependencyVersion = targetFeatureVersion;
+                dependenciesChanged = true;
             }
             if (!targetFeatureVersion.equals(dependencyVersion)) {
                 throw new MojoExecutionException("Coco feature dependency " + dependencyDescription(dependency)
                         + " does not match Coco version " + targetFeatureVersion + ".");
             }
             if (declared.isEmpty()) {
+                stagedProjectDependencies.add(dependency);
                 dependenciesToAdd.add(dependency);
+                dependenciesChanged = true;
             }
         }
         ResolvedFeatureDependencies resolvedDependencies = resolveAddedDependencies(
-                dependenciesToAdd, targetFeatureVersion);
+                stagedProjectDependencies, dependenciesToAdd, targetFeatureVersion);
         ResolvedProjectViews resolvedProjectViews = stageResolvedProjectViews(resolvedDependencies);
-        dependenciesToAdd.forEach(this.project.getModel()::addDependency);
-        publishResolvedProjectViews(resolvedProjectViews);
+        publishResolvedProjectViews(stagedProjectDependencies, dependenciesChanged, resolvedProjectViews);
+    }
+
+    private void replaceDependency(List<Dependency> dependencies, Dependency original, Dependency replacement) {
+        for (int index = 0; index < dependencies.size(); index++) {
+            if (dependencies.get(index) == original) {
+                dependencies.set(index, replacement);
+                return;
+            }
+        }
+        throw new IllegalStateException("Staged Coco dependency is not present in the project model.");
     }
 
     private Dependency newCompileDependency(CocoFeatureDefinition definition, String version) {
@@ -331,7 +349,8 @@ public final class CocoFeaturesMojo extends AbstractMojo {
     }
 
     private ResolvedFeatureDependencies resolveAddedDependencies(
-            List<Dependency> dependenciesToAdd, String expectedCocoVersion)
+            List<Dependency> stagedProjectDependencies, List<Dependency> dependenciesToAdd,
+            String expectedCocoVersion)
             throws MojoExecutionException {
         if (dependenciesToAdd.isEmpty()) {
             return ResolvedFeatureDependencies.empty();
@@ -343,7 +362,9 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         try {
             MavenProject resolutionProject = new MavenProject(this.project);
             resolutionProject.setModel(this.project.getModel().clone());
-            dependenciesToAdd.forEach(resolutionProject.getModel()::addDependency);
+            resolutionProject.getModel().setDependencies(stagedProjectDependencies.stream()
+                    .map(Dependency::clone)
+                    .collect(Collectors.toCollection(java.util.ArrayList::new)));
             // A copied dependencyArtifacts cache contains only the dependencies resolved before this goal.
             // Clearing it makes Maven collect the complete staged model and mediate all new roots together.
             resolutionProject.setDependencyArtifacts(null);
@@ -431,16 +452,45 @@ public final class CocoFeaturesMojo extends AbstractMojo {
         return new ResolvedProjectViews(mergedArtifacts, mergedDependencyArtifacts, true);
     }
 
-    private void publishResolvedProjectViews(ResolvedProjectViews resolvedProjectViews) {
-        if (!resolvedProjectViews.publish()) {
-            return;
+    private void publishResolvedProjectViews(List<Dependency> publishedDependencies, boolean dependenciesChanged,
+            ResolvedProjectViews resolvedProjectViews) throws MojoExecutionException {
+        List<Dependency> originalDependencies = this.project.getModel().getDependencies();
+        Set<Artifact> originalArtifacts = this.project.getArtifacts();
+        Set<Artifact> originalDependencyArtifacts = this.project.getDependencyArtifacts();
+        try {
+            if (dependenciesChanged) {
+                this.project.getModel().setDependencies(publishedDependencies);
+            }
+            if (!resolvedProjectViews.publish()) {
+                return;
+            }
+            // artifacts is the mediated closure, while dependencyArtifacts remains Maven's
+            // direct-dependency view. Null is a meaningful uncollected cache state.
+            this.project.setArtifacts(resolvedProjectViews.artifacts());
+            if (resolvedProjectViews.dependencyArtifacts() != null) {
+                this.project.setDependencyArtifacts(resolvedProjectViews.dependencyArtifacts());
+            }
         }
-        // Publish only after the staged project has fully resolved. artifacts is the mediated closure,
-        // while dependencyArtifacts remains Maven's direct-dependency view. A null direct view is a
-        // meaningful uncollected cache state and must not be replaced with an incomplete synthetic set.
-        this.project.setArtifacts(resolvedProjectViews.artifacts());
-        if (resolvedProjectViews.dependencyArtifacts() != null) {
-            this.project.setDependencyArtifacts(resolvedProjectViews.dependencyArtifacts());
+        catch (RuntimeException ex) {
+            try {
+                this.project.getModel().setDependencies(originalDependencies);
+            }
+            catch (RuntimeException rollbackFailure) {
+                ex.addSuppressed(rollbackFailure);
+            }
+            try {
+                this.project.setArtifacts(originalArtifacts);
+            }
+            catch (RuntimeException rollbackFailure) {
+                ex.addSuppressed(rollbackFailure);
+            }
+            try {
+                this.project.setDependencyArtifacts(originalDependencyArtifacts);
+            }
+            catch (RuntimeException rollbackFailure) {
+                ex.addSuppressed(rollbackFailure);
+            }
+            throw new MojoExecutionException("Failed to publish resolved Coco feature dependency views.", ex);
         }
     }
 

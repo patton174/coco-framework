@@ -144,6 +144,9 @@ class CocoFeatureBootRuntimeFixtureTest {
         set(mojo, "classesDirectory", classesDirectory.toFile());
         set(mojo, "buildDirectory", this.tempDir.resolve("target").toFile());
         set(mojo, "finalName", "demo");
+        set(mojo, "projectDependenciesResolver",
+                (ProjectDependenciesResolver) request -> dependencyResolutionResult(List.of()));
+        set(mojo, "repositorySystemSession", repositorySystemSession());
 
         mojo.execute();
 

@@ -1,14 +1,17 @@
 package io.github.coco.maven;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -35,27 +38,78 @@ final class CocoBootArchivePreflight {
             "org.springframework.boot.loader.JarLauncher",
             "org.springframework.boot.loader.launch.JarLauncher");
 
+    private static final Set<String> MAVEN_COORDINATE_KEYS = Set.of("groupId", "artifactId", "version");
+
+    private static final Attributes.Name BUNDLE_SYMBOLIC_NAME = new Attributes.Name("Bundle-SymbolicName");
+
     private CocoBootArchivePreflight() {
     }
 
     static Result inspect(JarFile source, CocoFeatureManifest manifest, String featureGroupId,
-            String expectedFeatureVersion, Set<String> pruneArtifactIds) throws IOException {
-        validateManifestAndStructure(source);
+            String expectedFeatureVersion, Set<String> pruneArtifactIds,
+            Set<PrunableArtifact> resolvedArtifacts) throws IOException {
+        return inspect(source, manifest, featureGroupId, expectedFeatureVersion,
+                pruneArtifactIds, resolvedArtifacts, CocoArchiveLimits.DEFAULT);
+    }
+
+    static Result inspect(JarFile source, CocoFeatureManifest manifest, String featureGroupId,
+            String expectedFeatureVersion, Set<String> pruneArtifactIds,
+            Set<PrunableArtifact> resolvedArtifacts, CocoArchiveLimits limits) throws IOException {
+        return inspect(source, manifest, featureGroupId, expectedFeatureVersion, pruneArtifactIds,
+                resolvedArtifacts, limits, new CocoArchiveIo.CumulativeBudget(
+                        limits.archiveReadBytes(), "Archive cumulative read bytes"));
+    }
+
+    static Result inspect(JarFile source, CocoFeatureManifest manifest, String featureGroupId,
+            String expectedFeatureVersion, Set<String> pruneArtifactIds,
+            Set<PrunableArtifact> resolvedArtifacts, CocoArchiveLimits limits,
+            CocoArchiveIo.CumulativeBudget readBudget) throws IOException {
+        validateManifestAndStructure(source, limits, readBudget);
         Map<String, CocoFeature> featureByArtifactId = featureByArtifactId(manifest);
+        Map<String, PrunableArtifact> resolvedByEntryName = new HashMap<>();
+        for (PrunableArtifact artifact : resolvedArtifacts) {
+            PrunableArtifact existing = resolvedByEntryName.putIfAbsent(artifact.entryName(), artifact);
+            if (existing != null && !existing.equals(artifact)) {
+                throw new IOException("Multiple resolved Maven artifacts map to nested library '"
+                        + artifact.entryName() + "': " + existing.gav() + " and " + artifact.gav() + ".");
+            }
+        }
         Set<String> pruneEntryNames = new LinkedHashSet<>();
         Set<String> cocoVersions = new LinkedHashSet<>();
+        long nestedArchiveBytes = 0;
         var entries = source.entries();
         while (entries.hasMoreElements()) {
             JarEntry entry = entries.nextElement();
             if (!isBootLibrary(entry)) {
                 continue;
             }
-            List<ArtifactCoordinates> coordinates = readCoordinates(source, entry);
+            NestedLibraryMetadata metadata = readCoordinates(source, entry, limits, readBudget);
+            nestedArchiveBytes = CocoArchiveIo.addBounded(nestedArchiveBytes, metadata.uncompressedBytes(),
+                    limits.nestedArchiveBytes(), "Nested archive uncompressed bytes");
+            List<ArtifactCoordinates> coordinates = metadata.coordinates();
+            PrunableArtifact resolvedArtifact = resolvedByEntryName.get(entry.getName());
+            if (resolvedArtifact != null) {
+                String actualSha256;
+                try (InputStream inputStream = source.getInputStream(entry)) {
+                    actualSha256 = CocoArchiveIo.sha256Bounded(inputStream, limits.outerEntryBytes(),
+                            "Nested library '" + entry.getName() + "' SHA-256 input", readBudget);
+                }
+                if (!resolvedArtifact.sha256().equals(actualSha256)) {
+                    throw new IOException("Resolved Maven artifact SHA-256 does not match prunable nested library '"
+                            + entry.getName() + "' for " + resolvedArtifact.gav() + ".");
+                }
+                if (!resolvedArtifact.matches(metadata)) {
+                    String identitySource = coordinates.isEmpty() ? "artifact identity" : "Maven metadata";
+                    throw new IOException("Nested " + identitySource + " does not match resolved Maven GAV "
+                            + resolvedArtifact.gav() + " for prunable nested library '" + entry.getName() + "'.");
+                }
+                pruneEntryNames.add(entry.getName());
+            }
             List<ArtifactCoordinates> cocoCoordinates = coordinates.stream()
                     .filter(coordinate -> featureGroupId.equals(coordinate.groupId()))
                     .filter(coordinate -> coordinate.artifactId().startsWith("coco-"))
                     .toList();
-            if (looksLikeCocoLibrary(entry.getName()) && coordinates.isEmpty()) {
+            if (looksLikeCocoLibrary(entry.getName()) && coordinates.isEmpty() && resolvedArtifact == null) {
                 throw new IOException("Cannot verify Maven GAV for Coco-named nested library '"
                         + entry.getName() + "'.");
             }
@@ -80,27 +134,44 @@ final class CocoBootArchivePreflight {
         return new Result(Set.copyOf(pruneEntryNames));
     }
 
-    private static void validateManifestAndStructure(JarFile source) throws IOException {
-        Set<String> entryNames = new HashSet<>();
+    private static void validateManifestAndStructure(JarFile source, CocoArchiveLimits limits,
+            CocoArchiveIo.CumulativeBudget readBudget) throws IOException {
+        ArchiveEntryNames entryNames = new ArchiveEntryNames("outer archive", limits.entryNameBytes());
         boolean hasClasses = false;
         boolean hasLibraries = false;
+        int entryCount = 0;
+        long totalBytes = 0;
         var entries = source.entries();
         while (entries.hasMoreElements()) {
             JarEntry entry = entries.nextElement();
-            validateEntryName(entry.getName(), "outer archive");
-            if (!entryNames.add(entry.getName())) {
-                throw new IOException("Duplicate ZIP entry '" + entry.getName() + "' in outer archive.");
+            if (++entryCount > limits.entryCount()) {
+                throw new IOException("Outer archive exceeds ZIP entry count limit " + limits.entryCount() + ".");
             }
+            entryNames.add(entry.getName(), entry.isDirectory());
             if (isSignatureMaterial(entry)) {
                 throw new IOException("Refusing to rewrite signed archive containing '" + entry.getName() + "'.");
             }
             hasClasses |= !entry.isDirectory() && entry.getName().startsWith("BOOT-INF/classes/");
             hasLibraries |= isBootLibrary(entry);
+            if (!entry.isDirectory()) {
+                try (InputStream inputStream = source.getInputStream(entry)) {
+                    long entryBytes = CocoArchiveIo.drainBounded(inputStream, limits.outerEntryBytes(),
+                            "Outer ZIP entry '" + entry.getName() + "'", readBudget);
+                    totalBytes = CocoArchiveIo.addBounded(totalBytes, entryBytes, limits.outerTotalBytes(),
+                            "Outer archive uncompressed bytes");
+                }
+            }
         }
 
-        Manifest jarManifest = source.getManifest();
-        if (jarManifest == null) {
+        JarEntry manifestEntry = source.getJarEntry(JarFile.MANIFEST_NAME);
+        if (manifestEntry == null || manifestEntry.isDirectory()) {
             throw new IOException("Archive is not an executable Spring Boot JAR: missing META-INF/MANIFEST.MF.");
+        }
+        Manifest jarManifest;
+        try (InputStream inputStream = source.getInputStream(manifestEntry)) {
+            byte[] manifestBytes = CocoArchiveIo.readBounded(inputStream, limits.manifestBytes(),
+                    "Executable JAR manifest", readBudget);
+            jarManifest = new Manifest(new ByteArrayInputStream(manifestBytes));
         }
         Attributes attributes = jarManifest.getMainAttributes();
         String mainClass = attributes.getValue(Attributes.Name.MAIN_CLASS);
@@ -121,47 +192,133 @@ final class CocoBootArchivePreflight {
         }
     }
 
-    private static List<ArtifactCoordinates> readCoordinates(JarFile source, JarEntry libraryEntry)
+    private static NestedLibraryMetadata readCoordinates(JarFile source, JarEntry libraryEntry,
+            CocoArchiveLimits limits, CocoArchiveIo.CumulativeBudget readBudget)
             throws IOException {
         List<ArtifactCoordinates> coordinates = new ArrayList<>();
-        Set<String> entryNames = new HashSet<>();
-        try (ZipInputStream nestedJar = new ZipInputStream(source.getInputStream(libraryEntry))) {
+        ArchiveEntryNames entryNames = new ArchiveEntryNames(
+                "nested library '" + libraryEntry.getName() + "'", limits.entryNameBytes());
+        NestedManifestIdentity manifestIdentity = null;
+        int entryCount = 0;
+        long totalBytes = 0;
+        try (InputStream libraryInput = CocoArchiveIo.budgeted(source.getInputStream(libraryEntry), readBudget);
+                ZipInputStream nestedJar = new ZipInputStream(libraryInput)) {
             ZipEntry nestedEntry;
             while ((nestedEntry = nestedJar.getNextEntry()) != null) {
-                validateEntryName(nestedEntry.getName(), libraryEntry.getName());
-                if (!entryNames.add(nestedEntry.getName())) {
-                    throw new IOException("Duplicate ZIP entry '" + nestedEntry.getName()
-                            + "' in nested library '" + libraryEntry.getName() + "'.");
+                if (++entryCount > limits.entryCount()) {
+                    throw new IOException("Nested library '" + libraryEntry.getName()
+                            + "' exceeds ZIP entry count limit " + limits.entryCount() + ".");
                 }
-                if (nestedEntry.isDirectory() || !nestedEntry.getName().startsWith("META-INF/maven/")
-                        || !nestedEntry.getName().endsWith("/pom.properties")) {
+                entryNames.add(nestedEntry.getName(), nestedEntry.isDirectory());
+                boolean pomProperties = !nestedEntry.isDirectory()
+                        && nestedEntry.getName().startsWith("META-INF/maven/")
+                        && nestedEntry.getName().endsWith("/pom.properties");
+                boolean manifest = !nestedEntry.isDirectory()
+                        && JarFile.MANIFEST_NAME.equals(nestedEntry.getName());
+                long entryBytes;
+                byte[] content = null;
+                if (nestedEntry.isDirectory()) {
+                    entryBytes = 0;
+                }
+                else if (pomProperties) {
+                    content = CocoArchiveIo.readBounded(nestedJar,
+                            Math.min(limits.nestedEntryBytes(), limits.pomPropertiesBytes()),
+                            "Maven pom.properties '" + nestedEntry.getName() + "'", readBudget);
+                    entryBytes = content.length;
+                }
+                else if (manifest) {
+                    content = CocoArchiveIo.readBounded(nestedJar,
+                            Math.min(limits.nestedEntryBytes(), limits.manifestBytes()),
+                            "Nested JAR manifest '" + libraryEntry.getName() + "'", readBudget);
+                    entryBytes = content.length;
+                }
+                else {
+                    entryBytes = CocoArchiveIo.drainBounded(nestedJar, limits.nestedEntryBytes(),
+                            "Nested ZIP entry '" + nestedEntry.getName() + "'", readBudget);
+                }
+                totalBytes = CocoArchiveIo.addBounded(totalBytes, entryBytes, limits.nestedLibraryBytes(),
+                        "Nested library '" + libraryEntry.getName() + "' uncompressed bytes");
+                if (manifest) {
+                    manifestIdentity = parseManifestIdentity(content);
+                }
+                if (!pomProperties) {
                     continue;
                 }
-                Properties properties = new Properties();
-                properties.load(nestedJar);
-                String groupId = requiredCoordinate(properties, "groupId", libraryEntry.getName());
-                String artifactId = requiredCoordinate(properties, "artifactId", libraryEntry.getName());
-                String version = requiredCoordinate(properties, "version", libraryEntry.getName());
+                ArtifactCoordinates parsed = parseCoordinates(content, libraryEntry.getName(), limits);
+                String groupId = parsed.groupId();
+                String artifactId = parsed.artifactId();
+                String version = parsed.version();
                 String expectedEntryName = "META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties";
                 if (!expectedEntryName.equals(nestedEntry.getName())) {
                     throw new IOException("Maven GAV path '" + nestedEntry.getName()
                             + "' does not match coordinates " + groupId + ":" + artifactId
                             + " in nested library '" + libraryEntry.getName() + "'.");
                 }
-                coordinates.add(new ArtifactCoordinates(groupId, artifactId, version));
+                coordinates.add(parsed);
             }
         }
-        return List.copyOf(coordinates);
+        return new NestedLibraryMetadata(List.copyOf(coordinates), manifestIdentity, totalBytes);
     }
 
-    private static String requiredCoordinate(Properties properties, String name, String libraryEntryName)
+    private static NestedManifestIdentity parseManifestIdentity(byte[] content) throws IOException {
+        Manifest manifest = new Manifest(new ByteArrayInputStream(content));
+        Attributes attributes = manifest.getMainAttributes();
+        String symbolicName = attributes.getValue(BUNDLE_SYMBOLIC_NAME);
+        String implementationVersion = attributes.getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+        if (symbolicName == null || implementationVersion == null) {
+            return null;
+        }
+        return new NestedManifestIdentity(symbolicName, implementationVersion);
+    }
+
+    private static ArtifactCoordinates parseCoordinates(byte[] content, String libraryEntryName,
+            CocoArchiveLimits limits) throws IOException {
+        Map<String, String> coordinates = new LinkedHashMap<>();
+        String properties = new String(content, StandardCharsets.ISO_8859_1);
+        for (String line : properties.lines().toList()) {
+            if (line.isBlank() || line.startsWith("#") || line.startsWith("!")) {
+                continue;
+            }
+            int separator = line.indexOf('=');
+            if (separator <= 0 || line.endsWith("\\")) {
+                throw new IOException("Malformed Maven pom.properties in nested library '"
+                        + libraryEntryName + "'.");
+            }
+            String key = line.substring(0, separator);
+            String value = line.substring(separator + 1);
+            if (!MAVEN_COORDINATE_KEYS.contains(key)) {
+                throw new IOException("Unexpected Maven GAV key '" + key
+                        + "' in nested library '" + libraryEntryName + "'.");
+            }
+            if (coordinates.putIfAbsent(key,
+                    requiredCoordinate(value, key, libraryEntryName, limits.gavValueBytes())) != null) {
+                throw new IOException("Duplicate Maven GAV key '" + key
+                        + "' in nested library '" + libraryEntryName + "'.");
+            }
+        }
+        if (!coordinates.keySet().equals(MAVEN_COORDINATE_KEYS)) {
+            Set<String> missing = new LinkedHashSet<>(MAVEN_COORDINATE_KEYS);
+            missing.removeAll(coordinates.keySet());
+            throw new IOException("Incomplete Maven GAV in nested library '" + libraryEntryName
+                    + "': missing " + missing + ".");
+        }
+        return new ArtifactCoordinates(
+                coordinates.get("groupId"), coordinates.get("artifactId"), coordinates.get("version"));
+    }
+
+    private static String requiredCoordinate(String value, String name, String libraryEntryName, int byteLimit)
             throws IOException {
-        String value = properties.getProperty(name);
-        if (value == null || value.isBlank()) {
+        if (value.isBlank()) {
             throw new IOException("Incomplete Maven GAV in nested library '" + libraryEntryName
                     + "': missing " + name + ".");
         }
-        return value.trim();
+        if (!value.equals(value.trim()) || value.getBytes(StandardCharsets.UTF_8).length > byteLimit
+                || value.codePoints().anyMatch(Character::isISOControl)
+                || value.indexOf('/') >= 0 || value.indexOf('\\') >= 0) {
+            throw new IOException("Invalid Maven GAV value for " + name
+                    + " in nested library '" + libraryEntryName + "'.");
+        }
+        return value;
     }
 
     private static void validateCocoVersions(Set<String> versions, String expectedVersion) throws IOException {
@@ -224,10 +381,14 @@ final class CocoBootArchivePreflight {
         return fileName.startsWith("coco-");
     }
 
-    private static void validateEntryName(String name, String archiveDescription) throws IOException {
+    private static void validateEntryName(String name, String archiveDescription, int byteLimit) throws IOException {
         if (name == null || name.isEmpty() || name.indexOf('\\') >= 0 || name.startsWith("/")
                 || (name.length() > 1 && Character.isLetter(name.charAt(0)) && name.charAt(1) == ':')) {
             throw new IOException("Unsafe ZIP entry name '" + name + "' in " + archiveDescription + ".");
+        }
+        if (name.getBytes(StandardCharsets.UTF_8).length > byteLimit) {
+            throw new IOException("ZIP entry name exceeds byte limit " + byteLimit
+                    + " in " + archiveDescription + ".");
         }
         String value = name.endsWith("/") ? name.substring(0, name.length() - 1) : name;
         for (String segment : value.split("/", -1)) {
@@ -237,7 +398,98 @@ final class CocoBootArchivePreflight {
         }
     }
 
+    private static final class ArchiveEntryNames {
+
+        private final String archiveDescription;
+
+        private final int entryNameByteLimit;
+
+        private final Map<String, String> canonicalNames = new HashMap<>();
+
+        private final Set<String> files = new LinkedHashSet<>();
+
+        private final Set<String> directories = new LinkedHashSet<>();
+
+        private ArchiveEntryNames(String archiveDescription, int entryNameByteLimit) {
+            this.archiveDescription = archiveDescription;
+            this.entryNameByteLimit = entryNameByteLimit;
+        }
+
+        private void add(String name, boolean directory) throws IOException {
+            validateEntryName(name, this.archiveDescription, this.entryNameByteLimit);
+            String normalized = Normalizer.normalize(name, Normalizer.Form.NFC);
+            if (!name.equals(normalized)) {
+                throw new IOException("Non-NFC ZIP entry name '" + name + "' in "
+                        + this.archiveDescription + ".");
+            }
+            String canonicalName = normalized.toLowerCase(Locale.ROOT);
+            String existing = this.canonicalNames.putIfAbsent(canonicalName, name);
+            if (existing != null) {
+                if (existing.equals(name)) {
+                    throw new IOException("Duplicate ZIP entry '" + name + "' in "
+                            + this.archiveDescription + ".");
+                }
+                throw new IOException("Case-folded ZIP entry collision between '" + existing
+                        + "' and '" + name + "' in " + this.archiveDescription + ".");
+            }
+
+            String path = canonicalName.endsWith("/")
+                    ? canonicalName.substring(0, canonicalName.length() - 1)
+                    : canonicalName;
+            if (directory) {
+                if (this.files.contains(path)) {
+                    throw fileDirectoryConflict(name);
+                }
+                this.directories.add(path);
+            }
+            else {
+                if (this.directories.contains(path)) {
+                    throw fileDirectoryConflict(name);
+                }
+                this.files.add(path);
+            }
+            int separator = path.lastIndexOf('/');
+            while (separator > 0) {
+                String parent = path.substring(0, separator);
+                if (this.files.contains(parent)) {
+                    throw fileDirectoryConflict(name);
+                }
+                this.directories.add(parent);
+                separator = parent.lastIndexOf('/');
+            }
+        }
+
+        private IOException fileDirectoryConflict(String name) {
+            return new IOException("ZIP file/directory conflict at '" + name + "' in "
+                    + this.archiveDescription + ".");
+        }
+    }
+
     record Result(Set<String> pruneEntryNames) {
+    }
+
+    record PrunableArtifact(String entryName, String groupId, String artifactId, String version,
+            String sha256, boolean mavenRepositoryLayout) {
+
+        private boolean matches(NestedLibraryMetadata metadata) {
+            if (!metadata.coordinates().isEmpty()) {
+                return metadata.coordinates().stream().anyMatch(this::matches);
+            }
+            NestedManifestIdentity manifestIdentity = metadata.manifestIdentity();
+            return this.mavenRepositoryLayout || manifestIdentity != null
+                    && (this.groupId + "." + this.artifactId).equals(manifestIdentity.symbolicName())
+                    && this.version.equals(manifestIdentity.implementationVersion());
+        }
+
+        private boolean matches(ArtifactCoordinates coordinates) {
+            return this.groupId.equals(coordinates.groupId())
+                    && this.artifactId.equals(coordinates.artifactId())
+                    && this.version.equals(coordinates.version());
+        }
+
+        private String gav() {
+            return this.groupId + ":" + this.artifactId + ":" + this.version;
+        }
     }
 
     private record ArtifactCoordinates(String groupId, String artifactId, String version) {
@@ -245,5 +497,12 @@ final class CocoBootArchivePreflight {
         String gav() {
             return this.groupId + ":" + this.artifactId + ":" + this.version;
         }
+    }
+
+    private record NestedManifestIdentity(String symbolicName, String implementationVersion) {
+    }
+
+    private record NestedLibraryMetadata(List<ArtifactCoordinates> coordinates,
+            NestedManifestIdentity manifestIdentity, long uncompressedBytes) {
     }
 }

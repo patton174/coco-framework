@@ -34,13 +34,19 @@ public final class DumpProjectMojo extends AbstractMojo {
         try {
             Files.createDirectories(this.outputFile.toPath().getParent());
             Files.writeString(this.outputFile.toPath(), "dependencies=" + dependencies(this.project.getDependencies())
+                    + System.lineSeparator() + "dependencyOrder="
+                    + dependencyOrder(this.project.getDependencies())
                     + System.lineSeparator() + "artifacts=" + artifacts(this.project.getArtifacts())
                     + System.lineSeparator() + "dependencyArtifacts="
                     + artifacts(this.project.getDependencyArtifacts())
                     + System.lineSeparator() + "artifactOrder="
                     + artifactOrder(this.project.getArtifacts())
                     + System.lineSeparator() + "compileClasspath="
-                    + classpath(this.project.getCompileClasspathElements())
+                    + classpathOrder(this.project.getCompileClasspathElements())
+                    + System.lineSeparator() + "compileClasspathOrder="
+                    + classpathOrder(this.project.getCompileClasspathElements())
+                    + System.lineSeparator() + "runtimeClasspathOrder="
+                    + classpathOrder(this.project.getRuntimeClasspathElements())
                     + System.lineSeparator() + "testClasspath="
                     + classpath(this.project.getTestClasspathElements())
                     + System.lineSeparator() + "testClasspathOrder="
@@ -57,6 +63,13 @@ public final class DumpProjectMojo extends AbstractMojo {
                 .map(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId() + ":"
                         + dependency.getVersion() + ":" + dependency.getScope())
                 .sorted()
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private static String dependencyOrder(List<Dependency> dependencies) {
+        return dependencies.stream()
+                .map(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId() + ":"
+                        + dependency.getVersion() + ":" + dependency.getScope())
                 .collect(Collectors.joining(",", "[", "]"));
     }
 

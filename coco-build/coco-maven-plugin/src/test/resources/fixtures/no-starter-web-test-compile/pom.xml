@@ -82,6 +82,11 @@
                     <artifactId>deep-root</artifactId>
                     <version>1.0.0</version>
                 </dependency>
+                <dependency>
+                    <groupId>io.github.coco.fixture.mediation</groupId>
+                    <artifactId>same-depth-root</artifactId>
+                    <version>1.0.0</version>
+                </dependency>
             </dependencies>
         </profile>
     </profiles>

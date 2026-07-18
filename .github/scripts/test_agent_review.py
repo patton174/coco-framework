@@ -3173,6 +3173,85 @@ class AgentReviewTests(unittest.TestCase):
         ):
             self.assertFalse((workflow_root / legacy_name).exists(), legacy_name)
 
+    def test_basic_sample_archive_gate_matches_feature_plan(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/reusable-tests.yml"
+        ).read_text(encoding="utf-8")
+        basic_archive_gate = workflow.split(
+            "      - name: Verify sample feature pruning\n", 1
+        )[1].split("      - name: Verify sample business flow with Python\n", 1)[0]
+
+        self.assertIn('assert states["codegen"] is False', basic_archive_gate)
+        self.assertIn('assert states["mybatis-plus"] is False', basic_archive_gate)
+        expected_removed_libraries = (
+            "BOOT-INF/lib/HikariCP-7.0.2.jar",
+            "BOOT-INF/lib/coco-data-permission-1.0.0-SNAPSHOT.jar",
+            "BOOT-INF/lib/coco-feature-codegen-1.0.0-SNAPSHOT.jar",
+            "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+            "BOOT-INF/lib/coco-tenant-1.0.0-SNAPSHOT.jar",
+            "BOOT-INF/lib/freemarker-2.3.34.jar",
+            "BOOT-INF/lib/jsqlparser-4.9.jar",
+            "BOOT-INF/lib/mybatis-3.5.19.jar",
+            "BOOT-INF/lib/mybatis-plus-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-annotation-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-core-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-extension-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-jsqlparser-4.9-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-jsqlparser-common-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-spring-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-spring-boot-autoconfigure-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-spring-boot-native-image-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.17.jar",
+            "BOOT-INF/lib/mybatis-spring-4.0.0.jar",
+            "BOOT-INF/lib/spring-boot-jdbc-4.1.0.jar",
+            "BOOT-INF/lib/spring-boot-persistence-4.1.0.jar",
+            "BOOT-INF/lib/spring-boot-sql-4.1.0.jar",
+            "BOOT-INF/lib/spring-boot-transaction-4.1.0.jar",
+            "BOOT-INF/lib/spring-jdbc-7.0.8.jar",
+            "BOOT-INF/lib/spring-tx-7.0.8.jar",
+        )
+        self.assertEqual(25, len(expected_removed_libraries))
+        self.assertEqual(tuple(sorted(expected_removed_libraries)), expected_removed_libraries)
+        for library in expected_removed_libraries:
+            self.assertIn(f'"{library}",', basic_archive_gate)
+        self.assertIn("added_libraries == set()", basic_archive_gate)
+        self.assertIn(
+            "tuple(sorted(removed_libraries)) == expected_removed_libraries",
+            basic_archive_gate,
+        )
+        self.assertIn(
+            "tuple(sorted(removed_classpath)) == expected_removed_libraries",
+            basic_archive_gate,
+        )
+        self.assertIn(
+            "tuple(sorted(removed_layers)) == expected_removed_libraries",
+            basic_archive_gate,
+        )
+        self.assertIn("len(names) == len(set(names))", basic_archive_gate)
+        self.assertIn("len(references) == len(set(references))", basic_archive_gate)
+        self.assertIn("current_classpath == current_libraries", basic_archive_gate)
+        self.assertIn("current_layers == current_libraries", basic_archive_gate)
+        self.assertIn("current_classpath == current_layers", basic_archive_gate)
+        self.assertNotIn(
+            "grep 'BOOT-INF/lib/coco-feature-codegen-'", basic_archive_gate
+        )
+
+        full_archive_gate = workflow.split(
+            "      - name: Verify full sample feature composition\n", 1
+        )[1].split("      - name: Verify full sample business flow with Python\n", 1)[0]
+        self.assertIn(
+            "grep 'BOOT-INF/lib/coco-feature-codegen-'", full_archive_gate
+        )
+        self.assertIn("len(codegen_libraries) == 1", full_archive_gate)
+        self.assertIn(
+            'codegen_library in index_references(full, "BOOT-INF/classpath.idx")',
+            full_archive_gate,
+        )
+        self.assertIn(
+            'codegen_library in index_references(full, "BOOT-INF/layers.idx")',
+            full_archive_gate,
+        )
+
     @staticmethod
     def _release_workflow() -> str:
         return (

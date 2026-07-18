@@ -59,7 +59,17 @@ live under `coco-features/coco-*`; test support lives under
 
 New manifests and dependency injection use canonical artifact IDs. Each renamed
 feature also declares its old ID as an equivalent prune alias. Existing
-MyBatis-Plus transitive prune IDs remain.
+MyBatis-Plus transitive pruning remains, but ownership is recomputed from a
+staged Maven resolution with disabled Coco roots excluded. Package pruning may
+remove only the exact resolver-proven GAV or byte-identical artifact; a direct
+or shared third-party dependency that remains reachable must be retained.
+
+The unchanged `coco-feature-codegen`, `CODEGEN`, and `coco:generate` contract
+preserves the published API and explicit build-time goal. It does not require a
+runtime archive to retain Codegen after the feature plan disables it. In
+particular, disabling MyBatis-Plus also disables dependent Codegen, so the basic
+sample archive omits both closures while compatibility consumers continue to
+exercise the Codegen API and Maven goal separately.
 
 The build plugin must:
 
