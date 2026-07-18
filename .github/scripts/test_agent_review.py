@@ -304,7 +304,7 @@ class AgentReviewTests(unittest.TestCase):
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
-        self.assertEqual(48_000, limits["policy_chars"])
+        self.assertEqual(100_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
@@ -7058,6 +7058,117 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertLess(
                         sum(len(source["content"]) for source in sources), limit
                     )
+
+    def test_production_policy_budget_covers_issue_221_required_set(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        changed_paths = [
+            ".github/release/release-artifact-expectations.json",
+            ".github/scripts/release_file_count_preflight.py",
+            ".github/scripts/test_agent_review.py",
+            ".github/scripts/test_release_file_count_preflight.py",
+            ".github/workflows/release.yml",
+            ".github/workflows/reusable-static-analysis.yml",
+            "pom.xml",
+        ]
+
+        files = [
+            {
+                "filename": path,
+                "status": "modified",
+                "additions": 1,
+                "deletions": 1,
+                "changes": 2,
+                "patch": "@@ -1 +1 @@\n-old\n+new",
+            }
+            for path in changed_paths
+        ]
+        context = review.build_context(
+            FakeContextClient({}),
+            REPOSITORY,
+            {
+                "number": 221,
+                "title": "Central capacity preflight",
+                "body": "",
+                "base": {"sha": BASE_SHA},
+                "head": {"sha": HEAD_SHA},
+            },
+            files,
+            [],
+            None,
+            repository_root,
+            value,
+        )
+        sources = context["trusted"]["policy"]
+
+        self.assertFalse(
+            [
+                omission
+                for omission in context["omissions"]
+                if "trusted policy" in omission
+            ]
+        )
+        self.assertEqual(
+            [
+                "AGENTS.md",
+                ".github/agent-review/policy.md",
+                "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md",
+                "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md",
+                "coco-support/coco-document/architecture/module-layout.md",
+            ],
+            [source["source"] for source in sources],
+        )
+        source_sizes = {source["source"]: len(source["content"]) for source in sources}
+        self.assertEqual(
+            3_785,
+            source_sizes["coco-support/coco-document/architecture/module-layout.md"],
+        )
+        self.assertEqual(50_905, sum(source_sizes.values()))
+        self.assertEqual(100_000, review.normalized_limits(value)["policy_chars"])
+
+    def test_production_policy_budget_covers_all_routes_and_fails_near_overflow(
+        self,
+    ) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        changed_paths = [
+            ".github/scripts/test_agent_review.py",
+            "pom.xml",
+            "coco-api/src/main/java/io/github/coco/api/CocoFeature.java",
+            "coco-features/coco-feature-web/src/main/java/io/github/coco/feature/web/CocoWebAutoConfiguration.java",
+            "coco-features/coco-feature-audit/src/main/java/io/github/coco/feature/audit/CocoAudit.java",
+            "coco-foundation/coco-logging/src/main/java/io/github/coco/logging/CocoLogging.java",
+            "coco-build/coco-maven-plugin/src/main/java/io/github/coco/maven/CocoGenerateMojo.java",
+        ]
+        expected_paths = list(
+            dict.fromkeys(
+                [
+                    *value["protected_policy_paths"],
+                    *(
+                        path
+                        for mapping in value["spec_path_mappings"]
+                        for path in mapping["spec_paths"]
+                    ),
+                ]
+            )
+        )
+        omissions: list[str] = []
+
+        sources = review.collect_policy(
+            repository_root, value, changed_paths, omissions
+        )
+        required_chars = sum(len(source["content"]) for source in sources)
+
+        self.assertEqual([], omissions)
+        self.assertEqual(expected_paths, [source["source"] for source in sources])
+        self.assertEqual(95_765, required_chars)
+        self.assertLess(required_chars, review.normalized_limits(value)["policy_chars"])
+
+        value["context_budget"]["protected_policy_and_specs_limit"] = required_chars - 1
+        with self.assertRaisesRegex(
+            review.ReviewError, "Required trusted policy exceeds the context budget"
+        ):
+            review.collect_policy(repository_root, value, changed_paths, [])
 
 
 if __name__ == "__main__":

@@ -100,7 +100,7 @@
     "unit": "unicode_characters",
     "pr_diff_hard_limit": 180000,
     "specialist_total_limit": 384000,
-    "protected_policy_and_specs_limit": 48000,
+    "protected_policy_and_specs_limit": 100000,
     "pr_intent_limit": 8000,
     "patch_limit": 180000,
     "code_context_total_limit": 60000,
