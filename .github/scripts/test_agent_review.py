@@ -7047,9 +7047,8 @@ class AgentReviewTests(unittest.TestCase):
             capture_output=True,
         ).stdout.decode("utf-8", errors="replace")
 
-    def production_policy_route_fixture(
-        self,
-    ) -> tuple[Path, dict, str, list[str]]:
+    @staticmethod
+    def production_policy_route_inputs() -> tuple[Path, dict, str]:
         repository_root = Path(__file__).resolve().parents[2]
         value = review.load_config(repository_root / ".github/agent-review/config.json")
         head_sha = subprocess.run(
@@ -7059,6 +7058,11 @@ class AgentReviewTests(unittest.TestCase):
             capture_output=True,
             text=True,
         ).stdout.strip()
+        return repository_root, value, head_sha
+
+    def production_policy_route_representatives(
+        self, repository_root: Path, value: dict, head_sha: str
+    ) -> list[str]:
         tracked = subprocess.run(
             ["git", "ls-tree", "-r", "--name-only", "-z", head_sha],
             cwd=repository_root,
@@ -7084,6 +7088,15 @@ class AgentReviewTests(unittest.TestCase):
             representative = matches[0]
             representatives.append(representative)
             used.add(representative)
+        return representatives
+
+    def production_policy_route_fixture(
+        self,
+    ) -> tuple[Path, dict, str, list[str]]:
+        repository_root, value, head_sha = self.production_policy_route_inputs()
+        representatives = self.production_policy_route_representatives(
+            repository_root, value, head_sha
+        )
         return repository_root, value, head_sha, representatives
 
     @staticmethod
@@ -7169,16 +7182,20 @@ class AgentReviewTests(unittest.TestCase):
     def test_production_policy_route_representatives_ignore_worktree_state(
         self,
     ) -> None:
+        repository_root, value, head_sha = self.production_policy_route_inputs()
         with (
             patch.object(
                 Path, "is_file", side_effect=AssertionError("worktree")
             ) as is_file,
             patch.object(Path, "stat", side_effect=AssertionError("worktree")) as stat,
         ):
-            _, _, first_head, first = self.production_policy_route_fixture()
-            _, _, second_head, second = self.production_policy_route_fixture()
+            first = self.production_policy_route_representatives(
+                repository_root, value, head_sha
+            )
+            second = self.production_policy_route_representatives(
+                repository_root, value, head_sha
+            )
 
-        self.assertEqual(first_head, second_head)
         self.assertEqual(first, second)
         is_file.assert_not_called()
         stat.assert_not_called()
