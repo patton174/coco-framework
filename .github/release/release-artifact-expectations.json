@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "group_id": "io.github.patton174",
+  "checksum_suffixes": [".md5", ".sha1", ".sha256", ".sha512"],
+  "modules": [
+    {"path": ".", "artifact_id": "coco-framework", "packaging": "pom", "artifacts": ["pom"]},
+    {"path": "coco-build/coco-dependencies", "artifact_id": "coco-dependencies", "packaging": "pom", "artifacts": ["pom"]},
+    {"path": "coco-build/coco-maven-plugin", "artifact_id": "coco-maven-plugin", "packaging": "maven-plugin", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-build/coco-parent", "artifact_id": "coco-parent", "packaging": "pom", "artifacts": ["pom"]},
+    {"path": "coco-features", "artifact_id": "coco-features", "packaging": "pom", "artifacts": ["pom"]},
+    {"path": "coco-features/coco-feature-audit", "artifact_id": "coco-feature-audit", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-features/coco-feature-codegen", "artifact_id": "coco-feature-codegen", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-features/coco-feature-data-permission", "artifact_id": "coco-feature-data-permission", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-features/coco-feature-mybatis-plus", "artifact_id": "coco-feature-mybatis-plus", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-features/coco-feature-openapi", "artifact_id": "coco-feature-openapi", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-features/coco-feature-runtime", "artifact_id": "coco-feature-runtime", "packaging": "jar", "artifacts": ["pom", "main"]},
+    {"path": "coco-features/coco-feature-security", "artifact_id": "coco-feature-security", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-features/coco-feature-tenant", "artifact_id": "coco-feature-tenant", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-features/coco-feature-web", "artifact_id": "coco-feature-web", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-foundation/coco-api", "artifact_id": "coco-api", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-foundation/coco-context", "artifact_id": "coco-context", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-foundation/coco-exception", "artifact_id": "coco-exception", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-foundation/coco-feature-model", "artifact_id": "coco-feature-model", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-foundation/coco-i18n", "artifact_id": "coco-i18n", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-foundation/coco-logging", "artifact_id": "coco-logging", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-spring/coco-config", "artifact_id": "coco-config", "packaging": "jar", "artifacts": ["pom", "main"]},
+    {"path": "coco-spring/coco-spring-boot-autoconfigure", "artifact_id": "coco-spring-boot-autoconfigure", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]},
+    {"path": "coco-spring/coco-spring-boot-starter", "artifact_id": "coco-spring-boot-starter", "packaging": "jar", "artifacts": ["pom", "main"]},
+    {"path": "coco-support/coco-test", "artifact_id": "coco-test", "packaging": "jar", "artifacts": ["pom", "main", "sources", "javadoc"]}
+  ]
+}
