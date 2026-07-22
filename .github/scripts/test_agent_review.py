@@ -304,7 +304,7 @@ class AgentReviewTests(unittest.TestCase):
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
-        self.assertEqual(48_000, limits["policy_chars"])
+        self.assertEqual(100_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
@@ -7038,26 +7038,222 @@ class AgentReviewTests(unittest.TestCase):
             )
         self.assertEqual(1, client.calls)
 
-    def test_production_policy_routes_fit_without_omissions(self) -> None:
+    @staticmethod
+    def head_blob_text(repository_root: Path, head_sha: str, path: str) -> str:
+        return subprocess.run(
+            ["git", "cat-file", "blob", f"{head_sha}:{path}"],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+        ).stdout.decode("utf-8", errors="replace")
+
+    @staticmethod
+    def production_policy_route_inputs() -> tuple[Path, dict, str]:
         repository_root = Path(__file__).resolve().parents[2]
         value = review.load_config(repository_root / ".github/agent-review/config.json")
-        limit = review.normalized_limits(value)["policy_chars"]
+        head_sha = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return repository_root, value, head_sha
+
+    def production_policy_route_representatives(
+        self, repository_root: Path, value: dict, head_sha: str
+    ) -> list[str]:
+        tracked = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "-z", head_sha],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+        ).stdout.split(b"\0")
+        tracked_files = sorted(path.decode("utf-8") for path in tracked if path)
+        representatives: list[str] = []
+        used: set[str] = set()
         for index, mapping in enumerate(value["spec_path_mappings"]):
-            for pattern in mapping["path_globs"]:
-                changed_path = (
-                    pattern.replace("**", "probe")
-                    .replace("*", "probe")
-                    .replace("?", "x")
+            matches = [
+                path
+                for path in tracked_files
+                if path not in used
+                and any(
+                    review.fnmatch.fnmatch(path, pattern)
+                    for pattern in mapping["path_globs"]
                 )
-                with self.subTest(route=index, changed_path=changed_path):
-                    omissions: list[str] = []
-                    sources = review.collect_policy(
-                        repository_root, value, [changed_path], omissions
-                    )
-                    self.assertEqual([], omissions)
-                    self.assertLess(
-                        sum(len(source["content"]) for source in sources), limit
-                    )
+            ]
+            self.assertTrue(
+                matches, f"Production policy route {index} has no tracked path"
+            )
+            representative = matches[0]
+            representatives.append(representative)
+            used.add(representative)
+        return representatives
+
+    def production_policy_route_fixture(
+        self,
+    ) -> tuple[Path, dict, str, list[str]]:
+        repository_root, value, head_sha = self.production_policy_route_inputs()
+        representatives = self.production_policy_route_representatives(
+            repository_root, value, head_sha
+        )
+        return repository_root, value, head_sha, representatives
+
+    @staticmethod
+    def expected_production_policy_paths(
+        value: dict, changed_paths: list[str]
+    ) -> list[str]:
+        expected = list(value["protected_policy_paths"])
+        for mapping in value["spec_path_mappings"]:
+            if any(
+                review.fnmatch.fnmatch(path, pattern)
+                for path in changed_paths
+                for pattern in mapping["path_globs"]
+            ):
+                expected.extend(mapping["spec_paths"])
+        return list(dict.fromkeys(expected))
+
+    @staticmethod
+    def build_production_policy_context(
+        repository_root: Path,
+        value: dict,
+        head_sha: str,
+        changed_paths: list[str],
+    ) -> dict:
+        head_files = {
+            path: AgentReviewTests.head_blob_text(repository_root, head_sha, path)
+            for path in changed_paths
+        }
+        files = [
+            {
+                "filename": path,
+                "status": "modified",
+                "additions": 0,
+                "deletions": 0,
+                "changes": 0,
+            }
+            for path in changed_paths
+        ]
+        return review.build_context(
+            FakeContextClient(head_files),
+            REPOSITORY,
+            {
+                "number": 223,
+                "title": "Production policy route budget",
+                "body": "",
+                "base": {"sha": BASE_SHA},
+                "head": {"sha": head_sha},
+            },
+            files,
+            [],
+            "",
+            repository_root,
+            value,
+        )
+
+    def test_production_policy_routes_fit_without_omissions(self) -> None:
+        repository_root, value, head_sha, representatives = (
+            self.production_policy_route_fixture()
+        )
+        limit = review.normalized_limits(value)["policy_chars"]
+        for index, changed_path in enumerate(representatives):
+            with self.subTest(route=index, changed_path=changed_path):
+                context = self.build_production_policy_context(
+                    repository_root, value, head_sha, [changed_path]
+                )
+                sources = context["trusted"]["policy"]
+                expected = self.expected_production_policy_paths(value, [changed_path])
+                self.assertFalse(
+                    [
+                        omission
+                        for omission in context["omissions"]
+                        if "trusted policy" in omission
+                    ]
+                )
+                self.assertEqual(expected, [source["source"] for source in sources])
+                self.assertTrue(
+                    set(value["spec_path_mappings"][index]["spec_paths"])
+                    <= set(expected)
+                )
+                self.assertLess(
+                    sum(len(source["content"]) for source in sources), limit
+                )
+
+    def test_production_policy_route_representatives_ignore_worktree_state(
+        self,
+    ) -> None:
+        repository_root, value, head_sha = self.production_policy_route_inputs()
+        with (
+            patch.object(
+                Path, "is_file", side_effect=AssertionError("worktree")
+            ) as is_file,
+            patch.object(Path, "stat", side_effect=AssertionError("worktree")) as stat,
+        ):
+            first = self.production_policy_route_representatives(
+                repository_root, value, head_sha
+            )
+            second = self.production_policy_route_representatives(
+                repository_root, value, head_sha
+            )
+
+        self.assertEqual(first, second)
+        is_file.assert_not_called()
+        stat.assert_not_called()
+
+    def test_production_policy_budget_covers_all_routes_and_fails_near_overflow(
+        self,
+    ) -> None:
+        repository_root, value, head_sha, changed_paths = (
+            self.production_policy_route_fixture()
+        )
+        expected_paths = list(
+            dict.fromkeys(
+                [
+                    *value["protected_policy_paths"],
+                    *(
+                        path
+                        for mapping in value["spec_path_mappings"]
+                        for path in mapping["spec_paths"]
+                    ),
+                ]
+            )
+        )
+        context = self.build_production_policy_context(
+            repository_root, value, head_sha, changed_paths
+        )
+        sources = context["trusted"]["policy"]
+        required_chars = sum(len(source["content"]) for source in sources)
+        limit = review.normalized_limits(value)["policy_chars"]
+        headroom = limit - required_chars
+
+        self.assertFalse(
+            [
+                omission
+                for omission in context["omissions"]
+                if "trusted policy" in omission
+            ]
+        )
+        self.assertEqual(expected_paths, [source["source"] for source in sources])
+        for source in sources:
+            self.assertEqual(
+                (repository_root / source["source"]).read_text(
+                    encoding="utf-8", errors="replace"
+                ),
+                source["content"],
+            )
+        self.assertEqual(100_000, limit)
+        self.assertGreater(headroom, 0)
+
+        overflow_value = json.loads(json.dumps(value))
+        overflow_value["context_budget"]["protected_policy_and_specs_limit"] = (
+            required_chars - 1
+        )
+        with self.assertRaisesRegex(
+            review.ReviewError, "Required trusted policy exceeds the context budget"
+        ):
+            self.build_production_policy_context(
+                repository_root, overflow_value, head_sha, changed_paths
+            )
 
 
 if __name__ == "__main__":
