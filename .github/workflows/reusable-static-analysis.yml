@@ -22,14 +22,14 @@ jobs:
           persist-credentials: false
 
       - name: Set up JDK 21 toolchain
-        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
       - name: Set up Go for actionlint
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 'stable'
           cache: false
@@ -43,7 +43,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r .github/requirements/static-analysis.txt
 
       - name: Set up Node.js for README protocol tests
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: '24'
 
