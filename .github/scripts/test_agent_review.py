@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import traceback
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -84,6 +85,12 @@ def model_env(
         "COCO_AGENT_MODEL": "review-model",
         "COCO_AGENT_MODEL_API_KEY": "test-api-key",
     }
+
+
+def model_configuration_env() -> dict[str, str]:
+    environment = model_env("openai-responses")
+    del environment["COCO_AGENT_MODEL_API_KEY"]
+    return environment
 
 
 class FakeModelResponse:
@@ -3197,6 +3204,19 @@ class AgentReviewTests(unittest.TestCase):
             "\n  no-secret-publisher:\n", 1
         )[0]
         no_secret = review_workflow.split("\n  no-secret-publisher:\n", 1)[1]
+        specialists = review_workflow.split("\n  specialists:\n", 1)[1].split(
+            "\n  verifiers:\n", 1
+        )[0]
+        verifiers = review_workflow.split("\n  verifiers:\n", 1)[1].split(
+            "\n  chair:\n", 1
+        )[0]
+        chair = review_workflow.split("\n  chair:\n", 1)[1].split(
+            "\n  publisher-admission:\n", 1
+        )[0]
+        model_environment = "    environment: coco-agent-model\n"
+        self.assertEqual(3, review_workflow.count(model_environment))
+        for model_job in (specialists, verifiers, chair):
+            self.assertEqual(1, model_job.count(model_environment))
         for name, section in (
             ("direct no-secret call", direct_no_secret),
             ("prepare", prepare),
@@ -3206,6 +3226,7 @@ class AgentReviewTests(unittest.TestCase):
         ):
             for forbidden in NON_MODEL_JOB_FORBIDDEN_ENV:
                 self.assertNotIn(forbidden, section, f"{name}: {forbidden}")
+            self.assertNotIn(model_environment, section, name)
         self.assertIn("environment: coco-agent", trusted)
         self.assertIn(
             "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
@@ -3282,6 +3303,8 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("actions/cache", deferred_workflow)
         self.assertNotIn("refs/pull/", deferred_workflow)
         self.assertNotIn("/merge", deferred_workflow)
+        self.assertNotIn(model_environment, direct_workflow)
+        self.assertNotIn(model_environment, deferred_workflow)
 
         gate_workflow = (workflow_root / "agent-issue-gate.yml").read_text(
             encoding="utf-8"
@@ -3302,6 +3325,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("agent-review-publisher-", gate_workflow)
         self.assertNotIn("ANTHROPIC", gate_workflow)
         self.assertNotIn("COCO_AGENT_APP_PRIVATE_KEY", gate_workflow)
+        self.assertNotIn(model_environment, gate_workflow)
         for forbidden in NON_MODEL_JOB_FORBIDDEN_ENV:
             self.assertNotIn(forbidden, gate_workflow)
 
@@ -4687,16 +4711,7 @@ class AgentReviewTests(unittest.TestCase):
                     return combined_ownership_status(42, 2)
                 raise AssertionError(f"Unexpected GET path: {path}")
 
-        metadata = {
-            "repository": REPOSITORY,
-            "pr_number": 1,
-            "base_sha": BASE_SHA,
-            "head_sha": HEAD_SHA,
-            "trusted": True,
-            "ignored": False,
-            "run_id": "42",
-            "run_attempt": "2",
-        }
+        metadata = trusted_metadata(run_attempt=2)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             metadata_path = root / "metadata.json"
@@ -4705,7 +4720,11 @@ class AgentReviewTests(unittest.TestCase):
             with (
                 patch.object(review, "GitHubClient", return_value=FakeClient()),
                 patch("builtins.print"),
-                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+                patch.dict(
+                    "os.environ",
+                    {"GH_TOKEN": "token", **model_configuration_env()},
+                    clear=True,
+                ),
             ):
                 result = review.command_admit_publisher(
                     SimpleNamespace(metadata=metadata_path, output=output_path)
@@ -4716,17 +4735,82 @@ class AgentReviewTests(unittest.TestCase):
         self.assertTrue(admission["admitted"])
         self.assertEqual("current-run-admitted", admission["reason"])
 
+    def test_publisher_admission_requires_complete_model_configuration(self) -> None:
+        complete = model_configuration_env()
+        cases = [("all-missing", {})]
+        for missing in complete:
+            cases.append(
+                (
+                    f"missing-{missing}",
+                    {
+                        name: value
+                        for name, value in complete.items()
+                        if name != missing
+                    },
+                )
+            )
+
+        for name, environment in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                metadata_path = root / "metadata.json"
+                output_path = root / "admission.json"
+                review.write_json(metadata_path, trusted_metadata())
+                with (
+                    patch.dict("os.environ", environment, clear=True),
+                    patch.object(
+                        review,
+                        "GitHubClient",
+                        side_effect=AssertionError(
+                            "Invalid model configuration must fail before GitHub access."
+                        ),
+                    ),
+                ):
+                    with self.assertRaises(review.ReviewError):
+                        review.command_admit_publisher(
+                            SimpleNamespace(
+                                metadata=metadata_path,
+                                output=output_path,
+                            )
+                        )
+                self.assertFalse(output_path.exists())
+
+    def test_publisher_admission_requires_exact_metadata_model_digest(self) -> None:
+        for name, digest in (("missing", None), ("mismatch", "f" * 64)):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                metadata_path = root / "metadata.json"
+                output_path = root / "admission.json"
+                metadata = trusted_metadata()
+                if digest is None:
+                    del metadata["model_config_sha256"]
+                else:
+                    metadata["model_config_sha256"] = digest
+                review.write_json(metadata_path, metadata)
+                with (
+                    patch.dict("os.environ", model_configuration_env(), clear=True),
+                    patch.object(
+                        review,
+                        "GitHubClient",
+                        side_effect=AssertionError(
+                            "Invalid model digest must fail before GitHub access."
+                        ),
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        review.ReviewError,
+                        "model configuration binding changed",
+                    ):
+                        review.command_admit_publisher(
+                            SimpleNamespace(
+                                metadata=metadata_path,
+                                output=output_path,
+                            )
+                        )
+                self.assertFalse(output_path.exists())
+
     def test_publisher_admission_rejects_stale_head_and_newer_run(self) -> None:
-        metadata = {
-            "repository": REPOSITORY,
-            "pr_number": 1,
-            "base_sha": BASE_SHA,
-            "head_sha": HEAD_SHA,
-            "trusted": True,
-            "ignored": False,
-            "run_id": "42",
-            "run_attempt": "1",
-        }
+        metadata = trusted_metadata()
 
         for case, current_head, statuses, expected_reason in (
             (
@@ -4768,6 +4852,7 @@ class AgentReviewTests(unittest.TestCase):
                     with (
                         patch.object(review, "GitHubClient", return_value=FakeClient()),
                         patch("builtins.print"),
+                        patch.dict("os.environ", model_configuration_env(), clear=True),
                     ):
                         result = review.command_admit_publisher(
                             SimpleNamespace(metadata=metadata_path, output=output_path)
@@ -4797,16 +4882,7 @@ class AgentReviewTests(unittest.TestCase):
                     return combined_ownership_status(42)
                 raise AssertionError(f"Unexpected GET path: {path}")
 
-        metadata = {
-            "repository": REPOSITORY,
-            "pr_number": 1,
-            "base_sha": BASE_SHA,
-            "head_sha": HEAD_SHA,
-            "trusted": True,
-            "ignored": False,
-            "run_id": "42",
-            "run_attempt": "1",
-        }
+        metadata = trusted_metadata()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             metadata_path = root / "metadata.json"
@@ -4817,6 +4893,7 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review, "GitHubClient", return_value=client),
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
+                patch.dict("os.environ", model_configuration_env(), clear=True),
             ):
                 result = review.command_admit_publisher(
                     SimpleNamespace(metadata=metadata_path, output=output_path)
@@ -4839,16 +4916,7 @@ class AgentReviewTests(unittest.TestCase):
                 self.attempts += 1
                 raise review.GitHubTransientError("temporary")
 
-        metadata = {
-            "repository": REPOSITORY,
-            "pr_number": 1,
-            "base_sha": BASE_SHA,
-            "head_sha": HEAD_SHA,
-            "trusted": True,
-            "ignored": False,
-            "run_id": "42",
-            "run_attempt": "1",
-        }
+        metadata = trusted_metadata()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             metadata_path = root / "metadata.json"
@@ -4859,6 +4927,7 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review, "GitHubClient", return_value=client),
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
+                patch.dict("os.environ", model_configuration_env(), clear=True),
             ):
                 with self.assertRaisesRegex(review.ReviewError, "failed after"):
                     review.command_admit_publisher(
@@ -6263,6 +6332,7 @@ class AgentReviewTests(unittest.TestCase):
                         review, "GitHubClient", return_value=AdmissionClient()
                     ),
                     patch("builtins.print"),
+                    patch.dict("os.environ", model_configuration_env(), clear=True),
                 ):
                     review.command_admit_publisher(
                         SimpleNamespace(metadata=metadata_path, output=output_path)
@@ -6303,6 +6373,7 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review, "GitHubClient", return_value=recovering),
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
+                patch.dict("os.environ", model_configuration_env(), clear=True),
             ):
                 review.command_admit_publisher(
                     SimpleNamespace(
@@ -6317,6 +6388,7 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review, "GitHubClient", return_value=failing),
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
+                patch.dict("os.environ", model_configuration_env(), clear=True),
             ):
                 with self.assertRaisesRegex(review.ReviewError, "failed after"):
                     review.command_admit_publisher(
@@ -6906,6 +6978,12 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_openai_client_handles_refusal_and_incomplete_responses(self) -> None:
         incomplete = openai_envelope('{"ok":', "incomplete", "max_output_tokens")
+        empty_output = {
+            "object": "response",
+            "status": "incomplete",
+            "output": [],
+            "incomplete_details": {"reason": "max_output_tokens"},
+        }
         refusal = openai_envelope("", "incomplete", "max_output_tokens")
         refusal["output"][1]["content"] = [
             {"type": "unexpected"},
@@ -6915,6 +6993,7 @@ class AgentReviewTests(unittest.TestCase):
         content_filtered = openai_envelope("", "incomplete", "content_filter")
         cases = [
             (incomplete, review.RetryableModelOutputError, "max_tokens"),
+            (empty_output, review.RetryableModelOutputError, "max_tokens"),
             (refusal, review.ReviewError, "refused"),
             (content_filtered, review.ReviewError, "content_filter"),
         ]
@@ -7012,6 +7091,57 @@ class AgentReviewTests(unittest.TestCase):
                         raised.exception, review.RetryableModelOutputError
                     )
 
+    def _assert_openai_message_less_max_output_retries(
+        self, output: list[dict]
+    ) -> None:
+        incomplete = {
+            "object": "response",
+            "status": "incomplete",
+            "output": output,
+            "incomplete_details": {"reason": "max_output_tokens"},
+        }
+        responses = [
+            FakeModelResponse(json.dumps(incomplete).encode()),
+            FakeModelResponse(
+                json.dumps(openai_envelope('{"required":true}')).encode()
+            ),
+        ]
+        requests: list[bytes | None] = []
+
+        def urlopen(request: object, timeout: int) -> FakeModelResponse:
+            del timeout
+            requests.append(request.data)
+            return responses.pop(0)
+
+        with (
+            patch.dict("os.environ", model_env("openai-responses"), clear=True),
+            patch("urllib.request.urlopen", side_effect=urlopen),
+        ):
+            client = review.AgentModelClient(config())
+            with patch("builtins.print") as warning:
+                result = review.complete_with_shape_repair(
+                    client,
+                    "protected system",
+                    '{"task":"review"}',
+                    100,
+                    lambda value: review.require_report_fields(
+                        value, {"required"}, "Test"
+                    ),
+                )
+
+        self.assertEqual({"required": True}, result)
+        self.assertEqual(2, len(requests))
+        self.assertEqual(requests[0], requests[1])
+        warning.assert_called_once()
+
+    def test_openai_reasoning_only_max_output_uses_fresh_retry(self) -> None:
+        self._assert_openai_message_less_max_output_retries(
+            [{"type": "reasoning", "summary": []}]
+        )
+
+    def test_openai_empty_output_max_output_uses_fresh_retry(self) -> None:
+        self._assert_openai_message_less_max_output_retries([])
+
     def test_model_client_bounds_response_bytes_and_timeout(self) -> None:
         response = FakeModelResponse(b"123456789")
         captured: dict[str, int] = {}
@@ -7031,6 +7161,118 @@ class AgentReviewTests(unittest.TestCase):
                 client.complete("system", "user", 100)
         self.assertEqual(9, response.read_limit)
         self.assertEqual(7, captured["timeout"])
+
+    def test_model_api_key_does_not_leak_from_provider_failures(self) -> None:
+        api_key = "coco-model-api-key-sentinel-for-redaction"
+        environment = model_env("openai-responses")
+        environment["COCO_AGENT_MODEL_API_KEY"] = api_key
+        cases = [
+            (
+                "http",
+                review.urllib.error.HTTPError(
+                    "https://models.example.invalid/v1/responses",
+                    401,
+                    api_key,
+                    None,
+                    None,
+                ),
+                config(),
+            ),
+            ("url", review.urllib.error.URLError(api_key), config()),
+            ("timeout", TimeoutError(api_key), config()),
+            (
+                "oversize",
+                FakeModelResponse(api_key.encode()),
+                config(response_bytes=8),
+            ),
+            (
+                "invalid-json",
+                FakeModelResponse(api_key.encode()),
+                config(),
+            ),
+        ]
+
+        for name, provider_result, client_config in cases:
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with self.subTest(name=name):
+                try:
+                    patcher = (
+                        patch("urllib.request.urlopen", side_effect=provider_result)
+                        if isinstance(provider_result, BaseException)
+                        else patch(
+                            "urllib.request.urlopen", return_value=provider_result
+                        )
+                    )
+                    with (
+                        patch.dict("os.environ", environment, clear=True),
+                        patcher,
+                        patch("sys.stdout", new=stdout),
+                        patch("sys.stderr", new=stderr),
+                    ):
+                        client = review.AgentModelClient(client_config)
+                        with self.assertRaises(review.ReviewError) as raised:
+                            client.complete("system", "user", 100)
+                    surfaces = (
+                        str(raised.exception),
+                        repr(raised.exception),
+                        "".join(traceback.format_exception(raised.exception)),
+                        stdout.getvalue(),
+                        stderr.getvalue(),
+                    )
+                    self.assertFalse(
+                        any(api_key in surface for surface in surfaces),
+                        f"{name} exposed the model API key.",
+                    )
+                finally:
+                    if isinstance(provider_result, review.urllib.error.HTTPError):
+                        provider_result.close()
+
+    def test_model_api_key_does_not_leak_from_retry_warning_or_traceback(
+        self,
+    ) -> None:
+        api_key = "coco-model-api-key-sentinel-for-retry-redaction"
+        environment = model_env("openai-responses")
+        environment["COCO_AGENT_MODEL_API_KEY"] = api_key
+        incomplete = openai_envelope(
+            api_key,
+            "incomplete",
+            "max_output_tokens",
+        )
+        responses = [
+            FakeModelResponse(json.dumps(incomplete).encode())
+            for _ in range(review.MODEL_COMPLETION_MAX_ATTEMPTS)
+        ]
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with (
+            patch.dict("os.environ", environment, clear=True),
+            patch("urllib.request.urlopen", side_effect=responses),
+            patch("sys.stdout", new=stdout),
+            patch("sys.stderr", new=stderr),
+        ):
+            client = review.AgentModelClient(config())
+            with self.assertRaises(review.RetryableModelOutputError) as raised:
+                review.complete_with_shape_repair(
+                    client,
+                    "protected system",
+                    '{"task":"review"}',
+                    100,
+                    lambda value: value,
+                )
+
+        surfaces = (
+            str(raised.exception),
+            repr(raised.exception),
+            "".join(traceback.format_exception(raised.exception)),
+            stdout.getvalue(),
+            stderr.getvalue(),
+        )
+        self.assertFalse(
+            any(api_key in surface for surface in surfaces),
+            "Retry diagnostics exposed the model API key.",
+        )
 
     def test_retryable_output_failure_retries_once_with_same_arguments(self) -> None:
         class FakeClient:
@@ -7549,6 +7791,31 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertLess(
                         sum(len(source["content"]) for source in sources), limit
                     )
+
+    def test_production_policy_route_fails_closed_at_budget_minus_one(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        largest_path = ""
+        largest_size = 0
+        for mapping in value["spec_path_mappings"]:
+            for pattern in mapping["path_globs"]:
+                changed_path = (
+                    pattern.replace("**", "probe")
+                    .replace("*", "probe")
+                    .replace("?", "x")
+                )
+                sources = review.collect_policy(
+                    repository_root, value, [changed_path], []
+                )
+                selected_size = sum(len(source["content"]) for source in sources)
+                if selected_size > largest_size:
+                    largest_path = changed_path
+                    largest_size = selected_size
+
+        bounded = json.loads(json.dumps(value))
+        bounded["context_budget"]["protected_policy_and_specs_limit"] = largest_size - 1
+        with self.assertRaisesRegex(review.ReviewError, "exceeds the context budget"):
+            review.collect_policy(repository_root, bounded, [largest_path], [])
 
 
 if __name__ == "__main__":

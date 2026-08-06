@@ -162,10 +162,10 @@ Create a dedicated `coco-agent-model` environment, restrict it to the exact
 `main` branch, disable administrator bypass, and store
 `COCO_AGENT_MODEL_API_KEY` there. Only specialist, verifier, and chair jobs
 declare this environment. The protocol has no default and no implicit fallback;
-protocol, base URL, and model are protected repository or environment variables
+protocol, base URL, and model are protected repository variables
 and must never come from pull request content. Trusted prepare receives the
 three non-secret values to bind the model-configuration digest; publisher
-admission receives the same values to detect drift before publication. The API
+admission requires the same current values and rejects digest drift. The API
 key is never available outside the three `coco-agent-model` jobs. Fork and
 no-secret routes may receive non-secret configuration where protected runtime
 binding requires it, but they never receive the key or execute a model job. The

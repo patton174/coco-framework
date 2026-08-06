@@ -2253,13 +2253,13 @@ class AgentModelClient:
                 if len(body) > self.max_response_bytes:
                     raise ReviewError(f"{provider} response exceeded the bounded size.")
         except urllib.error.HTTPError as exc:
-            raise ReviewError(f"{provider} API returned HTTP {exc.code}.") from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            raise ReviewError(f"{provider} API transport failed.") from exc
+            raise ReviewError(f"{provider} API returned HTTP {exc.code}.") from None
+        except (urllib.error.URLError, TimeoutError):
+            raise ReviewError(f"{provider} API transport failed.") from None
         try:
             return json.loads(body)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ReviewError(f"{provider} API returned invalid JSON.") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ReviewError(f"{provider} API returned invalid JSON.") from None
 
     @staticmethod
     def parse_anthropic_envelope(envelope: Any) -> ModelTextResponse:
@@ -2339,7 +2339,7 @@ class AgentModelClient:
                     malformed = True
         if refused:
             raise ReviewError("OpenAI refused the review.")
-        if malformed or message_count != 1:
+        if malformed:
             raise ReviewError("OpenAI API returned an invalid response envelope.")
         status = envelope["status"]
         if envelope.get("error") is not None:
@@ -2347,22 +2347,25 @@ class AgentModelClient:
         if status == "completed":
             if (
                 envelope.get("incomplete_details") is not None
+                or message_count != 1
                 or message_status != "completed"
             ):
                 raise ReviewError("OpenAI API returned an invalid response envelope.")
             stop_reason = "end_turn"
         elif status == "incomplete":
             details = envelope.get("incomplete_details")
-            if (
-                message_status != "incomplete"
-                or not isinstance(details, dict)
-                or not isinstance(details.get("reason"), str)
+            if not isinstance(details, dict) or not isinstance(
+                details.get("reason"), str
             ):
                 raise ReviewError("OpenAI API returned an invalid response envelope.")
             if details["reason"] != "max_output_tokens":
                 raise ReviewError(
                     f"OpenAI response did not complete (reason={details['reason']!r})."
                 )
+            if message_count > 1 or (
+                message_count == 1 and message_status != "incomplete"
+            ):
+                raise ReviewError("OpenAI API returned an invalid response envelope.")
             stop_reason = "max_tokens"
         else:
             raise ReviewError(f"OpenAI response did not complete (status={status!r}).")
@@ -2378,7 +2381,9 @@ class AgentModelClient:
             else self.parse_openai_envelope(envelope)
         )
         text = response.text
-        if not text.strip():
+        if not text.strip() and not (
+            self.protocol == "openai-responses" and response.stop_reason == "max_tokens"
+        ):
             raise RetryableModelOutputError(
                 "Agent model response contained no text.",
                 stop_reason=response.stop_reason,
@@ -4341,7 +4346,7 @@ def command_admit_publisher(args: argparse.Namespace) -> int:
             raise ReviewError("Agent jury admission commit binding is invalid.")
         trusted = metadata.get("trusted") is True
         if trusted:
-            revalidate_model_configuration_if_available(metadata)
+            require_model_configuration_binding(metadata)
 
         client = GitHubClient(
             os.environ.get("GH_TOKEN", ""),

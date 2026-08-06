@@ -187,7 +187,7 @@ review threads、开放 Issue 和仓库合并设置，而不只是二次读取 h
 7. Canary 全部通过后，把 `Agent issue gate` 加入 `main` required checks。
 
 只有 specialist/verifier/chair 声明 `coco-agent-model` 并读取 API key；prepare/admission 仅读取
-三项受保护非密钥配置以绑定摘要和检测漂移。reusable/callers 不传递或继承 secrets，README
+三项受保护 repository variables 以绑定摘要和检测漂移。reusable/callers 不传递或继承 secrets，README
 旧配置在单独迁移前也不得被 Agent Review 使用。
 
 受保护 base reviewer 自身故障时，紧急自举也不得执行 PR-head 密钥代码或关闭整套保护。
