@@ -93,4 +93,3 @@ jobs:
       repository_id: ${{ fromJSON(needs.bind.outputs.repository_id) }}
       allow_deferred: true
       source_run_id: ${{ github.event.workflow_run.id }}
-    secrets: inherit

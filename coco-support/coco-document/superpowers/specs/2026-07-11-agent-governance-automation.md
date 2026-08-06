@@ -182,9 +182,13 @@ review threads、开放 Issue 和仓库合并设置，而不只是二次读取 h
 4. 创建 same-repository canary，验证 App 评论、Issue 创建/关闭和三个 gate 的精确 SHA 绑定。
 5. 创建固定身份 Dependabot 等价 canary，验证原始 run 无 secret/无最终 gate、延迟 run 精确
    重绑定并完成完整评审团和 App publisher；再创建未固定 bot/fork 等价 canary，验证没有
-   Anthropic/App 私钥、模型 job 跳过且已有 Issue 仍能阻断。
+   模型 API key/App 私钥、模型 job 跳过且已有 Issue 仍能阻断。
 6. 创建自动合并 canary，确认缺批准/检查/Issue/对话时不合并，全部满足后由 App 生成 merge commit。
 7. Canary 全部通过后，把 `Agent issue gate` 加入 `main` required checks。
+
+只有 specialist/verifier/chair 声明 `coco-agent-model` 并读取 API key；prepare/admission 仅读取
+三项受保护 repository variables 以绑定摘要和检测漂移。reusable/callers 不传递或继承 secrets，README
+旧配置在单独迁移前也不得被 Agent Review 使用。
 
 受保护 base reviewer 自身故障时，紧急自举也不得执行 PR-head 密钥代码或关闭整套保护。
 必须先创建公开 Issue，确认失败来自治理运行时而不是有效 P0/P1 finding，并让 `CI gate`、

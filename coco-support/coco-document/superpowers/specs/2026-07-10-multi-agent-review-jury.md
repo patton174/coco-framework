@@ -2,7 +2,7 @@
 
 ## 问题
 
-当前 Agent Review 只有一次模型调用。Workflow 把 PR diff 交给一个 Claude
+当前 Agent Review 只有一次模型调用。Workflow 把 PR diff 交给一个模型
 实例，读取一条 `VERDICT: PASS|BLOCK`，再通过固定 marker 更新一条评论。
 
 这套实现可以校验输出格式，但存在三个结构性问题：
@@ -30,7 +30,7 @@
 - [claude-code-review-council](https://github.com/yeameen/claude-code-review-council)：
   单轴专职评审、盲审 robustness 角色、来源标记和人工核对引用位置。
 
-不直接安装这些项目，原因是 Coco 已有 Anthropic relay 和安全边界；外部 CLI、MCP
+不直接安装这些项目，原因是 Coco 已有受保护的 HTTP 模型供应商边界；外部 CLI、MCP
 服务、多供应商密钥、持久化数据库或自动改代码能力都会扩大供应链和权限面。Coco
 只实现 PR 门禁需要的最小评审团内核。
 
@@ -46,7 +46,7 @@
 - 受保护 base config 精确固定的 `dependabot[bot]` / `Bot` / `49699333` 通过默认分支
   `workflow_run` 延迟进入同一个完整评审团；原始 Dependabot 事件不运行模型、不读取 secrets、
   不发布最终 jury gate。
-- fork、未固定身份或身份不匹配的 bot PR 不接触 Anthropic secrets，只能由维护者对当前
+- fork、未固定身份或身份不匹配的 bot PR 不接触模型供应商配置或凭据，只能由维护者对当前
   head SHA 明确批准。
 - secret-backed 路径使用一条受管汇总评论展示全部角色、执行状态、共识、争议和上下文
   来源。
@@ -78,10 +78,21 @@ PR 标题、正文、commit message、文件名、diff、head 文件内容和所
 任何阶段都不 checkout、编译、执行或 source PR head 内容。head 文件通过 GitHub API
 按固定 SHA 读取，仅作为文本进入上下文。
 
-Anthropic secrets 只进入 specialist、cross-review 和 chair job。prepare 和 publisher
-没有 Anthropic secrets。publisher 的专用 App 安装令牌只申请 `Issues: write` 与
+publisher 的专用 App 安装令牌只申请 `Issues: write` 与
 `Pull requests: write`，分别用于 finding Issue 和 PR 汇总评论；commit status 由内置
 GitHub Actions App 发布。
+
+### 模型供应商配置契约
+
+受保护 repository variables 为 `COCO_AGENT_MODEL_PROTOCOL`（仅 `anthropic-messages` /
+`openai-responses`）、`COCO_AGENT_MODEL_BASE_URL`（仅 HTTPS origin 或末段精确 `/v1` 的 base
+path；拒绝完整 `/responses`/`/messages` endpoint、凭据、query、fragment）和
+`COCO_AGENT_MODEL`。API key 仅存为 `coco-agent-model` environment secret
+`COCO_AGENT_MODEL_API_KEY`；该 environment 仅限 `main`、禁管理员 bypass，只供三个模型 job。
+
+prepare 绑定三变量摘要；admission 必须用当前三变量严格复核 metadata digest。两者及
+fork/no-secret 不得读 key；reusable 不声明 secrets，caller 不得继承。配置缺失、未知协议或
+envelope 不匹配均 fail closed。README 旧配置仅保留至单独迁移，Agent Review 不得使用。
 
 GitHub 对 Dependabot 触发的 `pull_request_target` 提供只读 `GITHUB_TOKEN` 且不提供 Actions
 secrets。该原始 run 只输出 `deferred + ignored` 路由结果并安全成功，不构建模型上下文、不查询
@@ -326,8 +337,8 @@ base、当前 head 和作者 login/type/ID；只有全部一致才调用共享 r
 再次重绑定。`pull_request_review` 事件保持 ignored，因此维护者批准不能替代延迟 jury，也不能把
 已有延迟 success/failure 覆盖掉。人类批准仍由最终 auto-merge 独立要求。
 
-fork、未固定身份或身份不匹配的 bot PR 不运行 specialist、cross-review 或 chair，也不引用
-Anthropic secrets。
+fork、未固定身份或身份不匹配的 bot PR 不运行 specialist、cross-review 或 chair，且绝不接收
+模型 API key；受保护运行时如需绑定 provenance，可读取非密钥模型配置。
 
 `Agent jury gate` 初始保持 pending，并显示“jury skipped, maintainer approval required”。
 当 `pull_request_review` 事件发生时，prepare 查询当前 head SHA 上的 reviews；只有拥有
@@ -367,13 +378,16 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
 自身的 PR 因此不能使用 repository secrets 自托管或验证 head 版本；这是信任边界，不是需要
 绕开的限制。
 
-仅当 base 版本的缺陷使评审器升级 PR 无法得到 `Agent jury gate` success 时，仓库 owner 可以
-使用 emergency administrator bypass 完成一次受控 bootstrap，但必须同时满足：
+仅当 base 版本的缺陷使评审器升级 PR 无法得到 `Agent jury gate` success 时，仓库 owner 才能
+临时移除唯一失效的 required context；不得使用管理员合并绕过，也不得移除其他保护。执行前
+必须同时满足：
 
 - `CI gate` 对精确 head SHA 成功，且包含协议测试、Python 静态检查和 workflow 校验；
 - 精确 head 的协议测试在本地独立复跑通过，并完成至少一轮独立代码审查；
-- 所有 review conversation 已解决，已确认失败仅来自待修复的 base 评审器，而不是有效的
-  P0/P1 结论；
+- 当前 head 已获得有效的非 bot 维护者批准，所有 review conversation 已解决，并确认失败
+  仅来自待修复的 base 评审器，而不是有效的 P0/P1 结论；
+- 通过正常 PR 流程以 merge commit 合并精确已复核 head，随后立即恢复原 App ID 绑定的
+  required context；
 - 合并后立即从新 `main` 创建同仓库普通用户 canary、固定身份 bot canary 和 fork/未固定
   bot 等价 no-secret canary；三条路径都通过前，不继续合并普通业务 PR；
 - canary 失败时通过 PR 回滚或修复，绝不把 repository secrets 暴露给 PR-head 代码。
@@ -386,7 +400,7 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
    `workflow_run` 精确重绑定并运行完整评审团；再创建未固定 bot/fork 等价 canary，验证无
    secret 和当前 head 维护者批准路径。
 4. Canary 通过后，分支保护要求 `CI gate` 与 `Agent jury gate`。
-5. 删除旧 `Claude review` marker/status 约定，不保留双重 Agent 门禁。
+5. 删除旧单模型 review marker/status 约定，不保留双重 Agent 门禁。
 
 ## 验收
 
@@ -397,7 +411,8 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
   试图新增 blocker、选择非双 `AGREE` P2/P3 或通过文本启发式推导资格。
 - actionlint、ShellCheck、Python unittest 和 `git diff --check` 通过。
 - Workflow 不 checkout 或执行 PR head。
-- fork/未固定身份 bot job 日志和环境中不存在 Anthropic 变量；固定 Coco App 直接运行完整
+- fork/未固定身份 bot job 日志和环境中不存在模型 API key；受保护运行时绑定允许的非密钥
+  模型配置不会授权模型调用。固定 Coco App 直接运行完整
   5 + 2 + 1，固定 Dependabot 的原始 run 无 secret 且延迟 run 完成同一 5 + 2 + 1 评审团。
 - workflow_run 协议测试拒绝错误 login/type/ID、repo ID/full name、workflow name/path/event、run ID、
   PR 关联和过期 head；延迟入口不消费 source artifact/cache，review 事件不覆盖延迟 gate。

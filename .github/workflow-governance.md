@@ -145,14 +145,36 @@ fingerprint. A later review updates, reopens, or closes that Issue. Any open
 bound Issue keeps `Agent issue gate` failed, including after the pull request
 head changes.
 
-Required repository secrets:
+Required `coco-agent-model` environment secret:
 
-- `ANTHROPIC_API_KEY`
-- `ANTHROPIC_BASE_URL`
+- `COCO_AGENT_MODEL_API_KEY`
 
-Optional repository variable:
+Required protected repository variables:
 
-- `CLAUDE_MODEL` (defaults to `claude-sonnet-4-6`)
+- `COCO_AGENT_MODEL_PROTOCOL`, exactly `anthropic-messages` or
+  `openai-responses`
+- `COCO_AGENT_MODEL_BASE_URL`, an HTTPS origin or an HTTPS base path whose final
+  path segment is exactly `/v1`; complete `/responses` or `/messages` endpoints,
+  credentials, query data, and fragments are rejected
+- `COCO_AGENT_MODEL`
+
+Create a dedicated `coco-agent-model` environment, restrict it to the exact
+`main` branch, disable administrator bypass, and store
+`COCO_AGENT_MODEL_API_KEY` there. Only specialist, verifier, and chair jobs
+declare this environment. The protocol has no default and no implicit fallback;
+protocol, base URL, and model are protected repository variables
+and must never come from pull request content. Trusted prepare receives the
+three non-secret values to bind the model-configuration digest; publisher
+admission requires the same current values and rejects digest drift. The API
+key is never available outside the three `coco-agent-model` jobs. Fork and
+no-secret routes may receive non-secret configuration where protected runtime
+binding requires it, but they never receive the key or execute a model job. The
+reusable workflow has no `workflow_call` secrets and callers must not use
+`secrets: inherit`.
+
+Legacy README-maintenance `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` secrets and
+the `CLAUDE_MODEL` variable may remain until that automation is migrated in a
+separate change. Agent Review must not reference or inherit them.
 
 Dedicated Agent identity configuration:
 
