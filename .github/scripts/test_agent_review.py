@@ -28,6 +28,19 @@ REPOSITORY_ID = 123456789
 DEFERRED_PR_NUMBER = 125
 SOURCE_RUN_ID = 987654321
 RELEASE_APP_ACTION_SHA = "bcd2ba49218906704ab6c1aa796996da409d3eb1"
+MODEL_CONFIG_SHA256 = review.sha256_text(
+    review.canonical_json(
+        {
+            "protocol": "openai-responses",
+            "base_url": "https://models.example.invalid/v1",
+            "model": "review-model",
+        }
+    )
+)
+NON_MODEL_JOB_FORBIDDEN_ENV = (
+    "COCO_AGENT_MODEL_API_KEY",
+    "COCO_AGENT_MODEL_BASE_URL",
+)
 
 
 def config(**limit_overrides: int) -> dict:
@@ -65,6 +78,65 @@ def config(**limit_overrides: int) -> dict:
     }
 
 
+def model_env(
+    protocol: str, base_url: str = "https://models.example.invalid"
+) -> dict[str, str]:
+    return {
+        "COCO_AGENT_MODEL_PROTOCOL": protocol,
+        "COCO_AGENT_MODEL_BASE_URL": base_url,
+        "COCO_AGENT_MODEL": "review-model",
+        "COCO_AGENT_MODEL_API_KEY": "test-api-key",
+    }
+
+
+class FakeModelResponse:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+        self.read_limit = 0
+
+    def __enter__(self) -> "FakeModelResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self, limit: int) -> bytes:
+        self.read_limit = limit
+        return self.body[:limit]
+
+
+def anthropic_envelope(
+    text: str = '{"ok":true}', stop_reason: str = "end_turn"
+) -> dict:
+    return {
+        "stop_reason": stop_reason,
+        "content": [{"type": "text", "text": text}],
+    }
+
+
+def openai_envelope(
+    text: str = '{"ok":true}',
+    status: str = "completed",
+    incomplete_reason: str | None = None,
+) -> dict:
+    value = {
+        "object": "response",
+        "status": status,
+        "output": [
+            {"type": "reasoning", "summary": []},
+            {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed" if status == "completed" else "incomplete",
+                "content": [{"type": "output_text", "text": text}],
+            },
+        ],
+    }
+    if incomplete_reason is not None:
+        value["incomplete_details"] = {"reason": incomplete_reason}
+    return value
+
+
 def bound_context() -> dict:
     return review.bind_context(
         {
@@ -75,6 +147,7 @@ def bound_context() -> dict:
                 "base_sha": BASE_SHA,
                 "head_sha": HEAD_SHA,
                 "protocol_sha256": "c" * 64,
+                "model_config_sha256": MODEL_CONFIG_SHA256,
                 "context_sha256": "",
             },
             "trusted": {
@@ -226,6 +299,7 @@ def trusted_metadata(run_id: int = 42, run_attempt: int = 1) -> dict:
         "trusted": True,
         "deferred": False,
         "ignored": False,
+        "model_config_sha256": MODEL_CONFIG_SHA256,
         "source_run_id": 0,
         "run_id": str(run_id),
         "run_attempt": str(run_attempt),
@@ -1080,6 +1154,7 @@ class AgentReviewTests(unittest.TestCase):
                 "diff --git a/Foo.java b/Foo.java\n+new",
                 root,
                 config(),
+                MODEL_CONFIG_SHA256,
             )
             review.validate_context(context)
             self.assertEqual("github-raw-diff", context["untrusted"]["diff_source"])
@@ -1108,6 +1183,7 @@ class AgentReviewTests(unittest.TestCase):
                     "x" * 11,
                     root,
                     config(diff_chars=10),
+                    MODEL_CONFIG_SHA256,
                 )
 
     def test_build_context_requires_protected_policy(self) -> None:
@@ -1128,6 +1204,7 @@ class AgentReviewTests(unittest.TestCase):
                     "diff",
                     Path(directory),
                     config(),
+                    MODEL_CONFIG_SHA256,
                 )
 
     def test_collect_policy_requires_complete_specs_for_both_rename_paths(
@@ -1191,6 +1268,7 @@ class AgentReviewTests(unittest.TestCase):
                     "x" * 40,
                     root,
                     config(diff_chars=50, patch_chars=32),
+                    MODEL_CONFIG_SHA256,
                 )
 
     def test_build_context_assembles_bounded_round_robin_file_patches(self) -> None:
@@ -1252,6 +1330,7 @@ class AgentReviewTests(unittest.TestCase):
                     max_context_files=0,
                     assembled_context_chars=20_000,
                 ),
+                MODEL_CONFIG_SHA256,
             )
 
             diff = context["untrusted"]["diff"]
@@ -1296,6 +1375,7 @@ class AgentReviewTests(unittest.TestCase):
                     None,
                     root,
                     config(),
+                    MODEL_CONFIG_SHA256,
                 )
 
     def test_build_context_rejects_empty_or_truncated_changed_file_patch(self) -> None:
@@ -1329,6 +1409,7 @@ class AgentReviewTests(unittest.TestCase):
                             None,
                             root,
                             config(),
+                            MODEL_CONFIG_SHA256,
                         )
 
     def test_build_files_diff_reports_all_incomplete_patches(self) -> None:
@@ -1536,7 +1617,10 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review, "build_context", return_value=context) as builder,
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
-                patch.dict("os.environ", {"GH_TOKEN": "token"}),
+                patch.dict(
+                    "os.environ",
+                    {"GH_TOKEN": "token", **model_env("openai-responses")},
+                ),
             ):
                 result = review.command_prepare(
                     SimpleNamespace(
@@ -1827,7 +1911,10 @@ class AgentReviewTests(unittest.TestCase):
                 "verifications": [],
                 "context_gaps": [],
             }
-            with patch.object(review, "AnthropicClient") as client_class:
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict("os.environ", model_env("openai-responses"), clear=True),
+            ):
                 client_class.return_value.complete.return_value = model_output
                 result = review.command_cross(
                     SimpleNamespace(
@@ -1882,7 +1969,10 @@ class AgentReviewTests(unittest.TestCase):
                 ],
                 "context_gaps": [],
             }
-            with patch.object(review, "AnthropicClient") as client_class:
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict("os.environ", model_env("openai-responses"), clear=True),
+            ):
                 client_class.return_value.complete.return_value = model_output
                 result = review.command_cross(
                     SimpleNamespace(
@@ -3100,10 +3190,25 @@ class AgentReviewTests(unittest.TestCase):
             review_workflow.startswith("name: Reusable Agent Review Jury\n")
         )
         self.assertIn("  workflow_call:\n", review_workflow)
+        prepare = review_workflow.split("\n  prepare:\n", 1)[1].split(
+            "\n  specialists:\n", 1
+        )[0]
+        admission = review_workflow.split("\n  publisher-admission:\n", 1)[1].split(
+            "\n  trusted-publisher:\n", 1
+        )[0]
         trusted = review_workflow.split("\n  trusted-publisher:\n", 1)[1].split(
             "\n  no-secret-publisher:\n", 1
         )[0]
         no_secret = review_workflow.split("\n  no-secret-publisher:\n", 1)[1]
+        for name, section in (
+            ("direct no-secret call", direct_no_secret),
+            ("prepare", prepare),
+            ("publisher admission", admission),
+            ("trusted publisher", trusted),
+            ("no-secret publisher", no_secret),
+        ):
+            for forbidden in NON_MODEL_JOB_FORBIDDEN_ENV:
+                self.assertNotIn(forbidden, section, f"{name}: {forbidden}")
         self.assertIn("environment: coco-agent", trusted)
         self.assertIn(
             "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
@@ -3200,6 +3305,8 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("agent-review-publisher-", gate_workflow)
         self.assertNotIn("ANTHROPIC", gate_workflow)
         self.assertNotIn("COCO_AGENT_APP_PRIVATE_KEY", gate_workflow)
+        for forbidden in NON_MODEL_JOB_FORBIDDEN_ENV:
+            self.assertNotIn(forbidden, gate_workflow)
 
     def test_reusable_jury_keeps_all_model_jobs_and_least_privilege(self) -> None:
         workflow_root = Path(__file__).resolve().parents[1] / "workflows"
@@ -4209,7 +4316,11 @@ class AgentReviewTests(unittest.TestCase):
                     return_value=(False, []),
                 ) as approval,
                 patch("builtins.print"),
-                patch.dict("os.environ", {"GH_TOKEN": "token"}, clear=True),
+                patch.dict(
+                    "os.environ",
+                    {"GH_TOKEN": "token", **model_env("openai-responses")},
+                    clear=True,
+                ),
             ):
                 result = review.command_prepare(
                     SimpleNamespace(
@@ -5827,6 +5938,7 @@ class AgentReviewTests(unittest.TestCase):
         for forbidden in (
             "${{ secrets.",
             "ANTHROPIC_API_KEY",
+            *NON_MODEL_JOB_FORBIDDEN_ENV,
             "COCO_AGENT_APP_PRIVATE_KEY",
             "environment: coco-agent",
         ):
@@ -6321,15 +6433,8 @@ class AgentReviewTests(unittest.TestCase):
             "stop_reason": "end_turn",
             "content": [{"type": "text", "text": '{"ok":true}'}],
         }
-        with patch.dict(
-            "os.environ",
-            {
-                "ANTHROPIC_API_KEY": "test",
-                "ANTHROPIC_BASE_URL": "https://example.invalid",
-            },
-            clear=False,
-        ):
-            client = review.AnthropicClient(config())
+        with patch.dict("os.environ", model_env("anthropic-messages"), clear=True):
+            client = review.AgentModelClient(config())
             with patch(
                 "urllib.request.urlopen",
                 return_value=FakeResponse(json.dumps(payload).encode()),
@@ -6398,15 +6503,8 @@ class AgentReviewTests(unittest.TestCase):
                 }
                 return json.dumps(payload).encode()[:limit]
 
-        with patch.dict(
-            "os.environ",
-            {
-                "ANTHROPIC_API_KEY": "test",
-                "ANTHROPIC_BASE_URL": "https://example.invalid",
-            },
-            clear=False,
-        ):
-            client = review.AnthropicClient(config())
+        with patch.dict("os.environ", model_env("anthropic-messages"), clear=True):
+            client = review.AgentModelClient(config())
             with patch("urllib.request.urlopen", return_value=FakeResponse()):
                 with self.assertRaisesRegex(review.ReviewError, "refused") as raised:
                     client.complete("system", "user", 100)
@@ -6458,15 +6556,8 @@ class AgentReviewTests(unittest.TestCase):
                 "JSON object",
             ),
         ]
-        with patch.dict(
-            "os.environ",
-            {
-                "ANTHROPIC_API_KEY": "test",
-                "ANTHROPIC_BASE_URL": "https://example.invalid",
-            },
-            clear=False,
-        ):
-            client = review.AnthropicClient(config())
+        with patch.dict("os.environ", model_env("anthropic-messages"), clear=True):
+            client = review.AgentModelClient(config())
             for name, body, message in cases:
                 with self.subTest(name=name):
                     with patch(
@@ -6503,15 +6594,8 @@ class AgentReviewTests(unittest.TestCase):
             ("non-string text", [{"type": "text", "text": 1}], "end_turn"),
             ("malformed before max_tokens", [None], "max_tokens"),
         ]
-        with patch.dict(
-            "os.environ",
-            {
-                "ANTHROPIC_API_KEY": "test",
-                "ANTHROPIC_BASE_URL": "https://example.invalid",
-            },
-            clear=False,
-        ):
-            client = review.AnthropicClient(config())
+        with patch.dict("os.environ", model_env("anthropic-messages"), clear=True):
+            client = review.AgentModelClient(config())
             for name, content, stop_reason in cases:
                 with self.subTest(name=name):
                     payload = {"stop_reason": stop_reason, "content": content}
@@ -6548,15 +6632,8 @@ class AgentReviewTests(unittest.TestCase):
                 "transport failed",
             ),
         ]
-        with patch.dict(
-            "os.environ",
-            {
-                "ANTHROPIC_API_KEY": "test",
-                "ANTHROPIC_BASE_URL": "https://example.invalid",
-            },
-            clear=False,
-        ):
-            client = review.AnthropicClient(config())
+        with patch.dict("os.environ", model_env("anthropic-messages"), clear=True):
+            client = review.AgentModelClient(config())
             for name, error, message in cases:
                 with self.subTest(name=name):
                     try:
@@ -6575,11 +6652,381 @@ class AgentReviewTests(unittest.TestCase):
     def test_anthropic_client_rejects_insecure_relay_url(self) -> None:
         with patch.dict(
             "os.environ",
-            {"ANTHROPIC_API_KEY": "test", "ANTHROPIC_BASE_URL": "http://relay.invalid"},
-            clear=False,
+            model_env("anthropic-messages", "http://relay.invalid"),
+            clear=True,
         ):
             with self.assertRaises(review.ReviewError):
-                review.AnthropicClient(config())
+                review.AgentModelClient(config())
+
+    def test_model_endpoint_normalization_for_both_protocols(self) -> None:
+        cases = [
+            (
+                "anthropic-messages",
+                "https://models.example.invalid",
+                "https://models.example.invalid/v1/messages",
+            ),
+            (
+                "anthropic-messages",
+                "https://models.example.invalid/v1/",
+                "https://models.example.invalid/v1/messages",
+            ),
+            (
+                "openai-responses",
+                "https://models.example.invalid",
+                "https://models.example.invalid/v1/responses",
+            ),
+            (
+                "openai-responses",
+                "https://models.example.invalid/proxy/v1/",
+                "https://models.example.invalid/proxy/v1/responses",
+            ),
+        ]
+        for protocol, base_url, expected in cases:
+            with self.subTest(protocol=protocol, base_url=base_url):
+                self.assertEqual(
+                    expected, review.model_api_endpoint(protocol, base_url)
+                )
+
+    def test_model_configuration_digest_is_canonical_and_excludes_api_key(
+        self,
+    ) -> None:
+        origin = model_env("openai-responses")
+        versioned = model_env("openai-responses", "https://models.example.invalid/v1/")
+        versioned["COCO_AGENT_MODEL_API_KEY"] = "rotated-api-key"
+        with patch.dict("os.environ", origin, clear=True):
+            material = review.model_configuration()
+            original_digest = review.model_configuration_sha256()
+        with patch.dict("os.environ", versioned, clear=True):
+            rotated_digest = review.model_configuration_sha256()
+
+        self.assertEqual(
+            {
+                "protocol": "openai-responses",
+                "base_url": "https://models.example.invalid/v1",
+                "model": "review-model",
+            },
+            material,
+        )
+        self.assertEqual(original_digest, rotated_digest)
+        serialized = review.canonical_json(material)
+        self.assertNotIn("test-api-key", serialized)
+        self.assertNotIn("rotated-api-key", serialized)
+
+    def test_model_configuration_binding_rejects_protocol_base_and_model_drift(
+        self,
+    ) -> None:
+        baseline = model_env("openai-responses")
+        with patch.dict("os.environ", baseline, clear=True):
+            digest = review.model_configuration_sha256()
+        context = bound_context()
+        context["binding"]["model_config_sha256"] = digest
+        context = review.bind_context(context)
+
+        changes = [
+            {"COCO_AGENT_MODEL_PROTOCOL": "anthropic-messages"},
+            {
+                "COCO_AGENT_MODEL_BASE_URL": (
+                    "https://different-models.example.invalid/v1"
+                )
+            },
+            {"COCO_AGENT_MODEL": "different-review-model"},
+        ]
+        for change in changes:
+            environment = {**baseline, **change}
+            with self.subTest(change=change):
+                with patch.dict("os.environ", environment, clear=True):
+                    with self.assertRaisesRegex(
+                        review.ReviewError, "configuration binding changed"
+                    ):
+                        review.require_model_configuration_binding(context["binding"])
+
+        rotated_key = {
+            **baseline,
+            "COCO_AGENT_MODEL_API_KEY": "rotated-api-key",
+        }
+        with patch.dict("os.environ", rotated_key, clear=True):
+            review.require_model_configuration_binding(context["binding"])
+        self.assertNotIn("test-api-key", review.canonical_json(context))
+        self.assertNotIn("rotated-api-key", review.canonical_json(context))
+
+    def test_model_client_rejects_invalid_protocol_urls_and_limits(self) -> None:
+        invalid_endpoints = [
+            ("unsupported", "https://models.example.invalid", "PROTOCOL"),
+            ("anthropic-messages", "", "BASE_URL"),
+            ("anthropic-messages", "http://models.example.invalid", "HTTPS"),
+            (
+                "openai-responses",
+                "https://user:secret@models.example.invalid",
+                "without credentials",
+            ),
+            (
+                "openai-responses",
+                "https://models.example.invalid/v1?key=secret",
+                "query data",
+            ),
+            (
+                "openai-responses",
+                "https://models.example.invalid/v1#fragment",
+                "fragments",
+            ),
+            (
+                "openai-responses",
+                "https://models.example.invalid/../v1",
+                "invalid path",
+            ),
+            (
+                "openai-responses",
+                "https://models.example.invalid/proxy",
+                "exact v1",
+            ),
+            (
+                "openai-responses",
+                "https://models.example.invalid/v1/responses",
+                "exact v1",
+            ),
+        ]
+        for protocol, base_url, message in invalid_endpoints:
+            with self.subTest(protocol=protocol, base_url=base_url):
+                with self.assertRaisesRegex(review.ReviewError, message):
+                    review.model_api_endpoint(protocol, base_url)
+
+        with patch.dict("os.environ", model_env("openai-responses"), clear=True):
+            with self.assertRaisesRegex(review.ReviewError, "response_bytes"):
+                review.AgentModelClient(
+                    config(response_bytes=review.MAX_MODEL_RESPONSE_BYTES + 1)
+                )
+            with self.assertRaisesRegex(review.ReviewError, "timeout"):
+                review.AgentModelClient(
+                    config(
+                        request_timeout_seconds=(
+                            review.MAX_MODEL_REQUEST_TIMEOUT_SECONDS + 1
+                        )
+                    )
+                )
+
+    def test_model_client_requires_provider_neutral_configuration(self) -> None:
+        required = (
+            "COCO_AGENT_MODEL_PROTOCOL",
+            "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL",
+            "COCO_AGENT_MODEL_API_KEY",
+        )
+        for missing in required:
+            environment = model_env("openai-responses")
+            del environment[missing]
+            with self.subTest(missing=missing):
+                with patch.dict("os.environ", environment, clear=True):
+                    with self.assertRaisesRegex(review.ReviewError, missing):
+                        review.AgentModelClient(config())
+
+        invalid_values = [
+            ("COCO_AGENT_MODEL", "model\nname"),
+            ("COCO_AGENT_MODEL_API_KEY", " key"),
+            ("COCO_AGENT_MODEL_API_KEY", "key "),
+            ("COCO_AGENT_MODEL_API_KEY", "key\nvalue"),
+        ]
+        for name, invalid in invalid_values:
+            environment = model_env("openai-responses")
+            environment[name] = invalid
+            with self.subTest(name=name, invalid=repr(invalid)):
+                with (
+                    patch.dict("os.environ", environment, clear=True),
+                    patch(
+                        "urllib.request.urlopen",
+                        side_effect=AssertionError(
+                            "invalid model configuration must fail before network"
+                        ),
+                    ),
+                ):
+                    with self.assertRaisesRegex(review.ReviewError, name):
+                        review.AgentModelClient(config())
+
+    def test_model_client_builds_protocol_specific_requests(self) -> None:
+        cases = [
+            (
+                "anthropic-messages",
+                anthropic_envelope(),
+                "/v1/messages",
+                "max_tokens",
+                "x-api-key",
+            ),
+            (
+                "openai-responses",
+                openai_envelope(),
+                "/v1/responses",
+                "max_output_tokens",
+                "authorization",
+            ),
+        ]
+        for protocol, envelope, suffix, token_field, auth_header in cases:
+            with self.subTest(protocol=protocol):
+                captured: dict[str, object] = {}
+                response = FakeModelResponse(json.dumps(envelope).encode())
+
+                def urlopen(request: object, timeout: int) -> FakeModelResponse:
+                    captured["request"] = request
+                    captured["timeout"] = timeout
+                    return response
+
+                with (
+                    patch.dict("os.environ", model_env(protocol), clear=True),
+                    patch("urllib.request.urlopen", side_effect=urlopen),
+                ):
+                    client = review.AgentModelClient(config())
+                    self.assertEqual(
+                        {"ok": True}, client.complete("system", "user", 100)
+                    )
+                    self.assertEqual(
+                        protocol == "anthropic-messages",
+                        client.supports_fragment_continuation,
+                    )
+
+                request = captured["request"]
+                self.assertTrue(request.full_url.endswith(suffix))
+                payload = json.loads(request.data)
+                self.assertEqual("review-model", payload["model"])
+                self.assertEqual(100, payload[token_field])
+                self.assertNotIn("test-api-key", request.data.decode())
+                headers = {
+                    name.lower(): value for name, value in request.header_items()
+                }
+                self.assertIsNotNone(headers.get(auth_header))
+                self.assertEqual(180, captured["timeout"])
+                self.assertEqual(1048577, response.read_limit)
+                if protocol == "openai-responses":
+                    self.assertIs(payload["store"], False)
+                    self.assertIs(payload["stream"], False)
+                    self.assertEqual("disabled", payload["truncation"])
+                    self.assertNotIn("temperature", payload)
+                    self.assertNotIn("tools", payload)
+
+    def test_openai_client_handles_refusal_and_incomplete_responses(self) -> None:
+        incomplete = openai_envelope('{"ok":', "incomplete", "max_output_tokens")
+        refusal = openai_envelope("", "incomplete", "max_output_tokens")
+        refusal["output"][1]["content"] = [
+            {"type": "unexpected"},
+            {"type": "refusal", "refusal": "Cannot review"},
+        ]
+        refusal["output"].append({"type": "tool_call"})
+        content_filtered = openai_envelope("", "incomplete", "content_filter")
+        cases = [
+            (incomplete, review.RetryableModelOutputError, "max_tokens"),
+            (refusal, review.ReviewError, "refused"),
+            (content_filtered, review.ReviewError, "content_filter"),
+        ]
+        with patch.dict("os.environ", model_env("openai-responses"), clear=True):
+            client = review.AgentModelClient(config())
+            for envelope, error_type, message in cases:
+                with self.subTest(message=message):
+                    response = FakeModelResponse(json.dumps(envelope).encode())
+                    with patch("urllib.request.urlopen", return_value=response):
+                        with self.assertRaisesRegex(error_type, message) as raised:
+                            client.complete("system", "user", 100)
+                    if message != "max_tokens":
+                        self.assertNotIsInstance(
+                            raised.exception, review.RetryableModelOutputError
+                        )
+
+    def test_openai_client_rejects_malformed_response_envelopes(self) -> None:
+        completed_with_error = openai_envelope()
+        completed_with_error["error"] = {"message": "provider error"}
+        completed_with_incomplete_details = openai_envelope()
+        completed_with_incomplete_details["incomplete_details"] = {
+            "reason": "max_output_tokens"
+        }
+        completed_with_incomplete_message = openai_envelope()
+        completed_with_incomplete_message["output"][1]["status"] = "incomplete"
+        incomplete_with_completed_message = openai_envelope(
+            '{"ok":', "incomplete", "max_output_tokens"
+        )
+        incomplete_with_completed_message["output"][1]["status"] = "completed"
+        malformed = [
+            {},
+            {"object": "list", "status": "completed", "output": []},
+            {"object": "response", "status": "completed", "output": {}},
+            completed_with_error,
+            completed_with_incomplete_details,
+            completed_with_incomplete_message,
+            incomplete_with_completed_message,
+            {
+                "object": "response",
+                "status": "completed",
+                "output": [{"type": "message", "content": []}],
+            },
+            {
+                "object": "response",
+                "status": "completed",
+                "output": [{"type": "tool_call"}],
+            },
+            {
+                "object": "response",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": "{}"}],
+                    },
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": "{}"}],
+                    },
+                ],
+            },
+            {
+                "object": "response",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": 1}],
+                    }
+                ],
+            },
+            {
+                "object": "response",
+                "status": "incomplete",
+                "output": [],
+            },
+        ]
+        with patch.dict("os.environ", model_env("openai-responses"), clear=True):
+            client = review.AgentModelClient(config())
+            for envelope in malformed:
+                with self.subTest(envelope=envelope):
+                    response = FakeModelResponse(json.dumps(envelope).encode())
+                    with patch("urllib.request.urlopen", return_value=response):
+                        with self.assertRaisesRegex(
+                            review.ReviewError, "invalid response envelope"
+                        ) as raised:
+                            client.complete("system", "user", 100)
+                    self.assertNotIsInstance(
+                        raised.exception, review.RetryableModelOutputError
+                    )
+
+    def test_model_client_bounds_response_bytes_and_timeout(self) -> None:
+        response = FakeModelResponse(b"123456789")
+        captured: dict[str, int] = {}
+
+        def urlopen(_request: object, timeout: int) -> FakeModelResponse:
+            captured["timeout"] = timeout
+            return response
+
+        with (
+            patch.dict("os.environ", model_env("openai-responses"), clear=True),
+            patch("urllib.request.urlopen", side_effect=urlopen),
+        ):
+            client = review.AgentModelClient(
+                config(response_bytes=8, request_timeout_seconds=7)
+            )
+            with self.assertRaisesRegex(review.ReviewError, "bounded size"):
+                client.complete("system", "user", 100)
+        self.assertEqual(9, response.read_limit)
+        self.assertEqual(7, captured["timeout"])
 
     def test_retryable_output_failure_retries_once_with_same_arguments(self) -> None:
         class FakeClient:
@@ -6614,6 +7061,38 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual({"required": True}, result)
         self.assertEqual([expected_call, expected_call], client.calls)
         warning.assert_called_once()
+
+    def test_openai_incomplete_response_retries_without_fragment_continuation(
+        self,
+    ) -> None:
+        class FakeOpenAIClient:
+            supports_fragment_continuation = False
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                if len(self.calls) == 1:
+                    raise review.RetryableModelOutputError(
+                        "incomplete",
+                        stop_reason="max_tokens",
+                        partial_text='{"required":',
+                    )
+                return {"required": True}
+
+        client = FakeOpenAIClient()
+        expected = ("protected system", '{"task":"review"}', 100)
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                expected[0],
+                expected[1],
+                expected[2],
+                lambda value: review.require_report_fields(value, {"required"}, "Test"),
+            )
+        self.assertEqual({"required": True}, result)
+        self.assertEqual([expected, expected], client.calls)
 
     def test_retryable_output_failure_stops_after_bounded_completions(self) -> None:
         class FakeClient:
@@ -6915,7 +7394,9 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
     def test_max_tokens_continuation_reconstructs_json_on_third_attempt(self) -> None:
-        class FragmentClient(review.AnthropicClient):
+        class FragmentClient(review.AgentModelClient):
+            supports_fragment_continuation = True
+
             def __init__(self) -> None:
                 self.calls: list[tuple[str, str, int]] = []
                 self.responses = [
@@ -6955,7 +7436,9 @@ class AgentReviewTests(unittest.TestCase):
             self.assertNotIn('{"required"', message)
 
     def test_max_tokens_continuation_fails_closed_after_third_fragment(self) -> None:
-        class FragmentClient(review.AnthropicClient):
+        class FragmentClient(review.AgentModelClient):
+            supports_fragment_continuation = True
+
             def __init__(self) -> None:
                 self.calls = 0
 
@@ -6981,7 +7464,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(2, warning.call_count)
 
     def test_malicious_binding_override_fails_without_continuation(self) -> None:
-        class FragmentClient(review.AnthropicClient):
+        class FragmentClient(review.AgentModelClient):
+            supports_fragment_continuation = True
+
             def __init__(self, response: dict) -> None:
                 self.response = response
                 self.calls = 0
@@ -7016,7 +7501,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(1, client.calls)
 
     def test_provider_failure_does_not_enter_continuation(self) -> None:
-        class FragmentClient(review.AnthropicClient):
+        class FragmentClient(review.AgentModelClient):
+            supports_fragment_continuation = True
+
             def __init__(self) -> None:
                 self.calls = 0
 
