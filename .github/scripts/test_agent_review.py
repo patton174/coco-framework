@@ -37,10 +37,7 @@ MODEL_CONFIG_SHA256 = review.sha256_text(
         }
     )
 )
-NON_MODEL_JOB_FORBIDDEN_ENV = (
-    "COCO_AGENT_MODEL_API_KEY",
-    "COCO_AGENT_MODEL_BASE_URL",
-)
+NON_MODEL_JOB_FORBIDDEN_ENV = ("COCO_AGENT_MODEL_API_KEY",)
 
 
 def config(**limit_overrides: int) -> dict:
@@ -3180,7 +3177,7 @@ class AgentReviewTests(unittest.TestCase):
             1
         ].split("\n  no-secret-review:\n", 1)[0]
         direct_no_secret = direct_workflow.split("\n  no-secret-review:\n", 1)[1]
-        self.assertIn("secrets: inherit", direct_secret)
+        self.assertNotIn("secrets: inherit", direct_secret)
         self.assertNotIn("secrets: inherit", direct_no_secret)
         self.assertNotIn("${{ secrets.", direct_workflow)
         self.assertNotIn("COCO_AGENT_APP_PRIVATE_KEY", direct_workflow)
@@ -3279,7 +3276,7 @@ class AgentReviewTests(unittest.TestCase):
             "source_run_id: ${{ github.event.workflow_run.id }}", deferred_workflow
         )
         self.assertIn("ref: ${{ github.sha }}", deferred_workflow)
-        self.assertIn("secrets: inherit", deferred_workflow)
+        self.assertNotIn("secrets: inherit", deferred_workflow)
         self.assertNotIn("github.event.workflow_run.head_sha", deferred_workflow)
         self.assertNotIn("actions/download-artifact", deferred_workflow)
         self.assertNotIn("actions/cache", deferred_workflow)
@@ -5935,10 +5932,17 @@ class AgentReviewTests(unittest.TestCase):
             "statuses: read",
         ):
             self.assertIn(value, admission)
+        for variable in (
+            "COCO_AGENT_MODEL_PROTOCOL",
+            "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL",
+        ):
+            self.assertIn(f"{variable}: ${{{{ vars.{variable} }}}}", admission)
         for forbidden in (
             "${{ secrets.",
             "ANTHROPIC_API_KEY",
-            *NON_MODEL_JOB_FORBIDDEN_ENV,
+            "COCO_AGENT_MODEL_API_KEY",
+            "environment: coco-agent-model",
             "COCO_AGENT_APP_PRIVATE_KEY",
             "environment: coco-agent",
         ):

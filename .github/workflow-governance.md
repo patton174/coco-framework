@@ -153,7 +153,9 @@ Required protected repository variables:
 
 - `COCO_AGENT_MODEL_PROTOCOL`, exactly `anthropic-messages` or
   `openai-responses`
-- `COCO_AGENT_MODEL_BASE_URL`
+- `COCO_AGENT_MODEL_BASE_URL`, an HTTPS origin or an HTTPS base path whose final
+  path segment is exactly `/v1`; complete `/responses` or `/messages` endpoints,
+  credentials, query data, and fragments are rejected
 - `COCO_AGENT_MODEL`
 
 Create a dedicated `coco-agent-model` environment, restrict it to the exact
