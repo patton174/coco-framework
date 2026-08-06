@@ -172,7 +172,6 @@ jobs:
       expected_head_sha: ${{ github.event.pull_request.head.sha }}
       event_name: ${{ github.event_name }}
       repository_id: ${{ fromJSON(github.repository_id) }}
-    secrets: inherit
 
   no-secret-review:
     name: Run no-secret or deferred marker path
