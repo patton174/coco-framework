@@ -385,7 +385,10 @@ class FakeDeferredClient:
 
     def get_json(self, path: str) -> dict:
         self.get_paths.append(path)
-        if path == f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}":
+        if (
+            path
+            == f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}"
+        ):
             return self.workflow
         if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
             return self.run
@@ -4147,10 +4150,7 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            [
-                f"repos/{REPOSITORY}/actions/workflows/"
-                f"{review.DEFERRED_WORKFLOW_PATH}"
-            ],
+            [f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}"],
             client.get_paths,
         )
         sleeper.assert_not_called()

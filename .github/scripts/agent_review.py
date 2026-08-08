@@ -1680,9 +1680,7 @@ def require_deferred_marker_jobs(
         raise ReviewError("Deferred Agent review marker binding is invalid.")
 
 
-def require_deferred_workflow_identity(
-    client: GitHubClient, repository: str
-) -> int:
+def require_deferred_workflow_identity(client: GitHubClient, repository: str) -> int:
     """Resolve the protected source workflow's canonical GitHub identity."""
     workflow = github_get_json_with_retry(
         client,
