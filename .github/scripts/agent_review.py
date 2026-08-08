@@ -38,6 +38,7 @@ PR_ROUTE_NO_SECRET = "no-secret"
 DIRECT_REVIEW_EVENTS = frozenset({"pull_request_target", "pull_request_review"})
 DEFERRED_REVIEW_EVENT = "workflow_run"
 DEFERRED_WORKFLOW_NAME = "Agent Review Jury"
+DEFERRED_WORKFLOW_FILE = "agent-review.yml"
 DEFERRED_WORKFLOW_PATH = ".github/workflows/agent-review.yml"
 DEFERRED_WORKFLOW_EVENT = "pull_request_target"
 DEFERRED_ROUTE_JOB_NAME = "Route bound pull request"
@@ -1684,7 +1685,7 @@ def require_deferred_workflow_identity(client: GitHubClient, repository: str) ->
     """Resolve the protected source workflow's canonical GitHub identity."""
     workflow = github_get_json_with_retry(
         client,
-        f"repos/{repository}/actions/workflows/{DEFERRED_WORKFLOW_PATH}",
+        f"repos/{repository}/actions/workflows/{DEFERRED_WORKFLOW_FILE}",
         "deferred-source-workflow-identity",
         retry_not_found=True,
     )

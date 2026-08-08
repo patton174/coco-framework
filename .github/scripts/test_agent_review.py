@@ -387,7 +387,7 @@ class FakeDeferredClient:
         self.get_paths.append(path)
         if (
             path
-            == f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}"
+            == f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_FILE}"
         ):
             return self.workflow
         if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
@@ -4088,7 +4088,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(DEPENDABOT_BOT_ID, binding["author_id"])
         self.assertEqual(
             [
-                f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}",
+                f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_FILE}",
                 f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}",
                 f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}",
                 (
@@ -4098,6 +4098,7 @@ class AgentReviewTests(unittest.TestCase):
             ],
             client.get_paths,
         )
+        self.assertNotIn(review.DEFERRED_WORKFLOW_PATH, client.get_paths[0])
 
     def test_deferred_binding_retries_each_transient_lookup(self) -> None:
         class FlakyDeferredClient(FakeDeferredClient):
@@ -4122,7 +4123,7 @@ class AgentReviewTests(unittest.TestCase):
                 self.get_paths.append(path)
                 if path == (
                     f"repos/{REPOSITORY}/actions/workflows/"
-                    f"{review.DEFERRED_WORKFLOW_PATH}"
+                    f"{review.DEFERRED_WORKFLOW_FILE}"
                 ):
                     return self.workflow
                 if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
@@ -4225,7 +4226,7 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            [f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}"],
+            [f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_FILE}"],
             client.get_paths,
         )
         sleeper.assert_not_called()
@@ -6447,7 +6448,7 @@ class AgentReviewTests(unittest.TestCase):
             def get_json(self, path: str) -> dict:
                 if path == (
                     f"repos/{REPOSITORY}/actions/workflows/"
-                    f"{review.DEFERRED_WORKFLOW_PATH}"
+                    f"{review.DEFERRED_WORKFLOW_FILE}"
                 ):
                     key, value = "workflow", deferred_workflow()
                 elif path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
