@@ -59,16 +59,16 @@ produce effective SQL isolation. Request signature, encryption, and replay
 controls must fail safely under malformed input, concurrency, multi-instance
 deployment, and storage failure according to their documented contracts.
 
-Same-repository humans with a valid GitHub `User` login/ID, the exact pinned
-Coco Agent App login/`Bot`/ID, and base-configured deferred bots must first
-complete a protected-base no-secret marker. Those eligible source PR events run
-no models, read no secrets, build no model context, and publish no final jury status.
-Direct environment use is forbidden because a `pull_request_target` reusable
-call is deployed against the PR head ref. Only protected-default-branch
-`workflow_run` may invoke the jury after API checks bind the source workflow,
-event, repository/head-repository identities, the unique successful route and
-marker jobs with all others skipped, run-name PR/base/head, branch, current open
-PR/base/head, and exact author identity. The publisher repeats this binding.
+Eligible same-repo authors emit a protected-base no-secret marker; source
+events run no model/secret path or jury status.
+Direct environment use is forbidden: `pull_request_target` reusable calls deploy
+at the PR head ref. Only protected-default-branch
+`workflow_run` may invoke jury after API resolves
+`.github/workflows/agent-review.yml` canonical workflow API identity
+(`ID`/`name`/`path`/`state`) and binds source `workflow_id`/path/event/repository,
+one successful route/marker each; others skipped, structured
+`pull_requests` PR/base/head, current PR re-fetch, branch/exact author; publisher rebinds. `run-name`, evaluated
+`name`, and `display_title` are PR-context, never identity/PR-binding inputs.
 Review
 infrastructure must read executable policy from a protected base/default-branch
 revision and must never checkout, execute, compile, or source PR head content or

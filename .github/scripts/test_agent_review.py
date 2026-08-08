@@ -941,6 +941,25 @@ class AgentReviewTests(unittest.TestCase):
             review.normalized_limits(value)["policy_chars"],
         )
 
+    def test_deferred_binding_policies_forbid_evaluated_titles(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        policy_paths = (
+            ".github/agent-review/policy.md",
+            "coco-support/coco-document/superpowers/specs/"
+            "2026-07-11-agent-governance-automation.md",
+        )
+
+        for relative_path in policy_paths:
+            with self.subTest(policy=relative_path):
+                policy = (repository_root / relative_path).read_text(encoding="utf-8")
+                normalized_policy = " ".join(policy.split())
+                self.assertIn("canonical workflow API identity", normalized_policy)
+                self.assertIn("workflow_id", normalized_policy)
+                self.assertIn("pull_requests", normalized_policy)
+                self.assertIn("current PR re-fetch", normalized_policy)
+                self.assertIn("display_title", normalized_policy)
+                self.assertNotIn("run-name PR/base/head", normalized_policy)
+
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "config.json"

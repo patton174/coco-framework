@@ -42,13 +42,15 @@ App 私钥只进入受保护 `main` 的 `workflow_run` publisher、计划或合�
 PR-head 代码。`pull_request_target` 调用 reusable 时 environment ref 绑定 PR head，因此 source
 不得调用 secret-backed job；环境不得放宽到 `codex/*`，密钥不得迁移到 repository secrets。
 
-同仓库有效 `User`、精确 login/`Bot`/ID 的 Coco Agent App 和 base config 固定的 Dependabot
-都先完成 no-secret marker，且符合资格的 source run 只记录 `deferred + ignored`。仅在
-`refs/heads/main` 运行的 `workflow_run` 可通过 API 重绑 source workflow/event、run/head repository、
-唯一成功的 router/marker jobs、run-name PR/base/head、branch、当前 PR/base/head 和作者身份，再以
-`allow_deferred=true` 调用评审团；publisher 写入前再次绑定。延迟入口不 checkout PR head/merge
-ref，不消费 source artifact/cache。其他 bot/fork 不进入密钥路径；同仓非固定身份返回
-`eligible=false`，完整评审仍不替代当前 head 的人类维护者批准。
+同仓有效 `User`、精确 App、固定 Dependabot 先 no-secret marker；eligible run
+仅 `deferred + ignored`。仅 `refs/heads/main` `workflow_run` 在 API 解析
+`.github/workflows/agent-review.yml` canonical workflow API identity（`ID`/`name`/`path`/`state`）后，
+绑定 source `workflow_id`/path/event/repository、唯一成功 router/marker jobs（其他 jobs 必须 skipped）、唯一结构化
+`pull_requests` PR/base/head、current PR re-fetch、branch/exact author，才以 `allow_deferred=true` 调用
+评审团；publisher 重绑。`run-name`、evaluated `name`、`display_title` 是 PR-context，绝不作为
+identity 或 PR binding 的可信输入。延迟入口不 checkout
+PR head/merge ref，不消费 source artifact/cache。其他 bot/fork 与非固定同仓身份无密钥路径，返回
+`eligible=false`；完整评审不替代当前 head 人类维护者批准。
 
 维护者自己的改动必须推送到同仓库 `codex/*` 分支，并从受保护的最新 `main` 手动运行
 `Open Agent Pull Request` workflow。该 workflow 绑定精确 branch SHA，并由专用 App 创建或
