@@ -16,7 +16,7 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-web</artifactId>
+            <artifactId>coco-feature-web</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
