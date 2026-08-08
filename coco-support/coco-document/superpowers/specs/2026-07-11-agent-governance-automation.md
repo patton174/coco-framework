@@ -38,19 +38,17 @@ App 最小权限为：
 不授予 Administration 权限。`Agent jury gate` 和 `Agent issue gate` 始终使用内置
 `github.token` 发布，使同一个 required context 只有 GitHub Actions App 一个 provider；专用 App token
 不得发布 gate。自动合并的可信度来自精确条件复核和分支保护，而不是管理员绕过。
-私钥只进入受保护 `main` 版本的计划任务、publisher 或合并任务，不进入 specialist、verifier、
-chair、fork/非受信 bot 的 no-secret reviewer，也不进入任何 PR-head 代码。同仓库且 GitHub API
-返回 `User` 类型、非空 login、正整数 user ID 的普通用户，以及 login、`Bot` 类型、不可变正整数
-Bot ID 与受保护仓库/environment variables 精确匹配的 Coco Agent App，可以直接进入完整评审团。Dependabot 身份固定为受保护 base Agent config 中的
-`dependabot[bot]` / `Bot` / `49699333`，但 GitHub 对其原始 `pull_request_target` run 只提供
-只读 token 且不提供 Actions secrets，因此该 run 必须标记 deferred + ignored，不运行模型、
-不读取 secrets、不查询 approval、不发布最终 jury gate。只有受保护默认分支的 `workflow_run`
-在通过 GitHub API 精确重绑定 source workflow name/path/event/run repository、source head
-repository、head branch/SHA、唯一 PR、base `main`、当前 head 和作者身份后，才能调用共享完整评审团；publisher 发布前再次重绑定。延迟入口
-不 checkout PR head/merge ref，也不消费 source-run artifact/cache。其他 App、名称相似但 ID
-不同的 bot 和 fork 不得进入密钥路径。完整机器人评审不替代合并所需的当前 head 人类维护者批准。
-同仓库的非固定身份 source run 由 binder 输出 `eligible=false` 后干净跳过，不应作为安全失败；
-该临时路由文件不上传，外部 fork 在 workflow 条件中按不可变 repository identity 直接跳过。
+App 私钥只进入受保护 `main` 的 `workflow_run` publisher、计划或合并任务，不进入 source 或
+PR-head 代码。`pull_request_target` 调用 reusable 时 environment ref 绑定 PR head，因此 source
+不得调用 secret-backed job；环境不得放宽到 `codex/*`，密钥不得迁移到 repository secrets。
+
+同仓库有效 `User`、精确 login/`Bot`/ID 的 Coco Agent App 和 base config 固定的 Dependabot
+都先完成 no-secret marker，且符合资格的 source run 只记录 `deferred + ignored`。仅在
+`refs/heads/main` 运行的 `workflow_run` 可通过 API 重绑 source workflow/event、run/head repository、
+唯一成功的 router/marker jobs、run-name PR/base/head、branch、当前 PR/base/head 和作者身份，再以
+`allow_deferred=true` 调用评审团；publisher 写入前再次绑定。延迟入口不 checkout PR head/merge
+ref，不消费 source artifact/cache。其他 bot/fork 不进入密钥路径；同仓非固定身份返回
+`eligible=false`，完整评审仍不替代当前 head 的人类维护者批准。
 
 维护者自己的改动必须推送到同仓库 `codex/*` 分支，并从受保护的最新 `main` 手动运行
 `Open Agent Pull Request` workflow。该 workflow 绑定精确 branch SHA，并由专用 App 创建或
@@ -179,7 +177,9 @@ review threads、开放 Issue 和仓库合并设置，而不只是二次读取 h
 1. 使用当前受保护 base reviewer 完成 PR 的 `CI gate`、`Agent jury gate`、人工批准和对话解决。
 2. 合并后创建并安装 GitHub App，或在合并前完成配置但不让 PR head 使用私钥。
 3. 从新 `main` 运行协议测试和 README dry-run。
-4. 创建 same-repository canary，验证 App 评论、Issue 创建/关闭和三个 gate 的精确 SHA 绑定。
+4. 创建 same-repository human 与精确 Coco App canary，验证 source run 只有 router/marker 成功、
+   `workflow_run` 和两个 secret environment 的 deployment ref 为 `main`，并验证 App 评论、
+   Issue 创建/关闭和三个 gate 的精确 SHA 绑定。
 5. 创建固定身份 Dependabot 等价 canary，验证原始 run 无 secret/无最终 gate、延迟 run 精确
    重绑定并完成完整评审团和 App publisher；再创建未固定 bot/fork 等价 canary，验证没有
    模型 API key/App 私钥、模型 job 跳过且已有 Issue 仍能阻断。
@@ -201,6 +201,9 @@ App ID 绑定 context，并完成同仓库与无密钥 canary。其他 required 
 
 - README renderer、Agent 输出约束、动态 marker、Issue marker、Issue 对账、gate 和 auto-merge 条件都有离线测试。
 - Python `unittest`、`py_compile`、Ruff、actionlint、ShellCheck 和 `git diff --check` 通过。
+- 协议测试证明 source workflow 不声明 environment/secret-backed caller，workflow_run 只在
+  `refs/heads/main` 放行，并拒绝错误 PR/base/head、仓库或 App login/type/ID、缺失/失败/重复
+  marker 和任何非 skipped 的额外 source job。
 - README `--check` 对当前根文档通过；重复渲染不产生 diff。
 - App 创建的评论、Issue、分支、PR 和 merge commit 在 GitHub UI 中显示专用 bot 身份。
 - 任一开放绑定 Issue 都让 required `Agent issue gate` 阻断合并；关闭后只对仍然相同的当前 head 恢复。

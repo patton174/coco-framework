@@ -59,21 +59,17 @@ produce effective SQL isolation. Request signature, encryption, and replay
 controls must fail safely under malformed input, concurrency, multi-instance
 deployment, and storage failure according to their documented contracts.
 
-Direct secret-backed review runs are allowed only for same-repository pull
-requests whose author has GitHub `User` type, a non-empty login, and a positive
-numeric user ID, or by the exact Coco Agent App login, `Bot` type, and positive
-numeric Bot ID pinned by protected repository/environment variables. GitHub
-withholds Actions secrets and gives a read-only workflow token
-to Dependabot-triggered `pull_request_target` runs. Therefore the exact
-same-repository `dependabot[bot]` login, `Bot` type, and ID `49699333` pinned by
-protected base config is deferred: its original pull-request and review events
-run no models, read no secrets, and publish no final jury status. A
-protected-default-branch `workflow_run` may invoke the shared full jury only
-after GitHub API checks bind one successful source run to the expected workflow
-name and path, event, repository ID and full name, source head repository ID and
-full name, head branch and SHA, unique open PR targeting `main`, current head,
-and exact author identity. The
-publisher repeats that binding before any result is published. Review
+Same-repository humans with a valid GitHub `User` login/ID, the exact pinned
+Coco Agent App login/`Bot`/ID, and base-configured deferred bots must first
+complete a protected-base no-secret marker. Those eligible source PR events run
+no models, read no secrets, build no model context, and publish no final jury status.
+Direct environment use is forbidden because a `pull_request_target` reusable
+call is deployed against the PR head ref. Only protected-default-branch
+`workflow_run` may invoke the jury after API checks bind the source workflow,
+event, repository/head-repository identities, the unique successful route and
+marker jobs with all others skipped, run-name PR/base/head, branch, current open
+PR/base/head, and exact author identity. The publisher repeats this binding.
+Review
 infrastructure must read executable policy from a protected base/default-branch
 revision and must never checkout, execute, compile, or source PR head content or
 consume source-run artifacts or caches. Forks and unpinned or
@@ -177,8 +173,8 @@ or SHA/hash mismatch is an infrastructure block.
 
 ## Finding Issue Governance
 
-For direct same-repository human/Coco App reviews or successfully rebound
-deferred Dependabot reviews, confirmed P0/P1
+For successfully rebound same-repository human, exact Coco App, or configured
+deferred-bot reviews, confirmed P0/P1
 blockers and P2/P3 findings selected by the chair from the dual-`AGREE` eligible
 pool are actionable findings. A selected P2/P3 finding does not change
 `Agent jury gate`,

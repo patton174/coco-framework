@@ -241,7 +241,10 @@ jobs:
   specialists:
     name: Specialist / ${{ matrix.id }}
     needs: prepare
-    if: needs.prepare.outputs.trusted == 'true' && needs.prepare.outputs.ignored == 'false'
+    if: >-
+      inputs.allow_deferred &&
+      needs.prepare.outputs.trusted == 'true' &&
+      needs.prepare.outputs.ignored == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: coco-agent-model
@@ -314,6 +317,7 @@ jobs:
     name: Verifier / ${{ matrix.id }}
     needs: [prepare, specialists]
     if: >-
+      inputs.allow_deferred &&
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false' &&
       needs.specialists.result == 'success'
@@ -397,6 +401,7 @@ jobs:
     name: Chair / deterministic synthesis
     needs: [prepare, specialists, verifiers]
     if: >-
+      inputs.allow_deferred &&
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false' &&
       needs.specialists.result == 'success' &&
@@ -570,6 +575,7 @@ jobs:
     needs: [prepare, specialists, verifiers, chair, publisher-admission]
     if: >-
       always() &&
+      inputs.allow_deferred &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false' &&
@@ -726,6 +732,7 @@ jobs:
     needs: [prepare, publisher-admission]
     if: >-
       always() &&
+      ! inputs.allow_deferred &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.trusted != 'true' &&
       needs.prepare.outputs.deferred == 'false' &&
