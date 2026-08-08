@@ -1,5 +1,7 @@
 # Workflow Governance
 
+<!-- coco-agent-deferred-binding-contract:v1 {"canonical":["ID","name","path","state"],"source":["workflow_id","path","event","repository"],"association":["structured pull_requests","current PR re-fetch"],"jobs":{"route":"success","marker":"success","others":"skipped"},"untrusted":["run-name","name","display_title"]} -->
+
 ## Naming Convention
 
 - GitHub Actions workflow files use lowercase kebab-case names.
@@ -72,8 +74,22 @@ review tooling, prompts, policy, and token permissions always come from the
 protected base branch. It fetches proposed files and diffs through GitHub APIs
 as untrusted text and never checks out or executes the PR head.
 
-Same-repository pull requests authored by a human or by the exact configured
-Coco Agent App login and immutable Bot ID enter the secret-backed Agent path.
+Same-repository pull requests authored by a human, the exact configured Coco
+Agent App login and immutable Bot ID, or a base-configured deferred bot first
+run a protected-base no-secret marker. For those eligible routes, the source
+`pull_request_target` path does not call the reusable jury, declare an
+environment, read a secret, or execute PR-head content. This two-stage route is mandatory because GitHub binds
+an environment deployment made by a reusable workflow called from
+`pull_request_target` to the PR head ref; the exact-`main` environments must
+withhold their credentials in that context. Only the default-branch
+`workflow_run` entrypoint may call the secret-backed reusable jury, after it
+resolves the protected `.github/workflows/agent-review.yml` workflow through
+the GitHub API and rebinds its canonical ID/name/path, the source run's exact
+`workflow_id`/path/event, structured associated PR/base/head, repository
+identity, author/App identity, and the successful route/marker job pair. The
+evaluated `run-name`, `name`, and `display_title` fields are not identity or
+PR-binding inputs. The reusable model jobs and App publisher also require the
+explicit deferred input, so a direct caller cannot reach a secret environment.
 Forks and all other bots never receive repository Agent secrets; they publish a
 no-secret policy status and remain pending until a maintainer with write,
 maintain, or admin permission approves the current head SHA. This path does not
