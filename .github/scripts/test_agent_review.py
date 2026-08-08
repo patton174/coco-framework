@@ -28,6 +28,7 @@ REPOSITORY = "patton174/coco-framework"
 REPOSITORY_ID = 123456789
 DEFERRED_PR_NUMBER = 125
 SOURCE_RUN_ID = 987654321
+DEFERRED_WORKFLOW_ID = 1234567
 RELEASE_APP_ACTION_SHA = "bcd2ba49218906704ab6c1aa796996da409d3eb1"
 MODEL_CONFIG_SHA256 = review.sha256_text(
     review.canonical_json(
@@ -273,10 +274,32 @@ def deferred_pull_request() -> dict:
     }
 
 
+def deferred_source_association() -> dict:
+    pull_request = deferred_pull_request()
+    return {
+        "number": pull_request["number"],
+        "base": pull_request["base"],
+        "head": pull_request["head"],
+    }
+
+
+def deferred_workflow() -> dict:
+    return {
+        "id": DEFERRED_WORKFLOW_ID,
+        "name": review.DEFERRED_WORKFLOW_NAME,
+        "path": review.DEFERRED_WORKFLOW_PATH,
+        "state": "active",
+    }
+
+
 def deferred_workflow_run() -> dict:
-    run_title = f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {HEAD_SHA}"
+    run_title = (
+        f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / "
+        f"head {HEAD_SHA} / base {BASE_SHA}"
+    )
     return {
         "id": SOURCE_RUN_ID,
+        "workflow_id": DEFERRED_WORKFLOW_ID,
         "name": run_title,
         "path": review.DEFERRED_WORKFLOW_PATH,
         "event": review.DEFERRED_WORKFLOW_EVENT,
@@ -287,8 +310,29 @@ def deferred_workflow_run() -> dict:
         "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
         "head_sha": HEAD_SHA,
         "head_branch": HEAD_REF,
-        "pull_requests": [{"number": DEFERRED_PR_NUMBER}],
+        "pull_requests": [deferred_source_association()],
     }
+
+
+def deferred_source_jobs() -> dict:
+    jobs = [
+        {
+            "name": review.DEFERRED_ROUTE_JOB_NAME,
+            "status": "completed",
+            "conclusion": "success",
+        },
+        {
+            "name": review.DEFERRED_MARKER_JOB_NAME,
+            "status": "completed",
+            "conclusion": "success",
+        },
+        {
+            "name": "Run no-secret maintainer gate",
+            "status": "completed",
+            "conclusion": "skipped",
+        },
+    ]
+    return {"total_count": len(jobs), "jobs": jobs}
 
 
 def trusted_metadata(run_id: int = 42, run_attempt: int = 1) -> dict:
@@ -326,21 +370,35 @@ class FakeDeferredClient:
         self,
         *,
         run: dict | None = None,
+        workflow: dict | None = None,
         pull_request: dict | None = None,
         associated: list[dict] | None = None,
+        jobs: dict | None = None,
     ) -> None:
         self.run = json.loads(json.dumps(run or deferred_workflow_run()))
+        self.workflow = json.loads(json.dumps(workflow or deferred_workflow()))
         if associated is not None:
             self.run["pull_requests"] = associated
         self.pull_request = pull_request or deferred_pull_request()
+        self.jobs = jobs or deferred_source_jobs()
         self.get_paths: list[str] = []
 
     def get_json(self, path: str) -> dict:
         self.get_paths.append(path)
+        if (
+            path
+            == f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}"
+        ):
+            return self.workflow
         if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
             return self.run
         if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
             return self.pull_request
+        if path == (
+            f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}/jobs"
+            "?filter=latest&per_page=100"
+        ):
+            return self.jobs
         raise AssertionError(f"Unexpected GET path: {path}")
 
     def paginate(self, path: str, limit: int = 1000) -> list[dict]:
@@ -882,6 +940,81 @@ class AgentReviewTests(unittest.TestCase):
             sum(len(source["content"]) for source in sources),
             review.normalized_limits(value)["policy_chars"],
         )
+
+    def test_deferred_binding_policies_define_exact_trust_contract(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        policy_paths = (
+            ".github/agent-review/policy.md",
+            ".github/workflow-governance.md",
+            "coco-support/coco-document/superpowers/specs/"
+            "2026-07-10-multi-agent-review-jury.md",
+            "coco-support/coco-document/superpowers/specs/"
+            "2026-07-11-agent-governance-automation.md",
+        )
+        expected_contract = {
+            "canonical": ["ID", "name", "path", "state"],
+            "source": ["workflow_id", "path", "event", "repository"],
+            "association": ["structured pull_requests", "current PR re-fetch"],
+            "jobs": {"route": "success", "marker": "success", "others": "skipped"},
+            "untrusted": ["run-name", "name", "display_title"],
+        }
+        contract_pattern = re.compile(
+            r"<!-- coco-agent-deferred-binding-contract:v1 "
+            r"(?P<contract>\{[^\n]+\}) -->"
+        )
+        contradictory_claims = (
+            re.compile(
+                r"\b(?:trust|trusts|trusted|rely|relies|relying)\b"
+                r"(?:(?!\b(?:not|never|untrusted)\b).){0,120}"
+                r"(?:`run-name`|`display_title`|evaluated `name`)",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(?:`run-name`|`display_title`|evaluated `name`)"
+                r"(?:(?!\b(?:not|never|untrusted)\b).){0,120}"
+                r"\b(?:trusted|authoritative)\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"\b(?:workflow identity|PR[- ]binding)\b"
+                r"(?:(?!\b(?:not|never|untrusted)\b).){0,120}"
+                r"\b(?:from|using|uses|derived from|binds?)\b"
+                r".{0,80}(?:`run-name`|`display_title`|evaluated `name`)",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(?:`run-name`|`display_title`|evaluated `name`)"
+                r".{0,80}\b(?:defines|provides|determines|establishes)\b"
+                r".{0,80}\b(?:workflow identity|PR[- ]binding)\b",
+                re.IGNORECASE,
+            ),
+        )
+
+        def assert_contract(policy: str) -> None:
+            matches = list(contract_pattern.finditer(policy))
+            self.assertEqual(1, len(matches), "deferred binding contract count")
+            self.assertEqual(
+                expected_contract,
+                json.loads(matches[0].group("contract")),
+            )
+            normalized_policy = " ".join(policy.split())
+            for contradictory_claim in contradictory_claims:
+                self.assertIsNone(
+                    contradictory_claim.search(normalized_policy),
+                    "evaluated workflow titles must remain untrusted",
+                )
+
+        for relative_path in policy_paths:
+            with self.subTest(policy=relative_path):
+                policy = (repository_root / relative_path).read_text(encoding="utf-8")
+                assert_contract(policy)
+                with self.assertRaisesRegex(
+                    AssertionError,
+                    "evaluated workflow titles must remain untrusted",
+                ):
+                    assert_contract(
+                        policy + "\nWorkflow identity is derived from `run-name`.\n"
+                    )
 
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1618,6 +1751,11 @@ class AgentReviewTests(unittest.TestCase):
             with (
                 patch.object(review, "GitHubClient", return_value=client),
                 patch.object(review, "load_config", return_value=config()),
+                patch.object(
+                    review,
+                    "classify_pr_route",
+                    return_value=review.PR_ROUTE_DIRECT,
+                ),
                 patch.object(review, "build_context", return_value=context) as builder,
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
@@ -3170,22 +3308,29 @@ class AgentReviewTests(unittest.TestCase):
         self.assertFalse((workflow_root / "claude-review.yml").exists())
         self.assertTrue(direct_workflow.startswith("name: Agent Review Jury\n"))
         self.assertIn(
-            'run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / ${{ github.event.pull_request.head.sha }}"',
+            'run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / head ${{ github.event.pull_request.head.sha }} / base ${{ github.event.pull_request.base.sha }}"',
             direct_workflow,
         )
         self.assertIn('"${review_script}" route', direct_workflow)
         self.assertEqual(
-            2,
+            1,
             direct_workflow.count(
                 "uses: ./.github/workflows/reusable-agent-review-jury.yml"
             ),
         )
-        direct_secret = direct_workflow.split("\n  direct-secret-review:\n", 1)[
-            1
-        ].split("\n  no-secret-review:\n", 1)[0]
+        marker = direct_workflow.split("\n  deferred-marker:\n", 1)[1].split(
+            "\n  no-secret-review:\n", 1
+        )[0]
         direct_no_secret = direct_workflow.split("\n  no-secret-review:\n", 1)[1]
-        self.assertNotIn("secrets: inherit", direct_secret)
+        self.assertIn("name: Emit protected no-secret marker", marker)
+        self.assertIn("needs.route.outputs.review-route == 'deferred-secret'", marker)
+        self.assertIn("agent-review-deferred-marker", marker)
+        self.assertIn("permissions: {}", marker)
+        self.assertNotIn("actions/checkout", marker)
+        self.assertNotIn("environment:", marker)
         self.assertNotIn("secrets: inherit", direct_no_secret)
+        self.assertNotIn("direct-secret-review", direct_workflow)
+        self.assertNotIn("direct-secret", direct_workflow)
         self.assertNotIn("${{ secrets.", direct_workflow)
         self.assertNotIn("COCO_AGENT_APP_PRIVATE_KEY", direct_workflow)
         self.assertNotIn("ANTHROPIC", direct_workflow)
@@ -3218,7 +3363,7 @@ class AgentReviewTests(unittest.TestCase):
         for model_job in (specialists, verifiers, chair):
             self.assertEqual(1, model_job.count(model_environment))
         for name, section in (
-            ("direct no-secret call", direct_no_secret),
+            ("source no-secret call", direct_no_secret),
             ("prepare", prepare),
             ("publisher admission", admission),
             ("trusted publisher", trusted),
@@ -3275,6 +3420,7 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertIn("  workflow_run:\n", deferred_workflow)
         self.assertIn("workflows: [Agent Review Jury]", deferred_workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", deferred_workflow)
         self.assertIn(
             "github.event.workflow_run.head_repository.id == fromJSON(github.repository_id)",
             deferred_workflow,
@@ -3305,6 +3451,8 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("/merge", deferred_workflow)
         self.assertNotIn(model_environment, direct_workflow)
         self.assertNotIn(model_environment, deferred_workflow)
+        self.assertNotIn("environment: coco-agent", direct_workflow)
+        self.assertNotIn("${{ secrets.", deferred_workflow)
 
         gate_workflow = (workflow_root / "agent-issue-gate.yml").read_text(
             encoding="utf-8"
@@ -3368,14 +3516,22 @@ class AgentReviewTests(unittest.TestCase):
         verifiers = core.split("\n  verifiers:\n", 1)[1].split("\n  chair:\n", 1)[0]
         chair = core.split("\n  chair:\n", 1)[1].split("\n  trusted-publisher:\n", 1)[0]
         for model_job in (specialists, verifiers, chair):
+            self.assertIn("inputs.allow_deferred", model_job)
             self.assertNotIn("statuses: write", model_job)
+        trusted = core.split("\n  trusted-publisher:\n", 1)[1].split(
+            "\n  no-secret-publisher:\n", 1
+        )[0]
+        self.assertIn("inputs.allow_deferred", trusted)
+        self.assertIn("environment: coco-agent", trusted)
         self.assertEqual(3, core.count("statuses: write"))
 
         reusable_call = "uses: ./.github/workflows/reusable-agent-review-jury.yml"
-        self.assertEqual(2, direct.count(reusable_call))
+        self.assertEqual(1, direct.count(reusable_call))
         self.assertEqual(1, deferred.count(reusable_call))
         self.assertIn("allow_deferred: true", deferred)
         self.assertIn("event_name: workflow_run", deferred)
+        self.assertNotIn("allow_deferred: true", direct)
+        self.assertNotIn("environment:", direct)
         self.assertNotIn("\n  specialists:\n", direct)
         self.assertNotIn("\n  specialists:\n", deferred)
 
@@ -3533,13 +3689,15 @@ class AgentReviewTests(unittest.TestCase):
                 "test comment",
             )
 
-    def test_classification_has_direct_deferred_and_no_secret_routes(self) -> None:
+    def test_classification_routes_all_trusted_sources_through_deferred_marker(
+        self,
+    ) -> None:
         base = {
             "head": {"repo": {"full_name": "patton174/coco-framework"}},
             "user": {"id": 42, "login": "patton174", "type": "User"},
         }
         self.assertEqual(
-            review.PR_ROUTE_DIRECT,
+            review.PR_ROUTE_DEFERRED,
             review.classify_pr_route(base, "patton174/coco-framework"),
         )
         fork = json.loads(json.dumps(base))
@@ -3630,7 +3788,7 @@ class AgentReviewTests(unittest.TestCase):
             review.classify_pr_route(app, "patton174/coco-framework"),
         )
         self.assertEqual(
-            review.PR_ROUTE_DIRECT,
+            review.PR_ROUTE_DEFERRED,
             review.classify_pr_route(
                 app,
                 "patton174/coco-framework",
@@ -3639,7 +3797,7 @@ class AgentReviewTests(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            review.PR_ROUTE_DIRECT,
+            review.PR_ROUTE_DEFERRED,
             review.classify_pr_route(
                 app,
                 "patton174/coco-framework",
@@ -3763,7 +3921,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(DEPENDABOT_BOT_ID, decision["author_id"])
         self.assertEqual(REPOSITORY, decision["head_repository"])
 
-    def test_classify_pr_compatibility_shim_matches_direct_route(self) -> None:
+    def test_classify_pr_compatibility_shim_matches_trusted_deferred_route(
+        self,
+    ) -> None:
         cases = (
             (
                 {
@@ -3806,7 +3966,7 @@ class AgentReviewTests(unittest.TestCase):
                         trusted_app_bot_id,
                         deferred_bot_authors=(),
                     )
-                    == review.PR_ROUTE_DIRECT,
+                    == review.PR_ROUTE_DEFERRED,
                     review.classify_pr(
                         pull_request,
                         REPOSITORY,
@@ -3928,8 +4088,13 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(DEPENDABOT_BOT_ID, binding["author_id"])
         self.assertEqual(
             [
+                f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}",
                 f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}",
                 f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}",
+                (
+                    f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}/jobs"
+                    "?filter=latest&per_page=100"
+                ),
             ],
             client.get_paths,
         )
@@ -3955,6 +4120,11 @@ class AgentReviewTests(unittest.TestCase):
 
             def get_json(self, path: str) -> dict:
                 self.get_paths.append(path)
+                if path == (
+                    f"repos/{REPOSITORY}/actions/workflows/"
+                    f"{review.DEFERRED_WORKFLOW_PATH}"
+                ):
+                    return self.workflow
                 if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
                     self.run_attempts += 1
                     if self.run_attempts == 1:
@@ -3979,6 +4149,11 @@ class AgentReviewTests(unittest.TestCase):
                             "not found",
                         )
                     return self.pull_request
+                if path == (
+                    f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}/jobs"
+                    "?filter=latest&per_page=100"
+                ):
+                    return self.jobs
                 raise AssertionError(f"Unexpected GET path: {path}")
 
         client = FlakyDeferredClient()
@@ -4032,13 +4207,15 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(4, client.attempts)
         self.assertEqual(3, sleeper.call_count)
 
-    def test_deferred_binding_does_not_retry_invalid_payloads(self) -> None:
-        run = deferred_workflow_run()
-        run["name"] = "Other Workflow"
-        client = FakeDeferredClient(run=run)
+    def test_deferred_binding_does_not_retry_invalid_workflow_identity(self) -> None:
+        workflow = deferred_workflow()
+        workflow["name"] = "Other Workflow"
+        client = FakeDeferredClient(workflow=workflow)
 
         with patch.object(review.time, "sleep") as sleeper:
-            with self.assertRaisesRegex(review.ReviewError, "binding is invalid"):
+            with self.assertRaisesRegex(
+                review.ReviewError, "source workflow identity is invalid"
+            ):
                 review.deferred_review_candidate(
                     client,
                     REPOSITORY,
@@ -4048,9 +4225,139 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            [f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}"], client.get_paths
+            [f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}"],
+            client.get_paths,
         )
         sleeper.assert_not_called()
+
+    def test_deferred_binding_ignores_evaluated_run_titles(self) -> None:
+        run = deferred_workflow_run()
+        run["name"] = "PR-controlled display title"
+        run["display_title"] = "Another untrusted display title"
+
+        binding = review.deferred_review_binding(
+            FakeDeferredClient(run=run),
+            REPOSITORY,
+            REPOSITORY_ID,
+            SOURCE_RUN_ID,
+            deferred_config(),
+            DEFERRED_PR_NUMBER,
+            HEAD_SHA,
+        )
+
+        self.assertTrue(binding["eligible"])
+
+    def test_deferred_binding_requires_canonical_workflow_identity(self) -> None:
+        cases: list[tuple[str, dict, dict]] = []
+
+        for name, run_change, workflow_change in (
+            (
+                "source workflow ID",
+                ("workflow_id", DEFERRED_WORKFLOW_ID + 1),
+                None,
+            ),
+            (
+                "canonical workflow ID",
+                None,
+                ("id", DEFERRED_WORKFLOW_ID + 1),
+            ),
+            (
+                "canonical workflow name",
+                None,
+                ("name", "Other Workflow"),
+            ),
+            (
+                "canonical workflow path",
+                None,
+                ("path", ".github/workflows/other.yml"),
+            ),
+            (
+                "canonical workflow state",
+                None,
+                ("state", "inactive"),
+            ),
+        ):
+            run = deferred_workflow_run()
+            workflow = deferred_workflow()
+            if run_change is not None:
+                run[run_change[0]] = run_change[1]
+            if workflow_change is not None:
+                workflow[workflow_change[0]] = workflow_change[1]
+            cases.append((name, run, workflow))
+
+        for name, run, workflow in cases:
+            with self.subTest(name=name):
+                with self.assertRaises(review.ReviewError):
+                    review.deferred_review_binding(
+                        FakeDeferredClient(run=run, workflow=workflow),
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        SOURCE_RUN_ID,
+                        deferred_config(),
+                        DEFERRED_PR_NUMBER,
+                        HEAD_SHA,
+                    )
+
+    def test_deferred_binding_requires_exact_successful_marker_jobs(self) -> None:
+        valid = deferred_source_jobs()["jobs"]
+        cases = {
+            "missing marker": [valid[0], valid[2]],
+            "failed marker": [
+                valid[0],
+                {
+                    **valid[1],
+                    "conclusion": "failure",
+                },
+                valid[2],
+            ],
+            "duplicate marker": [valid[0], valid[1], valid[1], valid[2]],
+            "unexpected successful job": [
+                valid[0],
+                valid[1],
+                {
+                    "name": "Run direct secret-backed jury",
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+            ],
+            "incomplete marker": [
+                valid[0],
+                {
+                    **valid[1],
+                    "status": "in_progress",
+                    "conclusion": None,
+                },
+                valid[2],
+            ],
+        }
+        for name, jobs in cases.items():
+            with self.subTest(name=name):
+                client = FakeDeferredClient(
+                    jobs={"total_count": len(jobs), "jobs": jobs}
+                )
+                with self.assertRaises(review.ReviewError):
+                    review.deferred_review_binding(
+                        client,
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        SOURCE_RUN_ID,
+                        deferred_config(),
+                        DEFERRED_PR_NUMBER,
+                        HEAD_SHA,
+                    )
+
+        invalid_count = deferred_source_jobs()
+        invalid_count["total_count"] += 1
+        with self.assertRaisesRegex(review.ReviewError, "source jobs are invalid"):
+            review.deferred_review_binding(
+                FakeDeferredClient(jobs=invalid_count),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                deferred_config(),
+                DEFERRED_PR_NUMBER,
+                HEAD_SHA,
+            )
 
     def test_deferred_workflow_binding_rejects_forged_or_stale_inputs(self) -> None:
         cases: list[tuple[str, dict, dict, list[dict]]] = []
@@ -4076,12 +4383,14 @@ class AgentReviewTests(unittest.TestCase):
                     pull_request,
                     associated
                     if associated is not None
-                    else [{"number": DEFERRED_PR_NUMBER}],
+                    else [deferred_source_association()],
                 )
             )
 
         add_case("wrong run id", run_change=("id", SOURCE_RUN_ID + 1))
-        add_case("wrong workflow", run_change=("name", "Other Workflow"))
+        add_case(
+            "wrong workflow ID", run_change=("workflow_id", DEFERRED_WORKFLOW_ID + 1)
+        )
         add_case(
             "wrong workflow path",
             run_change=("path", ".github/workflows/reusable-agent-review-jury.yml"),
@@ -4116,13 +4425,6 @@ class AgentReviewTests(unittest.TestCase):
                 {"id": REPOSITORY_ID, "full_name": "someone/coco-framework"},
             ),
         )
-        add_case(
-            "stale title head",
-            run_change=(
-                "display_title",
-                f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / {'c' * 40}",
-            ),
-        )
         add_case("run head SHA drift", run_change=("head_sha", "c" * 40))
         add_case(
             "run head branch drift",
@@ -4140,7 +4442,14 @@ class AgentReviewTests(unittest.TestCase):
             "wrong association",
             associated=[{"number": DEFERRED_PR_NUMBER + 1}],
         )
+        stale_source_base = deferred_source_association()
+        stale_source_base["base"]["sha"] = "c" * 40
+        add_case("stale source base", associated=[stale_source_base])
+        stale_source_head = deferred_source_association()
+        stale_source_head["head"]["sha"] = "c" * 40
+        add_case("stale source head", associated=[stale_source_head])
         add_case("stale current head", pr_path=("head", "sha", "c" * 40))
+        add_case("stale current base", pr_path=("base", "sha", "c" * 40))
         add_case("wrong base", pr_path=("base", "ref", "release"))
         add_case(
             "wrong pull request head repository id",
@@ -4172,7 +4481,7 @@ class AgentReviewTests(unittest.TestCase):
                     f"wrong author {field}",
                     run,
                     pull_request,
-                    [{"number": DEFERRED_PR_NUMBER}],
+                    [deferred_source_association()],
                 )
             )
 
@@ -4194,15 +4503,17 @@ class AgentReviewTests(unittest.TestCase):
                         HEAD_SHA,
                     )
 
-    def test_deferred_candidate_skips_non_pinned_authors(self) -> None:
-        for user, expected_route in (
+    def test_deferred_candidate_accepts_humans_and_skips_unpinned_bots(self) -> None:
+        for user, expected_route, expected_eligible in (
             (
                 {"id": 12, "login": "maintainer", "type": "User"},
-                review.PR_ROUTE_DIRECT,
+                review.PR_ROUTE_DEFERRED,
+                True,
             ),
             (
                 {"id": 13, "login": "renovate[bot]", "type": "Bot"},
                 review.PR_ROUTE_NO_SECRET,
+                False,
             ),
         ):
             with self.subTest(user=user):
@@ -4215,7 +4526,7 @@ class AgentReviewTests(unittest.TestCase):
                     SOURCE_RUN_ID,
                     deferred_config(),
                 )
-                self.assertFalse(candidate["eligible"])
+                self.assertEqual(expected_eligible, candidate["eligible"])
                 self.assertEqual(expected_route, candidate["review_route"])
 
         fork = deferred_pull_request()
@@ -4264,8 +4575,9 @@ class AgentReviewTests(unittest.TestCase):
                 configured,
             )
 
-        self.assertFalse(app_candidate["eligible"])
-        self.assertEqual(review.PR_ROUTE_DIRECT, app_candidate["review_route"])
+        self.assertTrue(app_candidate["eligible"])
+        self.assertEqual(review.PR_ROUTE_DEFERRED, app_candidate["review_route"])
+        self.assertEqual("same-repository-trusted-app", app_candidate["route_reason"])
         self.assertTrue(dependabot_candidate["eligible"])
         self.assertEqual(review.PR_ROUTE_DEFERRED, dependabot_candidate["review_route"])
 
@@ -4273,8 +4585,8 @@ class AgentReviewTests(unittest.TestCase):
         pull_request = deferred_pull_request()
         pull_request["user"] = {
             "id": 42,
-            "login": "patton174",
-            "type": "User",
+            "login": "renovate[bot]",
+            "type": "Bot",
         }
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "binding.json"
@@ -4301,7 +4613,7 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(0, result)
         self.assertFalse(binding["eligible"])
-        self.assertEqual(review.PR_ROUTE_DIRECT, binding["review_route"])
+        self.assertEqual(review.PR_ROUTE_NO_SECRET, binding["review_route"])
 
     def test_prepare_enables_full_jury_only_for_bound_deferred_run(self) -> None:
         class FakeClient(FakeDeferredClient):
@@ -4552,7 +4864,7 @@ class AgentReviewTests(unittest.TestCase):
                     ),
                 )
 
-    def test_deferred_no_secret_route_is_ignored_and_cannot_publish_success(
+    def test_deferred_marker_route_is_ignored_and_cannot_publish_success(
         self,
     ) -> None:
         workflow_root = Path(__file__).resolve().parents[1] / "workflows"
@@ -4560,11 +4872,12 @@ class AgentReviewTests(unittest.TestCase):
         reusable = (workflow_root / "reusable-agent-review-jury.yml").read_text(
             encoding="utf-8"
         )
+        marker = router.split("\n  deferred-marker:\n", 1)[1].split(
+            "\n  no-secret-review:\n", 1
+        )[0]
         no_secret_call = router.split("\n  no-secret-review:\n", 1)[1]
-        self.assertIn(
-            "needs.route.outputs.review-route == 'deferred-pinned-bot'",
-            no_secret_call,
-        )
+        self.assertIn("needs.route.outputs.review-route == 'deferred-secret'", marker)
+        self.assertNotIn("deferred-secret", no_secret_call)
         self.assertNotIn("secrets: inherit", no_secret_call)
         self.assertIn("deferred: ${{ steps.metadata.outputs.deferred }}", reusable)
         self.assertIn(
@@ -5141,7 +5454,7 @@ class AgentReviewTests(unittest.TestCase):
 
         route_step = router.split("\n      - name: Classify bound pull request\n", 1)[
             1
-        ].split("\n  direct-secret-review:\n", 1)[0]
+        ].split("\n  deferred-marker:\n", 1)[0]
         for value in (
             'if python3 "${review_script}" route --help >/dev/null 2>&1; then',
             "route_mode='legacy-prepare'",
@@ -5176,10 +5489,10 @@ class AgentReviewTests(unittest.TestCase):
 
         no_secret = router.split("\n  no-secret-review:\n", 1)[1]
         self.assertIn(
-            "if: needs.route.outputs.review-route == 'no-secret' || needs.route.outputs.review-route == 'deferred-pinned-bot'",
+            "if: needs.route.outputs.review-route == 'no-secret'",
             no_secret,
         )
-        self.assertNotIn("!= 'direct-secret'", no_secret)
+        self.assertNotIn("deferred-secret", no_secret)
         self.assertNotIn("compat-skip", no_secret)
 
         context_step = reusable.split(
@@ -5211,13 +5524,13 @@ class AgentReviewTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         route_step = router.split("\n      - name: Classify bound pull request\n", 1)[
             1
-        ].split("\n  direct-secret-review:\n", 1)[0]
+        ].split("\n  deferred-marker:\n", 1)[0]
         decision_script = textwrap.dedent(
             route_step.split("<<'PY'\n", 1)[1].split("\n          PY", 1)[0]
         )
         cases = (
             (
-                review.PR_ROUTE_DIRECT,
+                review.PR_ROUTE_DEFERRED,
                 "same-repository-human",
                 "maintainer",
                 "User",
@@ -5297,7 +5610,7 @@ class AgentReviewTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         route_step = router.split("\n      - name: Classify bound pull request\n", 1)[
             1
-        ].split("\n  direct-secret-review:\n", 1)[0]
+        ].split("\n  deferred-marker:\n", 1)[0]
         decision_script = textwrap.dedent(
             route_step.split("<<'PY'\n", 1)[1].split("\n          PY", 1)[0]
         )
@@ -6043,13 +6356,13 @@ class AgentReviewTests(unittest.TestCase):
             )
             self.assertNotIn("needs.prepare.outputs.head-sha", concurrency)
 
-    def test_route_decision_explains_direct_deferred_and_no_secret(self) -> None:
+    def test_route_decision_explains_deferred_and_no_secret(self) -> None:
         human = deferred_pull_request()
         human["user"] = {"id": 1, "login": "patton174", "type": "User"}
         fork = json.loads(json.dumps(human))
         fork["head"]["repo"]["full_name"] = "someone/fork"
         cases = (
-            (human, (), review.PR_ROUTE_DIRECT, "same-repository-human"),
+            (human, (), review.PR_ROUTE_DEFERRED, "same-repository-human"),
             (fork, (), review.PR_ROUTE_NO_SECRET, "head-repository-mismatch"),
             (
                 deferred_pull_request(),
@@ -6078,7 +6391,7 @@ class AgentReviewTests(unittest.TestCase):
             "type": "Bot",
         }
         self.assertEqual(
-            review.PR_ROUTE_DIRECT,
+            review.PR_ROUTE_DEFERRED,
             review.classify_pr_route_decision(
                 trusted_app, REPOSITORY, "coco-agent[bot]", APP_BOT_ID
             )["review_route"],
@@ -6129,13 +6442,23 @@ class AgentReviewTests(unittest.TestCase):
     def test_deferred_binding_retries_transient_run_and_pull_lookups(self) -> None:
         class RecoveringClient:
             def __init__(self) -> None:
-                self.attempts = {"run": 0, "pull": 0}
+                self.attempts = {"workflow": 0, "run": 0, "pull": 0, "jobs": 0}
 
             def get_json(self, path: str) -> dict:
-                if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
+                if path == (
+                    f"repos/{REPOSITORY}/actions/workflows/"
+                    f"{review.DEFERRED_WORKFLOW_PATH}"
+                ):
+                    key, value = "workflow", deferred_workflow()
+                elif path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
                     key, value = "run", deferred_workflow_run()
                 elif path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
                     key, value = "pull", deferred_pull_request()
+                elif path == (
+                    f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}/jobs"
+                    "?filter=latest&per_page=100"
+                ):
+                    key, value = "jobs", deferred_source_jobs()
                 else:
                     raise AssertionError(f"Unexpected GET path: {path}")
                 self.attempts[key] += 1
@@ -6158,8 +6481,10 @@ class AgentReviewTests(unittest.TestCase):
             )
 
         self.assertTrue(binding["eligible"])
-        self.assertEqual({"run": 2, "pull": 2}, client.attempts)
-        self.assertEqual(2, sleeper.call_count)
+        self.assertEqual(
+            {"workflow": 2, "run": 2, "pull": 2, "jobs": 2}, client.attempts
+        )
+        self.assertEqual(4, sleeper.call_count)
 
     def test_deferred_binding_fails_closed_after_retry_exhaustion(self) -> None:
         class FailingClient:
@@ -6239,10 +6564,13 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("base_sha: ${{ steps.binding.outputs.base_sha }}", deferred)
         self.assertIn("expected_base_sha: ${{ needs.bind.outputs.base_sha }}", deferred)
         self.assertEqual(
-            2,
+            1,
             router.count(
                 "expected_base_sha: ${{ github.event.pull_request.base.sha }}"
             ),
+        )
+        self.assertIn(
+            "/ head ${{ github.event.pull_request.head.sha }} / base ", router
         )
         header = reusable.split("\njobs:\n", 1)[0]
         self.assertIn("expected_base_sha:", header)

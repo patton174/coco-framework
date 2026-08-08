@@ -1,8 +1,9 @@
 name: Deferred Agent Review Jury
 run-name: "Deferred Agent Review Jury / source run #${{ github.event.workflow_run.id }}"
 
-# workflow_run executes only from the protected default branch. It never
-# consumes source-run artifacts, caches, or pull request executable content.
+# workflow_run executes only from the protected default branch. It rebinds a
+# successful no-secret marker and never consumes source-run artifacts, caches,
+# or pull request executable content.
 
 on:
   workflow_run:
@@ -13,8 +14,9 @@ permissions: {}
 
 jobs:
   bind:
-    name: Rebind completed direct review
+    name: Rebind completed no-secret marker
     if: >-
+      github.ref == 'refs/heads/main' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request_target' &&
       github.event.workflow_run.head_repository.id == fromJSON(github.repository_id) &&
