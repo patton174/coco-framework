@@ -1,5 +1,7 @@
 # Coco Agent 治理自动化规格
 
+<!-- coco-agent-deferred-binding-contract:v1 {"canonical":["ID","name","path","state"],"source":["workflow_id","path","event","repository"],"association":["structured pull_requests","current PR re-fetch"],"jobs":{"route":"success","marker":"success","others":"skipped"},"untrusted":["run-name","name","display_title"]} -->
+
 ## 目标
 
 本规格把 README 维护、Agent 评审发现和自动合并收敛为一条可审计的仓库治理链路：

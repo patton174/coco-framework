@@ -1,5 +1,7 @@
 # Workflow Governance
 
+<!-- coco-agent-deferred-binding-contract:v1 {"canonical":["ID","name","path","state"],"source":["workflow_id","path","event","repository"],"association":["structured pull_requests","current PR re-fetch"],"jobs":{"route":"success","marker":"success","others":"skipped"},"untrusted":["run-name","name","display_title"]} -->
+
 ## Naming Convention
 
 - GitHub Actions workflow files use lowercase kebab-case names.

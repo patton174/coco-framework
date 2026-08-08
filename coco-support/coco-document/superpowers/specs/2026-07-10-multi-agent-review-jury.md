@@ -1,5 +1,7 @@
 # Coco 多 Agent 代码评审团规格
 
+<!-- coco-agent-deferred-binding-contract:v1 {"canonical":["ID","name","path","state"],"source":["workflow_id","path","event","repository"],"association":["structured pull_requests","current PR re-fetch"],"jobs":{"route":"success","marker":"success","others":"skipped"},"untrusted":["run-name","name","display_title"]} -->
+
 ## 问题
 
 当前 Agent Review 只有一次模型调用。Workflow 把 PR diff 交给一个模型

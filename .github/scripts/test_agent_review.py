@@ -941,24 +941,80 @@ class AgentReviewTests(unittest.TestCase):
             review.normalized_limits(value)["policy_chars"],
         )
 
-    def test_deferred_binding_policies_forbid_evaluated_titles(self) -> None:
+    def test_deferred_binding_policies_define_exact_trust_contract(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
         policy_paths = (
             ".github/agent-review/policy.md",
+            ".github/workflow-governance.md",
+            "coco-support/coco-document/superpowers/specs/"
+            "2026-07-10-multi-agent-review-jury.md",
             "coco-support/coco-document/superpowers/specs/"
             "2026-07-11-agent-governance-automation.md",
         )
+        expected_contract = {
+            "canonical": ["ID", "name", "path", "state"],
+            "source": ["workflow_id", "path", "event", "repository"],
+            "association": ["structured pull_requests", "current PR re-fetch"],
+            "jobs": {"route": "success", "marker": "success", "others": "skipped"},
+            "untrusted": ["run-name", "name", "display_title"],
+        }
+        contract_pattern = re.compile(
+            r"<!-- coco-agent-deferred-binding-contract:v1 "
+            r"(?P<contract>\{[^\n]+\}) -->"
+        )
+        contradictory_claims = (
+            re.compile(
+                r"\b(?:trust|trusts|trusted|rely|relies|relying)\b"
+                r"(?:(?!\b(?:not|never|untrusted)\b).){0,120}"
+                r"(?:`run-name`|`display_title`|evaluated `name`)",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(?:`run-name`|`display_title`|evaluated `name`)"
+                r"(?:(?!\b(?:not|never|untrusted)\b).){0,120}"
+                r"\b(?:trusted|authoritative)\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"\b(?:workflow identity|PR[- ]binding)\b"
+                r"(?:(?!\b(?:not|never|untrusted)\b).){0,120}"
+                r"\b(?:from|using|uses|derived from|binds?)\b"
+                r".{0,80}(?:`run-name`|`display_title`|evaluated `name`)",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(?:`run-name`|`display_title`|evaluated `name`)"
+                r".{0,80}\b(?:defines|provides|determines|establishes)\b"
+                r".{0,80}\b(?:workflow identity|PR[- ]binding)\b",
+                re.IGNORECASE,
+            ),
+        )
+
+        def assert_contract(policy: str) -> None:
+            matches = list(contract_pattern.finditer(policy))
+            self.assertEqual(1, len(matches), "deferred binding contract count")
+            self.assertEqual(
+                expected_contract,
+                json.loads(matches[0].group("contract")),
+            )
+            normalized_policy = " ".join(policy.split())
+            for contradictory_claim in contradictory_claims:
+                self.assertIsNone(
+                    contradictory_claim.search(normalized_policy),
+                    "evaluated workflow titles must remain untrusted",
+                )
 
         for relative_path in policy_paths:
             with self.subTest(policy=relative_path):
                 policy = (repository_root / relative_path).read_text(encoding="utf-8")
-                normalized_policy = " ".join(policy.split())
-                self.assertIn("canonical workflow API identity", normalized_policy)
-                self.assertIn("workflow_id", normalized_policy)
-                self.assertIn("pull_requests", normalized_policy)
-                self.assertIn("current PR re-fetch", normalized_policy)
-                self.assertIn("display_title", normalized_policy)
-                self.assertNotIn("run-name PR/base/head", normalized_policy)
+                assert_contract(policy)
+                with self.assertRaisesRegex(
+                    AssertionError,
+                    "evaluated workflow titles must remain untrusted",
+                ):
+                    assert_contract(
+                        policy + "\nWorkflow identity is derived from `run-name`.\n"
+                    )
 
     def test_config_and_context_require_strict_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -4214,6 +4270,11 @@ class AgentReviewTests(unittest.TestCase):
                 "canonical workflow path",
                 None,
                 ("path", ".github/workflows/other.yml"),
+            ),
+            (
+                "canonical workflow state",
+                None,
+                ("state", "inactive"),
             ),
         ):
             run = deferred_workflow_run()
