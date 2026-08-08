@@ -278,8 +278,22 @@ def deferred_source_association() -> dict:
     pull_request = deferred_pull_request()
     return {
         "number": pull_request["number"],
-        "base": pull_request["base"],
-        "head": pull_request["head"],
+        "base": {
+            **pull_request["base"],
+            "repo": {
+                "id": REPOSITORY_ID,
+                "name": "coco-framework",
+                "url": "https://api.github.com/repos/patton174/coco-framework",
+            },
+        },
+        "head": {
+            **pull_request["head"],
+            "repo": {
+                "id": REPOSITORY_ID,
+                "name": "coco-framework",
+                "url": "https://api.github.com/repos/patton174/coco-framework",
+            },
+        },
     }
 
 
@@ -4086,6 +4100,16 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual("dependabot[bot]", binding["author_login"])
         self.assertEqual("Bot", binding["author_type"])
         self.assertEqual(DEPENDABOT_BOT_ID, binding["author_id"])
+        source_association = client.run["pull_requests"][0]
+        self.assertEqual(
+            {
+                "id": REPOSITORY_ID,
+                "name": "coco-framework",
+                "url": "https://api.github.com/repos/patton174/coco-framework",
+            },
+            source_association["base"]["repo"],
+        )
+        self.assertNotIn("full_name", source_association["head"]["repo"])
         self.assertEqual(
             [
                 f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_FILE}",
@@ -4503,6 +4527,40 @@ class AgentReviewTests(unittest.TestCase):
                         DEFERRED_PR_NUMBER,
                         HEAD_SHA,
                     )
+
+    def test_deferred_binding_rejects_source_association_base_repository_id_drift(
+        self,
+    ) -> None:
+        associated = deferred_source_association()
+        associated["base"]["repo"]["id"] = REPOSITORY_ID + 1
+
+        with self.assertRaises(review.ReviewError):
+            review.deferred_review_binding(
+                FakeDeferredClient(associated=[associated]),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                deferred_config(),
+                DEFERRED_PR_NUMBER,
+                HEAD_SHA,
+            )
+
+    def test_deferred_binding_rejects_source_association_head_repository_id_drift(
+        self,
+    ) -> None:
+        associated = deferred_source_association()
+        associated["head"]["repo"]["id"] = REPOSITORY_ID + 1
+
+        with self.assertRaises(review.ReviewError):
+            review.deferred_review_binding(
+                FakeDeferredClient(associated=[associated]),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                deferred_config(),
+                DEFERRED_PR_NUMBER,
+                HEAD_SHA,
+            )
 
     def test_deferred_candidate_accepts_humans_and_skips_unpinned_bots(self) -> None:
         for user, expected_route, expected_eligible in (

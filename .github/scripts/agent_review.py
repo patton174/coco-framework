@@ -1758,6 +1758,8 @@ def deferred_review_candidate(
     source_head = source_pr.get("head") or {}
     source_base_repository = source_base.get("repo") or {}
     source_head_repository = source_head.get("repo") or {}
+    source_base_repository_id = source_base_repository.get("id")
+    source_head_repository_id = source_head_repository.get("id")
     source_base_sha = str(source_base.get("sha") or "")
     source_head_sha = str(source_head.get("sha") or "")
     source_head_ref = str(source_head.get("ref") or "")
@@ -1765,10 +1767,12 @@ def deferred_review_candidate(
         type(source_pr_number) is not int
         or source_pr_number < 1
         or source_base.get("ref") != "main"
-        or source_base_repository.get("id") != repository_id
-        or source_base_repository.get("full_name") != checked_repository
-        or source_head_repository.get("id") != repository_id
-        or source_head_repository.get("full_name") != checked_repository
+        or type(source_base_repository_id) is not int
+        or source_base_repository_id < 1
+        or source_base_repository_id != repository_id
+        or type(source_head_repository_id) is not int
+        or source_head_repository_id < 1
+        or source_head_repository_id != repository_id
         or not SHA_RE.fullmatch(source_base_sha)
         or source_head_sha != run_head_sha
         or source_head_ref != run_head_branch
