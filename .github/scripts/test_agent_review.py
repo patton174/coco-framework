@@ -28,6 +28,7 @@ REPOSITORY = "patton174/coco-framework"
 REPOSITORY_ID = 123456789
 DEFERRED_PR_NUMBER = 125
 SOURCE_RUN_ID = 987654321
+DEFERRED_WORKFLOW_ID = 1234567
 RELEASE_APP_ACTION_SHA = "bcd2ba49218906704ab6c1aa796996da409d3eb1"
 MODEL_CONFIG_SHA256 = review.sha256_text(
     review.canonical_json(
@@ -273,6 +274,24 @@ def deferred_pull_request() -> dict:
     }
 
 
+def deferred_source_association() -> dict:
+    pull_request = deferred_pull_request()
+    return {
+        "number": pull_request["number"],
+        "base": pull_request["base"],
+        "head": pull_request["head"],
+    }
+
+
+def deferred_workflow() -> dict:
+    return {
+        "id": DEFERRED_WORKFLOW_ID,
+        "name": review.DEFERRED_WORKFLOW_NAME,
+        "path": review.DEFERRED_WORKFLOW_PATH,
+        "state": "active",
+    }
+
+
 def deferred_workflow_run() -> dict:
     run_title = (
         f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / "
@@ -280,6 +299,7 @@ def deferred_workflow_run() -> dict:
     )
     return {
         "id": SOURCE_RUN_ID,
+        "workflow_id": DEFERRED_WORKFLOW_ID,
         "name": run_title,
         "path": review.DEFERRED_WORKFLOW_PATH,
         "event": review.DEFERRED_WORKFLOW_EVENT,
@@ -290,7 +310,7 @@ def deferred_workflow_run() -> dict:
         "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
         "head_sha": HEAD_SHA,
         "head_branch": HEAD_REF,
-        "pull_requests": [{"number": DEFERRED_PR_NUMBER}],
+        "pull_requests": [deferred_source_association()],
     }
 
 
@@ -350,11 +370,13 @@ class FakeDeferredClient:
         self,
         *,
         run: dict | None = None,
+        workflow: dict | None = None,
         pull_request: dict | None = None,
         associated: list[dict] | None = None,
         jobs: dict | None = None,
     ) -> None:
         self.run = json.loads(json.dumps(run or deferred_workflow_run()))
+        self.workflow = json.loads(json.dumps(workflow or deferred_workflow()))
         if associated is not None:
             self.run["pull_requests"] = associated
         self.pull_request = pull_request or deferred_pull_request()
@@ -363,6 +385,8 @@ class FakeDeferredClient:
 
     def get_json(self, path: str) -> dict:
         self.get_paths.append(path)
+        if path == f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}":
+            return self.workflow
         if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
             return self.run
         if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
@@ -3986,6 +4010,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(DEPENDABOT_BOT_ID, binding["author_id"])
         self.assertEqual(
             [
+                f"repos/{REPOSITORY}/actions/workflows/{review.DEFERRED_WORKFLOW_PATH}",
                 f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}",
                 f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}",
                 (
@@ -4017,6 +4042,11 @@ class AgentReviewTests(unittest.TestCase):
 
             def get_json(self, path: str) -> dict:
                 self.get_paths.append(path)
+                if path == (
+                    f"repos/{REPOSITORY}/actions/workflows/"
+                    f"{review.DEFERRED_WORKFLOW_PATH}"
+                ):
+                    return self.workflow
                 if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
                     self.run_attempts += 1
                     if self.run_attempts == 1:
@@ -4099,13 +4129,15 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(4, client.attempts)
         self.assertEqual(3, sleeper.call_count)
 
-    def test_deferred_binding_does_not_retry_invalid_payloads(self) -> None:
-        run = deferred_workflow_run()
-        run["name"] = "Other Workflow"
-        client = FakeDeferredClient(run=run)
+    def test_deferred_binding_does_not_retry_invalid_workflow_identity(self) -> None:
+        workflow = deferred_workflow()
+        workflow["name"] = "Other Workflow"
+        client = FakeDeferredClient(workflow=workflow)
 
         with patch.object(review.time, "sleep") as sleeper:
-            with self.assertRaisesRegex(review.ReviewError, "binding is invalid"):
+            with self.assertRaisesRegex(
+                review.ReviewError, "source workflow identity is invalid"
+            ):
                 review.deferred_review_candidate(
                     client,
                     REPOSITORY,
@@ -4115,9 +4147,76 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            [f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}"], client.get_paths
+            [
+                f"repos/{REPOSITORY}/actions/workflows/"
+                f"{review.DEFERRED_WORKFLOW_PATH}"
+            ],
+            client.get_paths,
         )
         sleeper.assert_not_called()
+
+    def test_deferred_binding_ignores_evaluated_run_titles(self) -> None:
+        run = deferred_workflow_run()
+        run["name"] = "PR-controlled display title"
+        run["display_title"] = "Another untrusted display title"
+
+        binding = review.deferred_review_binding(
+            FakeDeferredClient(run=run),
+            REPOSITORY,
+            REPOSITORY_ID,
+            SOURCE_RUN_ID,
+            deferred_config(),
+            DEFERRED_PR_NUMBER,
+            HEAD_SHA,
+        )
+
+        self.assertTrue(binding["eligible"])
+
+    def test_deferred_binding_requires_canonical_workflow_identity(self) -> None:
+        cases: list[tuple[str, dict, dict]] = []
+
+        for name, run_change, workflow_change in (
+            (
+                "source workflow ID",
+                ("workflow_id", DEFERRED_WORKFLOW_ID + 1),
+                None,
+            ),
+            (
+                "canonical workflow ID",
+                None,
+                ("id", DEFERRED_WORKFLOW_ID + 1),
+            ),
+            (
+                "canonical workflow name",
+                None,
+                ("name", "Other Workflow"),
+            ),
+            (
+                "canonical workflow path",
+                None,
+                ("path", ".github/workflows/other.yml"),
+            ),
+        ):
+            run = deferred_workflow_run()
+            workflow = deferred_workflow()
+            if run_change is not None:
+                run[run_change[0]] = run_change[1]
+            if workflow_change is not None:
+                workflow[workflow_change[0]] = workflow_change[1]
+            cases.append((name, run, workflow))
+
+        for name, run, workflow in cases:
+            with self.subTest(name=name):
+                with self.assertRaises(review.ReviewError):
+                    review.deferred_review_binding(
+                        FakeDeferredClient(run=run, workflow=workflow),
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        SOURCE_RUN_ID,
+                        deferred_config(),
+                        DEFERRED_PR_NUMBER,
+                        HEAD_SHA,
+                    )
 
     def test_deferred_binding_requires_exact_successful_marker_jobs(self) -> None:
         valid = deferred_source_jobs()["jobs"]
@@ -4204,12 +4303,14 @@ class AgentReviewTests(unittest.TestCase):
                     pull_request,
                     associated
                     if associated is not None
-                    else [{"number": DEFERRED_PR_NUMBER}],
+                    else [deferred_source_association()],
                 )
             )
 
         add_case("wrong run id", run_change=("id", SOURCE_RUN_ID + 1))
-        add_case("wrong workflow", run_change=("name", "Other Workflow"))
+        add_case(
+            "wrong workflow ID", run_change=("workflow_id", DEFERRED_WORKFLOW_ID + 1)
+        )
         add_case(
             "wrong workflow path",
             run_change=("path", ".github/workflows/reusable-agent-review-jury.yml"),
@@ -4244,31 +4345,6 @@ class AgentReviewTests(unittest.TestCase):
                 {"id": REPOSITORY_ID, "full_name": "someone/coco-framework"},
             ),
         )
-        add_case(
-            "stale title head",
-            run_change=(
-                "display_title",
-                f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / "
-                f"head {'c' * 40} / base {BASE_SHA}",
-            ),
-        )
-        for title_part in ("head", "base"):
-            forged_title = (
-                f"Agent Review Jury / PR #{DEFERRED_PR_NUMBER} / "
-                f"head {HEAD_SHA if title_part == 'base' else 'c' * 40} / "
-                f"base {BASE_SHA if title_part == 'head' else 'c' * 40}"
-            )
-            run = json.loads(json.dumps(deferred_workflow_run()))
-            run["name"] = forged_title
-            run["display_title"] = forged_title
-            cases.append(
-                (
-                    f"forged run-name {title_part}",
-                    run,
-                    json.loads(json.dumps(deferred_pull_request())),
-                    [{"number": DEFERRED_PR_NUMBER}],
-                )
-            )
         add_case("run head SHA drift", run_change=("head_sha", "c" * 40))
         add_case(
             "run head branch drift",
@@ -4286,6 +4362,12 @@ class AgentReviewTests(unittest.TestCase):
             "wrong association",
             associated=[{"number": DEFERRED_PR_NUMBER + 1}],
         )
+        stale_source_base = deferred_source_association()
+        stale_source_base["base"]["sha"] = "c" * 40
+        add_case("stale source base", associated=[stale_source_base])
+        stale_source_head = deferred_source_association()
+        stale_source_head["head"]["sha"] = "c" * 40
+        add_case("stale source head", associated=[stale_source_head])
         add_case("stale current head", pr_path=("head", "sha", "c" * 40))
         add_case("stale current base", pr_path=("base", "sha", "c" * 40))
         add_case("wrong base", pr_path=("base", "ref", "release"))
@@ -4319,7 +4401,7 @@ class AgentReviewTests(unittest.TestCase):
                     f"wrong author {field}",
                     run,
                     pull_request,
-                    [{"number": DEFERRED_PR_NUMBER}],
+                    [deferred_source_association()],
                 )
             )
 
@@ -6280,10 +6362,15 @@ class AgentReviewTests(unittest.TestCase):
     def test_deferred_binding_retries_transient_run_and_pull_lookups(self) -> None:
         class RecoveringClient:
             def __init__(self) -> None:
-                self.attempts = {"run": 0, "pull": 0, "jobs": 0}
+                self.attempts = {"workflow": 0, "run": 0, "pull": 0, "jobs": 0}
 
             def get_json(self, path: str) -> dict:
-                if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
+                if path == (
+                    f"repos/{REPOSITORY}/actions/workflows/"
+                    f"{review.DEFERRED_WORKFLOW_PATH}"
+                ):
+                    key, value = "workflow", deferred_workflow()
+                elif path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
                     key, value = "run", deferred_workflow_run()
                 elif path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
                     key, value = "pull", deferred_pull_request()
@@ -6314,8 +6401,10 @@ class AgentReviewTests(unittest.TestCase):
             )
 
         self.assertTrue(binding["eligible"])
-        self.assertEqual({"run": 2, "pull": 2, "jobs": 2}, client.attempts)
-        self.assertEqual(3, sleeper.call_count)
+        self.assertEqual(
+            {"workflow": 2, "run": 2, "pull": 2, "jobs": 2}, client.attempts
+        )
+        self.assertEqual(4, sleeper.call_count)
 
     def test_deferred_binding_fails_closed_after_retry_exhaustion(self) -> None:
         class FailingClient:

@@ -100,10 +100,13 @@ envelope 不匹配均 fail closed。README 旧配置仅保留至单独迁移，A
 不得读取模型 key 或 App 私钥。符合资格的源 run 仅输出 `deferred + ignored`，且只能有唯一成功的
 `Route bound pull request` 与 `Emit protected no-secret marker` jobs；不构建上下文、不查询批准、
 不发布 jury status，其他 jobs 只能 skipped。只有受保护默认分支 `workflow_run` 可获得 secrets；
-它通过 API 绑定 source workflow/path/event、run/head repository ID/full name、run-name PR/base/head、
-head branch、唯一当前 PR/base/head 和精确作者 login/type/ID，publisher 写入前再次绑定。延迟入口
-不 checkout PR head/merge ref，不读取 source-run artifact/cache；无完整 marker 或身份不符时输出
-`eligible=false` 并跳过 secret-backed job。
+它先通过 GitHub API 解析受保护 `.github/workflows/agent-review.yml` 的 canonical workflow
+ID/name/path，再要求 source run 的 `workflow_id` 精确相同、canonical name/path 和 source
+path/event 均符合预期；随后绑定 run/head repository ID/full name、结构化关联中的唯一
+PR/base/head、head branch、当前 PR/base/head 和精确作者 login/type/ID。evaluated `run-name`、
+`name` 和 `display_title` 不是 workflow identity 或 PR/base/head 绑定输入。publisher 写入前再次
+执行同一绑定。延迟入口不 checkout PR head/merge ref，不读取 source-run artifact/cache；无完整
+marker 或身份不符时输出 `eligible=false` 并跳过 secret-backed job。
 该临时结果不上传为 artifact，外部 fork 则在 workflow 条件中按 repository ID/full name 直接跳过。
 
 ## 工作流拓扑
@@ -413,9 +416,10 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
 - source、fork/未固定身份 bot job 日志和环境中不存在模型 API key 或 App 私钥；受保护运行时
   绑定允许的非密钥模型配置不会授权模型调用。固定 Coco App、同仓库普通用户和固定
   Dependabot 的原始 run 均无 secret，延迟 run 完成同一 5 + 2 + 1 评审团。
-- workflow_run 协议测试拒绝错误 login/type/ID、repo ID/full name、workflow name/path/event、run ID、
-  run-name PR/base/head、缺失/失败/重复 marker、任何非 skipped 的额外 source job、PR 关联和过期
-  head；延迟入口不消费 source artifact/cache，review 事件不覆盖延迟 gate。
+- workflow_run 协议测试拒绝错误 login/type/ID、repo ID/full name、canonical workflow
+  ID/name/path、source `workflow_id`/path/event、run ID、缺失/失败/重复 marker、任何非 skipped 的
+  额外 source job、结构化 PR 关联和过期 base/head；evaluated run display title 不得成为信任输入。
+  延迟入口不消费 source artifact/cache，review 事件不覆盖延迟 gate。
 - 同一 head 的所有角色报告携带相同 context hash。
 - PR 更新后旧 run 不能向新 head 发布评论或 success status；同一 head 的旧 run 也不能
   覆盖带有更高 run ID/run attempt 的受管评论，跨事件 publisher 不能覆盖当前审批状态。

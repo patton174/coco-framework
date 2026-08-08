@@ -37,6 +37,7 @@ PR_ROUTE_DEFERRED = "deferred-secret"
 PR_ROUTE_NO_SECRET = "no-secret"
 DIRECT_REVIEW_EVENTS = frozenset({"pull_request_target", "pull_request_review"})
 DEFERRED_REVIEW_EVENT = "workflow_run"
+DEFERRED_WORKFLOW_NAME = "Agent Review Jury"
 DEFERRED_WORKFLOW_PATH = ".github/workflows/agent-review.yml"
 DEFERRED_WORKFLOW_EVENT = "pull_request_target"
 DEFERRED_ROUTE_JOB_NAME = "Route bound pull request"
@@ -73,9 +74,6 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 APP_BOT_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?\[bot\]$")
-DEFERRED_RUN_TITLE_RE = re.compile(
-    r"^Agent Review Jury / PR #([1-9][0-9]*) / head ([0-9a-f]{40}) / base ([0-9a-f]{40})$"
-)
 RUN_OWNERSHIP_RE = re.compile(
     r"^Agent jury run ([1-9][0-9]*):([1-9][0-9]*) in progress$"
 )
@@ -1682,6 +1680,30 @@ def require_deferred_marker_jobs(
         raise ReviewError("Deferred Agent review marker binding is invalid.")
 
 
+def require_deferred_workflow_identity(
+    client: GitHubClient, repository: str
+) -> int:
+    """Resolve the protected source workflow's canonical GitHub identity."""
+    workflow = github_get_json_with_retry(
+        client,
+        f"repos/{repository}/actions/workflows/{DEFERRED_WORKFLOW_PATH}",
+        "deferred-source-workflow-identity",
+        retry_not_found=True,
+    )
+    if not isinstance(workflow, dict):
+        raise ReviewError("Deferred Agent review source workflow is invalid.")
+    workflow_id = workflow.get("id")
+    if (
+        type(workflow_id) is not int
+        or workflow_id < 1
+        or workflow.get("name") != DEFERRED_WORKFLOW_NAME
+        or workflow.get("path") != DEFERRED_WORKFLOW_PATH
+        or workflow.get("state") != "active"
+    ):
+        raise ReviewError("Deferred Agent review source workflow identity is invalid.")
+    return workflow_id
+
+
 def deferred_review_candidate(
     client: GitHubClient,
     repository: str,
@@ -1697,6 +1719,7 @@ def deferred_review_candidate(
     if type(run_id) is not int or run_id < 1:
         raise ReviewError("Deferred Agent review workflow run ID is invalid.")
 
+    workflow_id = require_deferred_workflow_identity(client, checked_repository)
     run = github_get_json_with_retry(
         client,
         f"repos/{checked_repository}/actions/runs/{run_id}",
@@ -1709,12 +1732,9 @@ def deferred_review_candidate(
     run_head_repository = run.get("head_repository") or {}
     run_head_sha = str(run.get("head_sha") or "")
     run_head_branch = str(run.get("head_branch") or "")
-    # GitHub REST exposes the evaluated run-name through both fields when set.
-    run_name = str(run.get("name") or "")
-    run_display_title = str(run.get("display_title") or "")
     if (
         run.get("id") != run_id
-        or run_name != run_display_title
+        or run.get("workflow_id") != workflow_id
         or run.get("path") != DEFERRED_WORKFLOW_PATH
         or run.get("event") != DEFERRED_WORKFLOW_EVENT
         or run.get("status") != "completed"
@@ -1723,33 +1743,46 @@ def deferred_review_candidate(
         or run_repository.get("full_name") != checked_repository
         or run_head_repository.get("id") != repository_id
         or run_head_repository.get("full_name") != checked_repository
+        or not SHA_RE.fullmatch(run_head_sha)
+        or not run_head_branch
     ):
         raise ReviewError("Deferred Agent review workflow run binding is invalid.")
-
-    title_match = DEFERRED_RUN_TITLE_RE.fullmatch(run_display_title)
-    if title_match is None:
-        raise ReviewError("Deferred Agent review workflow run title is invalid.")
-    title_pr_number = int(title_match.group(1))
-    title_head_sha = title_match.group(2)
-    title_base_sha = title_match.group(3)
-    if run_head_sha != title_head_sha:
-        raise ReviewError("Deferred Agent review workflow run head SHA is invalid.")
-    if expected_pr_number and title_pr_number != expected_pr_number:
-        raise ReviewError("Deferred Agent review pull request number changed.")
-    if expected_head_sha and title_head_sha != expected_head_sha:
-        raise ReviewError("Deferred Agent review head SHA changed.")
 
     associated = run.get("pull_requests")
     if not isinstance(associated, list):
         raise ReviewError("Deferred Agent review pull request association is invalid.")
     if len(associated) != 1 or not isinstance(associated[0], dict):
         raise ReviewError("Deferred Agent review requires one associated pull request.")
-    if associated[0].get("number") != title_pr_number:
+    source_pr = associated[0]
+    source_pr_number = source_pr.get("number")
+    source_base = source_pr.get("base") or {}
+    source_head = source_pr.get("head") or {}
+    source_base_repository = source_base.get("repo") or {}
+    source_head_repository = source_head.get("repo") or {}
+    source_base_sha = str(source_base.get("sha") or "")
+    source_head_sha = str(source_head.get("sha") or "")
+    source_head_ref = str(source_head.get("ref") or "")
+    if (
+        type(source_pr_number) is not int
+        or source_pr_number < 1
+        or source_base.get("ref") != "main"
+        or source_base_repository.get("id") != repository_id
+        or source_base_repository.get("full_name") != checked_repository
+        or source_head_repository.get("id") != repository_id
+        or source_head_repository.get("full_name") != checked_repository
+        or not SHA_RE.fullmatch(source_base_sha)
+        or source_head_sha != run_head_sha
+        or source_head_ref != run_head_branch
+    ):
         raise ReviewError("Deferred Agent review pull request association is invalid.")
+    if expected_pr_number and source_pr_number != expected_pr_number:
+        raise ReviewError("Deferred Agent review pull request number changed.")
+    if expected_head_sha and source_head_sha != expected_head_sha:
+        raise ReviewError("Deferred Agent review head SHA changed.")
 
     pr = github_get_json_with_retry(
         client,
-        f"repos/{checked_repository}/pulls/{title_pr_number}",
+        f"repos/{checked_repository}/pulls/{source_pr_number}",
         "deferred-pull-request-binding",
         retry_not_found=True,
     )
@@ -1764,17 +1797,16 @@ def deferred_review_candidate(
     head_ref = str(head.get("ref") or "")
     if (
         pr.get("state") != "open"
-        or (pr.get("number") is not None and pr.get("number") != title_pr_number)
+        or (pr.get("number") is not None and pr.get("number") != source_pr_number)
         or base.get("ref") != "main"
         or base_repository.get("id") != repository_id
         or base_repository.get("full_name") != checked_repository
         or head_repository.get("id") != repository_id
         or head_repository.get("full_name") != checked_repository
         or not SHA_RE.fullmatch(base_sha)
-        or base_sha != title_base_sha
-        or head_sha != run_head_sha
-        or not head_ref
-        or run_head_branch != head_ref
+        or base_sha != source_base_sha
+        or head_sha != source_head_sha
+        or head_ref != source_head_ref
     ):
         raise ReviewError("Deferred Agent review pull request binding is invalid.")
     trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
@@ -1794,7 +1826,7 @@ def deferred_review_candidate(
         "repository": checked_repository,
         "repository_id": repository_id,
         "run_id": run_id,
-        "pr_number": title_pr_number,
+        "pr_number": source_pr_number,
         "base_sha": base_sha,
         "head_sha": head_sha,
         **decision,

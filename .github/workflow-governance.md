@@ -81,10 +81,13 @@ an environment deployment made by a reusable workflow called from
 `pull_request_target` to the PR head ref; the exact-`main` environments must
 withhold their credentials in that context. Only the default-branch
 `workflow_run` entrypoint may call the secret-backed reusable jury, after it
-rebinds the source run, exact PR/base/head, repository identity, author/App
-identity, and the successful route/marker job pair. The reusable model jobs and
-App publisher also require the explicit deferred input, so a direct caller
-cannot reach a secret environment.
+resolves the protected `.github/workflows/agent-review.yml` workflow through
+the GitHub API and rebinds its canonical ID/name/path, the source run's exact
+`workflow_id`/path/event, structured associated PR/base/head, repository
+identity, author/App identity, and the successful route/marker job pair. The
+evaluated `run-name`, `name`, and `display_title` fields are not identity or
+PR-binding inputs. The reusable model jobs and App publisher also require the
+explicit deferred input, so a direct caller cannot reach a secret environment.
 Forks and all other bots never receive repository Agent secrets; they publish a
 no-secret policy status and remain pending until a maintainer with write,
 maintain, or admin permission approves the current head SHA. This path does not
