@@ -97,8 +97,12 @@ public final class CocoRateLimitRequestHandler {
     private void reject(CocoRateLimitRoute route, String traceId, CocoRateLimitDecision decision,
             HttpServletRequest request, HttpServletResponse response, CocoRateLimitErrorCode errorCode)
             throws IOException {
-        LOGGER.info("Coco rate-limit rejected route={} traceId={} capacityExhausted={}", route.getId(), traceId,
-                decision.capacityExhausted());
+        if (decision.capacityExhausted()) {
+            LOGGER.warn("Coco rate-limit storage capacity exhausted route={} traceId={}", route.getId(), traceId);
+        }
+        else {
+            LOGGER.info("Coco rate-limit rejected route={} traceId={}", route.getId(), traceId);
+        }
         this.responseWriter.write(errorCode.request(), request, response);
     }
 
