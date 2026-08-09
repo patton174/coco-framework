@@ -7420,6 +7420,27 @@ class AgentReviewTests(unittest.TestCase):
                             raised.exception, review.RetryableModelOutputError
                         )
 
+    def test_openai_client_accepts_missing_message_status(self) -> None:
+        completed = openai_envelope()
+        del completed["output"][1]["status"]
+        incomplete = openai_envelope('{"ok":', "incomplete", "max_output_tokens")
+        del incomplete["output"][1]["status"]
+        with patch.dict("os.environ", model_env("openai-responses"), clear=True):
+            client = review.AgentModelClient(config())
+            with patch(
+                "urllib.request.urlopen",
+                return_value=FakeModelResponse(json.dumps(completed).encode()),
+            ):
+                self.assertEqual({"ok": True}, client.complete("system", "user", 100))
+            with patch(
+                "urllib.request.urlopen",
+                return_value=FakeModelResponse(json.dumps(incomplete).encode()),
+            ):
+                with self.assertRaisesRegex(
+                    review.RetryableModelOutputError, "max_tokens"
+                ):
+                    client.complete("system", "user", 100)
+
     def test_openai_client_rejects_malformed_response_envelopes(self) -> None:
         completed_with_error = openai_envelope()
         completed_with_error["error"] = {"message": "provider error"}
