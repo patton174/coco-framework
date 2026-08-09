@@ -2214,7 +2214,7 @@ def model_configuration() -> dict[str, str]:
     protocol = os.environ.get("COCO_AGENT_MODEL_PROTOCOL", "")
     base_url = os.environ.get("COCO_AGENT_MODEL_BASE_URL", "")
     model = os.environ.get("COCO_AGENT_MODEL", "")
-    thinking = os.environ.get("COCO_AGENT_MODEL_THINKING", "").strip().lower()
+    thinking = os.environ.get("COCO_AGENT_MODEL_THINKING", "")
     if thinking not in {"auto", "enabled", "disabled"}:
         raise ReviewError(
             "COCO_AGENT_MODEL_THINKING must be auto, enabled, or disabled."
