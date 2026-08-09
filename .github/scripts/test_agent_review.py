@@ -36,6 +36,7 @@ MODEL_CONFIG_SHA256 = review.sha256_text(
             "protocol": "openai-responses",
             "base_url": "https://models.example.invalid/v1",
             "model": "review-model",
+            "thinking": "auto",
         }
     )
 )
@@ -84,6 +85,7 @@ def model_env(
         "COCO_AGENT_MODEL_PROTOCOL": protocol,
         "COCO_AGENT_MODEL_BASE_URL": base_url,
         "COCO_AGENT_MODEL": "review-model",
+        "COCO_AGENT_MODEL_THINKING": "auto",
         "COCO_AGENT_MODEL_API_KEY": "test-api-key",
     }
 
@@ -7211,6 +7213,7 @@ class AgentReviewTests(unittest.TestCase):
                 "protocol": "openai-responses",
                 "base_url": "https://models.example.invalid/v1",
                 "model": "review-model",
+                "thinking": "auto",
             },
             material,
         )
@@ -7237,6 +7240,7 @@ class AgentReviewTests(unittest.TestCase):
                 )
             },
             {"COCO_AGENT_MODEL": "different-review-model"},
+            {"COCO_AGENT_MODEL_THINKING": "disabled"},
         ]
         for change in changes:
             environment = {**baseline, **change}
@@ -7328,6 +7332,7 @@ class AgentReviewTests(unittest.TestCase):
 
         invalid_values = [
             ("COCO_AGENT_MODEL", "model\nname"),
+            ("COCO_AGENT_MODEL_THINKING", "unsupported"),
             ("COCO_AGENT_MODEL_API_KEY", " key"),
             ("COCO_AGENT_MODEL_API_KEY", "key "),
             ("COCO_AGENT_MODEL_API_KEY", "key\nvalue"),
@@ -7418,6 +7423,7 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertEqual(
                         {"type": "json_object"}, payload["response_format"]
                     )
+                    self.assertNotIn("chat_template_kwargs", payload)
                     self.assertIs(payload["stream"], False)
                 if protocol == "openai-responses":
                     self.assertIs(payload["store"], False)
@@ -7640,6 +7646,36 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertNotIsInstance(
                         raised.exception, review.RetryableModelOutputError
                     )
+
+    def test_openai_chat_client_controls_provider_thinking_mode(self) -> None:
+        for thinking, enabled in (("enabled", True), ("disabled", False)):
+            with self.subTest(thinking=thinking):
+                captured: dict[str, object] = {}
+
+                def urlopen(request: object, timeout: int) -> FakeModelResponse:
+                    captured["request"] = request
+                    captured["timeout"] = timeout
+                    return FakeModelResponse(
+                        json.dumps(openai_chat_envelope()).encode()
+                    )
+
+                environment = model_env("openai-chat-completions")
+                environment["COCO_AGENT_MODEL_THINKING"] = thinking
+                with (
+                    patch.dict("os.environ", environment, clear=True),
+                    patch("urllib.request.urlopen", side_effect=urlopen),
+                ):
+                    self.assertEqual(
+                        {"ok": True},
+                        review.AgentModelClient(config()).complete(
+                            "system", "user", 100
+                        ),
+                    )
+                payload = json.loads(captured["request"].data)
+                self.assertEqual(
+                    {"enable_thinking": enabled},
+                    payload["chat_template_kwargs"],
+                )
 
     def _assert_openai_message_less_max_output_retries(
         self, output: list[dict]

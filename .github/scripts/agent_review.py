@@ -2214,6 +2214,11 @@ def model_configuration() -> dict[str, str]:
     protocol = os.environ.get("COCO_AGENT_MODEL_PROTOCOL", "")
     base_url = os.environ.get("COCO_AGENT_MODEL_BASE_URL", "")
     model = os.environ.get("COCO_AGENT_MODEL", "")
+    thinking = os.environ.get("COCO_AGENT_MODEL_THINKING", "").strip().lower()
+    if thinking not in {"auto", "enabled", "disabled"}:
+        raise ReviewError(
+            "COCO_AGENT_MODEL_THINKING must be auto, enabled, or disabled."
+        )
     if (
         not model
         or model != model.strip()
@@ -2230,6 +2235,7 @@ def model_configuration() -> dict[str, str]:
         "protocol": protocol,
         "base_url": endpoint_base,
         "model": model,
+        "thinking": thinking,
     }
 
 
@@ -2242,6 +2248,7 @@ def optional_model_configuration_sha256() -> str | None:
         os.environ.get("COCO_AGENT_MODEL_PROTOCOL", ""),
         os.environ.get("COCO_AGENT_MODEL_BASE_URL", ""),
         os.environ.get("COCO_AGENT_MODEL", ""),
+        os.environ.get("COCO_AGENT_MODEL_THINKING", ""),
     )
     if not any(configured):
         return None
@@ -2279,6 +2286,7 @@ class AgentModelClient:
         self.endpoint = (
             f"{model_config['base_url']}/{MODEL_PROTOCOL_ENDPOINTS[self.protocol]}"
         )
+        self.thinking = model_config["thinking"]
         self.supports_fragment_continuation = self.protocol == "anthropic-messages"
         self._api_key = api_key
         self.model = model_config["model"]
@@ -2314,6 +2322,10 @@ class AgentModelClient:
                 "stream": False,
                 "response_format": {"type": "json_object"},
             }
+            if self.thinking != "auto":
+                value["chat_template_kwargs"] = {
+                    "enable_thinking": self.thinking == "enabled"
+                }
         else:
             value = {
                 "model": self.model,
