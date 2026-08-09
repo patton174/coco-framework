@@ -6,6 +6,7 @@ import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 
 import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
@@ -68,18 +69,29 @@ public final class CocoRateLimitRequestHandler {
         CocoRateLimitRoute checkedRoute = CocoRateLimitRoute.copyOf(
                 Objects.requireNonNull(route, "route must not be null"));
         Instant now = this.clock.instant();
-        String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
-        Instant resetAt = resetAt(now, checkedRoute.getWindowSeconds());
-        CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
-        CocoRateLimitKey key = this.keyResolver.resolve(snapshot, checkedRoute);
-        CocoRateLimitDecision decision = this.store.acquire(
-                new CocoRateLimitPermit(key, checkedRoute.getLimit(), resetAt));
-        writeRateLimitHeaders(response, decision, now);
-        if (decision.allowed()) {
-            return true;
+        Optional<String> previousTraceId = CocoTraceContext.currentTraceId();
+        try {
+            String traceId = previousTraceId.orElseGet(CocoTraceContext::getOrCreateTraceId);
+            Instant resetAt = resetAt(now, checkedRoute.getWindowSeconds());
+            CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
+            CocoRateLimitKey key = this.keyResolver.resolve(snapshot, checkedRoute);
+            CocoRateLimitDecision decision = this.store.acquire(
+                    new CocoRateLimitPermit(key, checkedRoute.getLimit(), resetAt));
+            writeRateLimitHeaders(response, decision, now);
+            if (decision.allowed()) {
+                return true;
+            }
+            reject(checkedRoute, traceId, decision, request, response, CocoRateLimitErrorCode.EXCEEDED);
+            return false;
         }
-        reject(checkedRoute, traceId, decision, request, response, CocoRateLimitErrorCode.EXCEEDED);
-        return false;
+        finally {
+            restoreTraceId(previousTraceId);
+        }
+    }
+
+    private static void restoreTraceId(Optional<String> previousTraceId) {
+        CocoTraceContext.clear();
+        previousTraceId.ifPresent(CocoTraceContext::setTraceId);
     }
 
     private void reject(CocoRateLimitRoute route, String traceId, CocoRateLimitDecision decision,

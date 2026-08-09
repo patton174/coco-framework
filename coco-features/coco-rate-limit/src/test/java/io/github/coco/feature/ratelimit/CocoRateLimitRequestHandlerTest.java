@@ -6,17 +6,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageCode;
 import io.github.coco.i18n.CocoMessageService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -26,6 +30,11 @@ import org.springframework.mock.web.MockHttpServletResponse;
  * 限流请求执行器 HTTP 契约测试。
  */
 class CocoRateLimitRequestHandlerTest {
+
+    @AfterEach
+    void clearTraceContext() {
+        CocoTraceContext.clear();
+    }
 
     @Test
     void writesCeilingRetryAfterAndCompatibilityHeadersForEnglishRequests() throws Exception {
@@ -101,6 +110,55 @@ class CocoRateLimitRequestHandlerTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("storage unavailable");
         assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void doesNotLeakGeneratedTraceIdAcrossSequentialRequestsOnTheSameThread() throws Exception {
+        CocoTraceContext.clear();
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        List<String> resolvedTraceIds = new ArrayList<>();
+        CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> {
+            resolvedTraceIds.add(CocoTraceContext.currentTraceId().orElseThrow());
+            return new CocoRateLimitKey("api", "key");
+        });
+        CocoRateLimitRoute route = route();
+        route.setLimit(2);
+        MockHttpServletRequest request = request(Locale.US, "en-US");
+
+        assertThat(handler.handle(route, request, new MockHttpServletResponse())).isTrue();
+        assertThat(CocoTraceContext.currentTraceId()).isEmpty();
+        assertThat(handler.handle(route, request, new MockHttpServletResponse())).isTrue();
+        assertThat(CocoTraceContext.currentTraceId()).isEmpty();
+        assertThat(resolvedTraceIds).hasSize(2)
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void restoresExistingTraceIdAfterRequestHandling() throws Exception {
+        CocoTraceContext.setTraceId("outer-trace");
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> {
+            assertThat(CocoTraceContext.currentTraceId()).contains("outer-trace");
+            return new CocoRateLimitKey("api", "key");
+        });
+
+        assertThat(handler.handle(route(), request(Locale.US, "en-US"), new MockHttpServletResponse())).isTrue();
+        assertThat(CocoTraceContext.currentTraceId()).contains("outer-trace");
+    }
+
+    @Test
+    void clearsGeneratedTraceIdWhenRequestHandlingFails() {
+        CocoTraceContext.clear();
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> {
+            throw new IllegalStateException("resolver failed");
+        });
+
+        assertThatThrownBy(() -> handler.handle(route(), request(Locale.US, "en-US"),
+                new MockHttpServletResponse()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("resolver failed");
+        assertThat(CocoTraceContext.currentTraceId()).isEmpty();
     }
 
     @Test
