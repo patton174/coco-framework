@@ -239,6 +239,7 @@ def verifier_report(
     finding_id: str,
     action: str = "AGREE",
     confidence: int = 5,
+    duplicate_relations: list[dict] | None = None,
 ) -> dict:
     del confidence
     fact_values = {
@@ -255,6 +256,7 @@ def verifier_report(
                 "path": "src/Foo.java",
                 "start_line": 1,
                 "end_line": 1,
+                "checks": sorted(review.VERIFIER_CHECK_FIELDS),
             }
         ]
     )
@@ -281,6 +283,7 @@ def verifier_report(
                 "verification": "Inspect the cited branch and exercise the stated trigger.",
             }
         ],
+        "duplicate_relations": duplicate_relations or [],
         "context_gaps": [],
     }
 
@@ -2090,12 +2093,14 @@ class AgentReviewTests(unittest.TestCase):
                             "path": "src/Foo.java",
                             "start_line": 1,
                             "end_line": 1,
+                            "checks": sorted(review.VERIFIER_CHECK_FIELDS),
                         }
                     ],
                     "reason": "The claim follows from the cited branch.",
                     "verification": "Exercise the cited branch with the stated input.",
                 }
             ],
+            "duplicate_relations": [],
             "context_gaps": [],
         }
         review.validate_cross_report(report, "evidence-verifier", context, {finding_id})
@@ -2130,6 +2135,7 @@ class AgentReviewTests(unittest.TestCase):
                 "context_sha256": context["binding"]["context_sha256"],
                 "evidence": "No P0-P3 candidates were present in the bound reports.",
                 "verifications": [],
+                "duplicate_relations": [],
                 "context_gaps": [],
             }
             with (
@@ -2194,12 +2200,14 @@ class AgentReviewTests(unittest.TestCase):
                                 "path": "src/Foo.java",
                                 "start_line": 1,
                                 "end_line": 1,
+                                "checks": sorted(review.VERIFIER_CHECK_FIELDS),
                             }
                         ],
                         "reason": "The cited code supports the low-severity claim.",
                         "verification": "Exercise the cited P3 trigger in a focused test.",
                     }
                 ],
+                "duplicate_relations": [],
                 "context_gaps": [],
             }
             with (
@@ -2418,6 +2426,7 @@ class AgentReviewTests(unittest.TestCase):
                 "status": "NOT_NEEDED",
                 "evidence": "No P0-P3 candidates were present in the bound reports.",
                 "reviews": [],
+                "duplicate_relations": [],
                 "context_gaps": [],
             }
             for role in review.role_map(config(), "verifiers")
@@ -2831,7 +2840,7 @@ class AgentReviewTests(unittest.TestCase):
             "findings"
         ][0]
         current = {
-            "stable_id": review.stable_actionable_group_id([current_finding["id"]]),
+            "stable_id": review.stable_actionable_group_id([current_finding]),
             "source_id": current_finding["id"],
             "source_ids": [current_finding["id"]],
             "duplicate_source_ids": [],
@@ -2840,7 +2849,7 @@ class AgentReviewTests(unittest.TestCase):
             "duplicate_findings": [],
         }
         new = {
-            "stable_id": review.stable_actionable_group_id([new_finding["id"]]),
+            "stable_id": review.stable_actionable_group_id([new_finding]),
             "source_id": new_finding["id"],
             "source_ids": [new_finding["id"]],
             "duplicate_source_ids": [],
@@ -2951,6 +2960,7 @@ class AgentReviewTests(unittest.TestCase):
                     number = int(path.split("/")[-2])
                     self.comments.append((number, payload["body"]))
                     return {
+                        "id": 100 + len(self.comments),
                         "body": payload["body"],
                         "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
                     }
@@ -2995,6 +3005,256 @@ class AgentReviewTests(unittest.TestCase):
         created = client.issues[12]
         created_marker = review.parse_finding_issue_marker(created["body"])
         self.assertEqual(HEAD_SHA, created_marker["head_sha"])
+
+    def test_stale_after_issue_create_closes_new_issue_in_same_call(self) -> None:
+        app_login = "coco-agent[bot]"
+        finding = specialist_report("correctness", bound_context())["findings"][0]
+        actionable = {
+            "stable_id": review.stable_actionable_group_id([finding]),
+            "source_id": finding["id"],
+            "source_ids": [finding["id"]],
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+            "duplicate_findings": [],
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.issue: dict | None = None
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                del path, limit
+                return [] if self.issue is None else [self.issue]
+
+            def get_json(self, path: str) -> dict:
+                del path
+                return {"name": review.FINDING_ISSUE_LABEL}
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                if method == "POST" and path.endswith("/issues"):
+                    self.issue = {
+                        "number": 31,
+                        "state": "open",
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                        **payload,
+                    }
+                    self.issue["labels"] = [
+                        {"name": name} for name in payload["labels"]
+                    ]
+                    return self.issue
+                if method == "PATCH" and path.endswith("/issues/31"):
+                    assert self.issue is not None
+                    self.issue.update(payload)
+                    if "labels" in payload:
+                        self.issue["labels"] = [
+                            {"name": name} for name in payload["labels"]
+                        ]
+                    return self.issue
+                raise AssertionError(f"Unexpected write: {method} {path}")
+
+        checks = 0
+
+        def require_current_pr() -> dict:
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                raise review.StaleAgentReviewRun("head changed after create")
+            return {}
+
+        client = FakeClient()
+        with self.assertRaises(review.StaleAgentReviewRun):
+            review.synchronize_finding_issues(
+                client,
+                REPOSITORY,
+                60,
+                HEAD_SHA,
+                [actionable],
+                app_login,
+                APP_BOT_ID,
+                "https://github.example/runs/1",
+                "https://github.example",
+                require_current_pr,
+            )
+        self.assertEqual("closed", client.issue["state"])
+        self.assertEqual("not_planned", client.issue["state_reason"])
+
+    def test_stale_after_issue_update_or_reopen_restores_snapshot(self) -> None:
+        app_login = "coco-agent[bot]"
+        finding = specialist_report("correctness", bound_context())["findings"][0]
+        stable_id = review.stable_actionable_group_id([finding])
+        actionable = {
+            "stable_id": stable_id,
+            "source_id": finding["id"],
+            "source_ids": [finding["id"]],
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+            "duplicate_findings": [],
+        }
+
+        for initial_state in ("open", "closed"):
+            with self.subTest(initial_state=initial_state):
+                original = {
+                    "number": 41,
+                    "title": "Original title",
+                    "body": review.finding_issue_marker(
+                        60, BASE_SHA, stable_id, finding["id"]
+                    )
+                    + "\nOriginal body",
+                    "state": initial_state,
+                    "state_reason": "completed" if initial_state == "closed" else None,
+                    "labels": [
+                        {"name": review.FINDING_ISSUE_LABEL},
+                        {"name": "preserved"},
+                    ],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                }
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.issue = json.loads(json.dumps(original))
+
+                    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                        del path, limit
+                        return [self.issue]
+
+                    def get_json(self, path: str) -> dict:
+                        del path
+                        return {"name": review.FINDING_ISSUE_LABEL}
+
+                    def send_json(self, method: str, path: str, payload: dict) -> dict:
+                        if method != "PATCH" or not path.endswith("/issues/41"):
+                            raise AssertionError(f"Unexpected write: {method} {path}")
+                        self.issue.update(payload)
+                        if "labels" in payload:
+                            self.issue["labels"] = [
+                                {"name": name} for name in payload["labels"]
+                            ]
+                        return self.issue
+
+                checks = 0
+
+                def require_current_pr() -> dict:
+                    nonlocal checks
+                    checks += 1
+                    if checks == 2:
+                        raise review.StaleAgentReviewRun("head changed after update")
+                    return {}
+
+                client = FakeClient()
+                with self.assertRaises(review.StaleAgentReviewRun):
+                    review.synchronize_finding_issues(
+                        client,
+                        REPOSITORY,
+                        60,
+                        HEAD_SHA,
+                        [actionable],
+                        app_login,
+                        APP_BOT_ID,
+                        "https://github.example/runs/1",
+                        "https://github.example",
+                        require_current_pr,
+                    )
+                self.assertEqual(original["title"], client.issue["title"])
+                self.assertEqual(original["body"], client.issue["body"])
+                self.assertEqual(initial_state, client.issue["state"])
+                self.assertEqual(
+                    {review.FINDING_ISSUE_LABEL, "preserved"},
+                    review.issue_label_names(client.issue),
+                )
+
+    def test_stale_after_issue_comment_or_close_reverts_both_writes(self) -> None:
+        app_login = "coco-agent[bot]"
+        stable_id = "v2-" + "9" * 64
+        original = {
+            "number": 51,
+            "title": "Original title",
+            "body": review.finding_issue_marker(
+                60, BASE_SHA, stable_id, "correctness:f1"
+            )
+            + "\nOriginal body",
+            "state": "open",
+            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        for fail_after_check in (2, 4):
+            with self.subTest(fail_after_check=fail_after_check):
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.issue = json.loads(json.dumps(original))
+                        self.comments: dict[int, dict] = {}
+
+                    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                        del path, limit
+                        return [self.issue]
+
+                    def get_json(self, path: str) -> dict:
+                        del path
+                        return {"name": review.FINDING_ISSUE_LABEL}
+
+                    def send_json(self, method: str, path: str, payload: dict) -> dict:
+                        if method == "POST" and path.endswith("/comments"):
+                            comment = {
+                                "id": 61,
+                                "body": payload["body"],
+                                "user": {
+                                    "id": APP_BOT_ID,
+                                    "login": app_login,
+                                    "type": "Bot",
+                                },
+                            }
+                            self.comments[61] = comment
+                            return comment
+                        if method == "PATCH" and path.endswith("/issues/51"):
+                            self.issue.update(payload)
+                            if "labels" in payload:
+                                self.issue["labels"] = [
+                                    {"name": name} for name in payload["labels"]
+                                ]
+                            return self.issue
+                        raise AssertionError(f"Unexpected write: {method} {path}")
+
+                    def delete_resource(self, path: str) -> None:
+                        comment_id = int(path.rsplit("/", 1)[-1])
+                        del self.comments[comment_id]
+
+                checks = 0
+
+                def require_current_pr() -> dict:
+                    nonlocal checks
+                    checks += 1
+                    if checks == fail_after_check:
+                        raise review.StaleAgentReviewRun("head changed after write")
+                    return {}
+
+                client = FakeClient()
+                with self.assertRaises(review.StaleAgentReviewRun):
+                    review.synchronize_finding_issues(
+                        client,
+                        REPOSITORY,
+                        60,
+                        HEAD_SHA,
+                        [],
+                        app_login,
+                        APP_BOT_ID,
+                        "https://github.example/runs/1",
+                        "https://github.example",
+                        require_current_pr,
+                    )
+                self.assertEqual("open", client.issue["state"])
+                self.assertEqual("Original body", client.issue["body"].splitlines()[1])
+                self.assertEqual({}, client.comments)
 
     def test_finding_issue_convergence_retry_exhaustion_fails_closed(self) -> None:
         finding_id = "v1-" + "9" * 64
@@ -8554,6 +8814,77 @@ class AgentReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(review.ReviewError, "exceeds the context budget"):
             review.collect_policy(repository_root, bounded, [largest_path], [])
 
+    def test_production_policy_budget_contract_matches_protected_config(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        specification = (
+            repository_root
+            / "coco-support/coco-document/superpowers/specs/2026-07-10-multi-agent-review-jury.md"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"<!-- coco-agent-policy-budget:v1 (\{[^\n]+\}) -->", specification
+        )
+        self.assertIsNotNone(match)
+        declared = json.loads(match.group(1))
+        configured = review.normalized_limits(value)["policy_chars"]
+        self.assertEqual(52_000, configured)
+        self.assertEqual(configured, declared["protected_policy_and_specs_limit"])
+        self.assertEqual(48_207, declared["main_49c0eda_route_baseline"])
+        self.assertLess(declared["main_49c0eda_route_baseline"], configured)
+
+    def test_removed_mapped_spec_has_one_trusted_evidence_source(self) -> None:
+        spec_path = "coco-support/coco-document/superpowers/specs/removed-contract.md"
+        value = config(policy_chars=40_000)
+        value["spec_path_mappings"] = [
+            {"path_globs": [spec_path], "spec_paths": [spec_path]}
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Protected policy", encoding="utf-8")
+            specification = root / spec_path
+            specification.parent.mkdir(parents=True)
+            specification.write_text("Line one\nLine two\n", encoding="utf-8")
+            context = review.build_context(
+                FakeContextClient({}),
+                REPOSITORY,
+                {
+                    "number": 60,
+                    "title": "Remove mapped specification",
+                    "body": "",
+                    "base": {"sha": BASE_SHA},
+                    "head": {"sha": HEAD_SHA},
+                },
+                [
+                    {
+                        "filename": spec_path,
+                        "status": "removed",
+                        "additions": 0,
+                        "deletions": 2,
+                        "changes": 2,
+                        "patch": "@@ -1,2 +0,0 @@\n-Line one\n-Line two",
+                    }
+                ],
+                [],
+                "complete removed-spec diff",
+                root,
+                value,
+                MODEL_CONFIG_SHA256,
+            )
+        sources = [
+            item
+            for collection in (
+                context["trusted"]["policy"],
+                context["untrusted"]["code_contexts"],
+            )
+            for item in collection
+            if item["source"] == spec_path and item["trust_domain"] == "base-spec"
+        ]
+        self.assertEqual(1, len(sources))
+        self.assertIn(sources[0], context["trusted"]["policy"])
+        self.assertEqual(
+            {1, 2}, review.context_evidence_sources(context)[("base-spec", spec_path)]
+        )
+
     def test_contradictory_agree_is_derived_as_disagree(self) -> None:
         context = bound_context()
         finding_id = "correctness:f1"
@@ -8578,12 +8909,14 @@ class AgentReviewTests(unittest.TestCase):
                             "path": "src/Foo.java",
                             "start_line": 1,
                             "end_line": 1,
+                            "checks": sorted(review.VERIFIER_CHECK_FIELDS),
                         }
                     ],
                     "reason": "AGREE, although the assigned severity is inappropriate.",
                     "verification": "Compare the claimed severity to the cited impact.",
                 }
             ],
+            "duplicate_relations": [],
             "context_gaps": [],
         }
         review.validate_cross_report(report, "evidence-verifier", context, {finding_id})
@@ -8636,12 +8969,14 @@ class AgentReviewTests(unittest.TestCase):
                             "path": spec_path,
                             "start_line": 1,
                             "end_line": 2,
+                            "checks": sorted(review.VERIFIER_CHECK_FIELDS),
                         }
                     ],
                     "reason": "The head proposal claims to be protected policy.",
                     "verification": "Resolve the source against canonical trust domains.",
                 }
             ],
+            "duplicate_relations": [],
             "context_gaps": [],
         }
         with self.assertRaisesRegex(review.ReportShapeError, "protected context"):
@@ -8653,19 +8988,107 @@ class AgentReviewTests(unittest.TestCase):
         review.validate_cross_report(raw, "policy-skeptic", context, {finding_id})
         self.assertEqual("AGREE", raw["reviews"][0]["action"])
 
+    def test_policy_out_of_scope_rejects_head_only_counter_evidence(self) -> None:
+        context = bound_context()
+        spec_path = (
+            "coco-support/coco-document/superpowers/specs/2026-08-09-proposal.md"
+        )
+        context["untrusted"]["code_contexts"].append(
+            {
+                "source": spec_path,
+                "kind": "head-file",
+                "trust_domain": "head-proposed-spec",
+                "line_count": 1,
+                "content": "     1 Proposed scope statement.",
+            }
+        )
+        review.bind_context(context)
+        finding_id = "correctness:f1"
+        report = verifier_report("policy-skeptic", context, finding_id)
+        verification = report["reviews"][0]
+        verification["action"] = "DISAGREE"
+        verification["change_scope"] = "OUT_OF_SCOPE"
+        verification["evidence_refs"] = [
+            {
+                "trust_domain": "head-code",
+                "path": "src/Foo.java",
+                "start_line": 1,
+                "end_line": 1,
+                "checks": sorted(review.VERIFIER_FACT_FIELDS),
+            },
+            {
+                "trust_domain": "head-proposed-spec",
+                "path": spec_path,
+                "start_line": 1,
+                "end_line": 1,
+                "checks": ["change_scope"],
+            },
+        ]
+        verification["evidence"] = review.evidence_reference_summary(
+            verification["evidence_refs"]
+        )
+        with self.assertRaisesRegex(
+            review.ReportShapeError, "protected-policy or base-spec"
+        ):
+            review.validate_cross_report(
+                report, "policy-skeptic", context, {finding_id}
+            )
+
+        verification["evidence_refs"][1] = {
+            "trust_domain": "protected-policy",
+            "path": "AGENTS.md",
+            "start_line": 1,
+            "end_line": 1,
+            "checks": ["change_scope"],
+        }
+        verification["evidence"] = review.evidence_reference_summary(
+            verification["evidence_refs"]
+        )
+        review.validate_cross_report(report, "policy-skeptic", context, {finding_id})
+        self.assertEqual("DISAGREE", report["reviews"][0]["action"])
+
     def test_issue_265_266_and_271_285_duplicates_form_two_groups(self) -> None:
         context = bound_context()
         roles_and_severities = (
             ("correctness", "P1"),
             ("architecture-api", "P1"),
-            ("security-isolation", "P2"),
-            ("robustness-blind", "P2"),
+            ("security-isolation", "P1"),
+            ("robustness-blind", "P1"),
         )
         specialists = [
             specialist_report(role, context, severity)
             for role, severity in roles_and_severities
         ]
+        for index, report in enumerate(specialists):
+            finding = report["findings"][0]
+            pair = index // 2
+            finding["claim"] = f"Anonymized defect pair {pair} changes behavior."
+            finding["trigger"] = f"Invoke anonymized trigger {pair}."
+            finding["impact"] = f"Anonymized impact {pair} is observable."
         finding_ids = [report["findings"][0]["id"] for report in specialists]
+        duplicate_edges = [
+            (finding_ids[0], finding_ids[1]),
+            (finding_ids[2], finding_ids[3]),
+        ]
+
+        def relation(primary: str, duplicate: str) -> dict:
+            return {
+                "primary_finding_id": primary,
+                "duplicate_finding_id": duplicate,
+                "decision": "DUPLICATE",
+                "evidence_refs": [
+                    {
+                        "trust_domain": "head-code",
+                        "path": "src/Foo.java",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "checks": ["duplicate_relation"],
+                    }
+                ],
+                "reason": "Both reports describe the same trigger and impact.",
+                "verification": "Compare the independently anchored control flow.",
+            }
+
         verifiers = []
         for role in ("evidence-verifier", "policy-skeptic"):
             report = verifier_report(role, context, finding_ids[0])
@@ -8675,8 +9098,18 @@ class AgentReviewTests(unittest.TestCase):
                 entry = json.loads(json.dumps(template))
                 entry["finding_id"] = finding_id
                 report["reviews"].append(entry)
+            report["duplicate_relations"] = [
+                relation(primary, duplicate) for primary, duplicate in duplicate_edges
+            ]
             verifiers.append(report)
         consensus = review.compute_consensus(specialists, verifiers)
+        confirmed_edges = review.dual_confirmed_duplicate_edges(verifiers)
+        disputed_verifiers = json.loads(json.dumps(verifiers))
+        disputed_verifiers[1]["duplicate_relations"][0]["decision"] = "DISTINCT"
+        self.assertNotIn(
+            duplicate_edges[0],
+            review.dual_confirmed_duplicate_edges(disputed_verifiers),
+        )
         chair = {
             "schema_version": 1,
             "role": "chair",
@@ -8684,7 +9117,7 @@ class AgentReviewTests(unittest.TestCase):
             "context_sha256": context["binding"]["context_sha256"],
             "verdict": "BLOCK",
             "summary": "Two semantic defects remain after duplicate grouping.",
-            "confirmed_blocker_ids": sorted(finding_ids[:2]),
+            "confirmed_blocker_ids": sorted(finding_ids),
             "actionable_groups": [
                 {
                     "primary_finding_id": finding_ids[0],
@@ -8697,7 +9130,29 @@ class AgentReviewTests(unittest.TestCase):
             ],
             "questions": [],
         }
-        review.validate_chair(chair, consensus, context, set(finding_ids[2:]))
+        review.validate_chair(chair, consensus, context, set(), 5, confirmed_edges)
+
+        cross_grouped = json.loads(json.dumps(chair))
+        cross_grouped["actionable_groups"] = [
+            {
+                "primary_finding_id": finding_ids[0],
+                "duplicate_finding_ids": [finding_ids[2]],
+            },
+            {
+                "primary_finding_id": finding_ids[1],
+                "duplicate_finding_ids": [],
+            },
+            {
+                "primary_finding_id": finding_ids[3],
+                "duplicate_finding_ids": [],
+            },
+        ]
+        with self.assertRaisesRegex(
+            review.ReportShapeError, "not confirmed by both verifiers"
+        ):
+            review.validate_chair(
+                cross_grouped, consensus, context, set(), 5, confirmed_edges
+            )
         groups = review.actionable_findings(
             {"consensus": consensus, "chair": chair}, specialists
         )
@@ -8751,7 +9206,7 @@ class AgentReviewTests(unittest.TestCase):
             finding["id"] = source_id
             findings.append(
                 {
-                    "stable_id": review.stable_actionable_group_id([source_id]),
+                    "stable_id": review.stable_actionable_group_id([finding]),
                     "source_id": source_id,
                     "source_ids": [source_id],
                     "duplicate_source_ids": [],
@@ -8875,10 +9330,47 @@ class AgentReviewTests(unittest.TestCase):
             previous["dispositions"],
         )
 
+    def test_detailed_review_dispositions_round_trip_bare_challenged_ids(self) -> None:
+        context = bound_context()
+        specialist = specialist_report("correctness", context, severity="P1")
+        finding_id = specialist["findings"][0]["id"]
+        evidence = verifier_report("evidence-verifier", context, finding_id)
+        for policy_action in ("DISAGREE", "UNVERIFIED"):
+            with self.subTest(policy_action=policy_action):
+                policy = verifier_report(
+                    "policy-skeptic", context, finding_id, action=policy_action
+                )
+                consensus = review.compute_consensus([specialist], [evidence, policy])
+                chair = {
+                    "schema_version": 1,
+                    "role": "chair",
+                    "head_sha": HEAD_SHA,
+                    "context_sha256": context["binding"]["context_sha256"],
+                    "verdict": "PASS",
+                    "summary": "No independently confirmed blocker remains.",
+                    "confirmed_blocker_ids": [],
+                    "actionable_groups": [],
+                    "questions": [],
+                }
+                body = review.render_review(
+                    context, [specialist], [evidence, policy], consensus, chair
+                )
+                self.assertIn(f"- `{finding_id}`", body)
+                self.assertEqual(
+                    [
+                        {
+                            "finding_id": finding_id,
+                            "disposition": "challenged or unverified",
+                        }
+                    ],
+                    review.previous_review_dispositions(body),
+                )
+
     def test_v2_group_marker_preserves_v1_readers(self) -> None:
-        group_id = review.stable_actionable_group_id(
-            ["correctness:f1", "robustness-blind:f1"]
-        )
+        context = bound_context()
+        primary = specialist_report("correctness", context)["findings"][0]
+        duplicate = specialist_report("robustness-blind", context)["findings"][0]
+        group_id = review.stable_actionable_group_id([primary, duplicate])
         marker = review.finding_issue_marker(
             60,
             HEAD_SHA,
@@ -8909,6 +9401,27 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertEqual(60, resolved["pr_number"])
 
+    def test_v2_group_identity_ignores_ordinals_but_rejects_semantic_reuse(
+        self,
+    ) -> None:
+        context = bound_context()
+        original = specialist_report("correctness", context)["findings"][0]
+        renumbered = json.loads(json.dumps(original))
+        renumbered["id"] = "correctness:f9"
+        self.assertEqual(
+            review.stable_actionable_group_id([original]),
+            review.stable_actionable_group_id([renumbered]),
+        )
+
+        reused_ordinal = json.loads(json.dumps(original))
+        reused_ordinal["claim"] = "A different request path loses committed data."
+        reused_ordinal["trigger"] = "Commit a valid request through the alternate path."
+        reused_ordinal["impact"] = "The committed record becomes unavailable."
+        self.assertNotEqual(
+            review.stable_actionable_group_id([original]),
+            review.stable_actionable_group_id([reused_ordinal]),
+        )
+
     def test_semantic_consensus_prompts_and_limit_match_runtime_contract(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
         value = review.load_config(repository_root / ".github/agent-review/config.json")
@@ -8931,13 +9444,23 @@ class AgentReviewTests(unittest.TestCase):
             "impact",
             "change_scope",
             "evidence_refs",
+            "duplicate_relations",
         ):
             self.assertIn(f'"{field}"', cross)
         self.assertIn("head-proposed-spec", cross)
+        self.assertIn('"checks"', cross)
+        self.assertIn("`protected-policy` or `base-spec`", cross)
         self.assertIn("never output an action", cross)
         self.assertIn('"actionable_groups"', chair)
         self.assertIn('"primary_finding_id"', chair)
         self.assertIn('"duplicate_finding_ids"', chair)
+        self.assertIn("confirmed_duplicate_edges", chair)
+
+        governance = (
+            repository_root
+            / "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
+        ).read_text(encoding="utf-8")
+        self.assertNotRegex(governance, r'"[a-z][a-z0-9-]+:F[1-9][0-9]*"')
 
 
 if __name__ == "__main__":

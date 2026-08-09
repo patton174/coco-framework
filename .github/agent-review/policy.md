@@ -144,7 +144,7 @@ receives protected policy and specifications.
 
 Models do not control verifier action. Each P0-P3 verification returns
 `claim`, `severity`, `anchor`, `trigger`, `impact`, `change_scope`, and
-`evidence_refs`. Fact checks use `SUPPORTED`, `CONTRADICTED`, or `UNVERIFIED`;
+`evidence_refs`; each reference binds exact checks. Fact checks use `SUPPORTED`, `CONTRADICTED`, or `UNVERIFIED`;
 scope uses `IN_SCOPE`, `OUT_OF_SCOPE`, or `UNVERIFIED`. Runtime derives action:
 
 - any `CONTRADICTED` check or `OUT_OF_SCOPE` scope is `DISAGREE`;
@@ -152,8 +152,9 @@ scope uses `IN_SCOPE`, `OUT_OF_SCOPE`, or `UNVERIFIED`. Runtime derives action:
   evidence reference is `AGREE`;
 - every other combination is `UNVERIFIED`.
 
-Prose cannot override this result. Missing context is `UNVERIFIED`; `DISAGREE`
-requires structured counter-evidence. Both verifiers cover every finding once.
+Prose cannot override this result. Missing context is `UNVERIFIED`. Each
+contradiction needs check-bound evidence; `OUT_OF_SCOPE` needs `change_scope`
+evidence from `protected-policy` or `base-spec`, never a head source. Both verifiers cover every finding once.
 Only dual-derived `AGREE` confirms P0/P1 or makes P2/P3 follow-up eligible.
 
 Before App publication, every model-controlled text field is collapsed to
@@ -164,10 +165,10 @@ view that retains every finding disposition and verifier vote. The final
 comment, including actionable Issue links and the workflow footer, must remain
 within a 64,000-byte hard limit.
 
-The chair emits groups with one `primary_finding_id` and unique
-`duplicate_finding_ids`. IDs must be dual-`AGREE`, same-kind, same-severity,
-single-group members. All confirmed blockers are grouped; only eligible P2/P3
-may be selected. The chair cannot invent IDs or change verdicts.
+Verifiers emit directed duplicate decisions. Chair groups use only edges both
+marked `DUPLICATE`, with one primary and unique duplicates. IDs must be
+dual-`AGREE`, same-kind, same-severity, and single-group members. All blockers
+are grouped; only eligible P2/P3 may be selected. Chair cannot change verdicts.
 
 ## Finding Issue Governance
 
@@ -176,7 +177,8 @@ deferred-bot reviews, confirmed P0/P1 blockers and chair-selected P2/P3
 dual-`AGREE` findings are actionable. A selected P2/P3 finding does not change
 `Agent jury gate`, but its managed Issue participates in `Agent issue gate`.
 The trusted App maintains one Issue per actionable group and one jury comment.
-Group identity uses source IDs, not mutable prose or line wording. Fork and
+v2 identity hashes each member's normalized category, path, severity, claim,
+trigger, and impact; round-local source IDs are marker metadata only. Fork and
 unpinned-bot reviews cannot write either.
 
 Each managed Issue has `agent-review` and one canonical marker. v2 binds PR,
@@ -185,6 +187,10 @@ markers while writers emit v2. Later reviews retain the first-head binding.
 
 `max_actionable_issue_groups=8`. Overflow fails before every Issue-side write;
 only fail-closed commit statuses may be published.
+
+Every Issue write is followed by exact-head/ownership rebind. A stale call
+restores snapshots, deletes new comments, and closes new Issues in reverse
+order. GitHub calls are not atomic; compensation failure is fail-closed.
 
 `Agent issue gate` independently reads GitHub state for the current PR
 head: any open bound finding issue fails it, and none pass it. Issue close/reopen

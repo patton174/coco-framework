@@ -175,13 +175,18 @@ flowchart LR
   `SUPPORTED / CONTRADICTED / UNVERIFIED`；
 - `change_scope`：取值只能是 `IN_SCOPE / OUT_OF_SCOPE / UNVERIFIED`；
 - `evidence_refs`：非重复的结构化引用数组，每项包含 `trust_domain`、`path`、
-  `start_line` 和 `end_line`。
+  `start_line`、`end_line` 和有序唯一的 `checks`，把引用绑定到具体检查。
 
 runtime 按固定规则推导 action：任一事实检查为 `CONTRADICTED` 或范围为
 `OUT_OF_SCOPE` 时是 `DISAGREE`；五项事实检查全部为 `SUPPORTED`、范围为 `IN_SCOPE`
 且至少有一个通过上下文解析的 evidence ref 时是 `AGREE`；其他组合一律是
 `UNVERIFIED`。理由、验证说明和模型尝试输出的 action 都不能覆盖该结果。
-`DISAGREE` 必须有代码或规范反证；缺少上下文只能形成 `UNVERIFIED`。
+每个 `CONTRADICTED` 检查必须有绑定反证；`OUT_OF_SCOPE` 必须有绑定到
+`change_scope` 的 `protected-policy` 或 `base-spec` 反证，head 来源只能支持事实。
+缺少上下文只能形成 `UNVERIFIED`。
+
+两个 verifier 各自输出有向 primary、duplicate 与 `DUPLICATE / DISTINCT / UNVERIFIED`；
+runtime 只接受双 `DUPLICATE` 同向边，禁止文本启发式分组。
 
 两个 verifier 始终各自执行一次独立模型调用，并分别对每个 P0/P1/P2/P3 finding 恰好输出
 一次验证。没有 P0/P1/P2/P3 候选时也必须返回空验证数组，不能由协调器伪造一个“未需要
@@ -194,7 +199,7 @@ actionable 资格。
 ### Chair
 
 主席必须输出 `actionable_groups`。每组包含一个 `primary_finding_id` 和零个或多个有序、
-唯一的 `duplicate_finding_ids`。主席只能：
+唯一的 `duplicate_finding_ids`。每条边必须获两个 verifier 双确认，主席不能单方建立。主席只能：
 
 - 把语义重复且 actionable kind 相同的 finding 合并成一组；
 - 保留来源和不同意见；
@@ -249,10 +254,13 @@ disposition 摘要。该 previous-review context 整体标记为 untrusted，仅
 
 ### 预算
 
+<!-- coco-agent-policy-budget:v1 {"protected_policy_and_specs_limit":52000,"main_49c0eda_route_baseline":48207} -->
+
 - PR diff 超过 180,000 Unicode 字符时失败，要求拆分 PR；不静默截断，也不生成可供模型
   继续裁决的部分 diff。
 - 单个 specialist 的 canonical 组装上下文上限为 384,000 字符。
-- 受保护政策和所有命中规格最多 48,000 字符且不得裁剪；PR 意图最多 8,000 字符；完整
+- `main@49c0eda` 已保护的政策硬上限为 52,000 字符，路由基线约 48,207；本批使用剩余
+  余量，不放宽或裁剪。PR 意图最多 8,000 字符；完整
   diff 预算为 180,000 字符；补充代码上下文总计最多 60,000 字符、每个来源最多 4,000
   字符，单个完整变更文件最多读取 12,000 字符。
 - 输出 schema、当前 task、固定 SHA 和省略清单不可被裁掉。
@@ -311,8 +319,8 @@ Specialist finding 至少包含：
 `confidence` 是可选的 0 到 100 整数，只作为展示性元数据，不参与 verifier 共识、严重度或
 最终 verdict。字段存在时必须严格校验类型和范围；缺失不构成基础设施失败。
 
-Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `verifications`。每项使用上述
-六个结构化检查与 `evidence_refs`，不接受模型 action 字段。每个 verifier 必须覆盖全部
+Verifier 报告包含 `evidence`、逐 finding `verifications`、结构化 `duplicate_relations`
+及 check-bound `evidence_refs`，不接受模型 action。每个 verifier 必须覆盖全部
 P0/P1/P2/P3 finding，且每个 finding ID 恰好出现一次。即使没有任何候选，也要明确记录已检查的
 绑定报告集合，并返回空 `verifications`，不能省略该席位的模型调用。
 
@@ -352,10 +360,13 @@ P0/P1/P2/P3 finding，且每个 finding ID 恰好出现一次。即使没有任�
   和完整角色集合，重算 consensus，并要求最终 Markdown 与重新渲染结果逐字一致；不能
   只信任 chair 上传的 `PASS`。
 
-publisher 在任何 Issue API 写调用前确定性验证全部 actionable groups。group identity 只使用
-绑定 PR 下的 primary/duplicate finding ID 集合，不使用角色、标题、claim 文案或行号。受保护
+publisher 在 Issue 写入前验证全部 groups。v2 identity 使用成员的 category、path、severity、
+claim、trigger、impact 语义身份；round-local source ID 仅为 marker 元数据。受保护
 配置 `max_actionable_issue_groups=8`；超过上限时在 label、Issue、Issue comment、close/reopen 或
 managed comment 写入前失败关闭，Issue 侧零副作用，只允许发布失败 status。
+
+每次 Issue 写入前后重绑 exact head 与所有权；stale 时同一调用逆序恢复快照、删除新评论、
+关闭新 Issue。GitHub API 非事务性；补偿失败必须失败关闭，不能发布成功状态。
 
 上述分类和资格只能使用结构化 severity、finding ID 与 runtime-derived verifier action；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。
@@ -464,4 +475,4 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
 - Canary PR 的评论明确显示 5 specialist、2 verifier 和 1 chair。
 - 源码或评审脚本变更后执行 `codegraph sync .`，索引保持最新。
 - 对受保护生产配置的每条 policy 路由，`collect_policy` 的已选来源总字符数必须不超过
-  48,000，且不产生 policy omission；该矩阵作为回归测试执行。
+  52,000，且不产生 policy omission；测试同时校验本规范预算声明与受保护配置一致。

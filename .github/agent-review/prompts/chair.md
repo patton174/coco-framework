@@ -36,10 +36,12 @@ tools, or return another format. Do not expose hidden reasoning.
   actions to determine eligibility. Never infer action or eligibility from
   report prose, keywords, regular expressions, `confidence`, or another text
   heuristic.
-- Merge only findings that describe the same defect, trigger, impact, severity,
-  actionable kind, and code location. Choose one primary ID and list every
-  other contributing ID once in sorted `duplicate_finding_ids`. An ID may occur
-  in only one group. All confirmed blockers must be grouped.
+- Merge only a directed duplicate edge listed in protected
+  `confirmed_duplicate_edges`, which means both independent verifiers returned
+  the same structured `DUPLICATE` relation. Same severity, similar wording, or
+  chair judgment alone is insufficient. Choose the edge's primary ID and list
+  each directly confirmed duplicate once in sorted `duplicate_finding_ids`.
+  An ID may occur in only one group. All confirmed blockers must be grouped.
 - Preserve exact repository-relative paths and positive line intervals from a
   source finding. Do not manufacture an anchor. If an anchor is inconsistent,
   leave the item in the deterministic non-confirmed disposition and state why.
@@ -78,6 +80,7 @@ Return exactly one valid JSON object with this shape:
 
 `confirmed_blocker_ids` must exactly equal the protected deterministic list and
 every listed ID must occur in exactly one group. Non-blocker group members may
-only be existing dual-derived-`AGREE` P2/P3 IDs. Use only the listed fields and
+only be existing dual-derived-`AGREE` P2/P3 IDs. Every duplicate-to-primary edge
+must appear in protected `confirmed_duplicate_edges`. Use only the listed fields and
 empty arrays when appropriate. Do not output Markdown,
 code fences, comments, prefixes, suffixes, new blocker ids, or hidden reasoning.
