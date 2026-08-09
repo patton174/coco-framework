@@ -82,6 +82,7 @@ public class CocoRateLimitAutoConfiguration {
      * @return 默认限流路由匹配器
      */
     @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnBean(CocoWebRequestMatcher.class)
     @ConditionalOnMissingBean
     public CocoRateLimitRouteMatcher cocoRateLimitRouteMatcher(CocoRateLimitProperties properties,
