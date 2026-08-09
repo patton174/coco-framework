@@ -181,9 +181,8 @@ runtime 按固定规则推导 action：任一事实检查为 `CONTRADICTED` 或�
 `OUT_OF_SCOPE` 时是 `DISAGREE`；五项事实检查全部为 `SUPPORTED`、范围为 `IN_SCOPE`
 且至少有一个通过上下文解析的 evidence ref 时是 `AGREE`；其他组合一律是
 `UNVERIFIED`。理由、验证说明和模型尝试输出的 action 都不能覆盖该结果。
-每个 `CONTRADICTED` 检查必须有绑定反证；`OUT_OF_SCOPE` 必须有绑定到
-`change_scope` 的 `protected-policy` 或 `base-spec` 反证，head 来源只能支持事实。
-缺少上下文只能形成 `UNVERIFIED`。
+两个角色同一 matrix：severity/scope 只认 policy/base spec；行为反证只认 code/base policy，
+`head-proposed-spec` 不得参与。缺上下文为 `UNVERIFIED`。
 
 两个 verifier 各自输出有向 primary、duplicate 与 `DUPLICATE / DISTINCT / UNVERIFIED`；
 runtime 只接受双 `DUPLICATE` 同向边，禁止文本启发式分组。
@@ -232,7 +231,8 @@ actionable 资格。
 每个可引用来源都携带 trust domain 和行数。`AGENTS.md`、受保护 review policy 只能是
 `protected-policy`；从 base 完整读取的规格只能是 `base-spec`。PR 在 head 新增或修改的规格
 属于不可信提案，只能是 `head-proposed-spec`，即使路径和文字看起来具有规范性，也不能伪装成
-受保护 policy。runtime 必须拒绝不存在于对应 canonical context、越界或 domain 不匹配的引用。
+受保护 policy。changed/previous path 命中登记 spec 时必须完整注入 base；删除规格不得只进
+dynamic hunks。runtime 拒绝越界/domain 不匹配引用。
 
 完整 base-to-head diff 在每轮都必须保留。若存在唯一、App 身份验证通过的上一轮受管评论，
 可额外注入上一轮 reviewed head、该 head 到当前 head 的有界 compare delta，以及上一轮结构化
@@ -360,13 +360,13 @@ P0/P1/P2/P3 finding，且每个 finding ID 恰好出现一次。即使没有任�
   和完整角色集合，重算 consensus，并要求最终 Markdown 与重新渲染结果逐字一致；不能
   只信任 chair 上传的 `PASS`。
 
-publisher 在 Issue 写入前验证全部 groups。v2 identity 使用成员的 category、path、severity、
-claim、trigger、impact 语义身份；round-local source ID 仅为 marker 元数据。受保护
+publisher 写前验证 groups。v2 哈希 category/path/severity/claim/trigger/impact，抵抗
+ordinal/role/title/line；等义措辞可新建 Issue，不加模型关联，gate 仍 fail closed。受保护
 配置 `max_actionable_issue_groups=8`；超过上限时在 label、Issue、Issue comment、close/reopen 或
 managed comment 写入前失败关闭，Issue 侧零副作用，只允许发布失败 status。
 
-每次 Issue 写入前后重绑 exact head 与所有权；stale 时同一调用逆序恢复快照、删除新评论、
-关闭新 Issue。GitHub API 非事务性；补偿失败必须失败关闭，不能发布成功状态。
+update/reopen/close 请求前快照；create/comment 带 operation marker。不确定响应分页核对
+App+marker，已提交则补偿；forward 写后重绑。API 非事务性且失败关闭。
 
 上述分类和资格只能使用结构化 severity、finding ID 与 runtime-derived verifier action；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。

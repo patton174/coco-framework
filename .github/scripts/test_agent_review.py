@@ -256,8 +256,15 @@ def verifier_report(
                 "path": "src/Foo.java",
                 "start_line": 1,
                 "end_line": 1,
-                "checks": sorted(review.VERIFIER_CHECK_FIELDS),
-            }
+                "checks": sorted(review.VERIFIER_BEHAVIOR_FIELDS),
+            },
+            {
+                "trust_domain": "protected-policy",
+                "path": "AGENTS.md",
+                "start_line": 1,
+                "end_line": 1,
+                "checks": ["change_scope", "severity"],
+            },
         ]
     )
     return {
@@ -2093,8 +2100,15 @@ class AgentReviewTests(unittest.TestCase):
                             "path": "src/Foo.java",
                             "start_line": 1,
                             "end_line": 1,
-                            "checks": sorted(review.VERIFIER_CHECK_FIELDS),
-                        }
+                            "checks": sorted(review.VERIFIER_BEHAVIOR_FIELDS),
+                        },
+                        {
+                            "trust_domain": "protected-policy",
+                            "path": "AGENTS.md",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "checks": ["change_scope", "severity"],
+                        },
                     ],
                     "reason": "The claim follows from the cited branch.",
                     "verification": "Exercise the cited branch with the stated input.",
@@ -2200,8 +2214,15 @@ class AgentReviewTests(unittest.TestCase):
                                 "path": "src/Foo.java",
                                 "start_line": 1,
                                 "end_line": 1,
-                                "checks": sorted(review.VERIFIER_CHECK_FIELDS),
-                            }
+                                "checks": sorted(review.VERIFIER_BEHAVIOR_FIELDS),
+                            },
+                            {
+                                "trust_domain": "protected-policy",
+                                "path": "AGENTS.md",
+                                "start_line": 1,
+                                "end_line": 1,
+                                "checks": ["change_scope", "severity"],
+                            },
                         ],
                         "reason": "The cited code supports the low-severity claim.",
                         "verification": "Exercise the cited P3 trigger in a focused test.",
@@ -2583,6 +2604,27 @@ class AgentReviewTests(unittest.TestCase):
             review.parse_finding_issue_marker("Details\n" + marker)
         with self.assertRaisesRegex(review.ReviewError, "exactly one"):
             review.parse_finding_issue_marker(marker + "\n" + marker)
+
+        group_id = "v2-" + "e" * 64
+        operation = review.finding_issue_operation_marker(
+            (123, 2), 60, HEAD_SHA, group_id, "create"
+        )
+        self.assertEqual(
+            review.FINDING_ISSUE_OPERATION_MARKER_PREFIX
+            + review.canonical_json(
+                {
+                    "action": "create",
+                    "group_id": group_id,
+                    "head_sha": HEAD_SHA,
+                    "pull_request": 60,
+                    "run_attempt": 2,
+                    "run_id": 123,
+                    "schema_version": 1,
+                }
+            )
+            + " -->",
+            operation,
+        )
 
     def test_issue_event_resolver_uses_previous_marker_after_body_edit(self) -> None:
         app_login = "coco-agent[bot]"
@@ -3255,6 +3297,401 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertEqual("open", client.issue["state"])
                 self.assertEqual("Original body", client.issue["body"].splitlines()[1])
                 self.assertEqual({}, client.comments)
+
+    def test_uncertain_create_and_comment_writes_reconcile_and_compensate(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        run_url = "https://github.example/runs/uncertain"
+        finding = specialist_report("correctness", bound_context())["findings"][0]
+        stable_id = review.stable_actionable_group_id([finding])
+        actionable = {
+            "stable_id": stable_id,
+            "source_id": finding["id"],
+            "source_ids": [finding["id"]],
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+            "duplicate_findings": [],
+        }
+        error_types = (review.GitHubTransientError, review.GitHubWriteResponseError)
+
+        for error_type in error_types:
+            with self.subTest(operation="create", error_type=error_type.__name__):
+
+                class CreateClient:
+                    def __init__(self) -> None:
+                        self.issue: dict | None = None
+                        self.issue_scans = 0
+
+                    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                        if "issues?state=all&labels=agent-review" not in path:
+                            raise AssertionError(f"Unexpected pagination: {path}")
+                        self.assertEqualLimit(limit, 5000)
+                        self.issue_scans += 1
+                        return [] if self.issue is None else [self.issue]
+
+                    @staticmethod
+                    def assertEqualLimit(actual: int, expected: int) -> None:
+                        if actual != expected:
+                            raise AssertionError(f"Unexpected limit: {actual}")
+
+                    def get_json(self, path: str) -> dict:
+                        if path.endswith("/labels/agent-review"):
+                            return {"name": review.FINDING_ISSUE_LABEL}
+                        raise AssertionError(f"Unexpected GET: {path}")
+
+                    def send_json(self, method: str, path: str, payload: dict) -> dict:
+                        if method == "POST" and path.endswith("/issues"):
+                            self.issue = {
+                                "number": 71,
+                                "state": "open",
+                                "user": {
+                                    "id": APP_BOT_ID,
+                                    "login": app_login,
+                                    "type": "Bot",
+                                },
+                                **payload,
+                            }
+                            self.issue["labels"] = [
+                                {"name": name} for name in payload["labels"]
+                            ]
+                            raise error_type("commit then uncertain response")
+                        if method == "PATCH" and path.endswith("/issues/71"):
+                            assert self.issue is not None
+                            self.issue.update(payload)
+                            if "labels" in payload:
+                                self.issue["labels"] = [
+                                    {"name": name} for name in payload["labels"]
+                                ]
+                            return self.issue
+                        raise AssertionError(f"Unexpected write: {method} {path}")
+
+                create_client = CreateClient()
+                with self.assertRaises(error_type):
+                    review.synchronize_finding_issues(
+                        create_client,
+                        REPOSITORY,
+                        60,
+                        HEAD_SHA,
+                        [actionable],
+                        app_login,
+                        APP_BOT_ID,
+                        run_url,
+                        "https://github.example",
+                        lambda: {},
+                    )
+                self.assertEqual(2, create_client.issue_scans)
+                self.assertEqual("closed", create_client.issue["state"])
+                self.assertEqual("not_planned", create_client.issue["state_reason"])
+                create_marker = review.finding_issue_operation_marker(
+                    (1, 1), 60, HEAD_SHA, stable_id, "create"
+                )
+                self.assertTrue(
+                    review.resource_has_operation_marker(
+                        create_client.issue, create_marker
+                    )
+                )
+
+            with self.subTest(operation="comment", error_type=error_type.__name__):
+                original_issue = {
+                    "number": 72,
+                    "title": "Existing finding",
+                    "body": review.finding_issue_marker(
+                        60, BASE_SHA, stable_id, finding["id"]
+                    )
+                    + "\nExisting body",
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                }
+
+                class CommentClient:
+                    def __init__(self) -> None:
+                        self.issue = json.loads(json.dumps(original_issue))
+                        self.comments: dict[int, dict] = {}
+                        self.comment_scans = 0
+
+                    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                        if "issues?state=all&labels=agent-review" in path:
+                            if limit != 5000:
+                                raise AssertionError(f"Unexpected issue limit: {limit}")
+                            return [self.issue]
+                        if path.endswith("/issues/72/comments"):
+                            if limit != 5000:
+                                raise AssertionError(
+                                    f"Unexpected comment limit: {limit}"
+                                )
+                            self.comment_scans += 1
+                            return list(self.comments.values())
+                        raise AssertionError(f"Unexpected pagination: {path}")
+
+                    def get_json(self, path: str) -> dict:
+                        if path.endswith("/labels/agent-review"):
+                            return {"name": review.FINDING_ISSUE_LABEL}
+                        raise AssertionError(f"Unexpected GET: {path}")
+
+                    def send_json(self, method: str, path: str, payload: dict) -> dict:
+                        if method == "POST" and path.endswith("/comments"):
+                            comment = {
+                                "id": 73,
+                                "body": payload["body"],
+                                "user": {
+                                    "id": APP_BOT_ID,
+                                    "login": app_login,
+                                    "type": "Bot",
+                                },
+                            }
+                            self.comments[73] = comment
+                            raise error_type("commit then uncertain response")
+                        raise AssertionError(f"Unexpected write: {method} {path}")
+
+                    def delete_resource(self, path: str) -> None:
+                        del self.comments[int(path.rsplit("/", 1)[-1])]
+
+                comment_client = CommentClient()
+                with self.assertRaises(error_type):
+                    review.synchronize_finding_issues(
+                        comment_client,
+                        REPOSITORY,
+                        60,
+                        HEAD_SHA,
+                        [],
+                        app_login,
+                        APP_BOT_ID,
+                        run_url,
+                        "https://github.example",
+                        lambda: {},
+                    )
+                self.assertEqual(1, comment_client.comment_scans)
+                self.assertEqual({}, comment_client.comments)
+                self.assertEqual("open", comment_client.issue["state"])
+
+    def test_invalid_github_write_json_is_an_uncertain_response(self) -> None:
+        client = review.GitHubClient("test-token", "https://api.github.example")
+        with patch.object(client, "request", return_value=(b"{", {})):
+            with self.assertRaises(review.GitHubWriteResponseError):
+                client.send_json("POST", "repos/example/issues", {"title": "x"})
+
+    def test_commit_then_error_restores_update_reopen_and_close_snapshots(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        run_url = "https://github.example/runs/patch-uncertain"
+        finding = specialist_report("correctness", bound_context())["findings"][0]
+        stable_id = review.stable_actionable_group_id([finding])
+        actionable = {
+            "stable_id": stable_id,
+            "source_id": finding["id"],
+            "source_ids": [finding["id"]],
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+            "duplicate_findings": [],
+        }
+
+        for initial_state in ("open", "closed"):
+            with self.subTest(operation="update-or-reopen", state=initial_state):
+                original = {
+                    "number": 81,
+                    "title": "Original",
+                    "body": review.finding_issue_marker(
+                        60, BASE_SHA, stable_id, finding["id"]
+                    )
+                    + "\nOriginal",
+                    "state": initial_state,
+                    "state_reason": "completed" if initial_state == "closed" else None,
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                }
+
+                class PatchClient:
+                    def __init__(self) -> None:
+                        self.issue = json.loads(json.dumps(original))
+                        self.patch_calls = 0
+
+                    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                        del path, limit
+                        return [self.issue]
+
+                    def get_json(self, path: str) -> dict:
+                        del path
+                        return {"name": review.FINDING_ISSUE_LABEL}
+
+                    def send_json(self, method: str, path: str, payload: dict) -> dict:
+                        if method != "PATCH" or not path.endswith("/issues/81"):
+                            raise AssertionError(f"Unexpected write: {method} {path}")
+                        self.patch_calls += 1
+                        self.issue.update(payload)
+                        if "labels" in payload:
+                            self.issue["labels"] = [
+                                {"name": name} for name in payload["labels"]
+                            ]
+                        if self.patch_calls == 1:
+                            raise review.GitHubTransientError("committed patch timeout")
+                        return self.issue
+
+                client = PatchClient()
+                with self.assertRaises(review.GitHubTransientError):
+                    review.synchronize_finding_issues(
+                        client,
+                        REPOSITORY,
+                        60,
+                        HEAD_SHA,
+                        [actionable],
+                        app_login,
+                        APP_BOT_ID,
+                        run_url,
+                        "https://github.example",
+                        lambda: {},
+                    )
+                self.assertEqual(2, client.patch_calls)
+                self.assertEqual(original["title"], client.issue["title"])
+                self.assertEqual(original["body"], client.issue["body"])
+                self.assertEqual(initial_state, client.issue["state"])
+
+        original = {
+            "number": 82,
+            "title": "Original close",
+            "body": review.finding_issue_marker(60, BASE_SHA, stable_id, finding["id"])
+            + "\nOriginal close",
+            "state": "open",
+            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        class CloseClient:
+            def __init__(self) -> None:
+                self.issue = json.loads(json.dumps(original))
+                self.comments: dict[int, dict] = {}
+                self.patch_calls = 0
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                del path, limit
+                return [self.issue]
+
+            def get_json(self, path: str) -> dict:
+                del path
+                return {"name": review.FINDING_ISSUE_LABEL}
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                if method == "POST" and path.endswith("/comments"):
+                    comment = {
+                        "id": 83,
+                        "body": payload["body"],
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                    }
+                    self.comments[83] = comment
+                    return comment
+                if method == "PATCH" and path.endswith("/issues/82"):
+                    self.patch_calls += 1
+                    self.issue.update(payload)
+                    if "labels" in payload:
+                        self.issue["labels"] = [
+                            {"name": name} for name in payload["labels"]
+                        ]
+                    if self.patch_calls == 1:
+                        raise review.GitHubWriteResponseError(
+                            "committed close invalid JSON"
+                        )
+                    return self.issue
+                raise AssertionError(f"Unexpected write: {method} {path}")
+
+            def delete_resource(self, path: str) -> None:
+                del self.comments[int(path.rsplit("/", 1)[-1])]
+
+        close_client = CloseClient()
+        with self.assertRaises(review.GitHubWriteResponseError):
+            review.synchronize_finding_issues(
+                close_client,
+                REPOSITORY,
+                60,
+                HEAD_SHA,
+                [],
+                app_login,
+                APP_BOT_ID,
+                run_url,
+                "https://github.example",
+                lambda: {},
+            )
+        self.assertEqual(2, close_client.patch_calls)
+        self.assertEqual("open", close_client.issue["state"])
+        self.assertEqual({}, close_client.comments)
+
+    def test_uncertain_create_compensation_failure_is_fail_closed(self) -> None:
+        app_login = "coco-agent[bot]"
+        run_url = "https://github.example/runs/compensation-failure"
+        finding = specialist_report("correctness", bound_context())["findings"][0]
+        stable_id = review.stable_actionable_group_id([finding])
+        actionable = {
+            "stable_id": stable_id,
+            "source_id": finding["id"],
+            "source_ids": [finding["id"]],
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+            "duplicate_findings": [],
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.issue: dict | None = None
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                del path, limit
+                return [] if self.issue is None else [self.issue]
+
+            def get_json(self, path: str) -> dict:
+                del path
+                return {"name": review.FINDING_ISSUE_LABEL}
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                if method == "POST" and path.endswith("/issues"):
+                    self.issue = {
+                        "number": 91,
+                        "state": "open",
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                        **payload,
+                    }
+                    self.issue["labels"] = [
+                        {"name": name} for name in payload["labels"]
+                    ]
+                    raise review.GitHubTransientError("committed create timeout")
+                if method == "PATCH" and path.endswith("/issues/91"):
+                    raise review.ReviewError("compensation unavailable")
+                raise AssertionError(f"Unexpected write: {method} {path}")
+
+        with self.assertRaisesRegex(
+            review.ReviewError, "write compensation failed.*compensation unavailable"
+        ):
+            review.synchronize_finding_issues(
+                FakeClient(),
+                REPOSITORY,
+                60,
+                HEAD_SHA,
+                [actionable],
+                app_login,
+                APP_BOT_ID,
+                run_url,
+                "https://github.example",
+                lambda: {},
+            )
 
     def test_finding_issue_convergence_retry_exhaustion_fails_closed(self) -> None:
         finding_id = "v1-" + "9" * 64
@@ -8832,6 +9269,45 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(48_207, declared["main_49c0eda_route_baseline"])
         self.assertLess(declared["main_49c0eda_route_baseline"], configured)
 
+    def test_all_registered_specs_are_required_for_self_change_delete_and_rename(
+        self,
+    ) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        registered_specs = sorted(
+            {
+                spec_path
+                for mapping in value["spec_path_mappings"]
+                for spec_path in mapping["spec_paths"]
+            }
+        )
+        self.assertEqual(12, len(registered_specs))
+        for spec_path in registered_specs:
+            expected = (repository_root / spec_path).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            cases = {
+                "self-change": [spec_path],
+                "delete": [spec_path],
+                "rename": [f"{spec_path}.renamed", spec_path],
+            }
+            for change_kind, changed_paths in cases.items():
+                with self.subTest(spec_path=spec_path, change_kind=change_kind):
+                    omissions: list[str] = []
+                    sources = review.collect_policy(
+                        repository_root, value, changed_paths, omissions
+                    )
+                    selected = [
+                        source for source in sources if source["source"] == spec_path
+                    ]
+                    self.assertEqual([], omissions)
+                    self.assertEqual(1, len(selected))
+                    self.assertEqual("base-spec", selected[0]["trust_domain"])
+                    self.assertEqual(expected, selected[0]["content"])
+                    self.assertEqual(
+                        len(expected.splitlines()), selected[0]["line_count"]
+                    )
+
     def test_removed_mapped_spec_has_one_trusted_evidence_source(self) -> None:
         spec_path = "coco-support/coco-document/superpowers/specs/removed-contract.md"
         value = config(policy_chars=40_000)
@@ -8881,6 +9357,12 @@ class AgentReviewTests(unittest.TestCase):
         ]
         self.assertEqual(1, len(sources))
         self.assertIn(sources[0], context["trusted"]["policy"])
+        self.assertFalse(
+            any(
+                item["source"] == spec_path
+                for item in context["untrusted"]["code_contexts"]
+            )
+        )
         self.assertEqual(
             {1, 2}, review.context_evidence_sources(context)[("base-spec", spec_path)]
         )
@@ -8909,8 +9391,15 @@ class AgentReviewTests(unittest.TestCase):
                             "path": "src/Foo.java",
                             "start_line": 1,
                             "end_line": 1,
-                            "checks": sorted(review.VERIFIER_CHECK_FIELDS),
-                        }
+                            "checks": sorted(review.VERIFIER_BEHAVIOR_FIELDS),
+                        },
+                        {
+                            "trust_domain": "protected-policy",
+                            "path": "AGENTS.md",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "checks": ["change_scope", "severity"],
+                        },
                     ],
                     "reason": "AGREE, although the assigned severity is inappropriate.",
                     "verification": "Compare the claimed severity to the cited impact.",
@@ -8969,8 +9458,15 @@ class AgentReviewTests(unittest.TestCase):
                             "path": spec_path,
                             "start_line": 1,
                             "end_line": 2,
-                            "checks": sorted(review.VERIFIER_CHECK_FIELDS),
-                        }
+                            "checks": sorted(review.VERIFIER_BEHAVIOR_FIELDS),
+                        },
+                        {
+                            "trust_domain": "protected-policy",
+                            "path": "AGENTS.md",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "checks": ["change_scope", "severity"],
+                        },
                     ],
                     "reason": "The head proposal claims to be protected policy.",
                     "verification": "Resolve the source against canonical trust domains.",
@@ -9014,7 +9510,14 @@ class AgentReviewTests(unittest.TestCase):
                 "path": "src/Foo.java",
                 "start_line": 1,
                 "end_line": 1,
-                "checks": sorted(review.VERIFIER_FACT_FIELDS),
+                "checks": sorted(review.VERIFIER_BEHAVIOR_FIELDS),
+            },
+            {
+                "trust_domain": "protected-policy",
+                "path": "AGENTS.md",
+                "start_line": 1,
+                "end_line": 1,
+                "checks": ["severity"],
             },
             {
                 "trust_domain": "head-proposed-spec",
@@ -9028,13 +9531,14 @@ class AgentReviewTests(unittest.TestCase):
             verification["evidence_refs"]
         )
         with self.assertRaisesRegex(
-            review.ReportShapeError, "protected-policy or base-spec"
+            review.ReportShapeError,
+            "change_scope=OUT_OF_SCOPE cannot use head-proposed-spec",
         ):
             review.validate_cross_report(
                 report, "policy-skeptic", context, {finding_id}
             )
 
-        verification["evidence_refs"][1] = {
+        verification["evidence_refs"][-1] = {
             "trust_domain": "protected-policy",
             "path": "AGENTS.md",
             "start_line": 1,
@@ -9046,6 +9550,106 @@ class AgentReviewTests(unittest.TestCase):
         )
         review.validate_cross_report(report, "policy-skeptic", context, {finding_id})
         self.assertEqual("DISAGREE", report["reviews"][0]["action"])
+
+    def test_head_proposal_cannot_refute_p0_p1_checks_alone_or_with_evidence(
+        self,
+    ) -> None:
+        context = bound_context()
+        spec_path = "coco-support/coco-document/superpowers/specs/head-counterclaim.md"
+        context["untrusted"]["code_contexts"].append(
+            {
+                "source": spec_path,
+                "kind": "head-file",
+                "trust_domain": "head-proposed-spec",
+                "line_count": 1,
+                "content": "     1 Proposed counterclaim.",
+            }
+        )
+        review.bind_context(context)
+
+        for severity in ("P0", "P1"):
+            specialist = specialist_report("correctness", context, severity)
+            finding_id = specialist["findings"][0]["id"]
+            agreed = verifier_report("evidence-verifier", context, finding_id)
+            review.validate_cross_report(
+                agreed, "evidence-verifier", context, {finding_id}
+            )
+            self.assertEqual("AGREE", agreed["reviews"][0]["action"])
+
+            for contradicted_check in ("severity", "claim", "impact"):
+                for include_valid_counter in (False, True):
+                    with self.subTest(
+                        severity=severity,
+                        check=contradicted_check,
+                        include_valid_counter=include_valid_counter,
+                    ):
+                        report = verifier_report("policy-skeptic", context, finding_id)
+                        verification = report["reviews"][0]
+                        verification["action"] = "DISAGREE"
+                        verification[contradicted_check] = "CONTRADICTED"
+                        remaining_behavior = sorted(
+                            set(review.VERIFIER_BEHAVIOR_FIELDS) - {contradicted_check}
+                        )
+                        evidence_refs = []
+                        if remaining_behavior:
+                            evidence_refs.append(
+                                {
+                                    "trust_domain": "head-code",
+                                    "path": "src/Foo.java",
+                                    "start_line": 1,
+                                    "end_line": 1,
+                                    "checks": remaining_behavior,
+                                }
+                            )
+                        policy_checks = ["change_scope"]
+                        if contradicted_check != "severity":
+                            policy_checks.append("severity")
+                        evidence_refs.append(
+                            {
+                                "trust_domain": "protected-policy",
+                                "path": "AGENTS.md",
+                                "start_line": 1,
+                                "end_line": 1,
+                                "checks": sorted(policy_checks),
+                            }
+                        )
+                        if include_valid_counter:
+                            evidence_refs.append(
+                                {
+                                    "trust_domain": "protected-policy"
+                                    if contradicted_check == "severity"
+                                    else "head-code",
+                                    "path": "AGENTS.md"
+                                    if contradicted_check == "severity"
+                                    else "src/Foo.java",
+                                    "start_line": 1,
+                                    "end_line": 1,
+                                    "checks": [contradicted_check],
+                                }
+                            )
+                        evidence_refs.append(
+                            {
+                                "trust_domain": "head-proposed-spec",
+                                "path": spec_path,
+                                "start_line": 1,
+                                "end_line": 1,
+                                "checks": [contradicted_check],
+                            }
+                        )
+                        verification["evidence_refs"] = evidence_refs
+                        verification["evidence"] = review.evidence_reference_summary(
+                            evidence_refs
+                        )
+                        with self.assertRaisesRegex(
+                            review.ReportShapeError,
+                            rf"{contradicted_check}=CONTRADICTED cannot use head-proposed-spec",
+                        ):
+                            review.validate_cross_report(
+                                report,
+                                "policy-skeptic",
+                                context,
+                                {finding_id},
+                            )
 
     def test_issue_265_266_and_271_285_duplicates_form_two_groups(self) -> None:
         context = bound_context()
@@ -9450,6 +10054,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("head-proposed-spec", cross)
         self.assertIn('"checks"', cross)
         self.assertIn("`protected-policy` or `base-spec`", cross)
+        self.assertIn("must never support or participate", cross)
         self.assertIn("never output an action", cross)
         self.assertIn('"actionable_groups"', chair)
         self.assertIn('"primary_finding_id"', chair)
@@ -9461,6 +10066,8 @@ class AgentReviewTests(unittest.TestCase):
             / "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
         ).read_text(encoding="utf-8")
         self.assertNotRegex(governance, r'"[a-z][a-z0-9-]+:F[1-9][0-9]*"')
+        self.assertIn("等义措辞可新建 Issue", governance)
+        self.assertIn("run/PR/head/group/action marker", governance)
 
 
 if __name__ == "__main__":

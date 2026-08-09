@@ -152,9 +152,8 @@ scope uses `IN_SCOPE`, `OUT_OF_SCOPE`, or `UNVERIFIED`. Runtime derives action:
   evidence reference is `AGREE`;
 - every other combination is `UNVERIFIED`.
 
-Prose cannot override this result. Missing context is `UNVERIFIED`. Each
-contradiction needs check-bound evidence; `OUT_OF_SCOPE` needs `change_scope`
-evidence from `protected-policy` or `base-spec`, never a head source. Both verifiers cover every finding once.
+Both roles: severity/scope cite policy/base specs; contradicted behavior cites
+code/base policy, never head proposals. Missing context is `UNVERIFIED`. Both verifiers cover every finding once.
 Only dual-derived `AGREE` confirms P0/P1 or makes P2/P3 follow-up eligible.
 
 Before App publication, every model-controlled text field is collapsed to
@@ -177,8 +176,8 @@ deferred-bot reviews, confirmed P0/P1 blockers and chair-selected P2/P3
 dual-`AGREE` findings are actionable. A selected P2/P3 finding does not change
 `Agent jury gate`, but its managed Issue participates in `Agent issue gate`.
 The trusted App maintains one Issue per actionable group and one jury comment.
-v2 identity hashes each member's normalized category, path, severity, claim,
-trigger, and impact; round-local source IDs are marker metadata only. Fork and
+v2 hashes category/path/severity/claim/trigger/impact. Ordinal/role/title/line
+drift is stable; paraphrase may create an Issue. No model association is added. Fork and
 unpinned-bot reviews cannot write either.
 
 Each managed Issue has `agent-review` and one canonical marker. v2 binds PR,
@@ -188,9 +187,9 @@ markers while writers emit v2. Later reviews retain the first-head binding.
 `max_actionable_issue_groups=8`. Overflow fails before every Issue-side write;
 only fail-closed commit statuses may be published.
 
-Every Issue write is followed by exact-head/ownership rebind. A stale call
-restores snapshots, deletes new comments, and closes new Issues in reverse
-order. GitHub calls are not atomic; compensation failure is fail-closed.
+Updates snapshot before requests; forward writes rebind. Create/comment carry
+run/PR/head/group/action markers; uncertain responses page App+marker, then
+compensate. GitHub calls are non-atomic and fail closed.
 
 `Agent issue gate` independently reads GitHub state for the current PR
 head: any open bound finding issue fails it, and none pass it. Issue close/reopen

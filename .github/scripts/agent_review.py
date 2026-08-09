@@ -45,6 +45,7 @@ DEFERRED_ROUTE_JOB_NAME = "Route bound pull request"
 DEFERRED_MARKER_JOB_NAME = "Emit protected no-secret marker"
 FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
+FINDING_ISSUE_OPERATION_MARKER_PREFIX = "<!-- coco-agent-operation: "
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_JITTER_RATIO = 0.25
@@ -91,11 +92,33 @@ BARE_REVIEW_FINDING_ID_RE = re.compile(
 )
 SPEC_PATH_PREFIX = "coco-support/coco-document/superpowers/specs/"
 VERIFIER_FACT_FIELDS = ("claim", "severity", "anchor", "trigger", "impact")
+VERIFIER_BEHAVIOR_FIELDS = ("claim", "anchor", "trigger", "impact")
 VERIFIER_CHECK_FIELDS = (*VERIFIER_FACT_FIELDS, "change_scope")
 VERIFIER_FACT_VALUES = {"SUPPORTED", "CONTRADICTED", "UNVERIFIED"}
 VERIFIER_SCOPE_VALUES = {"IN_SCOPE", "OUT_OF_SCOPE", "UNVERIFIED"}
 DUPLICATE_DECISION_VALUES = {"DUPLICATE", "DISTINCT", "UNVERIFIED"}
-POLICY_EVIDENCE_DOMAINS = {"protected-policy", "base-spec"}
+POLICY_EVIDENCE_DOMAINS = frozenset({"protected-policy", "base-spec"})
+BEHAVIOR_EVIDENCE_DOMAINS = frozenset(
+    {"protected-policy", "base-spec", "head-code", "base-code"}
+)
+ALL_EVIDENCE_DOMAINS = frozenset({*BEHAVIOR_EVIDENCE_DOMAINS, "head-proposed-spec"})
+VERIFIER_CHECK_DOMAIN_MATRIX = {
+    role: {
+        **{
+            check: {
+                "SUPPORTED": ALL_EVIDENCE_DOMAINS,
+                "CONTRADICTED": BEHAVIOR_EVIDENCE_DOMAINS,
+                "UNVERIFIED": ALL_EVIDENCE_DOMAINS,
+            }
+            for check in VERIFIER_BEHAVIOR_FIELDS
+        },
+        "severity": {value: POLICY_EVIDENCE_DOMAINS for value in VERIFIER_FACT_VALUES},
+        "change_scope": {
+            value: POLICY_EVIDENCE_DOMAINS for value in VERIFIER_SCOPE_VALUES
+        },
+    }
+    for role in ("evidence-verifier", "policy-skeptic")
+}
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 PATCH_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$")
@@ -163,6 +186,10 @@ class GitHubNotFoundError(ReviewError):
 
 class GitHubTransientError(ReviewError):
     """A GitHub API or transport failure that may succeed on retry."""
+
+
+class GitHubWriteResponseError(ReviewError):
+    """GitHub may have committed a write but returned an unusable response."""
 
 
 class StaleAgentReviewRun(ReviewError):
@@ -362,6 +389,62 @@ def canonical_finding_issue_marker(marker: dict[str, Any]) -> str:
         str(marker["group_id"]),
         str(marker["primary_finding_id"]),
         marker["duplicate_finding_ids"],
+    )
+
+
+def finding_issue_operation_marker(
+    run_order: tuple[int, int],
+    pr_number: int,
+    head_sha: str,
+    group_id: str,
+    action: str,
+) -> str:
+    if (
+        not isinstance(run_order, tuple)
+        or len(run_order) != 2
+        or any(type(value) is not int or value < 1 for value in run_order)
+    ):
+        raise ReviewError("Finding issue operation run identity is invalid.")
+    if type(pr_number) is not int or pr_number < 1:
+        raise ReviewError("Finding issue operation pull request is invalid.")
+    if not SHA_RE.fullmatch(head_sha):
+        raise ReviewError("Finding issue operation head SHA is invalid.")
+    if not (
+        ACTIONABLE_GROUP_ID_RE.fullmatch(group_id)
+        or STABLE_FINDING_ID_RE.fullmatch(group_id)
+    ):
+        raise ReviewError("Finding issue operation group ID is invalid.")
+    if action not in {"create", "comment"}:
+        raise ReviewError("Finding issue operation action is invalid.")
+    payload = {
+        "action": action,
+        "group_id": group_id,
+        "head_sha": head_sha,
+        "pull_request": pr_number,
+        "run_attempt": run_order[1],
+        "run_id": run_order[0],
+        "schema_version": SCHEMA_VERSION,
+    }
+    return FINDING_ISSUE_OPERATION_MARKER_PREFIX + canonical_json(payload) + " -->"
+
+
+def issue_body_with_operation_marker(body: str, marker: str) -> str:
+    lines = body.splitlines()
+    if not lines or not lines[0].startswith(FINDING_ISSUE_MARKER_PREFIX):
+        raise ReviewError("Finding issue operation marker has no issue binding.")
+    if any(line.startswith(FINDING_ISSUE_OPERATION_MARKER_PREFIX) for line in lines):
+        raise ReviewError("Finding issue operation marker is duplicated.")
+    value = "\n".join([lines[0], marker, *lines[1:]]).rstrip() + "\n"
+    return require_comment_size(
+        value, MAX_GITHUB_COMMENT_BODY_BYTES, "Agent finding Issue body"
+    )
+
+
+def resource_has_operation_marker(resource: dict[str, Any], marker: str) -> bool:
+    body = str(resource.get("body") or "")
+    return (
+        body.count(FINDING_ISSUE_OPERATION_MARKER_PREFIX) == 1
+        and body.splitlines().count(marker) == 1
     )
 
 
@@ -743,8 +826,10 @@ class GitHubClient:
             return None
         try:
             return json.loads(body)
-        except json.JSONDecodeError as exc:
-            raise ReviewError("GitHub API write returned invalid JSON.") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise GitHubWriteResponseError(
+                "GitHub API write returned invalid JSON."
+            ) from exc
 
     def delete_resource(self, path: str) -> None:
         body, _ = self.request("DELETE", path)
@@ -871,6 +956,15 @@ def collect_policy(
     )
     required_paths = set(paths)
     protected_paths = set(config.get("protected_policy_paths", paths))
+    registered_specs = {
+        str(spec_path)
+        for mapping in config.get("spec_path_mappings", [])
+        if isinstance(mapping, dict)
+        for spec_path in mapping.get("spec_paths", [])
+    }
+    changed_registered_specs = sorted(registered_specs.intersection(changed_paths))
+    paths.extend(changed_registered_specs)
+    required_paths.update(changed_registered_specs)
     path_rules = list(context_config.get("path_rules", []))
     path_rules.extend(
         {
@@ -3335,6 +3429,25 @@ def derive_verifier_action(
     return "UNVERIFIED"
 
 
+def validate_verifier_evidence_domains(
+    role: str,
+    checks: dict[str, str],
+    evidence_refs: list[dict[str, Any]],
+) -> None:
+    role_matrix = VERIFIER_CHECK_DOMAIN_MATRIX.get(role)
+    if role_matrix is None:
+        raise ReportShapeError(f"Cross-review {role} has no evidence domain matrix.")
+    for reference in evidence_refs:
+        domain = str(reference["trust_domain"])
+        for check in reference["checks"]:
+            result = checks[check]
+            allowed_domains = role_matrix[check][result]
+            if domain not in allowed_domains:
+                raise ReportShapeError(
+                    f"Cross-review {role} {check}={result} cannot use {domain} evidence."
+                )
+
+
 def evidence_reference_summary(references: list[dict[str, Any]]) -> str:
     if not references:
         return "No resolved evidence reference was supplied."
@@ -3792,6 +3905,7 @@ def _validate_cross_report_contract(
         evidence_refs = validate_evidence_refs(
             review.get("evidence_refs"), context, role
         )
+        validate_verifier_evidence_domains(role, checks, evidence_refs)
         action = derive_verifier_action(checks, evidence_refs)
         if not raw_schema:
             if review.get("action") != action:
@@ -5033,6 +5147,82 @@ def app_finding_issues(
     return result
 
 
+def committed_created_issue(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    group_id: str,
+    operation_marker: str,
+    expected_login: str,
+    expected_bot_id: int,
+) -> dict[str, Any] | None:
+    label = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
+    issues = client.paginate(
+        f"repos/{repository}/issues?state=all&labels={label}&sort=created&direction=asc",
+        limit=5000,
+    )
+    matches: list[dict[str, Any]] = []
+    for issue in issues:
+        if (
+            not isinstance(issue, dict)
+            or issue.get("pull_request")
+            or not resource_has_operation_marker(issue, operation_marker)
+            or str((issue.get("user") or {}).get("login") or "") != expected_login
+        ):
+            continue
+        value = require_resource_actor(
+            issue, expected_login, expected_bot_id, "Recovered Agent review issue"
+        )
+        if FINDING_ISSUE_LABEL not in issue_label_names(value):
+            raise ReviewError("Recovered Agent review issue lost its label.")
+        marker = parse_finding_issue_marker(value.get("body"))
+        if (
+            marker is None
+            or marker.get("pull_request") != pr_number
+            or marker.get("finding_id") != group_id
+        ):
+            raise ReviewError("Recovered Agent review issue binding is invalid.")
+        if type(value.get("number")) is not int or int(value["number"]) < 1:
+            raise ReviewError("Recovered Agent review issue number is invalid.")
+        matches.append(value)
+    if len(matches) > 1:
+        raise ReviewError("Multiple Agent review issues claim one operation marker.")
+    return matches[0] if matches else None
+
+
+def committed_issue_comment(
+    client: GitHubClient,
+    repository: str,
+    issue_number: int,
+    operation_marker: str,
+    expected_login: str,
+    expected_bot_id: int,
+) -> dict[str, Any] | None:
+    comments = client.paginate(
+        f"repos/{repository}/issues/{issue_number}/comments", limit=5000
+    )
+    matches: list[dict[str, Any]] = []
+    for comment in comments:
+        if (
+            not isinstance(comment, dict)
+            or not resource_has_operation_marker(comment, operation_marker)
+            or str((comment.get("user") or {}).get("login") or "") != expected_login
+        ):
+            continue
+        value = require_resource_actor(
+            comment,
+            expected_login,
+            expected_bot_id,
+            "Recovered Agent review issue comment",
+        )
+        if type(value.get("id")) is not int or int(value["id"]) < 1:
+            raise ReviewError("Recovered Agent review issue comment ID is invalid.")
+        matches.append(value)
+    if len(matches) > 1:
+        raise ReviewError("Multiple Agent review comments claim one operation marker.")
+    return matches[0] if matches else None
+
+
 def wait_for_finding_issue_convergence(
     client: GitHubClient,
     repository: str,
@@ -5132,7 +5322,7 @@ def compensate_issue_writes(
             failures.append(normalized_inline_text(exc))
     if failures:
         raise ReviewError(
-            "Agent review stale-write compensation failed: " + "; ".join(failures)
+            "Agent review write compensation failed: " + "; ".join(failures)
         ) from original
 
 
@@ -5148,6 +5338,7 @@ def synchronize_finding_issues(
     server_url: str,
     require_current_pr: Callable[[], dict[str, Any]],
     max_groups: int = 8,
+    run_order: tuple[int, int] = (1, 1),
 ) -> list[dict[str, Any]]:
     if type(max_groups) is not int or max_groups < 1:
         raise ReviewError("Actionable Issue group limit is invalid.")
@@ -5164,6 +5355,43 @@ def synchronize_finding_issues(
     selected = {str(item["stable_id"]): item for item in findings}
     synchronized: list[dict[str, Any]] = []
     compensations: list[Callable[[], None]] = []
+
+    def register_created_issue_compensation(
+        issue: Any, marker_line: str, labels: set[str]
+    ) -> None:
+        if not isinstance(issue, dict) or type(issue.get("number")) is not int:
+            raise ReviewError("Created Agent review issue number is invalid.")
+        created_number = int(issue["number"])
+
+        def close_created_issue() -> None:
+            closed = client.send_json(
+                "PATCH",
+                f"repos/{repository}/issues/{created_number}",
+                {
+                    "state": "closed",
+                    "state_reason": "not_planned",
+                    "labels": sorted(labels),
+                },
+            )
+            verify_finding_issue(
+                closed,
+                expected_login,
+                expected_bot_id,
+                marker_line,
+                "closed",
+            )
+
+        compensations.append(close_created_issue)
+
+    def register_comment_compensation(comment: Any) -> None:
+        if not isinstance(comment, dict) or type(comment.get("id")) is not int:
+            raise ReviewError("Agent review issue closure comment ID is invalid.")
+        comment_id = int(comment["id"])
+        compensations.append(
+            lambda: client.delete_resource(
+                f"repos/{repository}/issues/comments/{comment_id}"
+            )
+        )
 
     try:
         for stable_id, actionable in sorted(selected.items()):
@@ -5190,58 +5418,54 @@ def synchronize_finding_issues(
                 actionable.get("duplicate_source_ids", []),
             )
             labels = issue_label_names(previous or {}) | {FINDING_ISSUE_LABEL}
+            issue_body = finding_issue_body(
+                repository,
+                pr_number,
+                first_head_sha,
+                head_sha,
+                actionable,
+                run_url,
+                server_url,
+            )
+            operation_marker = ""
+            if previous is None:
+                operation_marker = finding_issue_operation_marker(
+                    run_order, pr_number, head_sha, stable_id, "create"
+                )
+                issue_body = issue_body_with_operation_marker(
+                    issue_body, operation_marker
+                )
             payload = {
                 "title": issue_title(actionable),
-                "body": finding_issue_body(
-                    repository,
-                    pr_number,
-                    first_head_sha,
-                    head_sha,
-                    actionable,
-                    run_url,
-                    server_url,
-                ),
+                "body": issue_body,
                 "labels": sorted(labels),
             }
             require_current_pr()
             if previous is None:
-                issue = client.send_json("POST", f"repos/{repository}/issues", payload)
-                if not isinstance(issue, dict) or type(issue.get("number")) is not int:
-                    raise ReviewError("Created Agent review issue number is invalid.")
-                created_number = int(issue["number"])
-
-                def close_created_issue(
-                    number: int = created_number,
-                    expected_marker: str = marker_line,
-                    expected_labels: list[str] = sorted(labels),
-                ) -> None:
-                    closed = client.send_json(
-                        "PATCH",
-                        f"repos/{repository}/issues/{number}",
-                        {
-                            "state": "closed",
-                            "state_reason": "not_planned",
-                            "labels": expected_labels,
-                        },
+                try:
+                    issue = client.send_json(
+                        "POST", f"repos/{repository}/issues", payload
                     )
-                    verify_finding_issue(
-                        closed,
+                except (GitHubTransientError, GitHubWriteResponseError):
+                    committed = committed_created_issue(
+                        client,
+                        repository,
+                        pr_number,
+                        stable_id,
+                        operation_marker,
                         expected_login,
                         expected_bot_id,
-                        expected_marker,
-                        "closed",
                     )
-
-                compensations.append(close_created_issue)
+                    if committed is not None:
+                        register_created_issue_compensation(
+                            committed, marker_line, labels
+                        )
+                    raise
+                register_created_issue_compensation(issue, marker_line, labels)
             else:
                 snapshot = copy.deepcopy(previous)
                 restore_payload = issue_restore_payload(snapshot)
                 issue_number = int(previous["number"])
-                issue = client.send_json(
-                    "PATCH",
-                    f"repos/{repository}/issues/{issue_number}",
-                    {**payload, "state": "open"},
-                )
 
                 def restore_updated_issue(
                     number: int = issue_number,
@@ -5260,9 +5484,20 @@ def synchronize_finding_issues(
                     )
 
                 compensations.append(restore_updated_issue)
+                issue = client.send_json(
+                    "PATCH",
+                    f"repos/{repository}/issues/{issue_number}",
+                    {**payload, "state": "open"},
+                )
             value = verify_finding_issue(
                 issue, expected_login, expected_bot_id, marker_line, "open"
             )
+            if operation_marker and not resource_has_operation_marker(
+                value, operation_marker
+            ):
+                raise ReviewError(
+                    "Created Agent review issue operation marker was not persisted."
+                )
             require_current_pr()
             synchronized.append({"actionable": actionable, "issue": value})
 
@@ -5271,45 +5506,58 @@ def synchronize_finding_issues(
             if stable_id in selected or issue.get("state") != "open":
                 continue
             issue_number = int(issue["number"])
+            operation_marker = finding_issue_operation_marker(
+                run_order, pr_number, head_sha, stable_id, "comment"
+            )
+            comment_body = require_comment_size(
+                operation_marker
+                + "\n\n"
+                + (
+                    "This finding no longer appears in the bound Agent review for "
+                    f"[PR #{pr_number}]({repository_url}/pull/{pr_number}) at "
+                    f"[`{head_sha}`]({repository_url}/commit/{head_sha}). Closing it automatically."
+                ),
+                MAX_GITHUB_COMMENT_BODY_BYTES,
+                "Agent review issue closure comment",
+            )
             require_current_pr()
-            comment = client.send_json(
-                "POST",
-                f"repos/{repository}/issues/{issue_number}/comments",
-                {
-                    "body": (
-                        "This finding no longer appears in the bound Agent review for "
-                        f"[PR #{pr_number}]({repository_url}/pull/{pr_number}) at "
-                        f"[`{head_sha}`]({repository_url}/commit/{head_sha}). Closing it automatically."
-                    )
-                },
-            )
-            if not isinstance(comment, dict) or type(comment.get("id")) is not int:
-                raise ReviewError("Agent review issue closure comment ID is invalid.")
-            comment_id = int(comment["id"])
-            compensations.append(
-                lambda value=comment_id: client.delete_resource(
-                    f"repos/{repository}/issues/comments/{value}"
+            try:
+                comment = client.send_json(
+                    "POST",
+                    f"repos/{repository}/issues/{issue_number}/comments",
+                    {"body": comment_body},
                 )
-            )
+            except (GitHubTransientError, GitHubWriteResponseError):
+                committed = committed_issue_comment(
+                    client,
+                    repository,
+                    issue_number,
+                    operation_marker,
+                    expected_login,
+                    expected_bot_id,
+                )
+                if committed is not None:
+                    register_comment_compensation(committed)
+                raise
+            register_comment_compensation(comment)
             require_resource_actor(
                 comment,
                 expected_login,
                 expected_bot_id,
                 "Agent review issue closure comment",
             )
+            if (
+                not isinstance(comment, dict)
+                or comment.get("body") != comment_body
+                or not resource_has_operation_marker(comment, operation_marker)
+            ):
+                raise ReviewError(
+                    "Agent review issue closure comment was not persisted."
+                )
             require_current_pr()
             labels = issue_label_names(issue) | {FINDING_ISSUE_LABEL}
             restore_payload = issue_restore_payload(copy.deepcopy(issue))
             require_current_pr()
-            closed = client.send_json(
-                "PATCH",
-                f"repos/{repository}/issues/{issue_number}",
-                {
-                    "state": "closed",
-                    "state_reason": "completed",
-                    "labels": sorted(labels),
-                },
-            )
 
             def restore_closed_issue(
                 number: int = issue_number,
@@ -5328,6 +5576,15 @@ def synchronize_finding_issues(
                 )
 
             compensations.append(restore_closed_issue)
+            closed = client.send_json(
+                "PATCH",
+                f"repos/{repository}/issues/{issue_number}",
+                {
+                    "state": "closed",
+                    "state_reason": "completed",
+                    "labels": sorted(labels),
+                },
+            )
             marker_line = str(issue.get("body") or "").splitlines()[0]
             verify_finding_issue(
                 closed, expected_login, expected_bot_id, marker_line, "closed"
@@ -5881,6 +6138,7 @@ def command_publish(args: argparse.Namespace) -> int:
                 server_url,
                 require_publishable_binding,
                 actionable_group_limit,
+                run_order,
             )
             review_body = append_finding_issue_summary(
                 review_body, synchronized, repository, server_url

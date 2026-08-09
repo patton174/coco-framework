@@ -125,8 +125,8 @@ marker、非法 JSON、额外字段、重复 marker 或错误 label 均不能参
 受信 publisher 在重新验证所有模型产物和当前 PR 绑定后执行：
 
 1. 验证 blocker 与双 `AGREE` follow-up groups；每条 duplicate 边须两个 verifier 同向确认。
-2. 用成员 category、path、severity、claim、trigger、impact 语义 identity 计算 group ID；
-   round-local source ID 仅为 marker 元数据。
+2. group ID 哈希 category/path/severity/claim/trigger/impact，抵抗 ordinal/role/title/line；
+   等义措辞可新建 Issue，本轮不加模型关联，gate 仍 fail closed。
 3. 在任何 Issue 写入前检查 `max_actionable_issue_groups=8`；超限立即失败关闭且 Issue 侧零副作用。
 4. 对同一 PR/group ID 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
 5. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
@@ -140,8 +140,8 @@ publisher 必须在创建 label、创建或更新 Issue、评论、close/reopen 
 数量预检。21 个 actionable finding 即使来自有效模型产物，也不能造成部分创建后才失败；超过八组
 时只可写失败 status，不能产生任何 Issue API 副作用。
 
-每次 Issue 写后重绑 exact head 与 App 所有权；stale 时逆序恢复快照、删除新评论、关闭新
-Issue 为 `not_planned`。GitHub API 非事务性；补偿失败同样失败关闭。
+update/reopen/close 请求前快照；create/comment 带 run/PR/head/group/action marker。超时/
+无效 JSON 后分页核对 App+marker，已提交则补偿；forward 写后重绑。API 非事务性且失败关闭。
 
 任何 Issue API、身份、binding 或 gate 发布失败都失败关闭。verifier 或 chair 任一缺失、其
 `head_sha`、`context_sha256`、输入 digest 或受保护角色不匹配时，publisher 不得发布成功
