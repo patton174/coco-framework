@@ -2379,14 +2379,88 @@ class AgentModelClient:
         return ModelTextResponse("".join(text_blocks), str(stop_reason))
 
     @staticmethod
-    def parse_openai_envelope(envelope: Any) -> ModelTextResponse:
+    def openai_envelope_shape(envelope: Any) -> str:
+        """Return a bounded, content-free shape summary for diagnostics."""
+        if not isinstance(envelope, dict):
+            return f"root={type(envelope).__name__}"
+
+        def kind(value: Any, known: set[str]) -> str:
+            if not isinstance(value, str):
+                return type(value).__name__
+            return value if value in known else "other"
+
+        output = envelope.get("output")
+        if not isinstance(output, list):
+            return (
+                "root=object;object="
+                f"{kind(envelope.get('object'), {'response'})};status="
+                f"{kind(envelope.get('status'), {'completed', 'incomplete'})};"
+                f"output={type(output).__name__}"
+            )
+
+        item_kinds: list[str] = []
+        message_roles: list[str] = []
+        message_statuses: list[str] = []
+        content_kinds: list[str] = []
+        malformed_items = 0
+        malformed_blocks = 0
+        for item in output:
+            if not isinstance(item, dict):
+                malformed_items += 1
+                continue
+            item_kind = kind(item.get("type"), {"message", "reasoning"})
+            item_kinds.append(item_kind)
+            if item_kind != "message":
+                continue
+            message_roles.append(kind(item.get("role"), {"assistant"}))
+            message_statuses.append(
+                kind(item.get("status"), {"completed", "incomplete"})
+            )
+            content = item.get("content")
+            if not isinstance(content, list):
+                malformed_blocks += 1
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    malformed_blocks += 1
+                    continue
+                content_kinds.append(
+                    kind(block.get("type"), {"output_text", "refusal"})
+                )
+
+        def counts(values: list[str]) -> str:
+            if not values:
+                return "none"
+            return ",".join(
+                f"{value}={values.count(value)}" for value in sorted(set(values))
+            )
+
+        return (
+            "root=object;object="
+            f"{kind(envelope.get('object'), {'response'})};status="
+            f"{kind(envelope.get('status'), {'completed', 'incomplete'})};"
+            f"output=list:{len(output)};items={counts(item_kinds)};"
+            f"roles={counts(message_roles)};message_statuses={counts(message_statuses)};"
+            f"content={counts(content_kinds)};malformed_items={malformed_items};"
+            f"malformed_blocks={malformed_blocks}"
+        )
+
+    @classmethod
+    def invalid_openai_envelope(cls, envelope: Any) -> ReviewError:
+        return ReviewError(
+            "OpenAI API returned an invalid response envelope "
+            f"(shape={cls.openai_envelope_shape(envelope)})."
+        )
+
+    @classmethod
+    def parse_openai_envelope(cls, envelope: Any) -> ModelTextResponse:
         if (
             not isinstance(envelope, dict)
             or envelope.get("object") != "response"
             or not isinstance(envelope.get("status"), str)
             or not isinstance(envelope.get("output"), list)
         ):
-            raise ReviewError("OpenAI API returned an invalid response envelope.")
+            raise cls.invalid_openai_envelope(envelope)
         response_status = envelope["status"]
         text_blocks: list[str] = []
         refused = False
@@ -2435,24 +2509,24 @@ class AgentModelClient:
         if refused:
             raise ReviewError("OpenAI refused the review.")
         if malformed:
-            raise ReviewError("OpenAI API returned an invalid response envelope.")
+            raise cls.invalid_openai_envelope(envelope)
         status = response_status
         if envelope.get("error") is not None:
-            raise ReviewError("OpenAI API returned an invalid response envelope.")
+            raise cls.invalid_openai_envelope(envelope)
         if status == "completed":
             if (
                 envelope.get("incomplete_details") is not None
                 or message_count != 1
                 or message_status != "completed"
             ):
-                raise ReviewError("OpenAI API returned an invalid response envelope.")
+                raise cls.invalid_openai_envelope(envelope)
             stop_reason = "end_turn"
         elif status == "incomplete":
             details = envelope.get("incomplete_details")
             if not isinstance(details, dict) or not isinstance(
                 details.get("reason"), str
             ):
-                raise ReviewError("OpenAI API returned an invalid response envelope.")
+                raise cls.invalid_openai_envelope(envelope)
             if details["reason"] != "max_output_tokens":
                 raise ReviewError(
                     f"OpenAI response did not complete (reason={details['reason']!r})."
@@ -2460,7 +2534,7 @@ class AgentModelClient:
             if message_count > 1 or (
                 message_count == 1 and message_status != "incomplete"
             ):
-                raise ReviewError("OpenAI API returned an invalid response envelope.")
+                raise cls.invalid_openai_envelope(envelope)
             stop_reason = "max_tokens"
         else:
             raise ReviewError(f"OpenAI response did not complete (status={status!r}).")
