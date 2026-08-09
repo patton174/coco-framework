@@ -58,7 +58,7 @@ public final class CocoStartupBanner {
                 "╚██████╗╚██████╔╝╚██████╗╚██████╔╝      ███████║██║     ██║  ██║██║██║ ╚████║╚██████╔╝",
                 " ╚═════╝ ╚═════╝  ╚═════╝ ╚═════╝       ╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ",
                 "",
-                "：：coco " + resolveVersion(detectedVersion),
+                "：：" + this.properties.getTitle() + " " + resolveVersion(detectedVersion),
                 "：：spring boot " + resolveSpringBootVersion(springBootVersion));
     }
 
