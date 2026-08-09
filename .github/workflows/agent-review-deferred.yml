@@ -1,4 +1,4 @@
-﻿name: Deferred Agent Review Jury
+name: Deferred Agent Review Jury
 run-name: "Deferred Agent Review Jury / source run #${{ github.event.workflow_run.id }}"
 
 # workflow_run executes only from the protected default branch. It rebinds a
@@ -91,6 +91,8 @@ jobs:
     outputs:
       base-sha: ${{ steps.binding.outputs.base-sha }}
       head-sha: ${{ steps.binding.outputs.head-sha }}
+      pr-number: ${{ needs.bind.outputs.pr_number }}
+      repository-id: ${{ needs.bind.outputs.repository_id }}
       trusted: ${{ steps.metadata.outputs.trusted }}
       deferred: ${{ steps.metadata.outputs.deferred }}
       ignored: ${{ steps.metadata.outputs.ignored }}
@@ -171,7 +173,7 @@ jobs:
         shell: bash
         env:
           ALLOW_DEFERRED: ${{ true }}
-          EVENT_NAME: ${{ workflow_run }}
+          EVENT_NAME: workflow_run
           EXPECTED_HEAD_SHA: ${{ needs.bind.outputs.head_sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.binding.outputs.pr-number }}
@@ -614,6 +616,9 @@ jobs:
       always() &&
       true &&
       needs.prepare.result == 'success' &&
+      needs.specialists.result == 'success' &&
+      needs.verifiers.result == 'success' &&
+      needs.chair.result == 'success' &&
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false' &&
       needs.publisher-admission.result == 'success' &&
@@ -623,7 +628,7 @@ jobs:
     environment: coco-agent
     concurrency:
       group: >-
-        agent-review-publisher-${{ fromJSON(needs.bind.outputs.repository_id) }}-${{ fromJSON(needs.bind.outputs.pr_number) }}
+        agent-review-publisher-${{ fromJSON(needs.prepare.outputs.repository-id) }}-${{ fromJSON(needs.prepare.outputs.pr-number) }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -780,7 +785,7 @@ jobs:
     timeout-minutes: 5
     concurrency:
       group: >-
-        agent-review-publisher-${{ fromJSON(needs.bind.outputs.repository_id) }}-${{ fromJSON(needs.bind.outputs.pr_number) }}
+        agent-review-publisher-${{ fromJSON(needs.prepare.outputs.repository-id) }}-${{ fromJSON(needs.prepare.outputs.pr-number) }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -819,4 +824,3 @@ jobs:
             --final-json "${RUNNER_TEMP}/agent-review-final/final.json" \
             --final-markdown "${RUNNER_TEMP}/agent-review-final/review.md" \
             --run-url "${run_url}"
-
