@@ -289,9 +289,9 @@ jobs:
             fi
           done
           case "${COCO_AGENT_MODEL_PROTOCOL}" in
-            anthropic-messages|openai-responses) ;;
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
             *)
-              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages or openai-responses."
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
               exit 1
               ;;
           esac
@@ -372,9 +372,9 @@ jobs:
             fi
           done
           case "${COCO_AGENT_MODEL_PROTOCOL}" in
-            anthropic-messages|openai-responses) ;;
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
             *)
-              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages or openai-responses."
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
               exit 1
               ;;
           esac
@@ -459,9 +459,9 @@ jobs:
             fi
           done
           case "${COCO_AGENT_MODEL_PROTOCOL}" in
-            anthropic-messages|openai-responses) ;;
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
             *)
-              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages or openai-responses."
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
               exit 1
               ;;
           esac

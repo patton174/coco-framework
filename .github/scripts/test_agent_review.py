@@ -142,6 +142,22 @@ def openai_envelope(
     return value
 
 
+def openai_chat_envelope(
+    text: str = '{"ok":true}', finish_reason: str = "stop"
+) -> dict:
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": text},
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+
+
 def bound_context() -> dict:
     return review.bind_context(
         {
@@ -454,7 +470,7 @@ class AgentReviewTests(unittest.TestCase):
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
-        self.assertEqual(48_000, limits["policy_chars"])
+        self.assertEqual(52_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
@@ -7166,6 +7182,11 @@ class AgentReviewTests(unittest.TestCase):
                 "https://models.example.invalid/proxy/v1/",
                 "https://models.example.invalid/proxy/v1/responses",
             ),
+            (
+                "openai-chat-completions",
+                "https://models.example.invalid/proxy/v1/",
+                "https://models.example.invalid/proxy/v1/chat/completions",
+            ),
         ]
         for protocol, base_url, expected in cases:
             with self.subTest(protocol=protocol, base_url=base_url):
@@ -7343,6 +7364,13 @@ class AgentReviewTests(unittest.TestCase):
                 "max_output_tokens",
                 "authorization",
             ),
+            (
+                "openai-chat-completions",
+                openai_chat_envelope(),
+                "/v1/chat/completions",
+                "max_tokens",
+                "authorization",
+            ),
         ]
         for protocol, envelope, suffix, token_field, auth_header in cases:
             with self.subTest(protocol=protocol):
@@ -7379,6 +7407,18 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertIsNotNone(headers.get(auth_header))
                 self.assertEqual(180, captured["timeout"])
                 self.assertEqual(1048577, response.read_limit)
+                if protocol == "openai-chat-completions":
+                    self.assertEqual(
+                        [
+                            {"role": "system", "content": "system"},
+                            {"role": "user", "content": "user"},
+                        ],
+                        payload["messages"],
+                    )
+                    self.assertEqual(
+                        {"type": "json_object"}, payload["response_format"]
+                    )
+                    self.assertIs(payload["stream"], False)
                 if protocol == "openai-responses":
                     self.assertIs(payload["store"], False)
                     self.assertIs(payload["stream"], False)
@@ -7419,6 +7459,35 @@ class AgentReviewTests(unittest.TestCase):
                         self.assertNotIsInstance(
                             raised.exception, review.RetryableModelOutputError
                         )
+
+    def test_openai_chat_client_rejects_refusal_and_retries_length(self) -> None:
+        cases = [
+            (
+                openai_chat_envelope("", "content_filter"),
+                review.ReviewError,
+                "content_filter",
+            ),
+            (
+                openai_chat_envelope("", "stop"),
+                review.RetryableModelOutputError,
+                "no text",
+            ),
+            (
+                openai_chat_envelope('{"ok":', "length"),
+                review.RetryableModelOutputError,
+                "max_tokens",
+            ),
+        ]
+        with patch.dict("os.environ", model_env("openai-chat-completions"), clear=True):
+            client = review.AgentModelClient(config())
+            for envelope, error_type, message in cases:
+                with self.subTest(message=message):
+                    with patch(
+                        "urllib.request.urlopen",
+                        return_value=FakeModelResponse(json.dumps(envelope).encode()),
+                    ):
+                        with self.assertRaisesRegex(error_type, message):
+                            client.complete("system", "user", 100)
 
     def test_openai_client_accepts_missing_message_status(self) -> None:
         completed = openai_envelope()

@@ -87,7 +87,7 @@ GitHub Actions App 发布。
 ### 模型供应商配置契约
 
 受保护 repository variables 为 `COCO_AGENT_MODEL_PROTOCOL`（仅 `anthropic-messages` /
-`openai-responses`）、`COCO_AGENT_MODEL_BASE_URL`（仅 HTTPS origin 或末段精确 `/v1` 的 base
+`openai-chat-completions` / `openai-responses`）、`COCO_AGENT_MODEL_BASE_URL`（仅 HTTPS origin 或末段精确 `/v1` 的 base
 path；拒绝完整 `/responses`/`/messages` endpoint、凭据、query、fragment）和
 `COCO_AGENT_MODEL`。API key 仅存为 `coco-agent-model` environment secret
 `COCO_AGENT_MODEL_API_KEY`；该 environment 仅限 `main`、禁管理员 bypass，只供三个模型 job。
