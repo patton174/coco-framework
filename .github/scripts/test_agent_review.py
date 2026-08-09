@@ -8581,6 +8581,273 @@ class AgentReviewTests(unittest.TestCase):
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
 
+    def test_head_proposed_spec_is_never_counter_evidence_for_any_check(self) -> None:
+        context = bound_context()
+        context["untrusted"]["code_contexts"].append(
+            {
+                "source": "coco-support/coco-document/superpowers/specs/proposed.md",
+                "kind": "head-file",
+                "trust_domain": "head-proposed-spec",
+                "line_count": 1,
+                "content": "     1 proposed policy",
+            }
+        )
+        checks = ("claim", "severity", "anchor", "trigger", "impact", "change_scope")
+        behavior = ("claim", "anchor", "trigger", "impact")
+        policy = ("severity", "change_scope")
+        proposal = "coco-support/coco-document/superpowers/specs/proposed.md"
+
+        def reference(domain: str, path: str, fields: list[str]) -> dict:
+            return {
+                "trust_domain": domain,
+                "path": path,
+                "start_line": 1,
+                "end_line": 1,
+                "checks": sorted(fields),
+            }
+
+        for role in ("evidence-verifier", "policy-skeptic"):
+            for field in checks:
+                for mixed in (False, True):
+                    with self.subTest(role=role, field=field, mixed=mixed):
+                        values = {name: "SUPPORTED" for name in checks}
+                        values["change_scope"] = "IN_SCOPE"
+                        values[field] = (
+                            "OUT_OF_SCOPE"
+                            if field == "change_scope"
+                            else "CONTRADICTED"
+                        )
+                        refs = [reference("head-proposed-spec", proposal, [field])]
+                        allowed_domain, allowed_path = (
+                            ("protected-policy", "AGENTS.md")
+                            if field in policy
+                            else ("head-code", "src/Foo.java")
+                        )
+                        if mixed:
+                            refs.append(
+                                reference(allowed_domain, allowed_path, [field])
+                            )
+                        remaining_behavior = [
+                            name for name in behavior if name != field
+                        ]
+                        if remaining_behavior:
+                            refs.append(
+                                reference(
+                                    "head-code", "src/Foo.java", remaining_behavior
+                                )
+                            )
+                        remaining_policy = [name for name in policy if name != field]
+                        if remaining_policy:
+                            refs.append(
+                                reference(
+                                    "protected-policy", "AGENTS.md", remaining_policy
+                                )
+                            )
+                        if field == "change_scope" and not mixed:
+                            with self.assertRaisesRegex(
+                                review.ReportShapeError, "protected-policy"
+                            ):
+                                review.derive_verifier_action(values, refs)
+                        else:
+                            self.assertEqual(
+                                "DISAGREE", review.derive_verifier_action(values, refs)
+                            )
+                        report = verifier_report(role, context, "correctness:f1")
+                        report["reviews"][0].update(
+                            finding_id="correctness:f1",
+                            action="DISAGREE",
+                            **values,
+                            evidence_refs=refs,
+                            reason="The proposed policy is not protected evidence.",
+                            evidence=review.evidence_reference_summary(refs),
+                            verification="Rebind the cited source before accepting a contradiction.",
+                        )
+                        with self.assertRaisesRegex(
+                            review.ReportShapeError, "head-proposed-spec"
+                        ):
+                            review.validate_cross_report(
+                                report, role, context, {"correctness:f1"}
+                            )
+
+    def test_duplicate_edges_require_the_same_decision_from_both_verifiers(
+        self,
+    ) -> None:
+        context = bound_context()
+        ids = ("correctness:f1", "architecture-api:f1")
+        findings = [{"id": finding_id, "severity": "P1"} for finding_id in ids]
+        consensus = {
+            "confirmed": [{"finding": finding} for finding in findings],
+            "challenged": [],
+            "unverified": [],
+        }
+        edge = (ids[0], ids[1])
+
+        def relation(decision: str) -> dict:
+            return {
+                "primary_finding_id": edge[0],
+                "duplicate_finding_id": edge[1],
+                "decision": decision,
+                "evidence_refs": [
+                    {
+                        "trust_domain": "head-code",
+                        "path": "src/Foo.java",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "checks": ["duplicate_relation"],
+                    }
+                ],
+                "reason": "The two reports cite the same defect.",
+                "verification": "Compare the same trigger and impact.",
+            }
+
+        def verifier(role: str, relations: list[dict]) -> dict:
+            report = verifier_report(role, context, ids[0])
+            template = report["reviews"][0]
+            report["reviews"] = [
+                {**json.loads(json.dumps(template)), "finding_id": finding_id}
+                for finding_id in ids
+            ]
+            report["duplicate_relations"] = relations
+            return review.validate_cross_report(report, role, context, set(ids))
+
+        for disagreement in ("DISTINCT", "missing"):
+            with self.subTest(disagreement=disagreement):
+                first = verifier("evidence-verifier", [relation("DUPLICATE")])
+                second_relations = (
+                    [] if disagreement == "missing" else [relation(disagreement)]
+                )
+                second = verifier("policy-skeptic", second_relations)
+                confirmed = review.dual_confirmed_duplicate_edges([first, second])
+                self.assertNotIn(edge, confirmed)
+                chair = chair_report(context, "BLOCK", ids)
+                chair["actionable_groups"] = [
+                    {
+                        "primary_finding_id": edge[0],
+                        "duplicate_finding_ids": [edge[1]],
+                    }
+                ]
+                with self.assertRaisesRegex(review.ReportShapeError, "not confirmed"):
+                    review.validate_chair(
+                        chair, consensus, context, set(), 5, confirmed
+                    )
+
+    def test_agent_issue_gate_consumes_canonical_v1_and_v2_markers(self) -> None:
+        app_login = "coco-agent[bot]"
+        markers = [
+            review.finding_issue_marker(60, HEAD_SHA, "v1-" + "1" * 64),
+            review.finding_issue_marker(
+                60,
+                HEAD_SHA,
+                "v2-" + "2" * 64,
+                "correctness:f1",
+                ["architecture-api:f1"],
+            ),
+        ]
+
+        for marker in markers:
+            with self.subTest(schema="v2" if '"schema_version":2' in marker else "v1"):
+                event = {
+                    "repository": {"full_name": REPOSITORY},
+                    "issue": {
+                        "number": 40,
+                        "body": marker + "\nIssue body",
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                    },
+                }
+                resolved = issue_gate.resolve_event(event, app_login)
+                self.assertEqual(
+                    {
+                        "ignored": False,
+                        "repository": REPOSITORY,
+                        "pr_number": 60,
+                        "expected_head_sha": "",
+                    },
+                    resolved,
+                )
+
+                issue = {
+                    **event["issue"],
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                }
+
+                class Client:
+                    @staticmethod
+                    def paginate(path: str, limit: int = 1000) -> list[dict]:
+                        del path, limit
+                        return [issue]
+
+                consumed = issue_gate.open_bound_issues(
+                    Client(), REPOSITORY, 60, app_login, APP_BOT_ID
+                )
+                parsed = review.parse_finding_issue_marker(marker)
+                self.assertIn(parsed["finding_id"], consumed)
+
+    def test_previous_review_round_trip_preserves_test_only_delta_and_dispositions(
+        self,
+    ) -> None:
+        first_id = "correctness:f1"
+        second_id = "correctness:f2"
+        body = (
+            f"Reviewed head: `{BASE_SHA}`\n#### Findings\n"
+            f"- **P1 first** `src/Foo.java:1` (`{first_id}`) - challenged; verifier disagreement\n"
+            f"- **P1 second** `src/Foo.java:2` (`{second_id}`) - unverified; missing evidence"
+        )
+        comparison = {
+            "status": "ahead",
+            "ahead_by": 1,
+            "behind_by": 0,
+            "total_commits": 1,
+            "files": [
+                {
+                    "filename": ".github/scripts/test_agent_review.py",
+                    "status": "modified",
+                    "additions": 7,
+                    "deletions": 0,
+                    "changes": 7,
+                }
+            ],
+        }
+
+        class Client:
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/compare/{BASE_SHA}...{HEAD_SHA}":
+                    return comparison
+                raise AssertionError(path)
+
+        comment = {"id": 8, "body": body}
+        with patch.object(review, "managed_comment", return_value=comment):
+            previous = review.previous_review_context(
+                Client(), REPOSITORY, 60, HEAD_SHA, "coco-agent[bot]", APP_BOT_ID, []
+            )
+        self.assertIsNotNone(previous)
+        assert previous is not None
+        self.assertEqual(BASE_SHA, previous["reviewed_head_sha"])
+        self.assertTrue(previous["delta"]["test_only"])
+        self.assertEqual(
+            {**comparison, "test_only": True},
+            previous["delta"],
+        )
+        self.assertEqual(
+            [
+                {"finding_id": first_id, "disposition": "challenged"},
+                {"finding_id": second_id, "disposition": "unverified"},
+            ],
+            previous["dispositions"],
+        )
+        current = bound_context()
+        current["untrusted"]["previous_review"] = previous
+        self.assertEqual("+change", current["untrusted"]["diff"])
+        self.assertNotIn(
+            "challenged or unverified",
+            json.dumps(current["untrusted"]["previous_review"]),
+        )
+
     def test_registered_specs_and_removed_spec_use_full_base_policy(self) -> None:
         root = Path(__file__).resolve().parents[2]
         production = review.load_config(root / ".github/agent-review/config.json")
@@ -8862,6 +9129,7 @@ class AgentReviewTests(unittest.TestCase):
                 self.issue = json.loads(json.dumps(issue)) if issue else None
                 self.original = json.loads(json.dumps(issue)) if issue else None
                 self.comments: dict[int, dict] = {}
+                self.original_comments: dict[int, dict] = {}
                 self.fail_operation = fail_operation
                 self.error_type = error_type
                 self.failed = False
@@ -8952,6 +9220,9 @@ class AgentReviewTests(unittest.TestCase):
                 error_type or review.ReviewError,
                 fail_compensation,
             )
+            if mode != "create":
+                client.comments = {7: {"id": 7, "body": "pre-existing comment"}}
+                client.original_comments = {7: dict(client.comments[7])}
             checks = 0
 
             def rebind() -> dict:
@@ -8996,7 +9267,14 @@ class AgentReviewTests(unittest.TestCase):
                         self.assertEqual(
                             client.original["state"], client.issue["state"]
                         )
-                    self.assertEqual({}, client.comments)
+                        self.assertEqual(
+                            client.original["title"], client.issue["title"]
+                        )
+                        self.assertEqual(client.original["body"], client.issue["body"])
+                        self.assertEqual(
+                            client.original["labels"], client.issue["labels"]
+                        )
+                    self.assertEqual(client.original_comments, client.comments)
 
         for mode, stale_at in (
             ("create", 2),
@@ -9009,7 +9287,11 @@ class AgentReviewTests(unittest.TestCase):
                 client = execute(mode, stale_at=stale_at)
                 expected_state = "closed" if mode in {"create", "reopen"} else "open"
                 self.assertEqual(expected_state, client.issue["state"])
-                self.assertEqual({}, client.comments)
+                if mode in {"update", "reopen", "close"}:
+                    self.assertEqual(client.original["title"], client.issue["title"])
+                    self.assertEqual(client.original["body"], client.issue["body"])
+                    self.assertEqual(client.original["labels"], client.issue["labels"])
+                self.assertEqual(client.original_comments, client.comments)
 
         with self.assertRaisesRegex(review.GitHubWriteResponseError, "invalid JSON"):
             client = review.GitHubClient("token", "https://api.example")
