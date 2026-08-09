@@ -54,6 +54,7 @@ MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_MODEL_REQUEST_TIMEOUT_SECONDS = 300
 MODEL_PROTOCOL_ENDPOINTS = {
     "anthropic-messages": "messages",
+    "openai-chat-completions": "chat/completions",
     "openai-responses": "responses",
 }
 MAX_REVIEW_BODY_BYTES = 40_000
@@ -357,7 +358,7 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
         "policy_chars": int(
             legacy.get(
                 "policy_chars",
-                context.get("protected_policy_and_specs_limit", 48000),
+                context.get("protected_policy_and_specs_limit", 52000),
             )
         ),
         "intent_chars": int(
@@ -2219,9 +2220,11 @@ def model_configuration() -> dict[str, str]:
         or any(ord(character) < 0x20 for character in model)
     ):
         raise ReviewError("COCO_AGENT_MODEL is required and must be valid.")
-    endpoint = model_api_endpoint(protocol, base_url)
-    endpoint_base, separator, _resource = endpoint.rpartition("/")
-    if not separator or not endpoint_base:
+    model_api_endpoint(protocol, base_url)
+    parsed_url = urllib.parse.urlsplit(base_url)
+    path = parsed_url.path.rstrip("/") or "/v1"
+    endpoint_base = urllib.parse.urlunsplit(("https", parsed_url.netloc, path, "", ""))
+    if not endpoint_base:
         raise ReviewError("COCO_AGENT_MODEL_BASE_URL is invalid.")
     return {
         "protocol": protocol,
@@ -2298,6 +2301,18 @@ class AgentModelClient:
                 "temperature": 0,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
+            }
+        elif self.protocol == "openai-chat-completions":
+            value = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": 0,
+                "stream": False,
+                "response_format": {"type": "json_object"},
             }
         else:
             value = {
@@ -2377,6 +2392,47 @@ class AgentModelClient:
                 f"Anthropic response did not complete (stop_reason={stop_reason!r})."
             )
         return ModelTextResponse("".join(text_blocks), str(stop_reason))
+
+    @staticmethod
+    def parse_openai_chat_envelope(envelope: Any) -> ModelTextResponse:
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("object") != "chat.completion"
+            or not isinstance(envelope.get("choices"), list)
+            or len(envelope["choices"]) != 1
+        ):
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        if envelope.get("error") is not None:
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        choice = envelope["choices"][0]
+        if not isinstance(choice, dict):
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        finish_reason = choice.get("finish_reason")
+        message = choice.get("message")
+        if finish_reason not in {"stop", "length"} or not isinstance(message, dict):
+            if finish_reason == "content_filter":
+                raise ReviewError(
+                    "OpenAI Chat Completions response did not complete (finish_reason='content_filter')."
+                )
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        if message.get("refusal") is not None:
+            raise ReviewError("OpenAI Chat Completions refused the review.")
+        if message.get("role") != "assistant" or not isinstance(
+            message.get("content"), str
+        ):
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        stop_reason = "max_tokens" if finish_reason == "length" else "end_turn"
+        return ModelTextResponse(message["content"], stop_reason)
 
     @staticmethod
     def openai_envelope_shape(envelope: Any) -> str:
@@ -2544,14 +2600,16 @@ class AgentModelClient:
         self, system: str, user: str, max_tokens: int
     ) -> ModelTextResponse:
         envelope = self.request_envelope(system, user, max_tokens)
-        response = (
-            self.parse_anthropic_envelope(envelope)
-            if self.protocol == "anthropic-messages"
-            else self.parse_openai_envelope(envelope)
-        )
+        if self.protocol == "anthropic-messages":
+            response = self.parse_anthropic_envelope(envelope)
+        elif self.protocol == "openai-chat-completions":
+            response = self.parse_openai_chat_envelope(envelope)
+        else:
+            response = self.parse_openai_envelope(envelope)
         text = response.text
         if not text.strip() and not (
-            self.protocol == "openai-responses" and response.stop_reason == "max_tokens"
+            self.protocol in {"openai-responses", "openai-chat-completions"}
+            and response.stop_reason == "max_tokens"
         ):
             raise RetryableModelOutputError(
                 "Agent model response contained no text.",
