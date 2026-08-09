@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
@@ -15,6 +16,9 @@ import io.github.coco.feature.web.CocoWebAutoConfiguration;
 import io.github.coco.feature.web.context.CocoWebRequestMatcher;
 import io.github.coco.feature.web.context.DefaultCocoWebRequestMatcher;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -75,6 +79,47 @@ class CocoRateLimitAutoConfigurationTest {
                     assertThat(properties.getRoutes().get(0).getMatcher().getPathPatterns())
                             .containsExactly("/bound/**");
                 });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidConfiguredRoutes")
+    void rejectsInvalidConfiguredRoutesDuringServletStartup(String scenario, String[] routeProperties) {
+        this.webContextRunner.withPropertyValues(routeProperties).run(context -> {
+            assertThat(context).as(scenario).hasFailed();
+            assertThat(context.getStartupFailure()).as(scenario)
+                    .hasRootCauseInstanceOf(IllegalStateException.class)
+                    .hasStackTraceContaining("Each coco.rate-limit.routes entry needs id, matcher, positive limit and window-seconds");
+        });
+    }
+
+    private static Stream<Arguments> invalidConfiguredRoutes() {
+        return Stream.of(
+                Arguments.of("missing route id", new String[] {
+                        "coco.rate-limit.enabled=true",
+                        "coco.rate-limit.routes[0].matcher.path-patterns[0]=/api/**",
+                        "coco.rate-limit.routes[0].limit=5",
+                        "coco.rate-limit.routes[0].window-seconds=60"
+                }),
+                Arguments.of("empty route matcher", new String[] {
+                        "coco.rate-limit.enabled=true",
+                        "coco.rate-limit.routes[0].id=public-api",
+                        "coco.rate-limit.routes[0].limit=5",
+                        "coco.rate-limit.routes[0].window-seconds=60"
+                }),
+                Arguments.of("non-positive route limit", new String[] {
+                        "coco.rate-limit.enabled=true",
+                        "coco.rate-limit.routes[0].id=public-api",
+                        "coco.rate-limit.routes[0].matcher.path-patterns[0]=/api/**",
+                        "coco.rate-limit.routes[0].limit=0",
+                        "coco.rate-limit.routes[0].window-seconds=60"
+                }),
+                Arguments.of("route window exceeds supported maximum", new String[] {
+                        "coco.rate-limit.enabled=true",
+                        "coco.rate-limit.routes[0].id=public-api",
+                        "coco.rate-limit.routes[0].matcher.path-patterns[0]=/api/**",
+                        "coco.rate-limit.routes[0].limit=5",
+                        "coco.rate-limit.routes[0].window-seconds=9223372036854775807"
+                }));
     }
 
     @Test
