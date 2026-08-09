@@ -246,9 +246,9 @@ def finding_issue_marker(
     else:
         if not ACTIONABLE_GROUP_ID_RE.fullmatch(finding_id):
             raise ReviewError("Finding issue group ID is invalid.")
-        if not isinstance(primary_finding_id, str) or not SOURCE_FINDING_ID_RE.fullmatch(
-            primary_finding_id
-        ):
+        if not isinstance(
+            primary_finding_id, str
+        ) or not SOURCE_FINDING_ID_RE.fullmatch(primary_finding_id):
             raise ReviewError("Finding issue primary finding ID is invalid.")
         if any(not isinstance(value, str) for value in duplicates) or (
             duplicates != sorted(set(duplicates))
@@ -966,7 +966,9 @@ def build_code_contexts(
             "source": source,
             "kind": kind,
             "trust_domain": trust_domain,
-            "line_count": line_count if line_count is not None else len(content.splitlines()),
+            "line_count": line_count
+            if line_count is not None
+            else len(content.splitlines()),
             "content": clipped,
         }
         contexts.append(item)
@@ -1451,7 +1453,9 @@ def previous_review_context(
                 or changes < 0
                 or changes != additions + deletions
             ):
-                raise ReviewError("Previous review comparison file metadata is invalid.")
+                raise ReviewError(
+                    "Previous review comparison file metadata is invalid."
+                )
             delta_files.append(
                 {
                     "filename": filename,
@@ -1466,9 +1470,7 @@ def previous_review_context(
             "ahead_by": ahead_by,
             "behind_by": behind_by,
             "total_commits": total_commits,
-            "test_only": test_only_delta(
-                item["filename"] for item in delta_files
-            ),
+            "test_only": test_only_delta(item["filename"] for item in delta_files),
             "files": delta_files,
         }
     return {
@@ -3139,7 +3141,9 @@ def context_file_set(context: dict[str, Any]) -> set[str]:
     return {path for path in paths if path}
 
 
-def context_evidence_sources(context: dict[str, Any]) -> dict[tuple[str, str], set[int]]:
+def context_evidence_sources(
+    context: dict[str, Any],
+) -> dict[tuple[str, str], set[int]]:
     result: dict[tuple[str, str], set[int]] = {}
     collections = (
         (context.get("trusted", {}).get("policy", []), True),
@@ -3183,10 +3187,15 @@ def context_evidence_sources(context: dict[str, Any]) -> dict[tuple[str, str], s
                     for line in content.splitlines()
                     if (match := re.match(r"^\s*([1-9][0-9]*) ", line))
                 }
-                if "[context clipped by trusted builder]" in content and available_lines:
+                if (
+                    "[context clipped by trusted builder]" in content
+                    and available_lines
+                ):
                     available_lines.discard(max(available_lines))
             if not available_lines or max(available_lines) > line_count:
-                raise ReportShapeError("Agent context evidence line coverage is invalid.")
+                raise ReportShapeError(
+                    "Agent context evidence line coverage is invalid."
+                )
             result[key] = available_lines
     return result
 
@@ -3943,7 +3952,9 @@ def _validate_chair_contract(
             )
         seen.update(members)
     if not set(confirmed).issubset(seen):
-        raise ReportShapeError("Chair omitted a confirmed blocker from actionable groups.")
+        raise ReportShapeError(
+            "Chair omitted a confirmed blocker from actionable groups."
+        )
 
 
 def utf8_size(value: str) -> int:
@@ -4617,9 +4628,7 @@ def actionable_findings(
             )
         findings = [by_source_id.get(source_id) for source_id in source_ids]
         if any(finding is None for finding in findings):
-            raise ReviewError(
-                "Actionable group references an unknown source finding."
-            )
+            raise ReviewError("Actionable group references an unknown source finding.")
         stable_id = stable_actionable_group_id(source_ids)
         if stable_id in stable_ids:
             raise ReviewError("Actionable group identity is duplicated.")
@@ -4846,10 +4855,7 @@ def verify_finding_issue(
     )
     body = str(value.get("body") or "")
     marker = parse_finding_issue_marker(body)
-    if (
-        marker is None
-        or canonical_finding_issue_marker(marker) != expected_marker
-    ):
+    if marker is None or canonical_finding_issue_marker(marker) != expected_marker:
         raise ReviewError(
             "Agent review finding issue marker changed during publication."
         )

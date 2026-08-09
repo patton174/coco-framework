@@ -2351,9 +2351,7 @@ class AgentReviewTests(unittest.TestCase):
         }
         with self.assertRaises(review.ReportShapeError):
             review.validate_chair(chair, consensus, context, set())
-        with self.assertRaisesRegex(
-            review.ReviewError, "ineligible or duplicate"
-        ):
+        with self.assertRaisesRegex(review.ReviewError, "ineligible or duplicate"):
             review.actionable_findings(
                 {"consensus": consensus, "chair": chair}, [specialist]
             )
@@ -2730,7 +2728,7 @@ class AgentReviewTests(unittest.TestCase):
                     {
                         "primary_finding_id": followup["id"],
                         "duplicate_finding_ids": [],
-                    }
+                    },
                 ]
             },
         }
@@ -8588,9 +8586,7 @@ class AgentReviewTests(unittest.TestCase):
             ],
             "context_gaps": [],
         }
-        review.validate_cross_report(
-            report, "evidence-verifier", context, {finding_id}
-        )
+        review.validate_cross_report(report, "evidence-verifier", context, {finding_id})
         self.assertEqual("DISAGREE", report["reviews"][0]["action"])
 
         contradictory = json.loads(json.dumps(report))
@@ -8603,8 +8599,7 @@ class AgentReviewTests(unittest.TestCase):
     def test_head_added_spec_cannot_claim_protected_policy_trust(self) -> None:
         context = bound_context()
         spec_path = (
-            "coco-support/coco-document/superpowers/specs/"
-            "2026-08-09-head-proposal.md"
+            "coco-support/coco-document/superpowers/specs/2026-08-09-head-proposal.md"
         )
         context["untrusted"]["manifest"].append(
             {"filename": spec_path, "status": "added"}
@@ -8650,9 +8645,7 @@ class AgentReviewTests(unittest.TestCase):
             "context_gaps": [],
         }
         with self.assertRaisesRegex(review.ReportShapeError, "protected context"):
-            review.validate_cross_report(
-                raw, "policy-skeptic", context, {finding_id}
-            )
+            review.validate_cross_report(raw, "policy-skeptic", context, {finding_id})
 
         raw["verifications"][0]["evidence_refs"][0]["trust_domain"] = (
             "head-proposed-spec"
@@ -8704,9 +8697,7 @@ class AgentReviewTests(unittest.TestCase):
             ],
             "questions": [],
         }
-        review.validate_chair(
-            chair, consensus, context, set(finding_ids[2:])
-        )
+        review.validate_chair(chair, consensus, context, set(finding_ids[2:]))
         groups = review.actionable_findings(
             {"consensus": consensus, "chair": chair}, specialists
         )
@@ -8715,9 +8706,7 @@ class AgentReviewTests(unittest.TestCase):
             {frozenset(finding_ids[:2]), frozenset(finding_ids[2:])},
             {frozenset(group["source_ids"]) for group in groups},
         )
-        self.assertTrue(
-            all(group["stable_id"].startswith("v2-") for group in groups)
-        )
+        self.assertTrue(all(group["stable_id"].startswith("v2-") for group in groups))
         blocker_group = next(
             group for group in groups if group["kind"] == "confirmed-blocker"
         )
@@ -8818,9 +8807,7 @@ class AgentReviewTests(unittest.TestCase):
                 ]
 
             def get_json(self, path: str) -> dict:
-                expected = (
-                    f"repos/{REPOSITORY}/compare/{previous_head}...{HEAD_SHA}"
-                )
+                expected = f"repos/{REPOSITORY}/compare/{previous_head}...{HEAD_SHA}"
                 if path != expected:
                     raise AssertionError(f"Unexpected comparison lookup: {path}")
                 return {
@@ -8903,9 +8890,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(2, parsed["schema_version"])
         self.assertEqual(group_id, parsed["group_id"])
         self.assertEqual(group_id, parsed["finding_id"])
-        self.assertEqual(
-            group_id, merge.parse_agent_issue_marker(marker)["finding_id"]
-        )
+        self.assertEqual(group_id, merge.parse_agent_issue_marker(marker)["finding_id"])
         resolved = issue_gate.resolve_event(
             {
                 "action": "opened",
@@ -8934,9 +8919,9 @@ class AgentReviewTests(unittest.TestCase):
         cross = (
             repository_root / ".github/agent-review/prompts/cross-review.md"
         ).read_text(encoding="utf-8")
-        chair = (
-            repository_root / ".github/agent-review/prompts/chair.md"
-        ).read_text(encoding="utf-8")
+        chair = (repository_root / ".github/agent-review/prompts/chair.md").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("previous_review", specialist)
         for field in (
             "claim",
