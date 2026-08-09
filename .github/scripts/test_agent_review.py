@@ -3454,14 +3454,14 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertIn("ALLOW_DEFERRED: ${{ true }}", deferred_workflow)
         self.assertIn("deferred_args+=(--allow-deferred)", deferred_workflow)
-        self.assertIn(
-            "--source-run-id \"${SOURCE_RUN_ID}\"", deferred_workflow
-        )
+        self.assertIn('--source-run-id "${SOURCE_RUN_ID}"', deferred_workflow)
         self.assertIn("ref: ${{ github.sha }}", deferred_workflow)
         self.assertNotIn("secrets: inherit", deferred_workflow)
         self.assertNotIn("github.event.workflow_run.head_sha", deferred_workflow)
         self.assertIn("actions/download-artifact", deferred_workflow)
-        self.assertIn("name: agent-review-input-${{ github.run_id }}", deferred_workflow)
+        self.assertIn(
+            "name: agent-review-input-${{ github.run_id }}", deferred_workflow
+        )
         self.assertNotIn("actions/cache", deferred_workflow)
         self.assertNotIn("refs/pull/", deferred_workflow)
         self.assertNotIn("/merge", deferred_workflow)
@@ -3469,9 +3469,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(4, deferred_workflow.count(model_environment))
         self.assertIn("environment: coco-agent", deferred_workflow)
         deferred_pre_model = deferred_workflow.split("\n  prepare:\n", 1)[0]
-        deferred_admission = deferred_workflow.split(
-            "\n  publisher-admission:\n", 1
-        )[1].split("\n  trusted-publisher:\n", 1)[0]
+        deferred_admission = deferred_workflow.split("\n  publisher-admission:\n", 1)[
+            1
+        ].split("\n  trusted-publisher:\n", 1)[0]
         self.assertNotIn("${{ secrets.", deferred_pre_model)
         self.assertNotIn("${{ secrets.", deferred_admission)
 
@@ -6642,11 +6642,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("secrets: inherit", no_secret_call)
         self.assertIn("ALLOW_DEFERRED: ${{ true }}", deferred)
         self.assertIn("deferred_args+=(--allow-deferred)", deferred)
-        self.assertIn("--source-run-id \"${SOURCE_RUN_ID}\"", deferred)
+        self.assertIn('--source-run-id "${SOURCE_RUN_ID}"', deferred)
         self.assertIn("base_sha: ${{ steps.binding.outputs.base_sha }}", deferred)
-        self.assertIn(
-            "EXPECTED_BASE_SHA: ${{ needs.bind.outputs.base_sha }}", deferred
-        )
+        self.assertIn("EXPECTED_BASE_SHA: ${{ needs.bind.outputs.base_sha }}", deferred)
         self.assertEqual(
             1,
             router.count(
