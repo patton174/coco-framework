@@ -36,6 +36,7 @@ MODEL_CONFIG_SHA256 = review.sha256_text(
             "protocol": "openai-responses",
             "base_url": "https://models.example.invalid/v1",
             "model": "review-model",
+            "thinking": "auto",
         }
     )
 )
@@ -84,6 +85,7 @@ def model_env(
         "COCO_AGENT_MODEL_PROTOCOL": protocol,
         "COCO_AGENT_MODEL_BASE_URL": base_url,
         "COCO_AGENT_MODEL": "review-model",
+        "COCO_AGENT_MODEL_THINKING": "auto",
         "COCO_AGENT_MODEL_API_KEY": "test-api-key",
     }
 
@@ -3392,6 +3394,66 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(3, review_workflow.count(model_environment))
         for model_job in (specialists, verifiers, chair):
             self.assertEqual(1, model_job.count(model_environment))
+        model_variables = (
+            "COCO_AGENT_MODEL_PROTOCOL",
+            "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL_THINKING",
+            "COCO_AGENT_MODEL",
+        )
+        for workflow_name, workflow in (
+            ("reusable", review_workflow),
+            ("deferred", deferred_workflow),
+        ):
+            workflow_prepare = workflow.split("\n  prepare:\n", 1)[1].split(
+                "\n  specialists:\n", 1
+            )[0]
+            workflow_specialists = workflow.split("\n  specialists:\n", 1)[1].split(
+                "\n  verifiers:\n", 1
+            )[0]
+            workflow_verifiers = workflow.split("\n  verifiers:\n", 1)[1].split(
+                "\n  chair:\n", 1
+            )[0]
+            workflow_chair = workflow.split("\n  chair:\n", 1)[1].split(
+                "\n  publisher-admission:\n", 1
+            )[0]
+            workflow_admission = workflow.split("\n  publisher-admission:\n", 1)[
+                1
+            ].split("\n  trusted-publisher:\n", 1)[0]
+            for section_name, section in (
+                ("prepare", workflow_prepare),
+                ("specialists", workflow_specialists),
+                ("verifiers", workflow_verifiers),
+                ("chair", workflow_chair),
+                ("publisher admission", workflow_admission),
+            ):
+                for variable in model_variables:
+                    self.assertEqual(
+                        1,
+                        section.count(f"{variable}: ${{{{ vars.{variable} }}}}"),
+                        f"{workflow_name} {section_name}: {variable}",
+                    )
+            for section_name, section in (
+                ("specialists", workflow_specialists),
+                ("verifiers", workflow_verifiers),
+                ("chair", workflow_chair),
+            ):
+                self.assertEqual(
+                    1,
+                    section.count(
+                        "COCO_AGENT_MODEL_API_KEY: "
+                        "${{ secrets.COCO_AGENT_MODEL_API_KEY }}"
+                    ),
+                    f"{workflow_name} {section_name}: API key",
+                )
+            for section_name, section in (
+                ("prepare", workflow_prepare),
+                ("publisher admission", workflow_admission),
+            ):
+                self.assertNotIn(
+                    "COCO_AGENT_MODEL_API_KEY",
+                    section,
+                    f"{workflow_name} {section_name}: API key",
+                )
         for name, section in (
             ("source no-secret call", direct_no_secret),
             ("prepare", prepare),
@@ -6414,6 +6476,7 @@ class AgentReviewTests(unittest.TestCase):
         for variable in (
             "COCO_AGENT_MODEL_PROTOCOL",
             "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL_THINKING",
             "COCO_AGENT_MODEL",
         ):
             self.assertIn(f"{variable}: ${{{{ vars.{variable} }}}}", admission)
@@ -7211,6 +7274,7 @@ class AgentReviewTests(unittest.TestCase):
                 "protocol": "openai-responses",
                 "base_url": "https://models.example.invalid/v1",
                 "model": "review-model",
+                "thinking": "auto",
             },
             material,
         )
@@ -7237,6 +7301,7 @@ class AgentReviewTests(unittest.TestCase):
                 )
             },
             {"COCO_AGENT_MODEL": "different-review-model"},
+            {"COCO_AGENT_MODEL_THINKING": "disabled"},
         ]
         for change in changes:
             environment = {**baseline, **change}
@@ -7315,6 +7380,7 @@ class AgentReviewTests(unittest.TestCase):
         required = (
             "COCO_AGENT_MODEL_PROTOCOL",
             "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL_THINKING",
             "COCO_AGENT_MODEL",
             "COCO_AGENT_MODEL_API_KEY",
         )
@@ -7328,6 +7394,9 @@ class AgentReviewTests(unittest.TestCase):
 
         invalid_values = [
             ("COCO_AGENT_MODEL", "model\nname"),
+            ("COCO_AGENT_MODEL_THINKING", "unsupported"),
+            ("COCO_AGENT_MODEL_THINKING", "ENABLED"),
+            ("COCO_AGENT_MODEL_THINKING", " disabled "),
             ("COCO_AGENT_MODEL_API_KEY", " key"),
             ("COCO_AGENT_MODEL_API_KEY", "key "),
             ("COCO_AGENT_MODEL_API_KEY", "key\nvalue"),
@@ -7418,6 +7487,7 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertEqual(
                         {"type": "json_object"}, payload["response_format"]
                     )
+                    self.assertNotIn("chat_template_kwargs", payload)
                     self.assertIs(payload["stream"], False)
                 if protocol == "openai-responses":
                     self.assertIs(payload["store"], False)
@@ -7640,6 +7710,36 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertNotIsInstance(
                         raised.exception, review.RetryableModelOutputError
                     )
+
+    def test_openai_chat_client_controls_provider_thinking_mode(self) -> None:
+        for thinking, enabled in (("enabled", True), ("disabled", False)):
+            with self.subTest(thinking=thinking):
+                captured: dict[str, object] = {}
+
+                def urlopen(request: object, timeout: int) -> FakeModelResponse:
+                    captured["request"] = request
+                    captured["timeout"] = timeout
+                    return FakeModelResponse(
+                        json.dumps(openai_chat_envelope()).encode()
+                    )
+
+                environment = model_env("openai-chat-completions")
+                environment["COCO_AGENT_MODEL_THINKING"] = thinking
+                with (
+                    patch.dict("os.environ", environment, clear=True),
+                    patch("urllib.request.urlopen", side_effect=urlopen),
+                ):
+                    self.assertEqual(
+                        {"ok": True},
+                        review.AgentModelClient(config()).complete(
+                            "system", "user", 100
+                        ),
+                    )
+                payload = json.loads(captured["request"].data)
+                self.assertEqual(
+                    {"enable_thinking": enabled},
+                    payload["chat_template_kwargs"],
+                )
 
     def _assert_openai_message_less_max_output_retries(
         self, output: list[dict]
