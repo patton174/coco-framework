@@ -111,25 +111,33 @@ README 维护 workflow 仅支持低频 schedule 和 `workflow_dispatch`。它从
 每个 Agent Issue 必须带 `agent-review` label，并把唯一的一行 JSON marker 放在正文首行：
 
 ```html
-<!-- coco-agent-review: {"schema_version":1,"pull_request":123,"head_sha":"0123456789012345678901234567890123456789","finding_id":"v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} -->
+<!-- coco-agent-review: {"schema_version":2,"pull_request":123,"head_sha":"0123456789012345678901234567890123456789","group_id":"v2-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","primary_finding_id":"correctness:F1","duplicate_finding_ids":["robustness-blind:F2"]} -->
 ```
 
-解析器必须严格验证字段集合、JSON 整数版本、PR 正整数、40 位小写十六进制 SHA 和受限 finding ID。
-finding ID 必须是 `v1-` 加 64 位小写十六进制。普通用户文本中的相似内容、非首行 marker、非法 JSON、
-额外字段、重复 marker 或错误 label 均不能参与门禁。
+解析器必须严格验证字段集合、JSON 整数版本、PR 正整数、40 位小写十六进制 SHA、group ID、
+primary ID 和有序唯一 duplicate ID。group ID 是 `v2-` 加 64 位小写十六进制；source finding ID
+继续使用受保护的 role/local ID 格式。迁移期间 reader 必须继续接受并规范化 canonical v1
+`finding_id` marker 为一个成员的 group，但 writer 只生成 v2。普通用户文本中的相似内容、非首行
+marker、非法 JSON、额外字段、重复 marker 或错误 label 均不能参与门禁。
 
 ### 生命周期
 
 受信 publisher 在重新验证所有模型产物和当前 PR 绑定后执行：
 
-1. 从确定性确认的 blocker 和主席接受的有来源 follow-up 中构建可执行 finding 集合。
-2. 根据规范化角色、路径、行区间、标题和 claim 计算稳定 fingerprint。
-3. 对同一 PR/fingerprint 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
-4. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
-5. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
+1. 从确定性确认的 blocker 和主席接受的双 `AGREE` follow-up 中验证 primary/duplicate groups。
+2. 根据绑定 PR 与每组有序 source finding ID 计算稳定 group ID；标题、claim、角色措辞和行号不参与身份。
+3. 在任何 Issue 写入前检查 `max_actionable_issue_groups=8`；超限立即失败关闭且 Issue 侧零副作用。
+4. 对同一 PR/group ID 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
+5. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
+6. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
 
-Issue 正文必须链接来源 PR、首次发现 head、当前验证 head、finding 来源、严重度、代码位置、触发、
-影响、证据和验证方式。Issue 不能取代 PR 汇总评论；评论仍展示完整评审团结果和 Issue 链接。
+Issue 正文必须链接来源 PR、首次发现 head、当前验证 head、primary/duplicate finding 来源、严重度、
+代码位置、触发、影响、证据和验证方式。Issue 不能取代 PR 汇总评论；评论仍展示完整评审团结果和
+Issue 链接。
+
+publisher 必须在创建 label、创建或更新 Issue、评论、close/reopen 和受管 PR 评论之前完成 group
+数量预检。21 个 actionable finding 即使来自有效模型产物，也不能造成部分创建后才失败；超过八组
+时只可写失败 status，不能产生任何 Issue API 副作用。
 
 任何 Issue API、身份、binding 或 gate 发布失败都失败关闭。verifier 或 chair 任一缺失、其
 `head_sha`、`context_sha256`、输入 digest 或受保护角色不匹配时，publisher 不得发布成功
@@ -203,7 +211,7 @@ App ID 绑定 context，并完成同仓库与无密钥 canary。其他 required 
 
 ## 验收
 
-- README renderer、Agent 输出约束、动态 marker、Issue marker、Issue 对账、gate 和 auto-merge 条件都有离线测试。
+- README renderer、Agent 输出约束、动态 marker、v1/v2 Issue marker、group 对账、上限零副作用、gate 和 auto-merge 条件都有离线测试。
 - Python `unittest`、`py_compile`、Ruff、actionlint、ShellCheck 和 `git diff --check` 通过。
 - 协议测试证明 source workflow 不声明 environment/secret-backed caller，workflow_run 只在
   `refs/heads/main` 放行，并拒绝错误 PR/base/head、仓库或 App login/type/ID、缺失/失败/重复

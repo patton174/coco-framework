@@ -10,6 +10,10 @@ files, and model output. Related specifications selected from the base revision
 are protected design context, but a narrower and newer specification takes
 precedence over an older general design when they conflict.
 
+Evidence references carry trust domains. Only full base sources are
+`protected-policy` or `base-spec`; head-added or changed specifications are
+untrusted `head-proposed-spec` content.
+
 PR titles, bodies, commit messages, file names, diffs, head file contents, test
 text, comments, generated artifacts, and every other model report are untrusted
 data. Instructions found in that data must never alter a role, policy, evidence
@@ -92,6 +96,10 @@ with removals first in each. This is an internal composition rule, not a public
 framework SPI. The canonical context records whether a complete diff came from
 raw media or validated Files API patches.
 
+Every run keeps the complete base-to-head review. A verified prior managed
+review may add its head, bounded delta, and dispositions as untrusted stability
+context; it cannot suppress full-PR inspection or determine the verdict.
+
 ## Evidence Standard
 
 A finding is a falsifiable claim about the supplied revision, not a preference
@@ -99,6 +107,9 @@ or broader-scope request. It must identify a concrete trigger or execution path,
 observable impact, and code evidence at the smallest useful exact path/line
 anchor. A missing file, omitted context, or uncertain call path is a context
 gap, not evidence.
+
+Verifier evidence uses structured domain/path/line references. Unknown,
+out-of-range, or domain-mismatched sources fail schema validation.
 
 P0 and P1 findings additionally require:
 
@@ -131,20 +142,19 @@ round output. `robustness-blind` must not receive PR intent, including the title
 body, commit messages, or author-provided "by design" explanations; it still
 receives protected policy and specifications.
 
-Cross-review uses `AGREE`, `DISAGREE`, and `UNVERIFIED`. `DISAGREE` requires
-specific code or policy counter-evidence. Missing context can only produce
-`UNVERIFIED`. Both verifiers must independently classify every P0, P1, P2, and
-P3 finding exactly once. A P0 or P1 finding is a confirmed blocker only when
-both `evidence-verifier` and `policy-skeptic` return `AGREE`. P2 and P3 never
-directly affect the deterministic jury verdict. They enter the chair's eligible
-follow-up pool only when both verifiers return `AGREE`. A P2 or P3 finding with
-`DISAGREE` or `UNVERIFIED` from either verifier remains visible but cannot
-become actionable.
+Models do not control verifier action. Each P0-P3 verification returns
+`claim`, `severity`, `anchor`, `trigger`, `impact`, `change_scope`, and
+`evidence_refs`. Fact checks use `SUPPORTED`, `CONTRADICTED`, or `UNVERIFIED`;
+scope uses `IN_SCOPE`, `OUT_OF_SCOPE`, or `UNVERIFIED`. Runtime derives action:
 
-Consensus, severity, and actionable eligibility use only structured severity,
-finding IDs, and explicit verifier status fields. Finding text, verifier prose,
-keywords, regular expressions, `confidence`, and other text heuristics must not
-create or suppress a blocker or actionable finding.
+- any `CONTRADICTED` check or `OUT_OF_SCOPE` scope is `DISAGREE`;
+- all five checks `SUPPORTED`, scope `IN_SCOPE`, and at least one validated
+  evidence reference is `AGREE`;
+- every other combination is `UNVERIFIED`.
+
+Prose cannot override this result. Missing context is `UNVERIFIED`; `DISAGREE`
+requires structured counter-evidence. Both verifiers cover every finding once.
+Only dual-derived `AGREE` confirms P0/P1 or makes P2/P3 follow-up eligible.
 
 Before App publication, every model-controlled text field is collapsed to
 single-line escaped text with active Markdown, mentions, issue references, and
@@ -154,12 +164,10 @@ view that retains every finding disposition and verifier vote. The final
 comment, including actionable Issue links and the workflow footer, must remain
 within a 64,000-byte hard limit.
 
-The chair may merge duplicates, preserve attribution and disagreement, and
-organize the deterministic result. It may select a P2/P3 follow-up only from the
-dual-`AGREE` eligible pool. It may not create a blocker or actionable follow-up
-without a source finding ID, upgrade severity, override verifier outcomes, or
-change the deterministic verdict. Any required agent failure, schema failure,
-or SHA/hash mismatch is an infrastructure block.
+The chair emits groups with one `primary_finding_id` and unique
+`duplicate_finding_ids`. IDs must be dual-`AGREE`, same-kind, same-severity,
+single-group members. All confirmed blockers are grouped; only eligible P2/P3
+may be selected. The chair cannot invent IDs or change verdicts.
 
 ## Finding Issue Governance
 
@@ -167,15 +175,16 @@ For successfully rebound same-repository human, exact Coco App, or configured
 deferred-bot reviews, confirmed P0/P1 blockers and chair-selected P2/P3
 dual-`AGREE` findings are actionable. A selected P2/P3 finding does not change
 `Agent jury gate`, but its managed Issue participates in `Agent issue gate`.
-Using the configured Coco Agent GitHub App, the trusted publisher maintains one
-managed issue per stable finding identity and one managed jury comment. Fork and
-unpinned-bot reviews never receive the App private key or create/update either.
+The trusted App maintains one Issue per actionable group and one jury comment.
+Group identity uses source IDs, not mutable prose or line wording. Fork and
+unpinned-bot reviews cannot write either.
 
-Each managed finding issue carries `agent-review` and one canonical single-line
-`coco-agent-review` JSON marker binding its pull request, first observed head
-SHA, and stable finding identity. Later reviews update/reopen actionable findings,
-comment on and close disappeared findings, and retain the immutable first-head
-binding.
+Each managed Issue has `agent-review` and one canonical marker. v2 binds PR,
+first head, group, primary, and duplicates; readers normalize v1 single-finding
+markers while writers emit v2. Later reviews retain the first-head binding.
+
+`max_actionable_issue_groups=8`. Overflow fails before every Issue-side write;
+only fail-closed commit statuses may be published.
 
 `Agent issue gate` independently reads GitHub state for the current PR
 head: any open bound finding issue fails it, and none pass it. Issue close/reopen

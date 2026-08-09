@@ -165,35 +165,49 @@ flowchart LR
 ### Cross Review
 
 - `evidence-verifier`：逐条核对所有 P0/P1/P2/P3 finding 的文件、行号、代码 anchor、触发场景和
-  实际行为，输出 `AGREE / DISAGREE / UNVERIFIED`。
+  实际行为。
 - `policy-skeptic`：逐条核对 finding 是否违反受保护项目规范、是否把非目标或明确治理
-  选择误判为缺陷、严重度是否成立，同样输出三态结果。
+  选择误判为缺陷、严重度是否成立。
 
-`DISAGREE` 必须提供代码或规范反证。缺少上下文不能写 `DISAGREE`，只能写
-`UNVERIFIED`。
+模型不能直接决定 `AGREE / DISAGREE / UNVERIFIED`。每条 verification 必须输出：
+
+- `claim`、`severity`、`anchor`、`trigger`、`impact`：取值只能是
+  `SUPPORTED / CONTRADICTED / UNVERIFIED`；
+- `change_scope`：取值只能是 `IN_SCOPE / OUT_OF_SCOPE / UNVERIFIED`；
+- `evidence_refs`：非重复的结构化引用数组，每项包含 `trust_domain`、`path`、
+  `start_line` 和 `end_line`。
+
+runtime 按固定规则推导 action：任一事实检查为 `CONTRADICTED` 或范围为
+`OUT_OF_SCOPE` 时是 `DISAGREE`；五项事实检查全部为 `SUPPORTED`、范围为 `IN_SCOPE`
+且至少有一个通过上下文解析的 evidence ref 时是 `AGREE`；其他组合一律是
+`UNVERIFIED`。理由、验证说明和模型尝试输出的 action 都不能覆盖该结果。
+`DISAGREE` 必须有代码或规范反证；缺少上下文只能形成 `UNVERIFIED`。
 
 两个 verifier 始终各自执行一次独立模型调用，并分别对每个 P0/P1/P2/P3 finding 恰好输出
 一次验证。没有 P0/P1/P2/P3 候选时也必须返回空验证数组，不能由协调器伪造一个“未需要
 验证”的模型结果。
 
-下游只能读取结构化 severity、finding ID 和显式 verifier status。不得从 finding 或 verifier
-文本、关键词、正则、`confidence` 或其他文本启发式推导共识、严重度或 actionable 资格。
+下游只能读取结构化 severity、finding ID 和 runtime 推导的 verifier action。不得从 finding
+或 verifier 文本、关键词、正则、`confidence` 或其他文本启发式推导共识、严重度或
+actionable 资格。
 
 ### Chair
 
-主席只能：
+主席必须输出 `actionable_groups`。每组包含一个 `primary_finding_id` 和零个或多个有序、
+唯一的 `duplicate_finding_ids`。主席只能：
 
-- 合并重复 finding；
+- 把语义重复且 actionable kind 相同的 finding 合并成一组；
 - 保留来源和不同意见；
 - 把确定性验证器已确认的 blocker 排版到最终报告；
 - 从两个 verifier 都为 `AGREE` 的 P2/P3 候选中选择 actionable follow-up；
 - 把被反驳或无法验证的意见放入折叠区；
 - 汇总非阻断建议和待澄清问题。
 
-主席不能创建没有 source finding ID 的 blocker，也不能把未通过验证的 finding 升级为
-blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续展示，但不得进入
-`follow_up_finding_ids` 或成为 actionable finding。主席选中的双 `AGREE` P2/P3 才能创建
-受管 Issue；该 Issue 只影响独立的 `Agent issue gate`，不改变 `Agent jury gate` verdict。
+所有 confirmed P0/P1 必须且只能出现在一个 group 中；P2/P3 只有双 `AGREE` 后才可被选入
+一个 group。主席不能创建没有 source finding ID 的 blocker、跨 blocker/follow-up 类型分组、
+重复使用 ID，也不能把未通过验证的 finding 升级为 blocker。任一 verifier 为 `DISAGREE` 或
+`UNVERIFIED` 的 P2/P3 必须继续展示，但不得进入 actionable group。受管 Issue 按 group 创建；
+它只影响独立的 `Agent issue gate`，不改变 `Agent jury gate` verdict。
 
 ## 上下文模型
 
@@ -209,6 +223,16 @@ blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续
 5. **代码证据**：patch、head 完整文件或动态 hunk、base 对照、相关测试和模块 POM。
 6. **省略清单**：因大小或二进制原因没有注入的文件，要求 reviewer 使用
    `UNVERIFIED`，不得猜测。
+
+每个可引用来源都携带 trust domain 和行数。`AGENTS.md`、受保护 review policy 只能是
+`protected-policy`；从 base 完整读取的规格只能是 `base-spec`。PR 在 head 新增或修改的规格
+属于不可信提案，只能是 `head-proposed-spec`，即使路径和文字看起来具有规范性，也不能伪装成
+受保护 policy。runtime 必须拒绝不存在于对应 canonical context、越界或 domain 不匹配的引用。
+
+完整 base-to-head diff 在每轮都必须保留。若存在唯一、App 身份验证通过的上一轮受管评论，
+可额外注入上一轮 reviewed head、该 head 到当前 head 的有界 compare delta，以及上一轮结构化
+disposition 摘要。该 previous-review context 整体标记为 untrusted，仅用于判断 test-only delta、
+重复报告和已处置 finding 的稳定性；不得裁掉完整 PR、替代当前证据或直接决定 verdict。
 
 ### 动态代码上下文
 
@@ -287,9 +311,10 @@ Specialist finding 至少包含：
 `confidence` 是可选的 0 到 100 整数，只作为展示性元数据，不参与 verifier 共识、严重度或
 最终 verdict。字段存在时必须严格校验类型和范围；缺失不构成基础设施失败。
 
-Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `verifications`。每个 verifier
-必须覆盖全部 P0/P1/P2/P3 finding，且每个 finding ID 恰好出现一次。即使没有任何候选，也要
-明确记录已检查的绑定报告集合，并返回空 `verifications`，不能省略该席位的模型调用。
+Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `verifications`。每项使用上述
+六个结构化检查与 `evidence_refs`，不接受模型 action 字段。每个 verifier 必须覆盖全部
+P0/P1/P2/P3 finding，且每个 finding ID 恰好出现一次。即使没有任何候选，也要明确记录已检查的
+绑定报告集合，并返回空 `verifications`，不能省略该席位的模型调用。
 
 ## 确定性门禁
 
@@ -313,21 +338,26 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
   非法响应 envelope、角色、SHA、hash 或 binding 不匹配不进入任何重试，立即失败关闭。
   每次可重试输出只记录 attempt、受控 `stop_reason`、响应/累计字符数以及 expected/actual
   binding 的短前缀；不得记录 API key、原始响应分片、canonical context 或模型提示词。
-- P0/P1 只有同时得到 `evidence-verifier=AGREE` 和 `policy-skeptic=AGREE`，才能成为
+- P0/P1 只有同时得到两个 verifier 的 runtime-derived `AGREE`，才能成为
   confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不直接影响 jury verdict，并在评论中保留。
 - 任一验证者 `UNVERIFIED`：进入 unverified，不直接影响 jury verdict，并在评论中保留。
 - P2/P3 永不直接影响 jury verdict；只有两个 verifier 都为 `AGREE` 时才进入主席可选池。
-- 主席选中的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
+- 主席分组的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
   阻断独立的 `Agent issue gate`。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 只能
-  展示，不得进入 `follow_up_finding_ids` 或 actionable 集合。
+  展示，不得进入 actionable group。
 - confirmed blocker 数量大于 0 时 verdict 必须为 BLOCK；等于 0 时必须为 PASS。
 - Chair 输出与确定性结果不一致时，Chair 阶段失败关闭。
 - publisher 重新加载全部 specialist、verifier 和 chair JSON，重新校验 schema、binding
   和完整角色集合，重算 consensus，并要求最终 Markdown 与重新渲染结果逐字一致；不能
   只信任 chair 上传的 `PASS`。
 
-上述分类和资格只能使用结构化 severity、finding ID 与显式 verifier status；禁止使用 finding
+publisher 在任何 Issue API 写调用前确定性验证全部 actionable groups。group identity 只使用
+绑定 PR 下的 primary/duplicate finding ID 集合，不使用角色、标题、claim 文案或行号。受保护
+配置 `max_actionable_issue_groups=8`；超过上限时在 label、Issue、Issue comment、close/reopen 或
+managed comment 写入前失败关闭，Issue 侧零副作用，只允许发布失败 status。
+
+上述分类和资格只能使用结构化 severity、finding ID 与 runtime-derived verifier action；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。
 
 这与项目已有审计方法一致：所有 P0/P1/P2/P3 finding 都需要双重独立验证，默认未验证为
@@ -411,11 +441,14 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
 
 ## 验收
 
-- 单元测试覆盖 context 预算、SHA 绑定、role schema、全部 P0-P3 的 cross-review 三态、
-  P2/P3 双 `AGREE` actionable 资格、确定性 verdict、Markdown/mention 中和以及最大规模报告的
+- 单元测试覆盖 context 预算、SHA 绑定、role schema、全部 P0-P3 的结构化 cross-review 推导、
+  P2/P3 双 `AGREE` actionable 资格、primary/duplicate 分组、确定性 verdict、Markdown/mention 中和以及最大规模报告的
   40,000/64,000-byte 评论预算。
-- 负向测试覆盖 Agent 缺失、超时、拒答、非法 JSON、未知 finding、hash 不匹配和 Chair
-  试图新增 blocker、选择非双 `AGREE` P2/P3 或通过文本启发式推导资格。
+- 负向测试覆盖 Agent 缺失、超时、拒答、非法 JSON、未知 finding、hash 不匹配、矛盾
+  `AGREE`、伪造 protected-policy 引用、Chair 试图新增 blocker、选择非双 `AGREE` P2/P3、
+  重复分组或通过文本启发式推导资格。
+- 回归测试覆盖 #265/#266 与 #271/#285 的语义去重、21 个 finding 的 group 上限零副作用失败、
+  以及 previous head 只有测试变更时完整 PR finding/disposition 的稳定性。
 - actionlint、ShellCheck、Python unittest 和 `git diff --check` 通过。
 - Workflow 不 checkout 或执行 PR head。
 - source、fork/未固定身份 bot job 日志和环境中不存在模型 API key 或 App 私钥；受保护运行时
