@@ -1099,7 +1099,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(180_000, defaults["diff_chars"])
         self.assertEqual(180_000, defaults["patch_chars"])
         self.assertEqual(384_000, defaults["assembled_context_chars"])
-        self.assertEqual(48_000, defaults["policy_chars"])
+        self.assertEqual(52_000, defaults["policy_chars"])
         self.assertEqual(60_000, defaults["code_context_chars"])
         self.assertEqual(4_000, defaults["per_file_chars"])
         self.assertEqual(12_000, defaults["full_file_chars"])
@@ -7477,6 +7477,35 @@ class AgentReviewTests(unittest.TestCase):
                 review.RetryableModelOutputError,
                 "max_tokens",
             ),
+        ]
+        with patch.dict("os.environ", model_env("openai-chat-completions"), clear=True):
+            client = review.AgentModelClient(config())
+            for envelope, error_type, message in cases:
+                with self.subTest(message=message):
+                    with patch(
+                        "urllib.request.urlopen",
+                        return_value=FakeModelResponse(json.dumps(envelope).encode()),
+                    ):
+                        with self.assertRaisesRegex(error_type, message):
+                            client.complete("system", "user", 100)
+
+    def test_openai_chat_client_rejects_refusal_tool_calls_and_malformed_envelopes(
+        self,
+    ) -> None:
+        refusal = openai_chat_envelope()
+        refusal["choices"][0]["message"] = {
+            "role": "assistant",
+            "content": None,
+            "refusal": "not permitted",
+        }
+        tool_call = openai_chat_envelope()
+        tool_call["choices"][0]["finish_reason"] = "tool_calls"
+        tool_call["choices"][0]["message"]["tool_calls"] = []
+        malformed = {"object": "chat.completion", "choices": []}
+        cases = [
+            (refusal, review.ReviewError, "refused"),
+            (tool_call, review.ReviewError, "invalid response envelope"),
+            (malformed, review.ReviewError, "invalid response envelope"),
         ]
         with patch.dict("os.environ", model_env("openai-chat-completions"), clear=True):
             client = review.AgentModelClient(config())

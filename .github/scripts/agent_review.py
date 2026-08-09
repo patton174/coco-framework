@@ -358,7 +358,7 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
         "policy_chars": int(
             legacy.get(
                 "policy_chars",
-                context.get("protected_policy_and_specs_limit", 48000),
+                context.get("protected_policy_and_specs_limit", 52000),
             )
         ),
         "intent_chars": int(

@@ -88,7 +88,7 @@ flowchart TD
 2. 先完成物理目录归组，不在同一 PR 中混入 Maven 坐标和 Java 包名变更。
 3. 再按 foundation、Spring 组合层和各 feature 分批重命名、扁平化或合并主实现模块；已发布旧坐标同步转换为 2.x 兼容门面，而不是直接删除。
 4. `coco-samples` 和 Codegen 实现只能在独立步骤移出框架仓库：`coco-admin` 必须先承接等价的端到端验证，`coco-generate` 必须先承接公开 API、模板和生成行为。`coco:generate` 在 2.x 内继续由旧插件兼容，除非版本化迁移规格明确了新入口和双跑等价结果。
-5. 每个 PR 的完整 diff 必须低于 Agent Review 的 `180000` 字符硬上限；必选策略和规格必须完整装入 `48000` 字符预算，不能截断或静默遗漏。
+5. 每个 PR 的完整 diff 必须低于 Agent Review 的 `180000` 字符硬上限；必选策略和规格必须完整装入 `52000` 字符预算，不能截断或静默遗漏。
 6. 每一步都必须通过 JDK 21 下的 Maven verify、release smoke、治理测试和当前 head 的三项合并门禁。
 
 ## 迁移映射
