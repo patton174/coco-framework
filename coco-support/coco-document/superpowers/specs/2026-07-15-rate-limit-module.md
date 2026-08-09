@@ -14,7 +14,7 @@ The module has no implicit global rule. `coco.rate-limit.routes` defines an orde
 
 The default `CocoRateLimitKeyResolver` uses the client IP from `CocoWebRequestSnapshot`; it does not parse forwarding headers itself. Coco Web's trusted-proxy configuration remains the sole authority deciding whether forwarding headers are accepted. Applications can replace the resolver with a Bean only when they can derive a verified application, device, or customer key.
 
-`CocoRateLimitStore` is an atomic SPI. It must perform the count, upper-bound decision, and TTL write in one storage operation. `InMemoryCocoRateLimitStore` is the single-JVM reference implementation: it uses per-key atomic map operations, has bounded active-key capacity, clears expired entries on a scheduled daemon task, and warns whenever instantiated. Multi-instance production deployments must provide a shared store implementation.
+`CocoRateLimitStore` is an atomic SPI. It must perform the count, upper-bound decision, and TTL write in one storage operation. `InMemoryCocoRateLimitStore` is the single-JVM reference implementation: it serializes the complete in-memory operation, has bounded active-key capacity, clears expired entries on a scheduled daemon task, and warns whenever instantiated. Multi-instance production deployments must provide a shared store implementation. Runtime failures from key resolution or storage are propagated to the caller; they are not converted into a normal 429 rate-limit decision.
 
 ## HTTP Contract
 

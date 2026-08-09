@@ -8,10 +8,12 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.LongStream;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -43,6 +45,34 @@ class InMemoryCocoRateLimitStoreTest {
                 assertThat(allowed).isEqualTo(20);
                 assertThat(store.acquire(permit)).isEqualTo(new CocoRateLimitDecision(false, 20, 0,
                         clock.instant().plusSeconds(60), false));
+            }
+            finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    void acquiresAtMostConfiguredActiveKeyLimitUnderConcurrentNewKeys() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(1, 60), clock, false)) {
+            ExecutorService executor = Executors.newFixedThreadPool(16);
+            CountDownLatch start = new CountDownLatch(1);
+            try {
+                List<Future<CocoRateLimitDecision>> results = new ArrayList<>();
+                for (int index = 0; index < 200; index++) {
+                    int key = index;
+                    results.add(executor.submit(() -> {
+                        start.await();
+                        return store.acquire(permit("api", "203.0.113." + key, 1,
+                                clock.instant().plusSeconds(60)));
+                    }));
+                }
+                start.countDown();
+
+                long allowed = results.stream().filter(result -> get(result).allowed()).count();
+                assertThat(allowed).isOne();
+                assertThat(store.size()).isOne();
             }
             finally {
                 executor.shutdownNow();
@@ -108,6 +138,32 @@ class InMemoryCocoRateLimitStoreTest {
     }
 
     @Test
+    void reportsEachRemainingValueExactlyOnceForConcurrentAcquiresOfSameKey() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(1, 60), clock, false)) {
+            ExecutorService executor = Executors.newFixedThreadPool(16);
+            CountDownLatch start = new CountDownLatch(1);
+            try {
+                List<Future<CocoRateLimitDecision>> results = new ArrayList<>();
+                for (int request = 0; request < 100; request++) {
+                    results.add(executor.submit(() -> {
+                        start.await();
+                        return store.acquire(permit("api", "203.0.113.10", 100,
+                                clock.instant().plusSeconds(60)));
+                    }));
+                }
+                start.countDown();
+
+                assertThat(results.stream().map(thisResult -> get(thisResult).remaining()).toList())
+                        .containsExactlyInAnyOrderElementsOf(LongStream.range(0, 100).boxed().toList());
+            }
+            finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     void reusesTheSameKeyAfterItsWindowExpires() {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false)) {
@@ -143,6 +199,50 @@ class InMemoryCocoRateLimitStoreTest {
                 permit("api", "203.0.113.10", 2, clock.instant().plusSeconds(60)));
         assertThat(decision.allowed()).isFalse();
         assertThat(decision.capacityExhausted()).isTrue();
+    }
+
+    @Test
+    void closeTerminatesBackgroundCleanupExecutorAndClearsEntries() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 1), clock, true);
+        store.acquire(permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(60)));
+
+        store.close();
+
+        assertThat(store.cleanupExecutorTerminated()).isTrue();
+        assertThat(store.size()).isZero();
+        store.close();
+        assertThat(store.cleanupExecutorTerminated()).isTrue();
+    }
+
+    @Test
+    void closePreventsConcurrentAcquiresFromMutatingAfterClose() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(1000, 60), clock, false);
+        ExecutorService executor = Executors.newFixedThreadPool(16);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<CocoRateLimitDecision>> results = new ArrayList<>();
+            for (int index = 0; index < 200; index++) {
+                int key = index;
+                results.add(executor.submit(() -> {
+                    start.await();
+                    return store.acquire(permit("api", "203.0.113." + key, 1,
+                            clock.instant().plusSeconds(60)));
+                }));
+            }
+            start.countDown();
+            store.close();
+
+            results.forEach(thisResult -> get(thisResult));
+            assertThat(store.size()).isZero();
+            assertThat(store.acquire(permit("api", "203.0.113.250", 1,
+                    clock.instant().plusSeconds(60))).allowed()).isFalse();
+        }
+        finally {
+            executor.shutdownNow();
+            store.close();
+        }
     }
 
     @Test

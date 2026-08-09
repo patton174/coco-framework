@@ -1,6 +1,7 @@
 package io.github.coco.feature.ratelimit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -59,29 +60,47 @@ class CocoRateLimitRequestHandlerTest {
     }
 
     @Test
-    void failsClosedWhenTrustedKeyResolutionFails() throws Exception {
+    void propagatesTrustedKeyResolutionFailure() {
         Instant now = Instant.parse("2026-07-15T00:00:00Z");
         CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> {
             throw new IllegalStateException("untrusted header");
         });
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThat(handler.handle(route(), request(Locale.US, "en-US"), response)).isFalse();
-        assertThat(response.getStatus()).isEqualTo(429);
-        assertThat(response.getContentAsString()).contains("42900");
+        assertThatThrownBy(() -> handler.handle(route(), request(Locale.US, "en-US"), response))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("untrusted header");
+        assertThat(response.getStatus()).isEqualTo(200);
     }
 
     @Test
-    void failsClosedWhenAProgrammaticRouteUsesAnUnsupportedWindow() throws Exception {
+    void propagatesUnsupportedProgrammaticRouteWindow() {
         Instant now = Instant.parse("2026-07-15T00:00:00Z");
         CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "key"));
         CocoRateLimitRoute route = route();
         route.setWindowSeconds(Long.MAX_VALUE);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThat(handler.handle(route, request(Locale.US, "en-US"), response)).isFalse();
-        assertThat(response.getStatus()).isEqualTo(429);
-        assertThat(response.getHeader("Retry-After")).isEqualTo("1");
+        assertThatThrownBy(() -> handler.handle(route, request(Locale.US, "en-US"), response))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("windowSeconds must be between 1");
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void propagatesRateLimitStoreFailure() {
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        CocoRateLimitRequestHandler handler = handler(now,
+                (snapshot, route) -> new CocoRateLimitKey("api", "key"),
+                permit -> {
+                    throw new IllegalStateException("storage unavailable");
+                });
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThatThrownBy(() -> handler.handle(route(), request(Locale.US, "en-US"), response))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("storage unavailable");
+        assertThat(response.getStatus()).isEqualTo(200);
     }
 
     @Test
@@ -118,8 +137,12 @@ class CocoRateLimitRequestHandlerTest {
         CocoRateLimitProperties.InMemory inMemory = new CocoRateLimitProperties.InMemory();
         inMemory.setMaxEntries(10);
         properties.setInMemory(inMemory);
-        InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties,
-                Clock.fixed(now, ZoneOffset.UTC), false);
+        return handler(now, keyResolver, new InMemoryCocoRateLimitStore(properties,
+                Clock.fixed(now, ZoneOffset.UTC), false));
+    }
+
+    static CocoRateLimitRequestHandler handler(Instant now, CocoRateLimitKeyResolver keyResolver,
+            CocoRateLimitStore store) {
         CocoWebExceptionHandler exceptionHandler = new CocoWebExceptionHandler(new TestMessageService(),
                 (CocoExceptionHttpStatusResolver) exception -> HttpStatus.BAD_REQUEST, new TestSystemCodeProvider());
         return new CocoRateLimitRequestHandler(keyResolver, store, (traceId, request) -> null,

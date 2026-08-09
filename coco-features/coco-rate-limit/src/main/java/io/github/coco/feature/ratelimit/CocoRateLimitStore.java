@@ -14,6 +14,7 @@ public interface CocoRateLimitStore {
      * 原子占用当前窗口的一个配额。
      * @param permit 占用请求
      * @return 占用结果
+     * @throws RuntimeException 存储故障；调用方不得将存储故障伪装为限流拒绝
      */
     CocoRateLimitDecision acquire(CocoRateLimitPermit permit);
 }

@@ -9,7 +9,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -19,8 +18,8 @@ import org.slf4j.LoggerFactory;
 /**
  * 进程内 Coco 限流参考存储。
  * <p>
- * 同一个键通过 {@link ConcurrentHashMap#computeIfPresent(Object, java.util.function.BiFunction)} 原子计数；
- * 新键创建时使用短时容量锁，保证活动键数不超过配置上限。该实现的状态只存在于当前 JVM，启用后会输出多实例风险警告。
+ * 所有窗口计数、容量判断、过期回收和写入都由同一个短时状态锁保护，作为一个原子存储操作完成；
+ * 该实现的状态只存在于当前 JVM，启用后会输出多实例风险警告。
  * </p>
  */
 public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, AutoCloseable {
@@ -33,7 +32,10 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
 
     private final Map<CocoRateLimitKey, Bucket> entries = new ConcurrentHashMap<>();
 
-    private final ReentrantLock capacityLock = new ReentrantLock();
+    /**
+     * 保护整个内存存储操作，确保计数、容量判断和 TTL 写入不会被拆成多个可观察步骤。
+     */
+    private final ReentrantLock stateLock = new ReentrantLock();
 
     private final int maxEntries;
 
@@ -60,7 +62,7 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
                 ? Executors.newSingleThreadScheduledExecutor(new CleanupThreadFactory())
                 : null;
         if (this.cleanupExecutor != null) {
-            this.cleanupExecutor.scheduleWithFixedDelay(() -> removeExpired(this.clock.instant()), cleanupIntervalSeconds,
+            this.cleanupExecutor.scheduleWithFixedDelay(this::cleanupExpired, cleanupIntervalSeconds,
                     cleanupIntervalSeconds, TimeUnit.SECONDS);
         }
         if (CLUSTER_WARNING_LOGGED.compareAndSet(false, true)) {
@@ -71,57 +73,59 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
     @Override
     public CocoRateLimitDecision acquire(CocoRateLimitPermit permit) {
         CocoRateLimitPermit checkedPermit = Objects.requireNonNull(permit, "permit must not be null");
-        Instant now = this.clock.instant();
-        if (this.closed.get() || !checkedPermit.resetAt().isAfter(now)) {
-            return new CocoRateLimitDecision(false, checkedPermit.limit(), 0, checkedPermit.resetAt(), true);
-        }
-        CocoRateLimitDecision existingDecision = acquireExisting(checkedPermit, now);
-        if (existingDecision != null) {
-            return existingDecision;
-        }
-        return acquireNew(checkedPermit, now);
-    }
-
-    private CocoRateLimitDecision acquireExisting(CocoRateLimitPermit permit, Instant now) {
-        AtomicReference<CocoRateLimitDecision> decision = new AtomicReference<>();
-        this.entries.computeIfPresent(permit.key(), (key, bucket) -> {
-            if (!bucket.resetAt().isAfter(now)) {
-                return null;
+        this.stateLock.lock();
+        try {
+            Instant now = this.clock.instant();
+            if (this.closed.get() || !checkedPermit.resetAt().isAfter(now)) {
+                return new CocoRateLimitDecision(false, checkedPermit.limit(), 0, checkedPermit.resetAt(), true);
             }
-            long remaining = Math.max(0, permit.limit() - bucket.count());
-            if (remaining == 0) {
-                decision.set(new CocoRateLimitDecision(false, permit.limit(), 0, bucket.resetAt(), false));
-                return bucket;
-            }
-            long updatedCount = bucket.count() + 1;
-            decision.set(new CocoRateLimitDecision(true, permit.limit(), permit.limit() - updatedCount,
-                    bucket.resetAt(), false));
-            return new Bucket(updatedCount, bucket.resetAt());
-        });
-        return decision.get();
+            removeExpired(now);
+            return acquireNew(checkedPermit, now);
+        }
+        finally {
+            this.stateLock.unlock();
+        }
     }
 
     private CocoRateLimitDecision acquireNew(CocoRateLimitPermit permit, Instant now) {
-        this.capacityLock.lock();
-        try {
-            removeExpired(now);
-            Bucket existing = this.entries.get(permit.key());
-            if (existing != null && existing.resetAt().isAfter(now)) {
-                return acquireExisting(permit, now);
-            }
-            if (this.entries.size() >= this.maxEntries) {
-                return new CocoRateLimitDecision(false, permit.limit(), 0, permit.resetAt(), true);
-            }
-            this.entries.put(permit.key(), new Bucket(1, permit.resetAt()));
-            return new CocoRateLimitDecision(true, permit.limit(), permit.limit() - 1, permit.resetAt(), false);
+        Bucket existing = this.entries.get(permit.key());
+        if (existing != null && existing.resetAt().isAfter(now)) {
+            return acquireExisting(permit, existing);
         }
-        finally {
-            this.capacityLock.unlock();
+        if (this.entries.size() >= this.maxEntries) {
+            return new CocoRateLimitDecision(false, permit.limit(), 0, permit.resetAt(), true);
         }
+        this.entries.put(permit.key(), new Bucket(1, permit.resetAt()));
+        return new CocoRateLimitDecision(true, permit.limit(), permit.limit() - 1, permit.resetAt(), false);
+    }
+
+    private CocoRateLimitDecision acquireExisting(CocoRateLimitPermit permit, Bucket bucket) {
+        long remaining = Math.max(0, permit.limit() - bucket.count());
+        if (remaining == 0) {
+            return new CocoRateLimitDecision(false, permit.limit(), 0, bucket.resetAt(), false);
+        }
+        long updatedCount = bucket.count() + 1;
+        this.entries.put(permit.key(), new Bucket(updatedCount, bucket.resetAt()));
+        return new CocoRateLimitDecision(true, permit.limit(), permit.limit() - updatedCount,
+                bucket.resetAt(), false);
     }
 
     private void removeExpired(Instant now) {
         this.entries.entrySet().removeIf(entry -> !entry.getValue().resetAt().isAfter(now));
+    }
+
+    private void cleanupExpired() {
+        if (this.closed.get() || !this.stateLock.tryLock()) {
+            return;
+        }
+        try {
+            if (!this.closed.get()) {
+                removeExpired(this.clock.instant());
+            }
+        }
+        finally {
+            this.stateLock.unlock();
+        }
     }
 
     int size() {
@@ -134,11 +138,32 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
 
     @Override
     public void close() {
-        this.closed.set(true);
+        this.stateLock.lock();
+        try {
+            if (this.closed.compareAndSet(false, true)) {
+                this.entries.clear();
+            }
+        }
+        finally {
+            this.stateLock.unlock();
+        }
         if (this.cleanupExecutor != null) {
             this.cleanupExecutor.shutdownNow();
+            try {
+                if (!this.cleanupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    LOGGER.warn("Coco rate-limit cleanup executor did not terminate after close");
+                }
+            }
+            catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                LOGGER.warn("Interrupted while waiting for Coco rate-limit cleanup executor to terminate",
+                        exception);
+            }
         }
-        this.entries.clear();
+    }
+
+    boolean cleanupExecutorTerminated() {
+        return this.cleanupExecutor == null || this.cleanupExecutor.isTerminated();
     }
 
     private static int positive(int value, String name) {

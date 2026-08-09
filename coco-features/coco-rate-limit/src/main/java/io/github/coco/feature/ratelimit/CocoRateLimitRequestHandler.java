@@ -61,35 +61,25 @@ public final class CocoRateLimitRequestHandler {
      * @param response 当前响应
      * @return 请求可继续执行时为 {@code true}
      * @throws IOException 响应写出失败时抛出
+     * @throws RuntimeException 路由、请求快照、键解析或限流存储失败时原样抛出
      */
     public boolean handle(CocoRateLimitRoute route, HttpServletRequest request, HttpServletResponse response)
             throws IOException {
         CocoRateLimitRoute checkedRoute = CocoRateLimitRoute.copyOf(
                 Objects.requireNonNull(route, "route must not be null"));
         Instant now = this.clock.instant();
-        Instant resetAt = fallbackResetAt(now);
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
-        try {
-            resetAt = resetAt(now, checkedRoute.getWindowSeconds());
-            CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
-            CocoRateLimitKey key = this.keyResolver.resolve(snapshot, checkedRoute);
-            CocoRateLimitDecision decision = this.store.acquire(
-                    new CocoRateLimitPermit(key, checkedRoute.getLimit(), resetAt));
-            writeRateLimitHeaders(response, decision, now);
-            if (decision.allowed()) {
-                return true;
-            }
-            reject(checkedRoute, traceId, decision, request, response, CocoRateLimitErrorCode.EXCEEDED);
-            return false;
+        Instant resetAt = resetAt(now, checkedRoute.getWindowSeconds());
+        CocoWebRequestSnapshot snapshot = this.requestContextResolver.resolve(traceId, request);
+        CocoRateLimitKey key = this.keyResolver.resolve(snapshot, checkedRoute);
+        CocoRateLimitDecision decision = this.store.acquire(
+                new CocoRateLimitPermit(key, checkedRoute.getLimit(), resetAt));
+        writeRateLimitHeaders(response, decision, now);
+        if (decision.allowed()) {
+            return true;
         }
-        catch (RuntimeException exception) {
-            CocoRateLimitDecision decision = new CocoRateLimitDecision(false, checkedRoute.getLimit(), 0, resetAt, true);
-            writeRateLimitHeaders(response, decision, now);
-            LOGGER.warn("Coco rate-limit failed closed for route={} traceId={}", checkedRoute.getId(), traceId,
-                    exception);
-            reject(checkedRoute, traceId, decision, request, response, CocoRateLimitErrorCode.UNAVAILABLE);
-            return false;
-        }
+        reject(checkedRoute, traceId, decision, request, response, CocoRateLimitErrorCode.EXCEEDED);
+        return false;
     }
 
     private void reject(CocoRateLimitRoute route, String traceId, CocoRateLimitDecision decision,
@@ -139,7 +129,4 @@ public final class CocoRateLimitRequestHandler {
         return Math.addExact(remaining.getSeconds(), remaining.getNano() == 0 ? 0 : 1);
     }
 
-    private static Instant fallbackResetAt(Instant now) {
-        return now.getEpochSecond() < Instant.MAX.getEpochSecond() ? now.plusSeconds(1) : Instant.MAX;
-    }
 }
