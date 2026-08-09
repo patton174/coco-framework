@@ -2387,6 +2387,7 @@ class AgentModelClient:
             or not isinstance(envelope.get("output"), list)
         ):
             raise ReviewError("OpenAI API returned an invalid response envelope.")
+        response_status = envelope["status"]
         text_blocks: list[str] = []
         refused = False
         malformed = False
@@ -2402,12 +2403,16 @@ class AgentModelClient:
                 malformed = True
                 continue
             message_count += 1
-            if isinstance(item.get("status"), str):
-                message_status = item["status"]
+            item_status = item.get("status")
+            if "status" in item and item_status not in {"completed", "incomplete"}:
+                malformed = True
+            message_status = (
+                item_status if isinstance(item_status, str) else response_status
+            )
             content = item.get("content")
             if (
                 item.get("role") != "assistant"
-                or item.get("status") not in {"completed", "incomplete"}
+                or message_status != response_status
                 or not isinstance(content, list)
             ):
                 malformed = True
@@ -2431,7 +2436,7 @@ class AgentModelClient:
             raise ReviewError("OpenAI refused the review.")
         if malformed:
             raise ReviewError("OpenAI API returned an invalid response envelope.")
-        status = envelope["status"]
+        status = response_status
         if envelope.get("error") is not None:
             raise ReviewError("OpenAI API returned an invalid response envelope.")
         if status == "completed":
