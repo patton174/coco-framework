@@ -300,7 +300,11 @@ def raw_verifier_report(role: str, context: dict, finding_ids: list[str]) -> dic
         for finding_id in finding_ids
     ]
     verifications = [
-        {key: value for key, value in entry.items() if key not in {"action", "evidence"}}
+        {
+            key: value
+            for key, value in entry.items()
+            if key not in {"action", "evidence"}
+        }
         for entry in normalized
     ]
     return {
@@ -2342,9 +2346,7 @@ class AgentReviewTests(unittest.TestCase):
         }
         with self.assertRaises(review.ReportShapeError):
             review.validate_chair(chair, consensus, context, set())
-        with self.assertRaisesRegex(
-            review.ReviewError, "ineligible or duplicate"
-        ):
+        with self.assertRaisesRegex(review.ReviewError, "ineligible or duplicate"):
             review.actionable_findings(
                 {"consensus": consensus, "chair": chair}, [specialist]
             )
@@ -2872,7 +2874,9 @@ class AgentReviewTests(unittest.TestCase):
                     98: {
                         **issue(
                             98,
-                            review.finding_issue_marker(60, BASE_SHA, legacy_current_id),
+                            review.finding_issue_marker(
+                                60, BASE_SHA, legacy_current_id
+                            ),
                             "open",
                         ),
                         "user": {"id": 7, "login": "mallory", "type": "User"},
@@ -8611,9 +8615,7 @@ class AgentReviewTests(unittest.TestCase):
 
         path = "coco-support/coco-document/superpowers/specs/removed.md"
         value = config(policy_chars=40_000)
-        value["spec_path_mappings"] = [
-            {"path_globs": [path], "spec_paths": [path]}
-        ]
+        value["spec_path_mappings"] = [{"path_globs": [path], "spec_paths": [path]}]
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             (base / "AGENTS.md").write_text("Policy", encoding="utf-8")
@@ -8648,7 +8650,11 @@ class AgentReviewTests(unittest.TestCase):
             )
         self.assertEqual(
             [path],
-            [item["source"] for item in context["trusted"]["policy"] if item["source"] == path],
+            [
+                item["source"]
+                for item in context["trusted"]["policy"]
+                if item["source"] == path
+            ],
         )
         self.assertNotIn(
             path, [item["source"] for item in context["untrusted"]["code_contexts"]]
@@ -8742,7 +8748,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(
             groups[0]["stable_id"], merge.parse_agent_issue_marker(marker)["finding_id"]
         )
-        legacy = review.finding_issue_marker(60, HEAD_SHA, review.stable_finding_id(original))
+        legacy = review.finding_issue_marker(
+            60, HEAD_SHA, review.stable_finding_id(original)
+        )
         self.assertEqual(
             review.stable_finding_id(original),
             merge.parse_agent_issue_marker(legacy)["finding_id"],
@@ -8782,7 +8790,11 @@ class AgentReviewTests(unittest.TestCase):
 
         findings = []
         for index in range(21):
-            item = {**finding, "id": f"correctness:f{index + 1}", "claim": f"defect {index}"}
+            item = {
+                **finding,
+                "id": f"correctness:f{index + 1}",
+                "claim": f"defect {index}",
+            }
             findings.append(
                 {
                     "stable_id": review.stable_actionable_group_id([item]),
@@ -8981,7 +8993,9 @@ class AgentReviewTests(unittest.TestCase):
                     if mode == "create":
                         self.assertEqual("closed", client.issue["state"])
                     else:
-                        self.assertEqual(client.original["state"], client.issue["state"])
+                        self.assertEqual(
+                            client.original["state"], client.issue["state"]
+                        )
                     self.assertEqual({}, client.comments)
 
         for mode, stale_at in (
