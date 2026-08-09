@@ -80,6 +80,16 @@ RUN_OWNERSHIP_RE = re.compile(
     r"^Agent jury run ([1-9][0-9]*):([1-9][0-9]*) in progress$"
 )
 STABLE_FINDING_ID_RE = re.compile(r"^v1-[0-9a-f]{64}$")
+ACTIONABLE_GROUP_ID_RE = re.compile(r"^v2-[0-9a-f]{64}$")
+SOURCE_FINDING_ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}:f[1-9][0-9]*$")
+REVIEWED_HEAD_RE = re.compile(r"^Reviewed head: `([0-9a-f]{40})`\s*$", re.MULTILINE)
+REVIEW_FINDING_ID_RE = re.compile(
+    r"\(`([a-z][a-z0-9-]{1,48}:f[1-9][0-9]*)`(?:; ([^)]+))?\)"
+)
+SPEC_PATH_PREFIX = "coco-support/coco-document/superpowers/specs/"
+VERIFIER_FACT_FIELDS = ("claim", "severity", "anchor", "trigger", "impact")
+VERIFIER_FACT_VALUES = {"SUPPORTED", "CONTRADICTED", "UNVERIFIED"}
+VERIFIER_SCOPE_VALUES = {"IN_SCOPE", "OUT_OF_SCOPE", "UNVERIFIED"}
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 PATCH_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$")
@@ -153,6 +163,10 @@ class StaleAgentReviewRun(ReviewError):
     """A newer run already owns publication for the same pull request head."""
 
 
+class ActionableIssueGroupLimitError(ReviewError):
+    """Actionable Issue groups exceed the protected zero-side-effect limit."""
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -208,19 +222,48 @@ def retryable_github_lookup_error(
     return isinstance(error, urllib.error.URLError) and retryable_url_error(error)
 
 
-def finding_issue_marker(pr_number: int, first_head_sha: str, finding_id: str) -> str:
+def finding_issue_marker(
+    pr_number: int,
+    first_head_sha: str,
+    finding_id: str,
+    primary_finding_id: str | None = None,
+    duplicate_finding_ids: Iterable[str] = (),
+) -> str:
     if type(pr_number) is not int or pr_number < 1:
         raise ReviewError("Finding issue pull request number is invalid.")
     if not SHA_RE.fullmatch(first_head_sha):
         raise ReviewError("Finding issue first head SHA is invalid.")
-    if not STABLE_FINDING_ID_RE.fullmatch(finding_id):
-        raise ReviewError("Finding issue stable ID is invalid.")
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "pull_request": pr_number,
-        "head_sha": first_head_sha,
-        "finding_id": finding_id,
-    }
+    duplicates = list(duplicate_finding_ids)
+    if primary_finding_id is None:
+        if not STABLE_FINDING_ID_RE.fullmatch(finding_id) or duplicates:
+            raise ReviewError("Finding issue stable ID is invalid.")
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "pull_request": pr_number,
+            "head_sha": first_head_sha,
+            "finding_id": finding_id,
+        }
+    else:
+        if not ACTIONABLE_GROUP_ID_RE.fullmatch(finding_id):
+            raise ReviewError("Finding issue group ID is invalid.")
+        if not isinstance(primary_finding_id, str) or not SOURCE_FINDING_ID_RE.fullmatch(
+            primary_finding_id
+        ):
+            raise ReviewError("Finding issue primary finding ID is invalid.")
+        if any(not isinstance(value, str) for value in duplicates) or (
+            duplicates != sorted(set(duplicates))
+            or primary_finding_id in duplicates
+            or any(not SOURCE_FINDING_ID_RE.fullmatch(value) for value in duplicates)
+        ):
+            raise ReviewError("Finding issue duplicate finding IDs are invalid.")
+        payload = {
+            "schema_version": 2,
+            "pull_request": pr_number,
+            "head_sha": first_head_sha,
+            "group_id": finding_id,
+            "primary_finding_id": primary_finding_id,
+            "duplicate_finding_ids": duplicates,
+        }
     return (
         FINDING_ISSUE_MARKER_PREFIX
         + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -248,29 +291,72 @@ def parse_finding_issue_marker(body: Any) -> dict[str, Any] | None:
         payload = json.loads(encoded)
     except json.JSONDecodeError as exc:
         raise ReviewError("Finding issue marker JSON is invalid.") from exc
-    if not isinstance(payload, dict) or set(payload) != {
-        "schema_version",
-        "pull_request",
-        "head_sha",
-        "finding_id",
-    }:
+    if not isinstance(payload, dict):
         raise ReviewError("Finding issue marker schema is invalid.")
-    if not valid_schema_version(payload.get("schema_version")):
+    version = payload.get("schema_version")
+    if type(version) is not int:
         raise ReviewError("Finding issue marker schema_version is invalid.")
+    expected_fields = (
+        {"schema_version", "pull_request", "head_sha", "finding_id"}
+        if version == 1
+        else {
+            "schema_version",
+            "pull_request",
+            "head_sha",
+            "group_id",
+            "primary_finding_id",
+            "duplicate_finding_ids",
+        }
+        if version == 2
+        else set()
+    )
+    if set(payload) != expected_fields:
+        raise ReviewError("Finding issue marker schema is invalid.")
     pr_number = payload.get("pull_request")
     head_sha = payload.get("head_sha")
-    finding_id = payload.get("finding_id")
     if type(pr_number) is not int or pr_number < 1:
         raise ReviewError("Finding issue marker pull_request is invalid.")
     if not isinstance(head_sha, str) or not SHA_RE.fullmatch(head_sha):
         raise ReviewError("Finding issue marker head_sha is invalid.")
-    if not isinstance(finding_id, str) or not STABLE_FINDING_ID_RE.fullmatch(
-        finding_id
-    ):
-        raise ReviewError("Finding issue marker finding_id is invalid.")
-    if first_line != finding_issue_marker(pr_number, head_sha, finding_id):
+    if version == 1:
+        finding_id = payload.get("finding_id")
+        if not isinstance(finding_id, str) or not STABLE_FINDING_ID_RE.fullmatch(
+            finding_id
+        ):
+            raise ReviewError("Finding issue marker finding_id is invalid.")
+        canonical = finding_issue_marker(pr_number, head_sha, finding_id)
+    else:
+        finding_id = payload.get("group_id")
+        primary = payload.get("primary_finding_id")
+        duplicates = payload.get("duplicate_finding_ids")
+        if not isinstance(duplicates, list):
+            raise ReviewError("Finding issue marker duplicate IDs are invalid.")
+        canonical = finding_issue_marker(
+            pr_number,
+            head_sha,
+            str(finding_id or ""),
+            str(primary or ""),
+            duplicates,
+        )
+    if first_line != canonical:
         raise ReviewError("Finding issue marker is not canonical JSON.")
-    return payload
+    return {**payload, "finding_id": finding_id}
+
+
+def canonical_finding_issue_marker(marker: dict[str, Any]) -> str:
+    if marker.get("schema_version") == 1:
+        return finding_issue_marker(
+            int(marker["pull_request"]),
+            str(marker["head_sha"]),
+            str(marker["finding_id"]),
+        )
+    return finding_issue_marker(
+        int(marker["pull_request"]),
+        str(marker["head_sha"]),
+        str(marker["group_id"]),
+        str(marker["primary_finding_id"]),
+        marker["duplicate_finding_ids"],
+    )
 
 
 def sha256_text(value: str) -> str:
@@ -338,7 +424,15 @@ def load_config(path: Path) -> dict[str, Any]:
             "Agent review managed_comment_marker does not match the publisher contract."
         )
     configured_deferred_bot_authors(config)
+    max_actionable_issue_groups(config)
     return config
+
+
+def max_actionable_issue_groups(config: dict[str, Any]) -> int:
+    value = config.get("max_actionable_issue_groups", 8)
+    if type(value) is not int or not 1 <= value <= 100:
+        raise ReviewError("Agent review max_actionable_issue_groups is invalid.")
+    return value
 
 
 def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
@@ -757,7 +851,7 @@ def collect_policy(
     config: dict[str, Any],
     changed_paths: list[str],
     omissions: list[str],
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     context_config = config.get("context", {})
     paths: list[str] = list(
         context_config.get(
@@ -765,6 +859,7 @@ def collect_policy(
         )
     )
     required_paths = set(paths)
+    protected_paths = set(config.get("protected_policy_paths", paths))
     path_rules = list(context_config.get("path_rules", []))
     path_rules.extend(
         {
@@ -811,7 +906,18 @@ def collect_policy(
                 f"Required trusted policy exceeds the context budget: {relative}"
             )
         clipped = clip_text(content, remaining, f"trusted policy {relative}", omissions)
-        sources.append({"source": str(relative), "content": clipped})
+        sources.append(
+            {
+                "source": str(relative),
+                "trust_domain": (
+                    "protected-policy"
+                    if str(relative) in protected_paths
+                    else "base-spec"
+                ),
+                "line_count": len(content.splitlines()),
+                "content": clipped,
+            }
+        )
         used += len(clipped)
     return sources
 
@@ -847,9 +953,22 @@ def build_code_contexts(
         clipped = clip_text(
             content, min(per_file, remaining), f"code context {source}", omissions
         )
-        item: dict[str, Any] = {"source": source, "kind": kind, "content": clipped}
-        if line_count is not None:
-            item["line_count"] = line_count
+        trust_domain = (
+            "head-proposed-spec"
+            if source.startswith(SPEC_PATH_PREFIX) and kind.startswith("head-file")
+            else "base-spec"
+            if source.startswith(SPEC_PATH_PREFIX)
+            else "head-code"
+            if kind.startswith("head-file")
+            else "base-code"
+        )
+        item: dict[str, Any] = {
+            "source": source,
+            "kind": kind,
+            "trust_domain": trust_domain,
+            "line_count": line_count if line_count is not None else len(content.splitlines()),
+            "content": clipped,
+        }
         contexts.append(item)
         added.add(source)
         used += len(clipped)
@@ -1212,6 +1331,153 @@ def pull_request_diff(
     return diff_bytes.decode("utf-8", errors="replace")
 
 
+def previous_review_dispositions(body: str) -> list[dict[str, str]]:
+    dispositions: dict[str, str] = {}
+    section = ""
+    for line in body.splitlines():
+        if line.startswith("#### "):
+            section = line[5:].strip()
+            continue
+        match = REVIEW_FINDING_ID_RE.search(line)
+        if match is None:
+            continue
+        finding_id = match.group(1)
+        disposition = str(match.group(2) or "").strip()
+        if not disposition and ") - " in line:
+            disposition = line.split(") - ", 1)[1].split(";", 1)[0].strip()
+        if not disposition and section == "Confirmed Blockers":
+            disposition = "confirmed blocker"
+        if not disposition and section == "Challenged or unverified claims":
+            disposition = "challenged or unverified"
+        if disposition:
+            dispositions.setdefault(finding_id, disposition)
+    return [
+        {"finding_id": finding_id, "disposition": dispositions[finding_id]}
+        for finding_id in sorted(dispositions)
+    ]
+
+
+def test_only_delta(paths: Iterable[str]) -> bool:
+    values = list(paths)
+    return bool(values) and all(
+        "/src/test/" in f"/{path}"
+        or path.startswith(".github/scripts/test_")
+        or re.search(r"(?:Test|Tests)\.(?:java|kt)$", path) is not None
+        for path in values
+    )
+
+
+def previous_review_context(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    current_head_sha: str,
+    expected_app_login: str,
+    expected_app_bot_id: int,
+    omissions: list[str],
+) -> dict[str, Any] | None:
+    previous = managed_comment(
+        client,
+        repository,
+        pr_number,
+        expected_app_login,
+        expected_app_bot_id,
+    )
+    if previous is None:
+        return None
+    body = str(previous.get("body") or "")
+    matches = REVIEWED_HEAD_RE.findall(body)
+    if len(matches) != 1:
+        omissions.append("previous managed review has no unique reviewed head")
+        return None
+    previous_head_sha = matches[0]
+    delta: dict[str, Any]
+    if previous_head_sha == current_head_sha:
+        delta = {
+            "status": "identical",
+            "ahead_by": 0,
+            "behind_by": 0,
+            "total_commits": 0,
+            "test_only": False,
+            "files": [],
+        }
+    else:
+        try:
+            comparison = client.get_json(
+                f"repos/{repository}/compare/{previous_head_sha}...{current_head_sha}"
+            )
+        except (GitHubNotFoundError, GitHubTransientError) as exc:
+            omissions.append(
+                "previous review delta unavailable: " + normalized_inline_text(exc)
+            )
+            return None
+        if not isinstance(comparison, dict):
+            raise ReviewError("Previous review comparison is invalid.")
+        status = comparison.get("status")
+        ahead_by = comparison.get("ahead_by")
+        behind_by = comparison.get("behind_by")
+        total_commits = comparison.get("total_commits")
+        files = comparison.get("files")
+        if (
+            status not in {"ahead", "behind", "diverged", "identical"}
+            or type(ahead_by) is not int
+            or ahead_by < 0
+            or type(behind_by) is not int
+            or behind_by < 0
+            or type(total_commits) is not int
+            or total_commits < 0
+            or not isinstance(files, list)
+            or len(files) > MAX_RAW_DIFF_FILES
+        ):
+            raise ReviewError("Previous review comparison metadata is invalid.")
+        delta_files: list[dict[str, Any]] = []
+        for entry in files:
+            if not isinstance(entry, dict):
+                raise ReviewError("Previous review comparison file is invalid.")
+            filename = validated_pull_file_path(
+                entry.get("filename"), "previous review delta file"
+            )
+            file_status = entry.get("status")
+            additions = entry.get("additions")
+            deletions = entry.get("deletions")
+            changes = entry.get("changes")
+            if (
+                file_status not in PULL_FILE_STATUSES
+                or type(additions) is not int
+                or additions < 0
+                or type(deletions) is not int
+                or deletions < 0
+                or type(changes) is not int
+                or changes < 0
+                or changes != additions + deletions
+            ):
+                raise ReviewError("Previous review comparison file metadata is invalid.")
+            delta_files.append(
+                {
+                    "filename": filename,
+                    "status": file_status,
+                    "additions": additions,
+                    "deletions": deletions,
+                    "changes": changes,
+                }
+            )
+        delta = {
+            "status": status,
+            "ahead_by": ahead_by,
+            "behind_by": behind_by,
+            "total_commits": total_commits,
+            "test_only": test_only_delta(
+                item["filename"] for item in delta_files
+            ),
+            "files": delta_files,
+        }
+    return {
+        "reviewed_head_sha": previous_head_sha,
+        "delta": delta,
+        "dispositions": previous_review_dispositions(body),
+    }
+
+
 def current_maintainer_approval(
     client: GitHubClient,
     repository: str,
@@ -1250,6 +1516,8 @@ def build_context(
     base_root: Path,
     config: dict[str, Any],
     model_config_sha256: str,
+    expected_app_login: str = "",
+    expected_app_bot_id: int = 0,
 ) -> dict[str, Any]:
     if not re.fullmatch(r"[0-9a-f]{64}", model_config_sha256):
         raise ReviewError("Agent model configuration digest is invalid.")
@@ -1304,6 +1572,17 @@ def build_context(
         config,
         omissions,
     )
+    previous_context = None
+    if expected_app_login and expected_app_bot_id > 0:
+        previous_context = previous_review_context(
+            client,
+            repository,
+            int(pr["number"]),
+            str(pr["head"]["sha"]),
+            expected_app_login,
+            expected_app_bot_id,
+            omissions,
+        )
     manifest = [
         {
             "filename": str(entry.get("filename", "")),
@@ -1339,6 +1618,7 @@ def build_context(
             "diff_source": diff_source,
             "diff": complete_diff,
             "code_contexts": code_contexts,
+            "previous_review": previous_context,
         },
         "omissions": omissions,
     }
@@ -2110,6 +2390,8 @@ def command_prepare(args: argparse.Namespace) -> int:
             args.base_root,
             config,
             model_config_sha,
+            trusted_app_login,
+            trusted_app_bot_id,
         )
         latest = github_get_json_with_retry(
             client,
@@ -2827,7 +3109,8 @@ def prompt_text(root: Path, name: str, configured_path: str | None = None) -> st
 def trusted_policy_text(context: dict[str, Any]) -> str:
     sources = context.get("trusted", {}).get("policy", [])
     return "\n\n".join(
-        f"### Source: {item['source']}\n{item['content']}"
+        f"### Source [{item.get('trust_domain', 'unclassified')}]: "
+        f"{item['source']}\n{item['content']}"
         for item in sources
         if isinstance(item, dict) and item.get("source") and item.get("content")
     )
@@ -2854,6 +3137,144 @@ def context_file_set(context: dict[str, Any]) -> set[str]:
         if isinstance(item, dict)
     )
     return {path for path in paths if path}
+
+
+def context_evidence_sources(context: dict[str, Any]) -> dict[tuple[str, str], set[int]]:
+    result: dict[tuple[str, str], set[int]] = {}
+    collections = (
+        (context.get("trusted", {}).get("policy", []), True),
+        (context.get("untrusted", {}).get("code_contexts", []), False),
+    )
+    for collection, is_policy in collections:
+        if not isinstance(collection, list):
+            raise ReportShapeError("Agent context evidence sources are invalid.")
+        for item in collection:
+            if not isinstance(item, dict):
+                raise ReportShapeError("Agent context evidence source is invalid.")
+            domain = item.get("trust_domain")
+            path = item.get("source")
+            line_count = item.get("line_count")
+            content = item.get("content")
+            if (
+                domain
+                not in {
+                    "protected-policy",
+                    "base-spec",
+                    "head-proposed-spec",
+                    "head-code",
+                    "base-code",
+                }
+                or not isinstance(path, str)
+                or not path
+                or type(line_count) is not int
+                or line_count < 1
+                or not isinstance(content, str)
+                or not content
+            ):
+                raise ReportShapeError("Agent context evidence source is incomplete.")
+            key = (domain, path)
+            if key in result:
+                raise ReportShapeError("Agent context evidence source is duplicated.")
+            if is_policy:
+                available_lines = set(range(1, len(content.splitlines()) + 1))
+            else:
+                available_lines = {
+                    int(match.group(1))
+                    for line in content.splitlines()
+                    if (match := re.match(r"^\s*([1-9][0-9]*) ", line))
+                }
+                if "[context clipped by trusted builder]" in content and available_lines:
+                    available_lines.discard(max(available_lines))
+            if not available_lines or max(available_lines) > line_count:
+                raise ReportShapeError("Agent context evidence line coverage is invalid.")
+            result[key] = available_lines
+    return result
+
+
+def validate_evidence_refs(
+    value: Any, context: dict[str, Any], role: str
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > 12:
+        raise ReportShapeError(
+            f"Cross-review {role} evidence_refs must be a bounded array."
+        )
+    sources = context_evidence_sources(context)
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for reference in value:
+        if not isinstance(reference, dict):
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference must be an object."
+            )
+        require_exact_fields(
+            reference,
+            {"trust_domain", "path", "start_line", "end_line"},
+            f"Cross-review {role} evidence reference",
+        )
+        domain = reference.get("trust_domain")
+        path = reference.get("path")
+        start = reference.get("start_line")
+        end = reference.get("end_line")
+        if not isinstance(domain, str) or not isinstance(path, str) or not path:
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference source is invalid."
+            )
+        available_lines = sources.get((domain, path))
+        if (
+            available_lines is None
+            or type(start) is not int
+            or type(end) is not int
+            or start < 1
+            or end < start
+            or end - start > 500
+            or any(line not in available_lines for line in range(start, end + 1))
+        ):
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference does not resolve to its protected context."
+            )
+        item = {
+            "trust_domain": domain,
+            "path": path,
+            "start_line": start,
+            "end_line": end,
+        }
+        identity = canonical_json(item)
+        if identity in seen:
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference is duplicated."
+            )
+        seen.add(identity)
+        normalized.append(item)
+    return normalized
+
+
+def derive_verifier_action(
+    checks: dict[str, str], evidence_refs: list[dict[str, Any]]
+) -> str:
+    if any(checks[field] == "CONTRADICTED" for field in VERIFIER_FACT_FIELDS) or (
+        checks["change_scope"] == "OUT_OF_SCOPE"
+    ):
+        if not evidence_refs:
+            raise ReportShapeError(
+                "Cross-review disagreement requires structured counter-evidence."
+            )
+        return "DISAGREE"
+    if (
+        all(checks[field] == "SUPPORTED" for field in VERIFIER_FACT_FIELDS)
+        and checks["change_scope"] == "IN_SCOPE"
+        and evidence_refs
+    ):
+        return "AGREE"
+    return "UNVERIFIED"
+
+
+def evidence_reference_summary(references: list[dict[str, Any]]) -> str:
+    if not references:
+        return "No resolved evidence reference was supplied."
+    return "; ".join(
+        f"{item['trust_domain']}:{item['path']}#L{item['start_line']}-L{item['end_line']}"
+        for item in references
+    )
 
 
 def require_string(value: Any, field: str, minimum: int = 1) -> str:
@@ -3169,13 +3590,37 @@ def _validate_cross_report_contract(
         if raw_schema:
             require_report_fields(
                 review,
-                {"finding_id", "status", "reason", "evidence", "verification"},
+                {
+                    "finding_id",
+                    "claim",
+                    "severity",
+                    "anchor",
+                    "trigger",
+                    "impact",
+                    "change_scope",
+                    "evidence_refs",
+                    "reason",
+                    "verification",
+                },
                 f"Cross-review {role} verification",
             )
         else:
             require_report_fields(
                 review,
-                {"finding_id", "action", "reason", "evidence", "verification"},
+                {
+                    "finding_id",
+                    "action",
+                    "claim",
+                    "severity",
+                    "anchor",
+                    "trigger",
+                    "impact",
+                    "change_scope",
+                    "evidence_refs",
+                    "reason",
+                    "evidence",
+                    "verification",
+                },
                 f"Cross-review {role} verification",
             )
         finding_id = require_string(review.get("finding_id"), "finding_id")
@@ -3184,22 +3629,49 @@ def _validate_cross_report_contract(
                 f"Cross-review {role} referenced an unknown or duplicate finding."
             )
         seen.add(finding_id)
-        action = review.get("status") if raw_schema else review.get("action")
-        if not isinstance(action, str) or action not in {
-            "AGREE",
-            "DISAGREE",
-            "UNVERIFIED",
-        }:
-            raise ReportShapeError(f"Cross-review {role} returned an invalid action.")
-        evidence = require_string(review.get("evidence"), "evidence", 8)
+        checks: dict[str, str] = {}
+        for field in VERIFIER_FACT_FIELDS:
+            value = review.get(field)
+            if not isinstance(value, str) or value not in VERIFIER_FACT_VALUES:
+                raise ReportShapeError(
+                    f"Cross-review {role} returned an invalid {field} check."
+                )
+            checks[field] = value
+        change_scope = review.get("change_scope")
+        if (
+            not isinstance(change_scope, str)
+            or change_scope not in VERIFIER_SCOPE_VALUES
+        ):
+            raise ReportShapeError(
+                f"Cross-review {role} returned an invalid change_scope check."
+            )
+        checks["change_scope"] = change_scope
+        evidence_refs = validate_evidence_refs(
+            review.get("evidence_refs"), context, role
+        )
+        action = derive_verifier_action(checks, evidence_refs)
+        if not raw_schema:
+            if review.get("action") != action:
+                raise ReportShapeError(
+                    f"Cross-review {role} action contradicts its structured checks."
+                )
+            expected_evidence = evidence_reference_summary(evidence_refs)
+            if review.get("evidence") != expected_evidence:
+                raise ReportShapeError(
+                    f"Cross-review {role} evidence summary is not deterministic."
+                )
+        else:
+            expected_evidence = evidence_reference_summary(evidence_refs)
         reason = require_string(review.get("reason"), "reason", 8)
         verification = require_string(review.get("verification"), "verification", 8)
         normalized.append(
             {
                 "finding_id": finding_id,
                 "action": action,
+                **checks,
+                "evidence_refs": evidence_refs,
                 "reason": reason,
-                "evidence": evidence,
+                "evidence": expected_evidence,
                 "verification": verification,
             }
         )
@@ -3349,6 +3821,22 @@ def confirmed_finding_ids(consensus: dict[str, Any], severities: set[str]) -> se
     return result
 
 
+def chair_group_member_ids(chair: dict[str, Any]) -> set[str]:
+    groups = chair.get("actionable_groups")
+    if not isinstance(groups, list):
+        raise ReviewError("Chair actionable groups are invalid.")
+    return {
+        finding_id
+        for group in groups
+        if isinstance(group, dict)
+        for finding_id in [
+            group.get("primary_finding_id"),
+            *(group.get("duplicate_finding_ids") or []),
+        ]
+        if isinstance(finding_id, str)
+    }
+
+
 def validate_chair(
     chair: dict[str, Any],
     consensus: dict[str, Any],
@@ -3376,7 +3864,7 @@ def _validate_chair_contract(
             "verdict",
             "summary",
             "confirmed_blocker_ids",
-            "follow_up_finding_ids",
+            "actionable_groups",
             "questions",
         },
         "Chair report",
@@ -3395,20 +3883,67 @@ def _validate_chair_contract(
     if chair.get("verdict") != expected:
         raise ReportShapeError("Chair verdict contradicts deterministic consensus.")
     require_string(chair.get("summary"), "summary", 8)
-    for field in ("follow_up_finding_ids", "questions"):
-        values = chair.get(field)
-        if not isinstance(values, list) or any(
-            not isinstance(value, str) or not value.strip() for value in values
-        ):
-            raise ReportShapeError(f"Chair field {field} must be a string array.")
+    questions = chair.get("questions")
+    if not isinstance(questions, list) or any(
+        not isinstance(value, str) or not value.strip() for value in questions
+    ):
+        raise ReportShapeError("Chair field questions must be a string array.")
     if len(chair["questions"]) > max_questions:
         raise ReportShapeError("Chair returned too many questions.")
-    if allowed_followups is not None and not set(
-        chair["follow_up_finding_ids"]
-    ).issubset(allowed_followups):
-        raise ReportShapeError(
-            "Chair referenced an unknown or blocking finding as follow-up work."
+    groups = chair.get("actionable_groups")
+    if not isinstance(groups, list):
+        raise ReportShapeError("Chair actionable_groups must be an array.")
+    confirmed_items = {
+        str(item["finding"]["id"]): item["finding"]
+        for item in consensus.get("confirmed", [])
+        if isinstance(item, dict) and isinstance(item.get("finding"), dict)
+    }
+    eligible_followups = confirmed_finding_ids(consensus, {"P2", "P3"})
+    if allowed_followups is not None:
+        eligible_followups &= allowed_followups
+    allowed_ids = set(confirmed) | eligible_followups
+    seen: set[str] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            raise ReportShapeError("Chair actionable group must be an object.")
+        require_exact_fields(
+            group,
+            {"primary_finding_id", "duplicate_finding_ids"},
+            "Chair actionable group",
         )
+        primary = group.get("primary_finding_id")
+        duplicates = group.get("duplicate_finding_ids")
+        if (
+            not isinstance(primary, str)
+            or not SOURCE_FINDING_ID_RE.fullmatch(primary)
+            or not isinstance(duplicates, list)
+            or any(not isinstance(value, str) for value in duplicates)
+            or duplicates != sorted(set(duplicates))
+            or primary in duplicates
+        ):
+            raise ReportShapeError("Chair actionable group IDs are invalid.")
+        members = [primary, *duplicates]
+        if any(
+            not SOURCE_FINDING_ID_RE.fullmatch(value)
+            or value not in allowed_ids
+            or value in seen
+            for value in members
+        ):
+            raise ReportShapeError(
+                "Chair actionable group references an ineligible or duplicate finding."
+            )
+        kinds = {
+            "confirmed-blocker" if value in confirmed else "follow-up"
+            for value in members
+        }
+        severities = {confirmed_items[value]["severity"] for value in members}
+        if len(kinds) != 1 or len(severities) != 1:
+            raise ReportShapeError(
+                "Chair actionable group mixes finding kinds or severities."
+            )
+        seen.update(members)
+    if not set(confirmed).issubset(seen):
+        raise ReportShapeError("Chair omitted a confirmed blocker from actionable groups.")
 
 
 def utf8_size(value: str) -> int:
@@ -3494,7 +4029,9 @@ def compact_review(
     chair: dict[str, Any],
 ) -> str:
     binding = context["binding"]
-    selected_followup_ids = set(chair.get("follow_up_finding_ids", []))
+    selected_followup_ids = chair_group_member_ids(chair) - confirmed_finding_ids(
+        consensus, {"P0", "P1"}
+    )
     consensus_items = {
         str(item["finding"]["id"]): (state, item)
         for state in ("confirmed", "challenged", "unverified")
@@ -3598,7 +4135,9 @@ def render_review(
     binding = context["binding"]
     confirmed_blocker_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
     eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
-    selected_followup_ids = set(chair.get("follow_up_finding_ids", []))
+    selected_followup_ids = chair_group_member_ids(chair) - confirmed_finding_ids(
+        consensus, {"P0", "P1"}
+    )
     consensus_state = {
         str(item["finding"]["id"]): state
         for state in ("confirmed", "challenged", "unverified")
@@ -4019,6 +4558,18 @@ def stable_finding_id(finding: dict[str, Any]) -> str:
     return "v1-" + sha256_text(canonical_json(material))
 
 
+def stable_actionable_group_id(finding_ids: Iterable[str]) -> str:
+    values = list(finding_ids)
+    if not values or any(not isinstance(value, str) for value in values):
+        raise ReviewError("Actionable group source IDs are invalid.")
+    members = sorted(set(values))
+    if any(not SOURCE_FINDING_ID_RE.fullmatch(value) for value in members):
+        raise ReviewError("Actionable group source IDs are invalid.")
+    return "v2-" + sha256_text(
+        canonical_json({"schema_version": 2, "finding_ids": members})
+    )
+
+
 def actionable_findings(
     final: dict[str, Any], specialist_reports: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -4038,43 +4589,60 @@ def actionable_findings(
         raise ReviewError("Final jury artifact cannot select actionable findings.")
     confirmed_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
     eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
-    followup_ids = chair.get("follow_up_finding_ids")
-    if not isinstance(followup_ids, list) or any(
-        not isinstance(value, str) or not value for value in followup_ids
-    ):
-        raise ReviewError("Chair follow-up finding IDs are invalid.")
-    selected_followup_ids = set(followup_ids)
-    if not selected_followup_ids.issubset(eligible_followup_ids):
-        raise ReviewError(
-            "Chair selected a follow-up finding without dual-verifier confirmation."
-        )
-    selected_ids = confirmed_ids | selected_followup_ids
-
+    groups = chair.get("actionable_groups")
+    if not isinstance(groups, list):
+        raise ReviewError("Chair actionable groups are invalid.")
     result: list[dict[str, Any]] = []
-    stable_ids: dict[str, str] = {}
-    for source_id in sorted(selected_ids):
-        finding = by_source_id.get(source_id)
-        if finding is None:
-            raise ReviewError(
-                "Actionable finding references an unknown source finding."
+    grouped_ids: set[str] = set()
+    stable_ids: set[str] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            raise ReviewError("Chair actionable group is invalid.")
+        primary = group.get("primary_finding_id")
+        duplicates = group.get("duplicate_finding_ids")
+        if not isinstance(primary, str) or not isinstance(duplicates, list):
+            raise ReviewError("Chair actionable group IDs are invalid.")
+        source_ids = [primary, *duplicates]
+        if (
+            any(not isinstance(value, str) for value in source_ids)
+            or len(source_ids) != len(set(source_ids))
+            or any(value in grouped_ids for value in source_ids)
+            or any(
+                value not in confirmed_ids and value not in eligible_followup_ids
+                for value in source_ids
             )
-        stable_id = stable_finding_id(finding)
-        duplicate = stable_ids.get(stable_id)
-        if duplicate is not None:
+        ):
             raise ReviewError(
-                f"Actionable findings {duplicate} and {source_id} have the same stable identity."
+                "Chair actionable group references an ineligible or duplicate finding."
             )
-        stable_ids[stable_id] = source_id
+        findings = [by_source_id.get(source_id) for source_id in source_ids]
+        if any(finding is None for finding in findings):
+            raise ReviewError(
+                "Actionable group references an unknown source finding."
+            )
+        stable_id = stable_actionable_group_id(source_ids)
+        if stable_id in stable_ids:
+            raise ReviewError("Actionable group identity is duplicated.")
+        stable_ids.add(stable_id)
+        grouped_ids.update(source_ids)
+        primary_finding = findings[0]
+        if not isinstance(primary_finding, dict):
+            raise ReviewError("Actionable group primary finding is invalid.")
         result.append(
             {
                 "stable_id": stable_id,
-                "source_id": source_id,
+                "source_id": primary,
+                "source_ids": source_ids,
+                "duplicate_source_ids": duplicates,
                 "kind": "confirmed-blocker"
-                if source_id in confirmed_ids
+                if primary in confirmed_ids
                 else "follow-up",
-                "finding": finding,
+                "finding": primary_finding,
+                "duplicate_findings": findings[1:],
             }
         )
+    if not confirmed_ids.issubset(grouped_ids):
+        raise ReviewError("Chair omitted a confirmed blocker from actionable groups.")
     return result
 
 
@@ -4116,14 +4684,30 @@ def finding_issue_body(
         else "Chair-selected follow-up"
     )
     lines = [
-        finding_issue_marker(pr_number, first_head_sha, stable_id),
+        finding_issue_marker(
+            pr_number,
+            first_head_sha,
+            stable_id,
+            str(actionable["source_id"]),
+            actionable.get("duplicate_source_ids", []),
+        ),
         "## Agent review finding",
         "",
         f"- Pull request: [#{pr_number}]({repository_url}/pull/{pr_number})",
         f"- First observed head: [`{first_head_sha}`]({repository_url}/commit/{first_head_sha})",
         f"- Latest reviewed head: [`{current_head_sha}`]({repository_url}/commit/{current_head_sha})",
-        f"- Source finding: `{markdown_code(actionable['source_id'], 120)}`",
-        f"- Stable finding ID: `{stable_id}`",
+        f"- Primary finding: `{markdown_code(actionable['source_id'], 120)}`",
+        (
+            "- Duplicate findings: "
+            + (
+                ", ".join(
+                    f"`{markdown_code(value, 120)}`"
+                    for value in actionable.get("duplicate_source_ids", [])
+                )
+                or "None."
+            )
+        ),
+        f"- Stable group ID: `{stable_id}`",
         f"- Disposition: **{disposition}**",
         f"- Severity: **{markdown_text(finding['severity'])}**",
         f"- Category: `{markdown_code(finding['category'], 120)}`",
@@ -4264,12 +4848,7 @@ def verify_finding_issue(
     marker = parse_finding_issue_marker(body)
     if (
         marker is None
-        or finding_issue_marker(
-            int(marker["pull_request"]),
-            str(marker["head_sha"]),
-            str(marker["finding_id"]),
-        )
-        != expected_marker
+        or canonical_finding_issue_marker(marker) != expected_marker
     ):
         raise ReviewError(
             "Agent review finding issue marker changed during publication."
@@ -4292,7 +4871,15 @@ def synchronize_finding_issues(
     run_url: str,
     server_url: str,
     require_current_pr: Callable[[], dict[str, Any]],
+    max_groups: int = 8,
 ) -> list[dict[str, Any]]:
+    if type(max_groups) is not int or max_groups < 1:
+        raise ReviewError("Actionable Issue group limit is invalid.")
+    if len(findings) > max_groups:
+        raise ActionableIssueGroupLimitError(
+            f"Agent review produced {len(findings)} actionable Issue groups; "
+            f"the protected limit is {max_groups}."
+        )
     existing = app_finding_issues(
         client, repository, pr_number, expected_login, expected_bot_id
     )
@@ -4303,13 +4890,27 @@ def synchronize_finding_issues(
 
     for stable_id, actionable in sorted(selected.items()):
         previous = existing.get(stable_id)
+        legacy_id = stable_finding_id(actionable["finding"])
+        legacy = existing.get(legacy_id)
+        if previous is not None and legacy is not None:
+            raise ReviewError(
+                "Both v1 and v2 Agent review issues bind one actionable group."
+            )
+        if previous is None and legacy is not None:
+            previous = existing.pop(legacy_id)
         first_head_sha = head_sha
         if previous is not None:
             marker = parse_finding_issue_marker(previous.get("body"))
             if marker is None:
                 raise ReviewError("Existing Agent review issue lost its marker.")
             first_head_sha = str(marker["head_sha"])
-        marker_line = finding_issue_marker(pr_number, first_head_sha, stable_id)
+        marker_line = finding_issue_marker(
+            pr_number,
+            first_head_sha,
+            stable_id,
+            str(actionable["source_id"]),
+            actionable.get("duplicate_source_ids", []),
+        )
         labels = issue_label_names(previous or {}) | {FINDING_ISSUE_LABEL}
         payload = {
             "title": issue_title(actionable),
@@ -4775,6 +5376,7 @@ def command_publish(args: argparse.Namespace) -> int:
         )
         artifact_valid = False
         selected_findings: list[dict[str, Any]] = []
+        actionable_group_limit = 8
         required_paths = (
             args.config,
             args.context,
@@ -4786,6 +5388,7 @@ def command_publish(args: argparse.Namespace) -> int:
         if all(path.exists() for path in required_paths):
             try:
                 config = deferred_config or load_config(args.config)
+                actionable_group_limit = max_actionable_issue_groups(config)
                 context = read_json(args.context)
                 validate_context(context)
                 binding = context["binding"]
@@ -4917,6 +5520,7 @@ def command_publish(args: argparse.Namespace) -> int:
                 args.run_url,
                 server_url,
                 require_publishable_binding,
+                actionable_group_limit,
             )
             review_body = append_finding_issue_summary(
                 review_body, synchronized, repository, server_url

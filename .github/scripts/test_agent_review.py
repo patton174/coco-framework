@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import agent_issue_gate as issue_gate
 import agent_review as review
+import auto_merge as merge
 
 
 BASE_SHA = "a" * 40
@@ -62,6 +63,7 @@ def config(**limit_overrides: int) -> dict:
     limits.update(limit_overrides)
     return {
         "schema_version": 1,
+        "max_actionable_issue_groups": 8,
         "limits": limits,
         "context": {"always": ["AGENTS.md"], "path_rules": []},
         "specialists": [
@@ -174,7 +176,14 @@ def bound_context() -> dict:
                 "context_sha256": "",
             },
             "trusted": {
-                "policy": [{"source": "AGENTS.md", "content": "Policy"}],
+                "policy": [
+                    {
+                        "source": "AGENTS.md",
+                        "trust_domain": "protected-policy",
+                        "line_count": 1,
+                        "content": "Policy",
+                    }
+                ],
                 "module_map": [],
             },
             "untrusted": {
@@ -185,6 +194,8 @@ def bound_context() -> dict:
                     {
                         "source": "src/Foo.java",
                         "kind": "head-file",
+                        "trust_domain": "head-code",
+                        "line_count": 1,
                         "content": "     1 class Foo {}",
                     }
                 ],
@@ -230,6 +241,23 @@ def verifier_report(
     confidence: int = 5,
 ) -> dict:
     del confidence
+    fact_values = {
+        "AGREE": "SUPPORTED",
+        "DISAGREE": "CONTRADICTED",
+        "UNVERIFIED": "UNVERIFIED",
+    }
+    evidence_refs = (
+        []
+        if action == "UNVERIFIED"
+        else [
+            {
+                "trust_domain": "head-code",
+                "path": "src/Foo.java",
+                "start_line": 1,
+                "end_line": 1,
+            }
+        ]
+    )
     return {
         "schema_version": 1,
         "role": role,
@@ -241,8 +269,15 @@ def verifier_report(
             {
                 "finding_id": finding_id,
                 "action": action,
+                "claim": fact_values[action],
+                "severity": "SUPPORTED",
+                "anchor": "SUPPORTED",
+                "trigger": "SUPPORTED",
+                "impact": "SUPPORTED",
+                "change_scope": "IN_SCOPE",
+                "evidence_refs": evidence_refs,
                 "reason": "The cited code and policy support this disposition.",
-                "evidence": "The cited code and policy support this disposition.",
+                "evidence": review.evidence_reference_summary(evidence_refs),
                 "verification": "Inspect the cited branch and exercise the stated trigger.",
             }
         ],
@@ -2043,9 +2078,21 @@ class AgentReviewTests(unittest.TestCase):
             "verifications": [
                 {
                     "finding_id": finding_id,
-                    "status": "AGREE",
+                    "claim": "SUPPORTED",
+                    "severity": "SUPPORTED",
+                    "anchor": "SUPPORTED",
+                    "trigger": "SUPPORTED",
+                    "impact": "SUPPORTED",
+                    "change_scope": "IN_SCOPE",
+                    "evidence_refs": [
+                        {
+                            "trust_domain": "head-code",
+                            "path": "src/Foo.java",
+                            "start_line": 1,
+                            "end_line": 1,
+                        }
+                    ],
                     "reason": "The claim follows from the cited branch.",
-                    "evidence": "Line 1 returns the value described by the finding.",
                     "verification": "Exercise the cited branch with the stated input.",
                 }
             ],
@@ -2135,9 +2182,21 @@ class AgentReviewTests(unittest.TestCase):
                 "verifications": [
                     {
                         "finding_id": finding_id,
-                        "status": "AGREE",
+                        "claim": "SUPPORTED",
+                        "severity": "SUPPORTED",
+                        "anchor": "SUPPORTED",
+                        "trigger": "SUPPORTED",
+                        "impact": "SUPPORTED",
+                        "change_scope": "IN_SCOPE",
+                        "evidence_refs": [
+                            {
+                                "trust_domain": "head-code",
+                                "path": "src/Foo.java",
+                                "start_line": 1,
+                                "end_line": 1,
+                            }
+                        ],
                         "reason": "The cited code supports the low-severity claim.",
-                        "evidence": "The changed branch matches the reported behavior.",
                         "verification": "Exercise the cited P3 trigger in a focused test.",
                     }
                 ],
@@ -2205,7 +2264,9 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "PASS",
             "confirmed_blocker_ids": [],
             "summary": "No independently verified blockers remain.",
-            "follow_up_finding_ids": [finding_id],
+            "actionable_groups": [
+                {"primary_finding_id": finding_id, "duplicate_finding_ids": []}
+            ],
             "questions": [],
         }
         review.validate_chair(chair, consensus, context, {finding_id})
@@ -2280,13 +2341,18 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "PASS",
             "confirmed_blocker_ids": [],
             "summary": "No independently verified blockers remain.",
-            "follow_up_finding_ids": [finding["id"]],
+            "actionable_groups": [
+                {
+                    "primary_finding_id": finding["id"],
+                    "duplicate_finding_ids": [],
+                }
+            ],
             "questions": [],
         }
         with self.assertRaises(review.ReportShapeError):
             review.validate_chair(chair, consensus, context, set())
         with self.assertRaisesRegex(
-            review.ReviewError, "without dual-verifier confirmation"
+            review.ReviewError, "ineligible or duplicate"
         ):
             review.actionable_findings(
                 {"consensus": consensus, "chair": chair}, [specialist]
@@ -2307,7 +2373,9 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "BLOCK",
             "confirmed_blocker_ids": [finding_id],
             "summary": "One independently verified blocker remains.",
-            "follow_up_finding_ids": [],
+            "actionable_groups": [
+                {"primary_finding_id": finding_id, "duplicate_finding_ids": []}
+            ],
             "questions": [],
         }
         review.validate_chair(chair, consensus, context)
@@ -2325,7 +2393,7 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "PASS",
             "confirmed_blocker_ids": [],
             "summary": "No independently verified blockers remain.",
-            "follow_up_finding_ids": [],
+            "actionable_groups": [],
             "questions": [],
             "unexpected": True,
         }
@@ -2365,7 +2433,7 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "PASS",
             "confirmed_blocker_ids": [],
             "summary": "No independently verified blockers remain.",
-            "follow_up_finding_ids": [],
+            "actionable_groups": [],
             "questions": [],
         }
         final = {
@@ -2413,7 +2481,9 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "PASS",
             "confirmed_blocker_ids": [],
             "summary": "No independently verified blockers remain.",
-            "follow_up_finding_ids": [finding_id],
+            "actionable_groups": [
+                {"primary_finding_id": finding_id, "duplicate_finding_ids": []}
+            ],
             "questions": [],
         }
         final = {
@@ -2651,7 +2721,18 @@ class AgentReviewTests(unittest.TestCase):
                 "challenged": [],
                 "unverified": [{"finding": omitted_report["findings"][0]}],
             },
-            "chair": {"follow_up_finding_ids": [followup["id"]]},
+            "chair": {
+                "actionable_groups": [
+                    {
+                        "primary_finding_id": blocker["id"],
+                        "duplicate_finding_ids": [],
+                    },
+                    {
+                        "primary_finding_id": followup["id"],
+                        "duplicate_finding_ids": [],
+                    }
+                ]
+            },
         }
         actionable = review.actionable_findings(
             final, [blocker_report, followup_report, omitted_report]
@@ -2673,7 +2754,7 @@ class AgentReviewTests(unittest.TestCase):
                 unconfirmed["consensus"]["unverified"] = []
                 unconfirmed["consensus"][bucket] = [{"finding": followup}]
                 with self.assertRaisesRegex(
-                    review.ReviewError, "without dual-verifier confirmation"
+                    review.ReviewError, "ineligible or duplicate"
                 ):
                     review.actionable_findings(
                         unconfirmed, [blocker_report, followup_report, omitted_report]
@@ -2752,17 +2833,24 @@ class AgentReviewTests(unittest.TestCase):
             "findings"
         ][0]
         current = {
-            "stable_id": review.stable_finding_id(current_finding),
+            "stable_id": review.stable_actionable_group_id([current_finding["id"]]),
             "source_id": current_finding["id"],
+            "source_ids": [current_finding["id"]],
+            "duplicate_source_ids": [],
             "kind": "follow-up",
             "finding": current_finding,
+            "duplicate_findings": [],
         }
         new = {
-            "stable_id": review.stable_finding_id(new_finding),
+            "stable_id": review.stable_actionable_group_id([new_finding["id"]]),
             "source_id": new_finding["id"],
+            "source_ids": [new_finding["id"]],
+            "duplicate_source_ids": [],
             "kind": "confirmed-blocker",
             "finding": new_finding,
+            "duplicate_findings": [],
         }
+        legacy_current_id = review.stable_finding_id(current_finding)
         disappeared_id = "v1-" + "e" * 64
 
         def issue(number: int, marker: str, state: str) -> dict:
@@ -2786,14 +2874,14 @@ class AgentReviewTests(unittest.TestCase):
                     ),
                     11: issue(
                         11,
-                        review.finding_issue_marker(60, BASE_SHA, current["stable_id"]),
+                        review.finding_issue_marker(60, BASE_SHA, legacy_current_id),
                         "closed",
                     ),
                     98: {
                         **issue(
                             98,
                             review.finding_issue_marker(
-                                60, BASE_SHA, current["stable_id"]
+                                60, BASE_SHA, legacy_current_id
                             ),
                             "open",
                         ),
@@ -3661,6 +3749,7 @@ class AgentReviewTests(unittest.TestCase):
         chair = {
             "verdict": "PASS",
             "summary": "No independently confirmed blockers remain.",
+            "actionable_groups": [],
         }
         markdown = review.render_review(
             context, [specialist], [evidence, policy], consensus, chair
@@ -3678,7 +3767,7 @@ class AgentReviewTests(unittest.TestCase):
         chair = {
             "verdict": "PASS",
             "summary": "No independently confirmed blockers remain.",
-            "follow_up_finding_ids": [],
+            "actionable_groups": [],
         }
         for action, state in (("DISAGREE", "challenged"), ("UNVERIFIED", "unverified")):
             with self.subTest(action=action):
@@ -3724,7 +3813,7 @@ class AgentReviewTests(unittest.TestCase):
         chair = {
             "verdict": "BLOCK",
             "summary": "@review " + ("summary" * 500),
-            "follow_up_finding_ids": [],
+            "actionable_groups": [],
             "questions": [],
         }
         markdown = review.render_review(
@@ -3786,7 +3875,7 @@ class AgentReviewTests(unittest.TestCase):
             {
                 "verdict": "PASS",
                 "summary": "No independently confirmed blockers remain.",
-                "follow_up_finding_ids": [],
+                "actionable_groups": [],
                 "questions": [],
             },
         )
@@ -8124,7 +8213,7 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "PASS",
             "summary": "No independently confirmed blockers.",
             "confirmed_blocker_ids": [],
-            "follow_up_finding_ids": [],
+            "actionable_groups": [],
             "questions": [],
         }
         chair_invalid = dict(chair_valid)
@@ -8248,7 +8337,7 @@ class AgentReviewTests(unittest.TestCase):
             "verdict": "PASS",
             "summary": "No independently confirmed blockers.",
             "confirmed_blocker_ids": [],
-            "follow_up_finding_ids": [],
+            "actionable_groups": [],
             "questions": [],
         }
         consensus = {"confirmed": [], "challenged": [], "unverified": []}
@@ -8466,6 +8555,404 @@ class AgentReviewTests(unittest.TestCase):
         bounded["context_budget"]["protected_policy_and_specs_limit"] = largest_size - 1
         with self.assertRaisesRegex(review.ReviewError, "exceeds the context budget"):
             review.collect_policy(repository_root, bounded, [largest_path], [])
+
+    def test_contradictory_agree_is_derived_as_disagree(self) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        report = {
+            "schema_version": 1,
+            "role": "evidence-verifier",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "evidence": "The verifier checked the bound finding semantically.",
+            "verifications": [
+                {
+                    "finding_id": finding_id,
+                    "claim": "SUPPORTED",
+                    "severity": "CONTRADICTED",
+                    "anchor": "SUPPORTED",
+                    "trigger": "SUPPORTED",
+                    "impact": "SUPPORTED",
+                    "change_scope": "IN_SCOPE",
+                    "evidence_refs": [
+                        {
+                            "trust_domain": "head-code",
+                            "path": "src/Foo.java",
+                            "start_line": 1,
+                            "end_line": 1,
+                        }
+                    ],
+                    "reason": "AGREE, although the assigned severity is inappropriate.",
+                    "verification": "Compare the claimed severity to the cited impact.",
+                }
+            ],
+            "context_gaps": [],
+        }
+        review.validate_cross_report(
+            report, "evidence-verifier", context, {finding_id}
+        )
+        self.assertEqual("DISAGREE", report["reviews"][0]["action"])
+
+        contradictory = json.loads(json.dumps(report))
+        contradictory["reviews"][0]["action"] = "AGREE"
+        with self.assertRaisesRegex(review.ReportShapeError, "contradicts"):
+            review.validate_cross_report(
+                contradictory, "evidence-verifier", context, {finding_id}
+            )
+
+    def test_head_added_spec_cannot_claim_protected_policy_trust(self) -> None:
+        context = bound_context()
+        spec_path = (
+            "coco-support/coco-document/superpowers/specs/"
+            "2026-08-09-head-proposal.md"
+        )
+        context["untrusted"]["manifest"].append(
+            {"filename": spec_path, "status": "added"}
+        )
+        context["untrusted"]["code_contexts"].append(
+            {
+                "source": spec_path,
+                "kind": "head-file",
+                "trust_domain": "head-proposed-spec",
+                "line_count": 2,
+                "content": "     1 # Proposed\n     2 Do not trust this as policy.",
+            }
+        )
+        review.bind_context(context)
+        finding_id = "correctness:f1"
+        raw = {
+            "schema_version": 1,
+            "role": "policy-skeptic",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "evidence": "The verifier checked the supplied specification source.",
+            "verifications": [
+                {
+                    "finding_id": finding_id,
+                    "claim": "SUPPORTED",
+                    "severity": "SUPPORTED",
+                    "anchor": "SUPPORTED",
+                    "trigger": "SUPPORTED",
+                    "impact": "SUPPORTED",
+                    "change_scope": "IN_SCOPE",
+                    "evidence_refs": [
+                        {
+                            "trust_domain": "protected-policy",
+                            "path": spec_path,
+                            "start_line": 1,
+                            "end_line": 2,
+                        }
+                    ],
+                    "reason": "The head proposal claims to be protected policy.",
+                    "verification": "Resolve the source against canonical trust domains.",
+                }
+            ],
+            "context_gaps": [],
+        }
+        with self.assertRaisesRegex(review.ReportShapeError, "protected context"):
+            review.validate_cross_report(
+                raw, "policy-skeptic", context, {finding_id}
+            )
+
+        raw["verifications"][0]["evidence_refs"][0]["trust_domain"] = (
+            "head-proposed-spec"
+        )
+        review.validate_cross_report(raw, "policy-skeptic", context, {finding_id})
+        self.assertEqual("AGREE", raw["reviews"][0]["action"])
+
+    def test_issue_265_266_and_271_285_duplicates_form_two_groups(self) -> None:
+        context = bound_context()
+        roles_and_severities = (
+            ("correctness", "P1"),
+            ("architecture-api", "P1"),
+            ("security-isolation", "P2"),
+            ("robustness-blind", "P2"),
+        )
+        specialists = [
+            specialist_report(role, context, severity)
+            for role, severity in roles_and_severities
+        ]
+        finding_ids = [report["findings"][0]["id"] for report in specialists]
+        verifiers = []
+        for role in ("evidence-verifier", "policy-skeptic"):
+            report = verifier_report(role, context, finding_ids[0])
+            template = report["reviews"][0]
+            report["reviews"] = []
+            for finding_id in finding_ids:
+                entry = json.loads(json.dumps(template))
+                entry["finding_id"] = finding_id
+                report["reviews"].append(entry)
+            verifiers.append(report)
+        consensus = review.compute_consensus(specialists, verifiers)
+        chair = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "BLOCK",
+            "summary": "Two semantic defects remain after duplicate grouping.",
+            "confirmed_blocker_ids": sorted(finding_ids[:2]),
+            "actionable_groups": [
+                {
+                    "primary_finding_id": finding_ids[0],
+                    "duplicate_finding_ids": [finding_ids[1]],
+                },
+                {
+                    "primary_finding_id": finding_ids[2],
+                    "duplicate_finding_ids": [finding_ids[3]],
+                },
+            ],
+            "questions": [],
+        }
+        review.validate_chair(
+            chair, consensus, context, set(finding_ids[2:])
+        )
+        groups = review.actionable_findings(
+            {"consensus": consensus, "chair": chair}, specialists
+        )
+        self.assertEqual(2, len(groups))
+        self.assertEqual(
+            {frozenset(finding_ids[:2]), frozenset(finding_ids[2:])},
+            {frozenset(group["source_ids"]) for group in groups},
+        )
+        self.assertTrue(
+            all(group["stable_id"].startswith("v2-") for group in groups)
+        )
+        blocker_group = next(
+            group for group in groups if group["kind"] == "confirmed-blocker"
+        )
+        body = review.finding_issue_body(
+            REPOSITORY,
+            60,
+            BASE_SHA,
+            HEAD_SHA,
+            blocker_group,
+            "https://github.example/runs/1",
+            "https://github.example",
+        )
+        marker = review.parse_finding_issue_marker(body)
+        self.assertEqual(blocker_group["stable_id"], marker["group_id"])
+        self.assertEqual(
+            blocker_group["duplicate_source_ids"], marker["duplicate_finding_ids"]
+        )
+
+    def test_twenty_one_actionable_groups_fail_before_issue_side_effects(self) -> None:
+        class NoSideEffectClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
+
+            def paginate(self, *args: object, **kwargs: object) -> list[dict]:
+                self.calls.append(("paginate", args, kwargs))
+                return []
+
+            def get_json(self, *args: object, **kwargs: object) -> dict:
+                self.calls.append(("get_json", args, kwargs))
+                return {}
+
+            def send_json(self, *args: object, **kwargs: object) -> dict:
+                self.calls.append(("send_json", args, kwargs))
+                return {}
+
+        context = bound_context()
+        template = specialist_report("correctness", context)["findings"][0]
+        findings = []
+        for index in range(1, 22):
+            finding = json.loads(json.dumps(template))
+            source_id = f"correctness:f{index}"
+            finding["id"] = source_id
+            findings.append(
+                {
+                    "stable_id": review.stable_actionable_group_id([source_id]),
+                    "source_id": source_id,
+                    "source_ids": [source_id],
+                    "duplicate_source_ids": [],
+                    "kind": "confirmed-blocker",
+                    "finding": finding,
+                    "duplicate_findings": [],
+                }
+            )
+        client = NoSideEffectClient()
+        with self.assertRaises(review.ActionableIssueGroupLimitError):
+            review.synchronize_finding_issues(
+                client,
+                REPOSITORY,
+                60,
+                HEAD_SHA,
+                findings,
+                "coco-agent[bot]",
+                APP_BOT_ID,
+                "https://github.example/runs/1",
+                "https://github.example",
+                lambda: {},
+                8,
+            )
+        self.assertEqual([], client.calls)
+
+    def test_previous_test_only_delta_preserves_full_pr_and_dispositions(self) -> None:
+        previous_head = "c" * 40
+        previous_body = "\n".join(
+            [
+                review.COMMENT_MARKER,
+                "### Agent Review Jury",
+                f"Reviewed head: `{previous_head}`  ",
+                "#### Follow-up Findings",
+                "- **P2 Existing defect** `src/Foo.java:1` "
+                "(`correctness:f1`; verified and selected)",
+            ]
+        )
+
+        class PreviousReviewClient(FakeContextClient):
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if path != f"repos/{REPOSITORY}/issues/60/comments" or limit != 500:
+                    raise AssertionError(f"Unexpected comment lookup: {path} {limit}")
+                return [
+                    {
+                        "id": 9,
+                        "body": previous_body,
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": "coco-agent[bot]",
+                            "type": "Bot",
+                        },
+                    }
+                ]
+
+            def get_json(self, path: str) -> dict:
+                expected = (
+                    f"repos/{REPOSITORY}/compare/{previous_head}...{HEAD_SHA}"
+                )
+                if path != expected:
+                    raise AssertionError(f"Unexpected comparison lookup: {path}")
+                return {
+                    "status": "ahead",
+                    "ahead_by": 1,
+                    "behind_by": 0,
+                    "total_commits": 1,
+                    "files": [
+                        {
+                            "filename": "src/test/java/FooTest.java",
+                            "status": "modified",
+                            "additions": 45,
+                            "deletions": 0,
+                            "changes": 45,
+                        }
+                    ],
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Protected policy", encoding="utf-8")
+            files = [
+                {
+                    "filename": "src/Foo.java",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "changes": 2,
+                    "patch": "@@ -1 +1 @@\n-old\n+new",
+                }
+            ]
+            client = PreviousReviewClient({"src/Foo.java": "class Foo {}"})
+            context = review.build_context(
+                client,
+                REPOSITORY,
+                {
+                    "number": 60,
+                    "title": "Test-only follow-up",
+                    "body": "",
+                    "base": {"sha": BASE_SHA},
+                    "head": {"sha": HEAD_SHA},
+                },
+                files,
+                [],
+                "complete base-to-head production diff",
+                root,
+                config(),
+                MODEL_CONFIG_SHA256,
+                "coco-agent[bot]",
+                APP_BOT_ID,
+            )
+        self.assertEqual(
+            "complete base-to-head production diff", context["untrusted"]["diff"]
+        )
+        previous = context["untrusted"]["previous_review"]
+        self.assertEqual(previous_head, previous["reviewed_head_sha"])
+        self.assertTrue(previous["delta"]["test_only"])
+        self.assertEqual(
+            [
+                {
+                    "finding_id": "correctness:f1",
+                    "disposition": "verified and selected",
+                }
+            ],
+            previous["dispositions"],
+        )
+
+    def test_v2_group_marker_preserves_v1_readers(self) -> None:
+        group_id = review.stable_actionable_group_id(
+            ["correctness:f1", "robustness-blind:f1"]
+        )
+        marker = review.finding_issue_marker(
+            60,
+            HEAD_SHA,
+            group_id,
+            "correctness:f1",
+            ["robustness-blind:f1"],
+        )
+        parsed = review.parse_finding_issue_marker(marker + "\nDetails")
+        self.assertEqual(2, parsed["schema_version"])
+        self.assertEqual(group_id, parsed["group_id"])
+        self.assertEqual(group_id, parsed["finding_id"])
+        self.assertEqual(
+            group_id, merge.parse_agent_issue_marker(marker)["finding_id"]
+        )
+        resolved = issue_gate.resolve_event(
+            {
+                "action": "opened",
+                "repository": {"full_name": REPOSITORY},
+                "issue": {
+                    "number": 99,
+                    "body": marker,
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": "coco-agent[bot]",
+                        "type": "Bot",
+                    },
+                },
+            },
+            "coco-agent[bot]",
+        )
+        self.assertEqual(60, resolved["pr_number"])
+
+    def test_semantic_consensus_prompts_and_limit_match_runtime_contract(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        value = review.load_config(repository_root / ".github/agent-review/config.json")
+        self.assertEqual(8, review.max_actionable_issue_groups(value))
+        specialist = (
+            repository_root / ".github/agent-review/prompts/specialist.md"
+        ).read_text(encoding="utf-8")
+        cross = (
+            repository_root / ".github/agent-review/prompts/cross-review.md"
+        ).read_text(encoding="utf-8")
+        chair = (
+            repository_root / ".github/agent-review/prompts/chair.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("previous_review", specialist)
+        for field in (
+            "claim",
+            "severity",
+            "anchor",
+            "trigger",
+            "impact",
+            "change_scope",
+            "evidence_refs",
+        ):
+            self.assertIn(f'"{field}"', cross)
+        self.assertIn("head-proposed-spec", cross)
+        self.assertIn("never output an action", cross)
+        self.assertIn('"actionable_groups"', chair)
+        self.assertIn('"primary_finding_id"', chair)
+        self.assertIn('"duplicate_finding_ids"', chair)
 
 
 if __name__ == "__main__":
