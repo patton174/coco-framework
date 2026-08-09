@@ -7441,6 +7441,27 @@ class AgentReviewTests(unittest.TestCase):
                 ):
                     client.complete("system", "user", 100)
 
+    def test_openai_client_reports_only_safe_response_shape(self) -> None:
+        envelope = openai_envelope()
+        envelope["secret_value"] = "must-not-appear"
+        envelope["output"][1]["role"] = "tool"
+        envelope["output"][1]["content"][0]["type"] = "unexpected_block"
+        envelope["output"][1]["content"][0]["text"] = "sensitive response text"
+        with patch.dict("os.environ", model_env("openai-responses"), clear=True):
+            client = review.AgentModelClient(config())
+            with patch(
+                "urllib.request.urlopen",
+                return_value=FakeModelResponse(json.dumps(envelope).encode()),
+            ):
+                with self.assertRaisesRegex(
+                    review.ReviewError,
+                    r"shape=.*items=message=1.*roles=other=1.*content=other=1",
+                ) as raised:
+                    client.complete("system", "user", 100)
+        message = str(raised.exception)
+        self.assertNotIn("must-not-appear", message)
+        self.assertNotIn("sensitive response text", message)
+
     def test_openai_client_rejects_malformed_response_envelopes(self) -> None:
         completed_with_error = openai_envelope()
         completed_with_error["error"] = {"message": "provider error"}
