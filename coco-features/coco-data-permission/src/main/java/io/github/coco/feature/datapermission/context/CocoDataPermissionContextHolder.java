@@ -1,10 +1,14 @@
 package io.github.coco.feature.datapermission.context;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 
+import io.github.coco.context.CocoContextExecutor;
 import io.github.coco.context.CocoContextScope;
 import io.github.coco.context.CocoContextSnapshot;
 import io.github.coco.feature.datapermission.CocoDataPermissionErrorCode;
@@ -12,7 +16,7 @@ import io.github.coco.feature.datapermission.CocoDataPermissionErrorCode;
 /**
  * Coco 数据权限上下文持有器。
  * <p>
- * 使用 {@link ThreadLocal} 保存当前线程数据权限上下文，入口适配器负责设置和清理，SQL 或查询层只读取当前上下文。
+ * 使用线程私有上下文栈保存当前数据权限上下文，入口适配器负责设置和清理，SQL 或查询层只读取当前上下文。
  * </p>
  * <p>
  * 项目信息：
@@ -27,7 +31,7 @@ import io.github.coco.feature.datapermission.CocoDataPermissionErrorCode;
  */
 public final class CocoDataPermissionContextHolder {
 
-    private static final ThreadLocal<CocoDataPermissionContext> DATA_PERMISSION_CONTEXT = new ThreadLocal<>();
+    private static final ThreadLocal<ContextStack> DATA_PERMISSION_CONTEXT = new ThreadLocal<>();
 
     private CocoDataPermissionContextHolder() {
     }
@@ -39,7 +43,8 @@ public final class CocoDataPermissionContextHolder {
      * @return 当前数据权限上下文；未设置时为空
      */
     public static Optional<CocoDataPermissionContext> current() {
-        return Optional.ofNullable(DATA_PERMISSION_CONTEXT.get());
+        ContextStack stack = DATA_PERMISSION_CONTEXT.get();
+        return stack == null ? Optional.empty() : Optional.ofNullable(stack.current());
     }
 
     /**
@@ -54,7 +59,7 @@ public final class CocoDataPermissionContextHolder {
 
     /**
      * <p>
-     * 设置当前数据权限上下文。
+     * 设置当前数据权限上下文。作用域存在时，只修改当前作用域的值，作用域关闭后仍会恢复进入作用域前的值。
      * </p>
      * @param dataPermissionContext 数据权限上下文
      * @return 已设置的数据权限上下文
@@ -62,17 +67,24 @@ public final class CocoDataPermissionContextHolder {
     public static CocoDataPermissionContext set(CocoDataPermissionContext dataPermissionContext) {
         CocoDataPermissionContext checkedContext = Objects.requireNonNull(dataPermissionContext,
                 "dataPermissionContext must not be null");
-        DATA_PERMISSION_CONTEXT.set(checkedContext);
+        state().set(checkedContext);
         return checkedContext;
     }
 
     /**
      * <p>
-     * 清除当前数据权限上下文。
+     * 清除当前数据权限上下文。作用域存在时，只清除当前作用域的值，作用域关闭后仍会恢复进入作用域前的值。
      * </p>
      */
     public static void clear() {
-        DATA_PERMISSION_CONTEXT.remove();
+        ContextStack stack = DATA_PERMISSION_CONTEXT.get();
+        if (stack == null) {
+            return;
+        }
+        stack.clear();
+        if (stack.isEmpty()) {
+            DATA_PERMISSION_CONTEXT.remove();
+        }
     }
 
     /**
@@ -83,11 +95,7 @@ public final class CocoDataPermissionContextHolder {
      */
     public static CocoContextSnapshot capture() {
         Optional<CocoDataPermissionContext> captured = current();
-        return () -> {
-            Optional<CocoDataPermissionContext> previous = current();
-            restore(captured);
-            return () -> restore(previous);
-        };
+        return () -> pushCaptured(captured);
     }
 
     /**
@@ -99,6 +107,19 @@ public final class CocoDataPermissionContextHolder {
      */
     public static CocoContextScope restore(CocoContextSnapshot snapshot) {
         return Objects.requireNonNull(snapshot, "snapshot must not be null").restore();
+    }
+
+    /**
+     * <p>
+     * 在当前线程建立一个可关闭的数据权限作用域。
+     * </p>
+     * @param dataPermissionContext 临时数据权限上下文
+     * @return 数据权限作用域
+     */
+    public static CocoContextScope push(CocoDataPermissionContext dataPermissionContext) {
+        CocoDataPermissionContext checkedContext = Objects.requireNonNull(dataPermissionContext,
+                "dataPermissionContext must not be null");
+        return state().push(checkedContext);
     }
 
     /**
@@ -138,6 +159,17 @@ public final class CocoDataPermissionContextHolder {
 
     /**
      * <p>
+     * 创建传播数据权限上下文的执行器。上下文在提交时捕获，在任务结束时恢复 worker 原上下文。
+     * </p>
+     * @param delegate 目标执行器
+     * @return 上下文传播执行器
+     */
+    public static Executor executor(Executor delegate) {
+        return CocoContextExecutor.wrap(delegate, CocoDataPermissionContextHolder::capture);
+    }
+
+    /**
+     * <p>
      * 在指定数据权限上下文中执行逻辑，并在结束后恢复之前的上下文。
      * </p>
      * @param dataPermissionContext 临时数据权限上下文
@@ -145,10 +177,9 @@ public final class CocoDataPermissionContextHolder {
      */
     public static void runWithContext(CocoDataPermissionContext dataPermissionContext, Runnable runnable) {
         Objects.requireNonNull(runnable, "runnable must not be null");
-        callWithContext(dataPermissionContext, () -> {
+        try (CocoContextScope ignored = push(dataPermissionContext)) {
             runnable.run();
-            return null;
-        });
+        }
     }
 
     /**
@@ -162,22 +193,123 @@ public final class CocoDataPermissionContextHolder {
      */
     public static <T> T callWithContext(CocoDataPermissionContext dataPermissionContext, Supplier<T> supplier) {
         Objects.requireNonNull(supplier, "supplier must not be null");
-        Optional<CocoDataPermissionContext> previous = current();
-        set(dataPermissionContext);
-        try {
+        try (CocoContextScope ignored = push(dataPermissionContext)) {
             return supplier.get();
-        }
-        finally {
-            restore(previous);
         }
     }
 
-    private static void restore(Optional<CocoDataPermissionContext> previous) {
-        if (previous.isPresent()) {
-            DATA_PERMISSION_CONTEXT.set(previous.get());
+    private static ContextStack state() {
+        ContextStack stack = DATA_PERMISSION_CONTEXT.get();
+        if (stack == null) {
+            stack = new ContextStack();
+            DATA_PERMISSION_CONTEXT.set(stack);
         }
-        else {
-            clear();
+        return stack;
+    }
+
+    private static CocoContextScope pushCaptured(Optional<CocoDataPermissionContext> captured) {
+        return state().push(captured.orElse(null));
+    }
+
+    private static final class ContextStack {
+
+        private CocoDataPermissionContext root;
+
+        private final List<ScopeFrame> frames = new ArrayList<>();
+
+        private CocoDataPermissionContext current() {
+            if (frames.isEmpty()) {
+                return root;
+            }
+            return frames.get(frames.size() - 1).context;
+        }
+
+        private void set(CocoDataPermissionContext context) {
+            if (frames.isEmpty()) {
+                root = context;
+            }
+            else {
+                frames.get(frames.size() - 1).context = context;
+            }
+        }
+
+        private void clear() {
+            if (frames.isEmpty()) {
+                root = null;
+            }
+            else {
+                frames.get(frames.size() - 1).context = null;
+            }
+        }
+
+        private CocoContextScope push(CocoDataPermissionContext context) {
+            ScopeFrame frame = new ScopeFrame(context);
+            frames.add(frame);
+            frame.scope = new OwnedScope(this, frame, Thread.currentThread());
+            return frame.scope;
+        }
+
+        private boolean close(OwnedScope scope) {
+            if (scope.owner != Thread.currentThread()) {
+                return false;
+            }
+            int index = frames.indexOf(scope.frame);
+            if (index < 0) {
+                return false;
+            }
+            for (int i = frames.size() - 1; i >= index; i--) {
+                frames.remove(i).scope.markClosed();
+            }
+            return true;
+        }
+
+        private boolean isEmpty() {
+            return root == null && frames.isEmpty();
+        }
+    }
+
+    private static final class ScopeFrame {
+
+        private CocoDataPermissionContext context;
+
+        private OwnedScope scope;
+
+        private ScopeFrame(CocoDataPermissionContext context) {
+            this.context = context;
+        }
+    }
+
+    private static final class OwnedScope implements CocoContextScope {
+
+        private final ContextStack stack;
+
+        private final ScopeFrame frame;
+
+        private final Thread owner;
+
+        private boolean closed;
+
+        private OwnedScope(ContextStack stack, ScopeFrame frame, Thread owner) {
+            this.stack = stack;
+            this.frame = frame;
+            this.owner = owner;
+        }
+
+        @Override
+        public void close() {
+            if (Thread.currentThread() != owner || closed) {
+                return;
+            }
+            if (stack.close(this)) {
+                closed = true;
+                if (stack.isEmpty()) {
+                    DATA_PERMISSION_CONTEXT.remove();
+                }
+            }
+        }
+
+        private void markClosed() {
+            this.closed = true;
         }
     }
 }
