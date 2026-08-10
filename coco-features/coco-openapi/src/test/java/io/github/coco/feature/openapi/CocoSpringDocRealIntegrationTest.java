@@ -12,10 +12,15 @@ import java.util.Enumeration;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadata;
 import io.github.coco.feature.openapi.core.CocoOpenApiMetadataProvider;
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
-import io.swagger.v3.oas.models.media.ObjectSchema;
 import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.media.BooleanSchema;
+import io.swagger.v3.oas.models.media.IntegerSchema;
+import io.swagger.v3.oas.models.media.ObjectSchema;
+import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.media.StringSchema;
 import org.junit.jupiter.api.Test;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -87,7 +92,6 @@ class CocoSpringDocRealIntegrationTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void publishesBoundedResponseSchemasWithoutRequestOrSecurityContext() {
         this.contextRunner.run(context -> {
             OpenApiCustomizer customizer = context.getBean(
@@ -96,15 +100,20 @@ class CocoSpringDocRealIntegrationTest {
 
             customizer.customise(openApi);
 
-            assertThat(openApi.getComponents().getSchemas().get("CocoApiResponse").getProperties().keySet())
+            Schema<?> responseSchema = openApi.getComponents().getSchemas().get("CocoApiResponse");
+            Schema<?> errorResponseSchema = openApi.getComponents().getSchemas().get("CocoApiErrorResponse");
+            assertStandardResponseFields(responseSchema);
+            assertStandardResponseFields(errorResponseSchema);
+            assertThat(responseSchema.getProperties().keySet())
                     .containsExactlyInAnyOrder("success", "code", "message", "data")
                     .allSatisfy(property -> assertThat(String.valueOf(property))
                             .doesNotMatch("(?i).*(tenant|user|key|nonce|path|trace|token|secret).*"));
-            assertThat(openApi.getComponents().getSchemas().get("CocoApiErrorResponse").getProperties().keySet())
+            assertThat(errorResponseSchema.getProperties().keySet())
                     .containsExactlyInAnyOrder("success", "code", "message", "data")
                     .allSatisfy(property -> assertThat(String.valueOf(property))
                             .doesNotMatch("(?i).*(tenant|user|key|nonce|path|trace|token|secret).*"));
-            assertThat(openApi.getComponents().getSchemas().get("CocoApiErrorResponse").getRequired())
+            assertThat(errorResponseSchema.getProperties().get("success").getDefault()).isEqualTo(Boolean.FALSE);
+            assertThat(errorResponseSchema.getRequired())
                     .containsExactlyInAnyOrder("success", "code", "message");
         });
     }
@@ -112,7 +121,11 @@ class CocoSpringDocRealIntegrationTest {
     @Test
     void canDisableResponseSchemaPublicationWithoutDisablingMetadataCustomization() {
         this.contextRunner
-                .withPropertyValues("coco.openapi.springdoc.response-schemas-enabled=false")
+                .withPropertyValues(
+                        "coco.openapi.springdoc.response-schemas-enabled=false",
+                        "coco.openapi.info.title=Schema-free API",
+                        "coco.openapi.info.version=4.2.0",
+                        "coco.openapi.info.description=Metadata remains enabled")
                 .run(context -> {
                     OpenApiCustomizer customizer = context.getBean(
                             "cocoSpringDocOpenApiCustomizer", OpenApiCustomizer.class);
@@ -120,9 +133,35 @@ class CocoSpringDocRealIntegrationTest {
 
                     customizer.customise(openApi);
 
-                    assertThat(openApi.getInfo().getTitle()).isEqualTo("Coco API");
+                    assertThat(openApi.getInfo().getTitle()).isEqualTo("Schema-free API");
+                    assertThat(openApi.getInfo().getVersion()).isEqualTo("4.2.0");
+                    assertThat(openApi.getInfo().getDescription()).isEqualTo("Metadata remains enabled");
                     assertThat(openApi.getComponents()).isNull();
                 });
+    }
+
+    @Test
+    void doesNotOverwriteApplicationResponseSchemas() {
+        this.contextRunner.run(context -> {
+            OpenApiCustomizer customizer = context.getBean(
+                    "cocoSpringDocOpenApiCustomizer", OpenApiCustomizer.class);
+            Schema<?> applicationResponseSchema = new ObjectSchema();
+            applicationResponseSchema.setDescription("Application response schema");
+            Schema<?> applicationErrorSchema = new ObjectSchema();
+            applicationErrorSchema.setDescription("Application error schema");
+            Components components = new Components()
+                    .addSchemas("CocoApiResponse", applicationResponseSchema)
+                    .addSchemas("CocoApiErrorResponse", applicationErrorSchema);
+            OpenAPI openApi = new OpenAPI().components(components);
+
+            customizer.customise(openApi);
+
+            assertThat(openApi.getComponents()).isSameAs(components);
+            assertThat(openApi.getComponents().getSchemas().get("CocoApiResponse"))
+                    .isSameAs(applicationResponseSchema);
+            assertThat(openApi.getComponents().getSchemas().get("CocoApiErrorResponse"))
+                    .isSameAs(applicationErrorSchema);
+        });
     }
 
     @Test
@@ -235,6 +274,16 @@ class CocoSpringDocRealIntegrationTest {
         }
 
         assertThat(matchingImports).isOne();
+    }
+
+    private static void assertStandardResponseFields(Schema<?> responseSchema) {
+        assertThat(responseSchema).isInstanceOf(ObjectSchema.class);
+        assertThat(responseSchema.getProperties()).containsOnlyKeys("success", "code", "message", "data");
+        assertThat(responseSchema.getProperties().get("success")).isInstanceOf(BooleanSchema.class);
+        assertThat(responseSchema.getProperties().get("code")).isInstanceOf(IntegerSchema.class);
+        assertThat(responseSchema.getProperties().get("message")).isInstanceOf(StringSchema.class);
+        assertThat(responseSchema.getProperties().get("data")).isExactlyInstanceOf(Schema.class);
+        assertThat(responseSchema.getProperties().get("data").getNullable()).isTrue();
     }
 
     @Configuration(proxyBeanMethods = false)
