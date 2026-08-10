@@ -12,6 +12,10 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -22,6 +26,7 @@ import io.github.coco.i18n.CocoMessageCode;
 import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -66,6 +71,33 @@ class CocoRateLimitRequestHandlerTest {
         MockHttpServletResponse rejected = new MockHttpServletResponse();
         assertThat(handler.handle(route, request, rejected)).isFalse();
         assertThat(rejected.getContentAsString()).contains("请求过于频繁，请稍后重试。", "42900");
+    }
+
+    @Test
+    void logsCapacityExhaustionAtWarnWithoutChangingTheRejectionResponse() throws Exception {
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        Logger logger = (Logger) LoggerFactory.getLogger(CocoRateLimitRequestHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            CocoRateLimitStore store = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                    permit.resetAt(), true);
+            CocoRateLimitRequestHandler handler = handler(now,
+                    (snapshot, route) -> new CocoRateLimitKey("api", "capacity"), store);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            assertThat(handler.handle(route(), request(Locale.US, "en-US"), response)).isFalse();
+            assertThat(response.getStatus()).isEqualTo(429);
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).contains("storage capacity exhausted");
+            });
+        }
+        finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
