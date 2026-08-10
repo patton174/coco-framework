@@ -39,6 +39,7 @@ class CocoMybatisPlusConfigurationMetadataTest {
         assertProperty(metadata, "coco.mybatis-plus.pagination.db-type", "java.lang.String", null);
         assertProperty(metadata, "coco.mybatis-plus.pagination.max-limit", "java.lang.Long", null);
         assertProperty(metadata, "coco.mybatis-plus.pagination.optimize-join", "java.lang.Boolean", "true");
+        assertProperty(metadata, "coco.mybatis-plus.optimistic-locker-enabled", "java.lang.Boolean", "false");
         assertHint(metadata, "coco.mybatis-plus.pagination.db-type", "mysql");
         assertHint(metadata, "coco.mybatis-plus.pagination.db-type", "postgre-sql");
     }

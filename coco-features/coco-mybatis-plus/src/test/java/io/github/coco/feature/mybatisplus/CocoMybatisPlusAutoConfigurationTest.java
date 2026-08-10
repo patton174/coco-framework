@@ -95,6 +95,77 @@ class CocoMybatisPlusAutoConfigurationTest {
     }
 
     @Test
+    void bindsOptimisticLockerOptionIntoFinalInterceptorChain() {
+        this.contextRunner
+                .withPropertyValues(
+                        "coco.mybatis-plus.optimistic-locker-enabled=true",
+                        "coco.mybatis-plus.sql-guard.block-attack-enabled=true",
+                        "coco.mybatis-plus.sql-guard.illegal-sql-enabled=true")
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class,
+                                    BlockAttackInnerInterceptor.class,
+                                    IllegalSQLInnerInterceptor.class,
+                                    PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void doesNotDuplicateEnabledOptimisticLockerSuppliedAsInnerInterceptorBean() {
+        this.contextRunner
+                .withPropertyValues("coco.mybatis-plus.optimistic-locker-enabled=true")
+                .withUserConfiguration(InnerInterceptorConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+                    InnerInterceptor supplied = context.getBean(InnerInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .filteredOn(OptimisticLockerInnerInterceptor.class::isInstance)
+                            .containsExactly(supplied);
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class,
+                                    PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void doesNotDuplicateEnabledOptimisticLockerAddedByCustomizer() {
+        this.contextRunner
+                .withPropertyValues("coco.mybatis-plus.optimistic-locker-enabled=true")
+                .withUserConfiguration(CustomizerConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(interceptor.getInterceptors())
+                            .filteredOn(OptimisticLockerInnerInterceptor.class::isInstance)
+                            .hasSize(1);
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(OptimisticLockerInnerInterceptor.class,
+                                    PaginationInnerInterceptor.class);
+                });
+    }
+
+    @Test
+    void backsOffWhenApplicationProvidesMybatisPlusInterceptor() {
+        this.contextRunner
+                .withPropertyValues("coco.mybatis-plus.optimistic-locker-enabled=true")
+                .withUserConfiguration(ApplicationInterceptorConfiguration.class)
+                .run(context -> {
+                    MybatisPlusInterceptor interceptor = context.getBean(MybatisPlusInterceptor.class);
+
+                    assertThat(context).hasSingleBean(MybatisPlusInterceptor.class);
+                    assertThat(interceptor.getInterceptors())
+                            .extracting(InnerInterceptor::getClass)
+                            .containsExactly(BlockAttackInnerInterceptor.class);
+                });
+    }
+
+    @Test
     void appendsPaginationAfterCustomInterceptors() {
         this.contextRunner
                 .withUserConfiguration(CustomizerConfiguration.class)
@@ -457,6 +528,17 @@ class CocoMybatisPlusAutoConfigurationTest {
         @Bean
         InnerInterceptor optimisticLockerInnerInterceptor() {
             return new OptimisticLockerInnerInterceptor();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ApplicationInterceptorConfiguration {
+
+        @Bean
+        MybatisPlusInterceptor applicationInterceptor() {
+            MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+            interceptor.addInnerInterceptor(new BlockAttackInnerInterceptor());
+            return interceptor;
         }
     }
 
