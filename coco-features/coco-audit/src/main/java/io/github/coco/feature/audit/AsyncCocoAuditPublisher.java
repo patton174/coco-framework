@@ -28,6 +28,16 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
 
     private static final long POLL_TIMEOUT_MILLIS = 100L;
 
+    private static final String WORKER_THREAD_NAME = "coco-audit-writer";
+
+    private static final String CLOSED_MESSAGE = "Coco audit publisher is closed";
+
+    private static final String QUEUE_FULL_MESSAGE = "Coco audit queue is full";
+
+    private static final String INTERRUPTED_DRAIN_MESSAGE = "Interrupted while draining Coco audit queue";
+
+    private static final String TIMED_OUT_DRAIN_MESSAGE = "Timed out while draining Coco audit queue";
+
     private final CocoAuditPublisher delegate;
 
     private final ArrayBlockingQueue<CocoAuditEvent> queue;
@@ -58,7 +68,7 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
         this.queue = new ArrayBlockingQueue<>(normalizeQueueCapacity(queueCapacity));
         this.failurePolicy = failurePolicy == null ? CocoAuditFailurePolicy.IGNORE : failurePolicy;
         this.shutdownTimeoutMillis = Math.max(1L, normalizeShutdownTimeout(shutdownTimeout).toMillis());
-        this.worker = new Thread(this::drain, "coco-audit-writer");
+        this.worker = new Thread(this::drain, WORKER_THREAD_NAME);
         this.worker.setDaemon(true);
         this.worker.start();
     }
@@ -77,14 +87,14 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
                 throw failure;
             }
             else if (!this.accepting) {
-                rejection = new IllegalStateException("Coco audit publisher is closed");
+                rejection = new IllegalStateException(CLOSED_MESSAGE);
             }
             else if (this.queue.offer(checkedEvent)) {
                 this.acceptedEventCount.incrementAndGet();
                 return;
             }
             else {
-                rejection = new IllegalStateException("Coco audit queue is full");
+                rejection = new IllegalStateException(QUEUE_FULL_MESSAGE);
             }
         }
         if (this.failurePolicy == CocoAuditFailurePolicy.THROW) {
@@ -108,15 +118,13 @@ final class AsyncCocoAuditPublisher implements CocoAuditPublisher, AutoCloseable
             this.worker.join(this.shutdownTimeoutMillis);
         }
         catch (InterruptedException ex) {
-            IllegalStateException shutdownFailure = registerShutdownFailure(
-                    "Interrupted while draining Coco audit queue", ex);
+            IllegalStateException shutdownFailure = registerShutdownFailure(INTERRUPTED_DRAIN_MESSAGE, ex);
             stopWorker();
             Thread.currentThread().interrupt();
             throw shutdownFailure;
         }
         if (this.worker.isAlive()) {
-            IllegalStateException shutdownFailure = registerShutdownFailure(
-                    "Timed out while draining Coco audit queue", null);
+            IllegalStateException shutdownFailure = registerShutdownFailure(TIMED_OUT_DRAIN_MESSAGE, null);
             stopWorker();
             throw shutdownFailure;
         }

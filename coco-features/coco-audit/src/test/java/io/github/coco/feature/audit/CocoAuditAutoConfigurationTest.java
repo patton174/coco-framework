@@ -96,6 +96,17 @@ class CocoAuditAutoConfigurationTest {
     }
 
     @Test
+    void createsAsyncAuditPublisherWhenEnabled() {
+        this.loggingContextRunner
+                .withPropertyValues("coco.audit.async.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(CocoAuditPublisher.class);
+                    assertThat(context.getBean("cocoAuditPublisher")).isInstanceOf(AsyncCocoAuditPublisher.class);
+                    assertThat(context).hasBean("cocoAccessLogAuditRecorder");
+                });
+    }
+
+    @Test
     void writesDefaultAuditRecordThroughCocoLogSink() {
         this.loggingContextRunner
                 .withPropertyValues(

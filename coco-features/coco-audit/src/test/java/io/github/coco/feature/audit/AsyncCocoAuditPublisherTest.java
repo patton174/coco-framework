@@ -1,6 +1,9 @@
 package io.github.coco.feature.audit;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -110,6 +113,24 @@ class AsyncCocoAuditPublisherTest {
         assertThat(closer.isAlive()).isFalse();
         assertThat(delegate.wasInterrupted()).isFalse();
         assertThat(delegate.recordedCount()).isEqualTo(2);
+    }
+
+    @Test
+    void drainsAcceptedEventsInFifoOrderOnSingleConsumerThread() {
+        List<String> recordedIds = new CopyOnWriteArrayList<>();
+        Set<String> recordingThreads = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        AsyncCocoAuditPublisher publisher = new AsyncCocoAuditPublisher(event -> {
+            recordedIds.add(event.resourceId().orElseThrow());
+            recordingThreads.add(Thread.currentThread().getName());
+        }, 8, Duration.ofSeconds(5), CocoAuditFailurePolicy.THROW);
+
+        for (int index = 0; index < 8; index++) {
+            publisher.publish(event(Integer.toString(index)));
+        }
+        publisher.close();
+
+        assertThat(recordedIds).containsExactly("0", "1", "2", "3", "4", "5", "6", "7");
+        assertThat(recordingThreads).hasSize(1);
     }
 
     private static AsyncCocoAuditPublisher publisher(BlockingPublisher delegate,

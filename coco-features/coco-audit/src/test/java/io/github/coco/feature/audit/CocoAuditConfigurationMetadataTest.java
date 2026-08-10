@@ -48,6 +48,9 @@ class CocoAuditConfigurationMetadataTest {
         assertProperty(metadata, "coco.audit.logging.level",
                 "io.github.coco.logging.core.CocoLogLevel", "info");
         assertProperty(metadata, "coco.audit.access-log.enabled", "java.lang.Boolean", true);
+        assertDescriptionContains(metadata, "coco.audit.async.enabled", "bounded FIFO");
+        assertDescriptionContains(metadata, "coco.audit.async.queue-capacity", "bounded FIFO");
+        assertDescriptionContains(metadata, "coco.audit.async.shutdown-timeout", "undrained event count");
         assertHintValues(metadata, "coco.audit.failure-policy", "ignore", "throw");
         assertHintValues(metadata, "coco.audit.logging.level", "off", "error", "warn", "info", "debug", "trace");
     }
@@ -73,6 +76,13 @@ class CocoAuditConfigurationMetadataTest {
                 .map(value -> value.path("value").asText())
                 .toList();
         assertEquals(List.of(expectedValues), values);
+    }
+
+    private static void assertDescriptionContains(JsonNode metadata, String name, String expectedFragment) {
+        JsonNode property = findNamedNode(metadata.path("properties"), name);
+        assertNotNull(property, "missing property: " + name);
+        assertTrue(property.path("description").asText().contains(expectedFragment),
+                () -> "expected description for " + name + " to contain '" + expectedFragment + "'");
     }
 
     private static JsonNode findNamedNode(JsonNode nodes, String name) {
