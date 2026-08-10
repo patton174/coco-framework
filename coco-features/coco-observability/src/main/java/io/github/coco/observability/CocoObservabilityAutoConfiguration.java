@@ -85,7 +85,8 @@ public class CocoObservabilityAutoConfiguration {
             return () -> Map.of(
                     "status", "available",
                     "enabledCount", featurePlan.enabledFeatures().size(),
-                    "disabledCount", featurePlan.disabledFeatures().size());
+                    "disabledCount", featurePlan.disabledFeatures().size(),
+                    "disabledByDependencyCount", featurePlan.disabledByDependencyFeatures().size());
         }
     }
 
