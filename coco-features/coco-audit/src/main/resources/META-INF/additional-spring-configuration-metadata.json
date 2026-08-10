@@ -15,13 +15,13 @@
     {
       "name": "coco.audit.async.enabled",
       "type": "java.lang.Boolean",
-      "description": "Whether Coco publishes audit events through the bounded asynchronous queue.",
+      "description": "Whether Coco publishes audit events through the single bounded FIFO asynchronous queue.",
       "defaultValue": false
     },
     {
       "name": "coco.audit.async.queue-capacity",
       "type": "java.lang.Integer",
-      "description": "Maximum number of Coco audit events waiting in the asynchronous queue.",
+      "description": "Maximum number of Coco audit events waiting in the single bounded FIFO queue.",
       "defaultValue": 1024
     },
     {
