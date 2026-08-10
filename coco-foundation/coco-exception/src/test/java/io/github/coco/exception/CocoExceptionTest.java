@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -108,12 +109,121 @@ class CocoExceptionTest {
     }
 
     @Test
+    void typedErrorCodeFactoriesPreserveCauseAndArguments() {
+        IllegalStateException cause = new IllegalStateException("boom");
+
+        assertErrorCodeException(CocoCommonErrorCode.INVALID_ARGUMENT.request(cause, "REQ-1"), cause, "REQ-1");
+        assertErrorCodeException(CocoCommonErrorCode.UNAUTHORIZED.unauthorized(cause, "AUTH-1"), cause, "AUTH-1");
+        assertErrorCodeException(CocoCommonErrorCode.FORBIDDEN.forbidden(cause, "FORBIDDEN-1"), cause,
+                "FORBIDDEN-1");
+        assertErrorCodeException(CocoCommonErrorCode.NOT_FOUND.notFound(cause, "NOT-1"), cause, "NOT-1");
+        assertErrorCodeException(CocoCommonErrorCode.CONFLICT.conflict(cause, "CONFLICT-1"), cause, "CONFLICT-1");
+        assertErrorCodeException(CocoCommonErrorCode.INTERNAL_ERROR.system(cause, "SYSTEM-1"), cause, "SYSTEM-1");
+    }
+
+    @Test
     void createsTypedExceptionsFromStaticFactory() {
         CocoRequestException exception = CocoExceptions.request(CocoCommonErrorCode.INVALID_ARGUMENT, "name");
 
         assertEquals("coco.error.invalid-argument", exception.code());
         assertEquals("coco.error.invalid-argument", exception.defaultMessage());
         assertArrayEquals(new Object[] {"name"}, exception.args());
+    }
+
+    @Test
+    void businessCodeMethodsTreatThrowableAsMessageArgument() {
+        IllegalStateException argument = new IllegalStateException("message argument");
+
+        assertThrowableMessageArgument(TestBusinessCode.ORDER_NOT_FOUND.request(argument), argument);
+        assertThrowableMessageArgument(TestBusinessCode.UNAUTHORIZED.unauthorized(argument), argument);
+        assertThrowableMessageArgument(TestBusinessCode.FORBIDDEN.forbidden(argument), argument);
+        assertThrowableMessageArgument(TestBusinessCode.NOT_FOUND.notFound(argument), argument);
+        assertThrowableMessageArgument(TestBusinessCode.CONFLICT.conflict(argument), argument);
+        assertThrowableMessageArgument(TestBusinessCode.INTERNAL_ERROR.system(argument), argument);
+    }
+
+    @Test
+    void staticBusinessCodeFactoriesTreatThrowableAsMessageArgument() {
+        IllegalStateException argument = new IllegalStateException("message argument");
+
+        assertThrowableMessageArgument(CocoBusinessExceptions.request(TestBusinessCode.ORDER_NOT_FOUND, argument),
+                argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.unauthorized(TestBusinessCode.UNAUTHORIZED, argument),
+                argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.forbidden(TestBusinessCode.FORBIDDEN, argument),
+                argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.notFound(TestBusinessCode.NOT_FOUND, argument), argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.conflict(TestBusinessCode.CONFLICT, argument), argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.system(TestBusinessCode.INTERNAL_ERROR, argument), argument);
+    }
+
+    @Test
+    void staticMessageCodeFactoriesTreatThrowableAsMessageArgument() {
+        IllegalStateException argument = new IllegalStateException("message argument");
+
+        assertThrowableMessageArgument(CocoBusinessExceptions.request("sample.request", argument), argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.unauthorized("sample.unauthorized", argument), argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.forbidden("sample.forbidden", argument), argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.notFound("sample.not-found", argument), argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.conflict("sample.conflict", argument), argument);
+        assertThrowableMessageArgument(CocoBusinessExceptions.system("sample.system", argument), argument);
+    }
+
+    @Test
+    void staticBusinessCodeWithCauseFactoriesPreserveCauseAndArguments() {
+        IllegalStateException cause = new IllegalStateException("boom");
+
+        assertBusinessCodeException(
+                CocoBusinessExceptions.requestWithCause(TestBusinessCode.ORDER_NOT_FOUND, cause, "REQ-1"),
+                cause, 1001, "sample.order.not-found", "REQ-1");
+        assertBusinessCodeException(
+                CocoBusinessExceptions.unauthorizedWithCause(TestBusinessCode.UNAUTHORIZED, cause, "AUTH-1"),
+                cause, 1002, "sample.unauthorized", "AUTH-1");
+        assertBusinessCodeException(
+                CocoBusinessExceptions.forbiddenWithCause(TestBusinessCode.FORBIDDEN, cause, "FORBIDDEN-1"),
+                cause, 1003, "sample.forbidden", "FORBIDDEN-1");
+        assertBusinessCodeException(CocoBusinessExceptions.notFoundWithCause(TestBusinessCode.NOT_FOUND, cause, "NOT-1"),
+                cause, 1004, "sample.not-found", "NOT-1");
+        assertBusinessCodeException(CocoBusinessExceptions.conflictWithCause(TestBusinessCode.CONFLICT, cause,
+                "CONFLICT-1"), cause, 1005, "sample.conflict", "CONFLICT-1");
+        assertBusinessCodeException(CocoBusinessExceptions.systemWithCause(TestBusinessCode.INTERNAL_ERROR, cause,
+                "SYSTEM-1"), cause, 1006, "sample.internal-error", "SYSTEM-1");
+    }
+
+    @Test
+    void staticMessageCodeWithCauseFactoriesPreserveCauseAndArguments() {
+        IllegalStateException cause = new IllegalStateException("boom");
+
+        assertMessageCodeException(CocoBusinessExceptions.requestWithCause("sample.request", cause, "REQ-1"),
+                cause, "sample.request", "REQ-1");
+        assertMessageCodeException(CocoBusinessExceptions.unauthorizedWithCause("sample.unauthorized", cause, "AUTH-1"),
+                cause, "sample.unauthorized", "AUTH-1");
+        assertMessageCodeException(CocoBusinessExceptions.forbiddenWithCause("sample.forbidden", cause, "FORBIDDEN-1"),
+                cause, "sample.forbidden", "FORBIDDEN-1");
+        assertMessageCodeException(CocoBusinessExceptions.notFoundWithCause("sample.not-found", cause, "NOT-1"),
+                cause, "sample.not-found", "NOT-1");
+        assertMessageCodeException(CocoBusinessExceptions.conflictWithCause("sample.conflict", cause, "CONFLICT-1"),
+                cause, "sample.conflict", "CONFLICT-1");
+        assertMessageCodeException(CocoBusinessExceptions.systemWithCause("sample.system", cause, "SYSTEM-1"),
+                cause, "sample.system", "SYSTEM-1");
+    }
+
+    @Test
+    void businessCodeWithCauseMethodsPreserveCauseAndArguments() {
+        IllegalStateException cause = new IllegalStateException("boom");
+
+        assertBusinessCodeException(TestBusinessCode.ORDER_NOT_FOUND.requestWithCause(cause, "REQ-1"), cause,
+                1001, "sample.order.not-found", "REQ-1");
+        assertBusinessCodeException(TestBusinessCode.UNAUTHORIZED.unauthorizedWithCause(cause, "AUTH-1"), cause,
+                1002, "sample.unauthorized", "AUTH-1");
+        assertBusinessCodeException(TestBusinessCode.FORBIDDEN.forbiddenWithCause(cause, "FORBIDDEN-1"), cause,
+                1003, "sample.forbidden", "FORBIDDEN-1");
+        assertBusinessCodeException(TestBusinessCode.NOT_FOUND.notFoundWithCause(cause, "NOT-1"), cause,
+                1004, "sample.not-found", "NOT-1");
+        assertBusinessCodeException(TestBusinessCode.CONFLICT.conflictWithCause(cause, "CONFLICT-1"), cause,
+                1005, "sample.conflict", "CONFLICT-1");
+        assertBusinessCodeException(TestBusinessCode.INTERNAL_ERROR.systemWithCause(cause, "SYSTEM-1"), cause,
+                1006, "sample.internal-error", "SYSTEM-1");
     }
 
     @Test
@@ -270,6 +380,34 @@ class CocoExceptionTest {
         assertEquals("coco.error.missing-error-code", exception.code());
     }
 
+    private static void assertErrorCodeException(CocoException exception, Throwable cause, Object... args) {
+        assertSame(cause, exception.getCause());
+        assertArrayEquals(args, exception.args());
+    }
+
+    private static void assertThrowableMessageArgument(CocoException exception, Throwable argument) {
+        assertNull(exception.getCause());
+        assertArrayEquals(new Object[] {argument}, exception.args());
+    }
+
+    private static void assertBusinessCodeException(CocoException exception, Throwable cause, int businessCode,
+            String messageCode, Object... args) {
+        assertSame(cause, exception.getCause());
+        assertEquals(businessCode, exception.businessCode().orElseThrow());
+        assertEquals(messageCode, exception.code());
+        assertEquals(messageCode, exception.defaultMessage());
+        assertArrayEquals(args, exception.args());
+    }
+
+    private static void assertMessageCodeException(CocoException exception, Throwable cause, String messageCode,
+            Object... args) {
+        assertSame(cause, exception.getCause());
+        assertTrue(exception.businessCode().isEmpty());
+        assertEquals(messageCode, exception.code());
+        assertEquals(messageCode, exception.defaultMessage());
+        assertArrayEquals(args, exception.args());
+    }
+
     private static void assertMissingMessageCode(ThrowingRunnable invocation) {
         CocoRequestException exception = assertThrows(CocoRequestException.class, invocation::run);
         assertEquals("coco.error.missing-message-code", exception.code());
@@ -297,7 +435,17 @@ class CocoExceptionTest {
 
     private enum TestBusinessCode implements CocoBusinessCode {
 
-        ORDER_NOT_FOUND(1001, "sample.order.not-found");
+        ORDER_NOT_FOUND(1001, "sample.order.not-found"),
+
+        UNAUTHORIZED(1002, "sample.unauthorized"),
+
+        FORBIDDEN(1003, "sample.forbidden"),
+
+        NOT_FOUND(1004, "sample.not-found"),
+
+        CONFLICT(1005, "sample.conflict"),
+
+        INTERNAL_ERROR(1006, "sample.internal-error");
 
         private final int code;
 

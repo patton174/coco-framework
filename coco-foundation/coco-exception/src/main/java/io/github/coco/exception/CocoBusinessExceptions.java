@@ -43,6 +43,19 @@ public final class CocoBusinessExceptions {
 
     /**
      * <p>
+     * 使用消息编码创建请求异常，并保留异常原因。
+     * </p>
+     * @param messageCode 国际化消息编码
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 请求异常
+     */
+    public static CocoRequestException requestWithCause(String messageCode, Throwable cause, Object... args) {
+        return new CocoRequestException(messageCode, messageCode, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用业务码创建请求异常。
      * </p>
      * @param businessCode 业务码契约
@@ -51,6 +64,20 @@ public final class CocoBusinessExceptions {
      */
     public static CocoRequestException request(CocoBusinessCode businessCode, Object... args) {
         return new CocoRequestException(requireBusinessCode(businessCode), args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码创建请求异常，并保留异常原因。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 请求异常
+     */
+    public static CocoRequestException requestWithCause(CocoBusinessCode businessCode, Throwable cause,
+            Object... args) {
+        return new CocoRequestException(requireBusinessCode(businessCode), cause, args);
     }
 
     /**
@@ -67,6 +94,20 @@ public final class CocoBusinessExceptions {
 
     /**
      * <p>
+     * 使用消息编码创建未认证异常，并保留异常原因。
+     * </p>
+     * @param messageCode 国际化消息编码
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 未认证异常
+     */
+    public static CocoUnauthorizedException unauthorizedWithCause(String messageCode, Throwable cause,
+            Object... args) {
+        return new CocoUnauthorizedException(messageCode, messageCode, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用业务码创建未认证异常。
      * </p>
      * @param businessCode 业务码契约
@@ -75,6 +116,20 @@ public final class CocoBusinessExceptions {
      */
     public static CocoUnauthorizedException unauthorized(CocoBusinessCode businessCode, Object... args) {
         return new CocoUnauthorizedException(requireBusinessCode(businessCode), args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码创建未认证异常，并保留异常原因。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 未认证异常
+     */
+    public static CocoUnauthorizedException unauthorizedWithCause(CocoBusinessCode businessCode, Throwable cause,
+            Object... args) {
+        return new CocoUnauthorizedException(requireBusinessCode(businessCode), cause, args);
     }
 
     /**
@@ -91,6 +146,19 @@ public final class CocoBusinessExceptions {
 
     /**
      * <p>
+     * 使用消息编码创建无权限异常，并保留异常原因。
+     * </p>
+     * @param messageCode 国际化消息编码
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 无权限异常
+     */
+    public static CocoForbiddenException forbiddenWithCause(String messageCode, Throwable cause, Object... args) {
+        return new CocoForbiddenException(messageCode, messageCode, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用业务码创建无权限异常。
      * </p>
      * @param businessCode 业务码契约
@@ -99,6 +167,20 @@ public final class CocoBusinessExceptions {
      */
     public static CocoForbiddenException forbidden(CocoBusinessCode businessCode, Object... args) {
         return new CocoForbiddenException(requireBusinessCode(businessCode), args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码创建无权限异常，并保留异常原因。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 无权限异常
+     */
+    public static CocoForbiddenException forbiddenWithCause(CocoBusinessCode businessCode, Throwable cause,
+            Object... args) {
+        return new CocoForbiddenException(requireBusinessCode(businessCode), cause, args);
     }
 
     /**
@@ -115,6 +197,19 @@ public final class CocoBusinessExceptions {
 
     /**
      * <p>
+     * 使用消息编码创建资源不存在异常，并保留异常原因。
+     * </p>
+     * @param messageCode 国际化消息编码
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 资源不存在异常
+     */
+    public static CocoNotFoundException notFoundWithCause(String messageCode, Throwable cause, Object... args) {
+        return new CocoNotFoundException(messageCode, messageCode, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用业务码创建资源不存在异常。
      * </p>
      * @param businessCode 业务码契约
@@ -123,6 +218,20 @@ public final class CocoBusinessExceptions {
      */
     public static CocoNotFoundException notFound(CocoBusinessCode businessCode, Object... args) {
         return new CocoNotFoundException(requireBusinessCode(businessCode), args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码创建资源不存在异常，并保留异常原因。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 资源不存在异常
+     */
+    public static CocoNotFoundException notFoundWithCause(CocoBusinessCode businessCode, Throwable cause,
+            Object... args) {
+        return new CocoNotFoundException(requireBusinessCode(businessCode), cause, args);
     }
 
     /**
@@ -139,6 +248,19 @@ public final class CocoBusinessExceptions {
 
     /**
      * <p>
+     * 使用消息编码创建资源冲突异常，并保留异常原因。
+     * </p>
+     * @param messageCode 国际化消息编码
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 资源冲突异常
+     */
+    public static CocoConflictException conflictWithCause(String messageCode, Throwable cause, Object... args) {
+        return new CocoConflictException(messageCode, messageCode, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用业务码创建资源冲突异常。
      * </p>
      * @param businessCode 业务码契约
@@ -147,6 +269,20 @@ public final class CocoBusinessExceptions {
      */
     public static CocoConflictException conflict(CocoBusinessCode businessCode, Object... args) {
         return new CocoConflictException(requireBusinessCode(businessCode), args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码创建资源冲突异常，并保留异常原因。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 资源冲突异常
+     */
+    public static CocoConflictException conflictWithCause(CocoBusinessCode businessCode, Throwable cause,
+            Object... args) {
+        return new CocoConflictException(requireBusinessCode(businessCode), cause, args);
     }
 
     /**
@@ -163,6 +299,19 @@ public final class CocoBusinessExceptions {
 
     /**
      * <p>
+     * 使用消息编码创建系统异常，并保留异常原因。
+     * </p>
+     * @param messageCode 国际化消息编码
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 系统异常
+     */
+    public static CocoSystemException systemWithCause(String messageCode, Throwable cause, Object... args) {
+        return new CocoSystemException(messageCode, messageCode, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用业务码创建系统异常。
      * </p>
      * @param businessCode 业务码契约
@@ -171,6 +320,20 @@ public final class CocoBusinessExceptions {
      */
     public static CocoSystemException system(CocoBusinessCode businessCode, Object... args) {
         return new CocoSystemException(requireBusinessCode(businessCode), args);
+    }
+
+    /**
+     * <p>
+     * 使用业务码创建系统异常，并保留异常原因。
+     * </p>
+     * @param businessCode 业务码契约
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 系统异常
+     */
+    public static CocoSystemException systemWithCause(CocoBusinessCode businessCode, Throwable cause,
+            Object... args) {
+        return new CocoSystemException(requireBusinessCode(businessCode), cause, args);
     }
 
     private static CocoBusinessCode requireBusinessCode(CocoBusinessCode businessCode) {

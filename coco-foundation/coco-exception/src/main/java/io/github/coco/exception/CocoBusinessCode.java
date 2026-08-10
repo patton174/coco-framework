@@ -68,6 +68,18 @@ public interface CocoBusinessCode {
 
     /**
      * <p>
+     * 使用当前业务码创建请求异常，并保留异常原因。
+     * </p>
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 请求异常
+     */
+    default CocoRequestException requestWithCause(Throwable cause, Object... args) {
+        return CocoBusinessExceptions.requestWithCause(this, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用当前业务码创建未认证异常。
      * </p>
      * @param args 消息格式化参数
@@ -75,6 +87,18 @@ public interface CocoBusinessCode {
      */
     default CocoUnauthorizedException unauthorized(Object... args) {
         return CocoBusinessExceptions.unauthorized(this, args);
+    }
+
+    /**
+     * <p>
+     * 使用当前业务码创建未认证异常，并保留异常原因。
+     * </p>
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 未认证异常
+     */
+    default CocoUnauthorizedException unauthorizedWithCause(Throwable cause, Object... args) {
+        return CocoBusinessExceptions.unauthorizedWithCause(this, cause, args);
     }
 
     /**
@@ -90,6 +114,18 @@ public interface CocoBusinessCode {
 
     /**
      * <p>
+     * 使用当前业务码创建无权限异常，并保留异常原因。
+     * </p>
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 无权限异常
+     */
+    default CocoForbiddenException forbiddenWithCause(Throwable cause, Object... args) {
+        return CocoBusinessExceptions.forbiddenWithCause(this, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用当前业务码创建资源不存在异常。
      * </p>
      * @param args 消息格式化参数
@@ -97,6 +133,18 @@ public interface CocoBusinessCode {
      */
     default CocoNotFoundException notFound(Object... args) {
         return CocoBusinessExceptions.notFound(this, args);
+    }
+
+    /**
+     * <p>
+     * 使用当前业务码创建资源不存在异常，并保留异常原因。
+     * </p>
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 资源不存在异常
+     */
+    default CocoNotFoundException notFoundWithCause(Throwable cause, Object... args) {
+        return CocoBusinessExceptions.notFoundWithCause(this, cause, args);
     }
 
     /**
@@ -112,6 +160,18 @@ public interface CocoBusinessCode {
 
     /**
      * <p>
+     * 使用当前业务码创建资源冲突异常，并保留异常原因。
+     * </p>
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 资源冲突异常
+     */
+    default CocoConflictException conflictWithCause(Throwable cause, Object... args) {
+        return CocoBusinessExceptions.conflictWithCause(this, cause, args);
+    }
+
+    /**
+     * <p>
      * 使用当前业务码创建系统异常。
      * </p>
      * @param args 消息格式化参数
@@ -119,5 +179,17 @@ public interface CocoBusinessCode {
      */
     default CocoSystemException system(Object... args) {
         return CocoBusinessExceptions.system(this, args);
+    }
+
+    /**
+     * <p>
+     * 使用当前业务码创建系统异常，并保留异常原因。
+     * </p>
+     * @param cause 异常原因
+     * @param args 消息格式化参数
+     * @return 系统异常
+     */
+    default CocoSystemException systemWithCause(Throwable cause, Object... args) {
+        return CocoBusinessExceptions.systemWithCause(this, cause, args);
     }
 }
