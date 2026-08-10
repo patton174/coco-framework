@@ -1,6 +1,7 @@
 package io.github.coco.i18n;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Locale;
@@ -52,6 +53,51 @@ class DefaultCocoMessageServiceTest {
         String message = this.messageService.getMessage("sample.hello", Locale.US, "Coco");
 
         assertEquals("Hello, Coco", message);
+    }
+
+    @Test
+    void resolvesNestedMessageArgumentWithDefaultLocale() {
+        CocoMessage nestedMessage = new CocoMessage("sample.hello", "默认：{0}", "Coco");
+        Object[] args = { nestedMessage };
+
+        String message = this.messageService.getMessage("sample.hello", args);
+
+        assertEquals("你好，你好，Coco", message);
+        assertSame(nestedMessage, args[0]);
+    }
+
+    @Test
+    void resolvesNestedMessageArgumentWithExplicitLocale() {
+        CocoMessage nestedMessage = new CocoMessage("sample.hello", "默认：{0}", "Coco");
+
+        String message = this.messageService.getMessage("sample.hello", Locale.US, nestedMessage);
+
+        assertEquals("Hello, Hello, Coco", message);
+    }
+
+    @Test
+    void resolvesNestedMissingMessageFallback() {
+        CocoMessage nestedMessage = new CocoMessage("sample.person-missing", "Guest");
+
+        String message = this.messageService.getMessage("sample.hello", Locale.US, nestedMessage);
+
+        assertEquals("Hello, Guest", message);
+    }
+
+    @Test
+    void preservesOrdinaryAndNullMessageArguments() {
+        String message = this.messageService.getMessageOrDefault(
+                "sample.arguments-missing", "{0} | {1}", Locale.US, "Coco", null);
+
+        assertEquals("Coco | null", message);
+    }
+
+    @Test
+    void resolvesNestedMessageArgumentFromCocoMessageDescriptor() {
+        CocoMessage nestedMessage = new CocoMessage("sample.hello", "默认：{0}", "Coco");
+        CocoMessage outerMessage = new CocoMessage("sample.hello", "默认：{0}", nestedMessage);
+
+        assertEquals("你好，你好，Coco", this.messageService.resolve(outerMessage));
     }
 
     @Test
