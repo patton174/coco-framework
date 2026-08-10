@@ -63,7 +63,7 @@ public final class DefaultCocoMessageService implements CocoMessageService {
     public String getMessage(String code, Locale locale, Object... args) {
         String checkedCode = requireCode(code);
         Locale checkedLocale = requireLocale(locale);
-        Object[] checkedArgs = copyArgs(args);
+        Object[] checkedArgs = resolveArgs(args, checkedLocale);
         if (this.useCodeAsDefaultMessage) {
             return this.messageSource.getMessage(checkedCode, checkedArgs, checkedCode, checkedLocale);
         }
@@ -86,7 +86,7 @@ public final class DefaultCocoMessageService implements CocoMessageService {
         String checkedCode = requireCode(code);
         Locale checkedLocale = requireLocale(locale);
         String fallback = defaultMessage == null && this.useCodeAsDefaultMessage ? checkedCode : defaultMessage;
-        return this.messageSource.getMessage(checkedCode, copyArgs(args), fallback, checkedLocale);
+        return this.messageSource.getMessage(checkedCode, resolveArgs(args, checkedLocale), fallback, checkedLocale);
     }
 
     /**
@@ -116,6 +116,16 @@ public final class DefaultCocoMessageService implements CocoMessageService {
 
     private static Locale requireLocale(Locale locale) {
         return Objects.requireNonNull(locale, "locale must not be null");
+    }
+
+    private Object[] resolveArgs(Object[] args, Locale locale) {
+        Object[] resolvedArgs = copyArgs(args);
+        for (int index = 0; index < resolvedArgs.length; index++) {
+            if (resolvedArgs[index] instanceof CocoMessage message) {
+                resolvedArgs[index] = resolve(message, locale);
+            }
+        }
+        return resolvedArgs;
     }
 
     private static Object[] copyArgs(Object[] args) {
