@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 /**
  * Coco MyBatis-Plus 功能配置属性。
  * <p>
- * 绑定 {@code coco.mybatis-plus} 命名空间，集中维护 MyBatis-Plus 集成、分页拦截器和后续 SQL 扩展能力的配置。
+ * 绑定 {@code coco.mybatis-plus} 命名空间，集中维护 MyBatis-Plus 集成、乐观锁、分页拦截器和后续 SQL 扩展能力的配置。
  * </p>
  * <p>
  * 项目信息：
@@ -25,11 +25,36 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 @ConfigurationProperties(prefix = "coco.mybatis-plus")
 public class CocoMybatisPlusProperties {
 
+    private boolean optimisticLockerEnabled;
+
     @NestedConfigurationProperty
     private volatile CocoMybatisPlusPaginationProperties pagination = new CocoMybatisPlusPaginationProperties();
 
     @NestedConfigurationProperty
     private volatile CocoMybatisPlusSqlGuardProperties sqlGuard = new CocoMybatisPlusSqlGuardProperties();
+
+    /**
+     * <p>
+     * 返回是否启用 MyBatis-Plus 乐观锁内置拦截器。
+     * </p>
+     * <p>
+     * 启用后，带有 {@code @Version} 字段的实体更新会追加版本条件并递增版本值。
+     * </p>
+     * @return 启用时返回 {@code true}
+     */
+    public boolean isOptimisticLockerEnabled() {
+        return this.optimisticLockerEnabled;
+    }
+
+    /**
+     * <p>
+     * 设置是否启用 MyBatis-Plus 乐观锁内置拦截器。
+     * </p>
+     * @param optimisticLockerEnabled 是否启用乐观锁内置拦截器
+     */
+    public void setOptimisticLockerEnabled(boolean optimisticLockerEnabled) {
+        this.optimisticLockerEnabled = optimisticLockerEnabled;
+    }
 
     /**
      * <p>

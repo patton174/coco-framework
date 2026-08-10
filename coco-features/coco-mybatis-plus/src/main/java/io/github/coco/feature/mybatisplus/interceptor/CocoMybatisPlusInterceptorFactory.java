@@ -12,6 +12,7 @@ import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.BlockAttackInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.IllegalSQLInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import io.github.coco.feature.mybatisplus.CocoMybatisPlusProperties;
 import io.github.coco.feature.mybatisplus.pagination.CocoMybatisPlusDbTypeResolver;
@@ -116,6 +117,11 @@ public final class CocoMybatisPlusInterceptorFactory {
                         this.customizerOrder.applyAsInt(customizer), customizer))
                 .sorted(CocoMybatisPlusInterceptorCustomizer.orderComparator())
                 .forEach(customizer -> customizer.customize(interceptor));
+        if (this.properties.isOptimisticLockerEnabled()
+                && interceptor.getInterceptors().stream()
+                        .noneMatch(OptimisticLockerInnerInterceptor.class::isInstance)) {
+            interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+        }
         CocoMybatisPlusSqlGuardProperties sqlGuard = this.properties.sqlGuardSnapshot();
         logSqlGuardProductionRecommendation(sqlGuard);
         addSqlGuardInnerInterceptors(interceptor, sqlGuard);
