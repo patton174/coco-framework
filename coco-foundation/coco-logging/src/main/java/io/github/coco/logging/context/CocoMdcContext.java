@@ -1,7 +1,11 @@
 package io.github.coco.logging.context;
 
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 
+import io.github.coco.context.CocoContextScope;
 import io.github.coco.context.CocoContextSnapshot;
 import org.slf4j.MDC;
 
@@ -41,9 +45,97 @@ public final class CocoMdcContext {
         };
     }
 
+    /**
+     * <p>
+     * 恢复指定上下文快照。
+     * </p>
+     * @param snapshot 上下文快照
+     * @return 上下文作用域
+     */
+    public static CocoContextScope restore(CocoContextSnapshot snapshot) {
+        return Objects.requireNonNull(snapshot, "snapshot must not be null").restore();
+    }
+
+    /**
+     * <p>
+     * 捕获当前 MDC 上下文并包装 {@link Runnable}。
+     * </p>
+     * @param runnable 待执行逻辑
+     * @return 包装后的逻辑
+     */
+    public static Runnable wrap(Runnable runnable) {
+        return capture().wrap(runnable);
+    }
+
+    /**
+     * <p>
+     * 捕获当前 MDC 上下文并包装 {@link Callable}。
+     * </p>
+     * @param callable 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 包装后的逻辑
+     */
+    public static <T> Callable<T> wrap(Callable<T> callable) {
+        return capture().wrap(callable);
+    }
+
+    /**
+     * <p>
+     * 捕获当前 MDC 上下文并包装 {@link Supplier}。
+     * </p>
+     * @param supplier 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 包装后的逻辑
+     */
+    public static <T> Supplier<T> wrapSupplier(Supplier<T> supplier) {
+        return capture().wrapSupplier(supplier);
+    }
+
+    /**
+     * <p>
+     * 在指定 MDC 上下文中执行逻辑，并在结束后恢复之前的上下文。
+     * </p>
+     * @param contextMap 临时 MDC 上下文
+     * @param runnable 待执行逻辑
+     */
+    public static void runWithContext(Map<String, String> contextMap, Runnable runnable) {
+        Objects.requireNonNull(runnable, "runnable must not be null");
+        callWithContext(contextMap, () -> {
+            runnable.run();
+            return null;
+        });
+    }
+
+    /**
+     * <p>
+     * 在指定 MDC 上下文中执行逻辑，返回执行结果，并在结束后恢复之前的上下文。
+     * </p>
+     * @param contextMap 临时 MDC 上下文
+     * @param supplier 待执行逻辑
+     * @param <T> 返回值类型
+     * @return 逻辑执行结果
+     */
+    public static <T> T callWithContext(Map<String, String> contextMap, Supplier<T> supplier) {
+        Objects.requireNonNull(supplier, "supplier must not be null");
+        Map<String, String> checkedContextMap = copyContextMap(contextMap);
+        Map<String, String> previous = currentContextMap();
+        restore(checkedContextMap);
+        try {
+            return supplier.get();
+        }
+        finally {
+            restore(previous);
+        }
+    }
+
     private static Map<String, String> currentContextMap() {
         Map<String, String> contextMap = MDC.getCopyOfContextMap();
-        return contextMap == null || contextMap.isEmpty() ? Map.of() : Map.copyOf(contextMap);
+        return contextMap == null ? Map.of() : copyContextMap(contextMap);
+    }
+
+    private static Map<String, String> copyContextMap(Map<String, String> contextMap) {
+        Objects.requireNonNull(contextMap, "contextMap must not be null");
+        return contextMap.isEmpty() ? Map.of() : Map.copyOf(contextMap);
     }
 
     private static void restore(Map<String, String> contextMap) {
