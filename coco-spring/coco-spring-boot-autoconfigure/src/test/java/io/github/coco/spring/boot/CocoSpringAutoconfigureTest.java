@@ -59,8 +59,23 @@ class CocoSpringAutoconfigureTest {
             assertEquals("Coco Spring Boot starter message bundle is ready.",
                     messageService.getMessage("coco.spring.boot.starter.ready", Locale.US));
             assertEquals("coco spring", context.getBean(CocoBannerProperties.class).getTitle());
+            assertTrue(context.getBean(CocoStartupBanner.class).render("9.9.9", "4.1.0")
+                    .contains("：：coco spring 9.9.9"));
             assertTrue(context.getBean(CocoLoggingProperties.class).isEnabled());
         });
+    }
+
+    @Test
+    void appliesConfiguredTitleToStartupBanner() {
+        this.contextRunner
+                .withPropertyValues("coco.banner.title=inventory service")
+                .run(context -> {
+                    CocoStartupBanner banner = context.getBean(CocoStartupBanner.class);
+
+                    assertEquals("inventory service", context.getBean(CocoBannerProperties.class).getTitle());
+                    assertTrue(banner.render("9.9.9", "4.1.0")
+                            .contains("：：inventory service 9.9.9"));
+                });
     }
 
     @Test
@@ -78,11 +93,11 @@ class CocoSpringAutoconfigureTest {
                 "╚██████╗╚██████╔╝╚██████╗╚██████╔╝      ███████║██║     ██║  ██║██║██║ ╚████║╚██████╔╝",
                 " ╚═════╝ ╚═════╝  ╚═════╝ ╚═════╝       ╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ",
                 "",
-                "：：coco 9.9.9",
+                "：：coco spring 9.9.9",
                 "：：spring boot 4.1.0"), rendered);
         assertTrue(rendered.contains("██████╗ ██████╗"));
         assertTrue(rendered.contains("███████╗██████╗"));
-        assertTrue(rendered.contains("：：coco 9.9.9"));
+        assertTrue(rendered.contains("：：coco spring 9.9.9"));
         assertTrue(rendered.contains("：：spring boot 4.1.0"));
         assertFalse(rendered.contains("fast web framework"));
         assertFalse(rendered.contains("Author"));
