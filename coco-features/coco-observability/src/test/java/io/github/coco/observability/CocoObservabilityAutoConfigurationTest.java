@@ -2,9 +2,12 @@ package io.github.coco.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.feature.audit.core.CocoAuditEvent;
 import io.github.coco.feature.audit.core.CocoAuditRecorder;
+import io.github.coco.feature.model.CocoFeatureSelection;
 import io.github.coco.feature.model.CocoFeaturePlan;
+import io.github.coco.feature.model.StandardCocoFeatures;
 import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfiguration;
 import io.github.coco.logging.core.AsyncCocoLogSink;
 import io.github.coco.logging.core.CocoAsyncLogDropListener;
@@ -112,7 +115,11 @@ class CocoObservabilityAutoConfigurationTest {
                     CocoActuatorHealthEndpoint.class);
             assertThat(healthEndpoint.health()).containsEntry("status", "UP").containsKeys("startup", "featurePlan");
             assertThat(healthEndpoint.health().get("featurePlan"))
-                    .isEqualTo(Map.of("status", "available", "enabledCount", 0, "disabledCount", 0));
+                    .isEqualTo(Map.of(
+                            "status", "available",
+                            "enabledCount", 4,
+                            "disabledCount", 4,
+                            "disabledByDependencyCount", 3));
 
             Info.Builder builder = new Info.Builder();
             context.getBean("cocoObservabilityInfoContributor", InfoContributor.class).contribute(builder);
@@ -275,7 +282,8 @@ class CocoObservabilityAutoConfigurationTest {
 
         @Bean
         CocoFeaturePlan cocoFeaturePlan() {
-            return new CocoFeaturePlan(Set.of(), Set.of(), List.of());
+            return StandardCocoFeatures.resolve(
+                    CocoFeatureSelection.ofDisabled(Set.of(CocoFeature.MYBATIS_PLUS)));
         }
     }
 
