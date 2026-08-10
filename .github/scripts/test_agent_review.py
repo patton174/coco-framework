@@ -36,6 +36,7 @@ MODEL_CONFIG_SHA256 = review.sha256_text(
             "protocol": "openai-responses",
             "base_url": "https://models.example.invalid/v1",
             "model": "review-model",
+            "thinking": "auto",
         }
     )
 )
@@ -84,6 +85,7 @@ def model_env(
         "COCO_AGENT_MODEL_PROTOCOL": protocol,
         "COCO_AGENT_MODEL_BASE_URL": base_url,
         "COCO_AGENT_MODEL": "review-model",
+        "COCO_AGENT_MODEL_THINKING": "auto",
         "COCO_AGENT_MODEL_API_KEY": "test-api-key",
     }
 
@@ -140,6 +142,22 @@ def openai_envelope(
     if incomplete_reason is not None:
         value["incomplete_details"] = {"reason": incomplete_reason}
     return value
+
+
+def openai_chat_envelope(
+    text: str = '{"ok":true}', finish_reason: str = "stop"
+) -> dict:
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": text},
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
 
 
 def bound_context() -> dict:
@@ -454,7 +472,7 @@ class AgentReviewTests(unittest.TestCase):
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
-        self.assertEqual(48_000, limits["policy_chars"])
+        self.assertEqual(52_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
@@ -1083,7 +1101,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(180_000, defaults["diff_chars"])
         self.assertEqual(180_000, defaults["patch_chars"])
         self.assertEqual(384_000, defaults["assembled_context_chars"])
-        self.assertEqual(48_000, defaults["policy_chars"])
+        self.assertEqual(52_000, defaults["policy_chars"])
         self.assertEqual(60_000, defaults["code_context_chars"])
         self.assertEqual(4_000, defaults["per_file_chars"])
         self.assertEqual(12_000, defaults["full_file_chars"])
@@ -3376,6 +3394,66 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(3, review_workflow.count(model_environment))
         for model_job in (specialists, verifiers, chair):
             self.assertEqual(1, model_job.count(model_environment))
+        model_variables = (
+            "COCO_AGENT_MODEL_PROTOCOL",
+            "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL_THINKING",
+            "COCO_AGENT_MODEL",
+        )
+        for workflow_name, workflow in (
+            ("reusable", review_workflow),
+            ("deferred", deferred_workflow),
+        ):
+            workflow_prepare = workflow.split("\n  prepare:\n", 1)[1].split(
+                "\n  specialists:\n", 1
+            )[0]
+            workflow_specialists = workflow.split("\n  specialists:\n", 1)[1].split(
+                "\n  verifiers:\n", 1
+            )[0]
+            workflow_verifiers = workflow.split("\n  verifiers:\n", 1)[1].split(
+                "\n  chair:\n", 1
+            )[0]
+            workflow_chair = workflow.split("\n  chair:\n", 1)[1].split(
+                "\n  publisher-admission:\n", 1
+            )[0]
+            workflow_admission = workflow.split("\n  publisher-admission:\n", 1)[
+                1
+            ].split("\n  trusted-publisher:\n", 1)[0]
+            for section_name, section in (
+                ("prepare", workflow_prepare),
+                ("specialists", workflow_specialists),
+                ("verifiers", workflow_verifiers),
+                ("chair", workflow_chair),
+                ("publisher admission", workflow_admission),
+            ):
+                for variable in model_variables:
+                    self.assertEqual(
+                        1,
+                        section.count(f"{variable}: ${{{{ vars.{variable} }}}}"),
+                        f"{workflow_name} {section_name}: {variable}",
+                    )
+            for section_name, section in (
+                ("specialists", workflow_specialists),
+                ("verifiers", workflow_verifiers),
+                ("chair", workflow_chair),
+            ):
+                self.assertEqual(
+                    1,
+                    section.count(
+                        "COCO_AGENT_MODEL_API_KEY: "
+                        "${{ secrets.COCO_AGENT_MODEL_API_KEY }}"
+                    ),
+                    f"{workflow_name} {section_name}: API key",
+                )
+            for section_name, section in (
+                ("prepare", workflow_prepare),
+                ("publisher admission", workflow_admission),
+            ):
+                self.assertNotIn(
+                    "COCO_AGENT_MODEL_API_KEY",
+                    section,
+                    f"{workflow_name} {section_name}: API key",
+                )
         for name, section in (
             ("source no-secret call", direct_no_secret),
             ("prepare", prepare),
@@ -3452,21 +3530,28 @@ class AgentReviewTests(unittest.TestCase):
             "COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}",
             deferred_workflow,
         )
-        self.assertIn("allow_deferred: true", deferred_workflow)
-        self.assertIn(
-            "source_run_id: ${{ github.event.workflow_run.id }}", deferred_workflow
-        )
+        self.assertIn("ALLOW_DEFERRED: ${{ true }}", deferred_workflow)
+        self.assertIn("deferred_args+=(--allow-deferred)", deferred_workflow)
+        self.assertIn('--source-run-id "${SOURCE_RUN_ID}"', deferred_workflow)
         self.assertIn("ref: ${{ github.sha }}", deferred_workflow)
         self.assertNotIn("secrets: inherit", deferred_workflow)
         self.assertNotIn("github.event.workflow_run.head_sha", deferred_workflow)
-        self.assertNotIn("actions/download-artifact", deferred_workflow)
+        self.assertIn("actions/download-artifact", deferred_workflow)
+        self.assertIn(
+            "name: agent-review-input-${{ github.run_id }}", deferred_workflow
+        )
         self.assertNotIn("actions/cache", deferred_workflow)
         self.assertNotIn("refs/pull/", deferred_workflow)
         self.assertNotIn("/merge", deferred_workflow)
         self.assertNotIn(model_environment, direct_workflow)
-        self.assertNotIn(model_environment, deferred_workflow)
-        self.assertNotIn("environment: coco-agent", direct_workflow)
-        self.assertNotIn("${{ secrets.", deferred_workflow)
+        self.assertEqual(4, deferred_workflow.count(model_environment))
+        self.assertIn("environment: coco-agent", deferred_workflow)
+        deferred_pre_model = deferred_workflow.split("\n  prepare:\n", 1)[0]
+        deferred_admission = deferred_workflow.split("\n  publisher-admission:\n", 1)[
+            1
+        ].split("\n  trusted-publisher:\n", 1)[0]
+        self.assertNotIn("${{ secrets.", deferred_pre_model)
+        self.assertNotIn("${{ secrets.", deferred_admission)
 
         gate_workflow = (workflow_root / "agent-issue-gate.yml").read_text(
             encoding="utf-8"
@@ -3541,13 +3626,28 @@ class AgentReviewTests(unittest.TestCase):
 
         reusable_call = "uses: ./.github/workflows/reusable-agent-review-jury.yml"
         self.assertEqual(1, direct.count(reusable_call))
-        self.assertEqual(1, deferred.count(reusable_call))
-        self.assertIn("allow_deferred: true", deferred)
-        self.assertIn("event_name: workflow_run", deferred)
+        self.assertEqual(0, deferred.count(reusable_call))
+        for job in (
+            "  prepare:\n",
+            "  specialists:\n",
+            "  verifiers:\n",
+            "  chair:\n",
+            "  publisher-admission:\n",
+            "  trusted-publisher:\n",
+        ):
+            self.assertEqual(1, deferred.count(job), job)
+        self.assertIn("EVENT_NAME: workflow_run", deferred)
+        self.assertIn("ALLOW_DEFERRED: ${{ true }}", deferred)
+        self.assertIn("deferred_args+=(--allow-deferred)", deferred)
+        self.assertIn("needs.specialists.result == 'success'", deferred)
+        self.assertIn("needs.verifiers.result == 'success'", deferred)
+        self.assertIn("needs.chair.result == 'success'", deferred)
+        self.assertIn("environment: coco-agent-model", deferred)
+        self.assertIn("environment: coco-agent", deferred)
         self.assertNotIn("allow_deferred: true", direct)
         self.assertNotIn("environment:", direct)
         self.assertNotIn("\n  specialists:\n", direct)
-        self.assertNotIn("\n  specialists:\n", deferred)
+        self.assertIn("\n  specialists:\n", deferred)
 
     def test_rendered_comment_exposes_panel_and_dissent(self) -> None:
         context = bound_context()
@@ -6376,6 +6476,7 @@ class AgentReviewTests(unittest.TestCase):
         for variable in (
             "COCO_AGENT_MODEL_PROTOCOL",
             "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL_THINKING",
             "COCO_AGENT_MODEL",
         ):
             self.assertIn(f"{variable}: ${{{{ vars.{variable} }}}}", admission)
@@ -6618,10 +6719,11 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("agent-review-route", router)
         self.assertIn('"route_reason"', router)
         self.assertNotIn("secrets: inherit", no_secret_call)
-        self.assertIn("allow_deferred: true", deferred)
-        self.assertIn("source_run_id: ${{ github.event.workflow_run.id }}", deferred)
+        self.assertIn("ALLOW_DEFERRED: ${{ true }}", deferred)
+        self.assertIn("deferred_args+=(--allow-deferred)", deferred)
+        self.assertIn('--source-run-id "${SOURCE_RUN_ID}"', deferred)
         self.assertIn("base_sha: ${{ steps.binding.outputs.base_sha }}", deferred)
-        self.assertIn("expected_base_sha: ${{ needs.bind.outputs.base_sha }}", deferred)
+        self.assertIn("EXPECTED_BASE_SHA: ${{ needs.bind.outputs.base_sha }}", deferred)
         self.assertEqual(
             1,
             router.count(
@@ -7143,6 +7245,11 @@ class AgentReviewTests(unittest.TestCase):
                 "https://models.example.invalid/proxy/v1/",
                 "https://models.example.invalid/proxy/v1/responses",
             ),
+            (
+                "openai-chat-completions",
+                "https://models.example.invalid/proxy/v1/",
+                "https://models.example.invalid/proxy/v1/chat/completions",
+            ),
         ]
         for protocol, base_url, expected in cases:
             with self.subTest(protocol=protocol, base_url=base_url):
@@ -7167,6 +7274,7 @@ class AgentReviewTests(unittest.TestCase):
                 "protocol": "openai-responses",
                 "base_url": "https://models.example.invalid/v1",
                 "model": "review-model",
+                "thinking": "auto",
             },
             material,
         )
@@ -7193,6 +7301,7 @@ class AgentReviewTests(unittest.TestCase):
                 )
             },
             {"COCO_AGENT_MODEL": "different-review-model"},
+            {"COCO_AGENT_MODEL_THINKING": "disabled"},
         ]
         for change in changes:
             environment = {**baseline, **change}
@@ -7271,6 +7380,7 @@ class AgentReviewTests(unittest.TestCase):
         required = (
             "COCO_AGENT_MODEL_PROTOCOL",
             "COCO_AGENT_MODEL_BASE_URL",
+            "COCO_AGENT_MODEL_THINKING",
             "COCO_AGENT_MODEL",
             "COCO_AGENT_MODEL_API_KEY",
         )
@@ -7284,6 +7394,9 @@ class AgentReviewTests(unittest.TestCase):
 
         invalid_values = [
             ("COCO_AGENT_MODEL", "model\nname"),
+            ("COCO_AGENT_MODEL_THINKING", "unsupported"),
+            ("COCO_AGENT_MODEL_THINKING", "ENABLED"),
+            ("COCO_AGENT_MODEL_THINKING", " disabled "),
             ("COCO_AGENT_MODEL_API_KEY", " key"),
             ("COCO_AGENT_MODEL_API_KEY", "key "),
             ("COCO_AGENT_MODEL_API_KEY", "key\nvalue"),
@@ -7318,6 +7431,13 @@ class AgentReviewTests(unittest.TestCase):
                 openai_envelope(),
                 "/v1/responses",
                 "max_output_tokens",
+                "authorization",
+            ),
+            (
+                "openai-chat-completions",
+                openai_chat_envelope(),
+                "/v1/chat/completions",
+                "max_tokens",
                 "authorization",
             ),
         ]
@@ -7356,6 +7476,19 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertIsNotNone(headers.get(auth_header))
                 self.assertEqual(180, captured["timeout"])
                 self.assertEqual(1048577, response.read_limit)
+                if protocol == "openai-chat-completions":
+                    self.assertEqual(
+                        [
+                            {"role": "system", "content": "system"},
+                            {"role": "user", "content": "user"},
+                        ],
+                        payload["messages"],
+                    )
+                    self.assertEqual(
+                        {"type": "json_object"}, payload["response_format"]
+                    )
+                    self.assertNotIn("chat_template_kwargs", payload)
+                    self.assertIs(payload["stream"], False)
                 if protocol == "openai-responses":
                     self.assertIs(payload["store"], False)
                     self.assertIs(payload["stream"], False)
@@ -7396,6 +7529,106 @@ class AgentReviewTests(unittest.TestCase):
                         self.assertNotIsInstance(
                             raised.exception, review.RetryableModelOutputError
                         )
+
+    def test_openai_chat_client_rejects_refusal_and_retries_length(self) -> None:
+        cases = [
+            (
+                openai_chat_envelope("", "content_filter"),
+                review.ReviewError,
+                "content_filter",
+            ),
+            (
+                openai_chat_envelope("", "stop"),
+                review.RetryableModelOutputError,
+                "no text",
+            ),
+            (
+                openai_chat_envelope('{"ok":', "length"),
+                review.RetryableModelOutputError,
+                "max_tokens",
+            ),
+        ]
+        with patch.dict("os.environ", model_env("openai-chat-completions"), clear=True):
+            client = review.AgentModelClient(config())
+            for envelope, error_type, message in cases:
+                with self.subTest(message=message):
+                    with patch(
+                        "urllib.request.urlopen",
+                        return_value=FakeModelResponse(json.dumps(envelope).encode()),
+                    ):
+                        with self.assertRaisesRegex(error_type, message):
+                            client.complete("system", "user", 100)
+
+    def test_openai_chat_client_rejects_refusal_tool_calls_and_malformed_envelopes(
+        self,
+    ) -> None:
+        refusal = openai_chat_envelope()
+        refusal["choices"][0]["message"] = {
+            "role": "assistant",
+            "content": None,
+            "refusal": "not permitted",
+        }
+        tool_call = openai_chat_envelope()
+        tool_call["choices"][0]["finish_reason"] = "tool_calls"
+        tool_call["choices"][0]["message"]["tool_calls"] = []
+        malformed = {"object": "chat.completion", "choices": []}
+        cases = [
+            (refusal, review.ReviewError, "refused"),
+            (tool_call, review.ReviewError, "invalid response envelope"),
+            (malformed, review.ReviewError, "invalid response envelope"),
+        ]
+        with patch.dict("os.environ", model_env("openai-chat-completions"), clear=True):
+            client = review.AgentModelClient(config())
+            for envelope, error_type, message in cases:
+                with self.subTest(message=message):
+                    with patch(
+                        "urllib.request.urlopen",
+                        return_value=FakeModelResponse(json.dumps(envelope).encode()),
+                    ):
+                        with self.assertRaisesRegex(error_type, message):
+                            client.complete("system", "user", 100)
+
+    def test_openai_client_accepts_missing_message_status(self) -> None:
+        completed = openai_envelope()
+        del completed["output"][1]["status"]
+        incomplete = openai_envelope('{"ok":', "incomplete", "max_output_tokens")
+        del incomplete["output"][1]["status"]
+        with patch.dict("os.environ", model_env("openai-responses"), clear=True):
+            client = review.AgentModelClient(config())
+            with patch(
+                "urllib.request.urlopen",
+                return_value=FakeModelResponse(json.dumps(completed).encode()),
+            ):
+                self.assertEqual({"ok": True}, client.complete("system", "user", 100))
+            with patch(
+                "urllib.request.urlopen",
+                return_value=FakeModelResponse(json.dumps(incomplete).encode()),
+            ):
+                with self.assertRaisesRegex(
+                    review.RetryableModelOutputError, "max_tokens"
+                ):
+                    client.complete("system", "user", 100)
+
+    def test_openai_client_reports_only_safe_response_shape(self) -> None:
+        envelope = openai_envelope()
+        envelope["secret_value"] = "must-not-appear"
+        envelope["output"][1]["role"] = "tool"
+        envelope["output"][1]["content"][0]["type"] = "unexpected_block"
+        envelope["output"][1]["content"][0]["text"] = "sensitive response text"
+        with patch.dict("os.environ", model_env("openai-responses"), clear=True):
+            client = review.AgentModelClient(config())
+            with patch(
+                "urllib.request.urlopen",
+                return_value=FakeModelResponse(json.dumps(envelope).encode()),
+            ):
+                with self.assertRaisesRegex(
+                    review.ReviewError,
+                    r"shape=.*items=message=1.*roles=other=1.*content=other=1",
+                ) as raised:
+                    client.complete("system", "user", 100)
+        message = str(raised.exception)
+        self.assertNotIn("must-not-appear", message)
+        self.assertNotIn("sensitive response text", message)
 
     def test_openai_client_rejects_malformed_response_envelopes(self) -> None:
         completed_with_error = openai_envelope()
@@ -7477,6 +7710,36 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertNotIsInstance(
                         raised.exception, review.RetryableModelOutputError
                     )
+
+    def test_openai_chat_client_controls_provider_thinking_mode(self) -> None:
+        for thinking, enabled in (("enabled", True), ("disabled", False)):
+            with self.subTest(thinking=thinking):
+                captured: dict[str, object] = {}
+
+                def urlopen(request: object, timeout: int) -> FakeModelResponse:
+                    captured["request"] = request
+                    captured["timeout"] = timeout
+                    return FakeModelResponse(
+                        json.dumps(openai_chat_envelope()).encode()
+                    )
+
+                environment = model_env("openai-chat-completions")
+                environment["COCO_AGENT_MODEL_THINKING"] = thinking
+                with (
+                    patch.dict("os.environ", environment, clear=True),
+                    patch("urllib.request.urlopen", side_effect=urlopen),
+                ):
+                    self.assertEqual(
+                        {"ok": True},
+                        review.AgentModelClient(config()).complete(
+                            "system", "user", 100
+                        ),
+                    )
+                payload = json.loads(captured["request"].data)
+                self.assertEqual(
+                    {"enable_thinking": enabled},
+                    payload["chat_template_kwargs"],
+                )
 
     def _assert_openai_message_less_max_output_retries(
         self, output: list[dict]

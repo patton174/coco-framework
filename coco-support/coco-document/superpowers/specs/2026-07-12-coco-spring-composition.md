@@ -60,7 +60,7 @@ The three foundation modules retain their contracts, implementation classes, con
 
 Batch 7a keeps `coco-config` and `coco-feature-runtime` as source-free compatibility facades. Each facade depends only on `coco-spring-boot-autoconfigure`; it contains no duplicate classes, messages, auto-configuration imports, or `spring.factories` entries. Existing starter and feature POMs therefore continue to build while every implementation class has one physical owner.
 
-The cutover was split because all nine consumer POMs together select the complete Web, Audit, and Codegen specifications and leave no safe room in the protected `48000`-character policy budget. Path mappings remain module-wide so POM, source, resources, and module metadata never silently lose their required feature specifications. Governance tests therefore lock batch 7b into independently buildable sub-batches and prove that each sub-batch fits without omission:
+The cutover was split because all nine consumer POMs together select the complete Web, Audit, and Codegen specifications and leave no safe room in the protected `52000`-character policy budget. Path mappings remain module-wide so POM, source, resources, and module metadata never silently lose their required feature specifications. Governance tests therefore lock batch 7b into independently buildable sub-batches and prove that each sub-batch fits without omission:
 
 1. `7b1`: starter, data-permission, MyBatis-Plus, OpenAPI, security, and tenant;
 2. `7b2`: Web;
@@ -136,6 +136,6 @@ Its `spring.factories` preserves the existing Spring application listener and en
 
 ## Verification Ownership
 
-Governance policy-routing tests use `collect_policy()` to prove deterministic path-to-spec routing, complete policy loading, omission handling, and the `48000`-character budget. Their migration-path fixtures may include a planned physical location. They do not prove that a candidate module exists, compiles, resolves an old coordinate, or runs an existing consumer.
+Governance policy-routing tests use `collect_policy()` to prove deterministic path-to-spec routing, complete policy loading, omission handling, and the `52000`-character budget. Their migration-path fixtures may include a planned physical location. They do not prove that a candidate module exists, compiles, resolves an old coordinate, or runs an existing consumer.
 
 Canonical integration owns those executable claims: the tracked current facade POMs and sample consumers are built by the reactor Maven install and sample Maven verification in `reusable-tests.yml`, and the resulting Boot archives are inspected by `verify_sample_feature_coordinates.py`. A physical compatibility-module move must update that canonical Maven/Python integration in the same implementation PR; it must not be represented as an implemented module solely by a governance routing fixture.

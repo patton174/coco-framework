@@ -87,14 +87,17 @@ GitHub Actions App 发布。
 ### 模型供应商配置契约
 
 受保护 repository variables 为 `COCO_AGENT_MODEL_PROTOCOL`（仅 `anthropic-messages` /
-`openai-responses`）、`COCO_AGENT_MODEL_BASE_URL`（仅 HTTPS origin 或末段精确 `/v1` 的 base
-path；拒绝完整 `/responses`/`/messages` endpoint、凭据、query、fragment）和
-`COCO_AGENT_MODEL`。API key 仅存为 `coco-agent-model` environment secret
+`openai-chat-completions` / `openai-responses`）、`COCO_AGENT_MODEL_BASE_URL`（仅 HTTPS origin 或末段精确 `/v1` 的 base
+path；拒绝完整 `/responses`/`/messages` endpoint、凭据、query、fragment）、
+`COCO_AGENT_MODEL` 和 `COCO_AGENT_MODEL_THINKING`（仅 `auto` / `enabled` /
+`disabled`）。`auto` 不发送供应商特定的思考开关；`enabled` / `disabled` 在
+OpenAI Chat Completions 请求中映射为 `chat_template_kwargs.enable_thinking`。
+API key 仅存为 `coco-agent-model` environment secret
 `COCO_AGENT_MODEL_API_KEY`；该 environment 仅限 `main`、禁管理员 bypass，只供三个模型 job。
 `pull_request_target` 不得调用声明该 environment 的 reusable job；只有在受保护默认分支
 `workflow_run` 中显式传入 `allow_deferred=true` 时，模型 job 和 `coco-agent` publisher 才能运行。
 
-prepare 绑定三变量摘要；admission 必须用当前三变量严格复核 metadata digest。两者及
+prepare 绑定四变量摘要；admission 必须用当前四变量严格复核 metadata digest。两者及
 fork/no-secret 不得读 key；reusable 不声明 secrets，caller 不得继承。配置缺失、未知协议或
 envelope 不匹配均 fail closed。README 旧配置仅保留至单独迁移，Agent Review 不得使用。
 

@@ -145,6 +145,7 @@ jobs:
           COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
           COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
           COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
         run: |
           set -euo pipefail
@@ -277,21 +278,22 @@ jobs:
         env:
           COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
           COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
           ROLE: ${{ matrix.id }}
         run: |
           set -euo pipefail
-          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
+          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL_THINKING COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
             if [[ -z "${!variable:-}" ]]; then
               echo "::error::${variable} must be configured for Agent review."
               exit 1
             fi
           done
           case "${COCO_AGENT_MODEL_PROTOCOL}" in
-            anthropic-messages|openai-responses) ;;
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
             *)
-              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages or openai-responses."
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
               exit 1
               ;;
           esac
@@ -360,21 +362,22 @@ jobs:
         env:
           COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
           COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
           ROLE: ${{ matrix.id }}
         run: |
           set -euo pipefail
-          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
+          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL_THINKING COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
             if [[ -z "${!variable:-}" ]]; then
               echo "::error::${variable} must be configured for Agent review."
               exit 1
             fi
           done
           case "${COCO_AGENT_MODEL_PROTOCOL}" in
-            anthropic-messages|openai-responses) ;;
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
             *)
-              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages or openai-responses."
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
               exit 1
               ;;
           esac
@@ -448,20 +451,21 @@ jobs:
         env:
           COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
           COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
         run: |
           set -euo pipefail
-          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
+          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL_THINKING COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
             if [[ -z "${!variable:-}" ]]; then
               echo "::error::${variable} must be configured for Agent review."
               exit 1
             fi
           done
           case "${COCO_AGENT_MODEL_PROTOCOL}" in
-            anthropic-messages|openai-responses) ;;
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
             *)
-              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages or openai-responses."
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
               exit 1
               ;;
           esac
@@ -525,6 +529,7 @@ jobs:
         env:
           COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
           COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           GH_TOKEN: ${{ github.token }}
         run: |

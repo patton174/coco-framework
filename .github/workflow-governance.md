@@ -167,12 +167,15 @@ Required `coco-agent-model` environment secret:
 
 Required protected repository variables:
 
-- `COCO_AGENT_MODEL_PROTOCOL`, exactly `anthropic-messages` or
-  `openai-responses`
+- `COCO_AGENT_MODEL_PROTOCOL`, exactly `anthropic-messages`,
+  `openai-chat-completions`, or `openai-responses`
 - `COCO_AGENT_MODEL_BASE_URL`, an HTTPS origin or an HTTPS base path whose final
   path segment is exactly `/v1`; complete `/responses` or `/messages` endpoints,
   credentials, query data, and fragments are rejected
 - `COCO_AGENT_MODEL`
+- `COCO_AGENT_MODEL_THINKING`, exactly `auto`, `enabled`, or `disabled`; `auto`
+  omits provider-specific thinking controls, while the other values map to the
+  OpenAI-compatible `chat_template_kwargs.enable_thinking` extension
 
 Create a dedicated `coco-agent-model` environment, restrict it to the exact
 `main` branch, disable administrator bypass, and store
@@ -180,7 +183,7 @@ Create a dedicated `coco-agent-model` environment, restrict it to the exact
 declare this environment. The protocol has no default and no implicit fallback;
 protocol, base URL, and model are protected repository variables
 and must never come from pull request content. Trusted prepare receives the
-three non-secret values to bind the model-configuration digest; publisher
+four non-secret values to bind the model-configuration digest; publisher
 admission requires the same current values and rejects digest drift. The API
 key is never available outside the three `coco-agent-model` jobs. Fork and
 no-secret routes may receive non-secret configuration where protected runtime
