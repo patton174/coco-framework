@@ -85,9 +85,9 @@ public final class CocoRateLimitRequestHandler {
         catch (RuntimeException exception) {
             CocoRateLimitDecision decision = new CocoRateLimitDecision(false, checkedRoute.getLimit(), 0, resetAt, true);
             writeRateLimitHeaders(response, decision, now);
-            LOGGER.warn("Coco rate-limit failed closed for route={} traceId={}", checkedRoute.getId(), traceId,
+            LOGGER.warn("Coco rate-limit unavailable; failing closed route={} traceId={}", checkedRoute.getId(), traceId,
                     exception);
-            reject(checkedRoute, traceId, decision, request, response, CocoRateLimitErrorCode.UNAVAILABLE);
+            this.responseWriter.write(CocoRateLimitErrorCode.UNAVAILABLE.request(), request, response);
             return false;
         }
     }
@@ -95,8 +95,14 @@ public final class CocoRateLimitRequestHandler {
     private void reject(CocoRateLimitRoute route, String traceId, CocoRateLimitDecision decision,
             HttpServletRequest request, HttpServletResponse response, CocoRateLimitErrorCode errorCode)
             throws IOException {
-        LOGGER.info("Coco rate-limit rejected route={} traceId={} capacityExhausted={}", route.getId(), traceId,
-                decision.capacityExhausted());
+        if (decision.capacityExhausted()) {
+            LOGGER.warn("Coco rate-limit rejected because capacity is exhausted route={} traceId={}", route.getId(),
+                    traceId);
+        }
+        else {
+            LOGGER.info("Coco rate-limit rejected because quota is exhausted route={} traceId={}", route.getId(),
+                    traceId);
+        }
         this.responseWriter.write(errorCode.request(), request, response);
     }
 

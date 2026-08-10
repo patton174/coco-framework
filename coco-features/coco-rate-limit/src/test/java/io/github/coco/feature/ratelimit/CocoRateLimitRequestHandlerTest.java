@@ -1,7 +1,10 @@
 package io.github.coco.feature.ratelimit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -9,14 +12,23 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.exception.CocoException;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageCode;
 import io.github.coco.i18n.CocoMessageService;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -56,6 +68,30 @@ class CocoRateLimitRequestHandlerTest {
         MockHttpServletResponse rejected = new MockHttpServletResponse();
         assertThat(handler.handle(route, request, rejected)).isFalse();
         assertThat(rejected.getContentAsString()).contains("请求过于频繁，请稍后重试。", "42900");
+    }
+
+    @Test
+    void setsThe429StatusBeforeTheResponseBodyCanCommit() throws Exception {
+        StatusCheckingResponse response = new StatusCheckingResponse(new MockHttpServletResponse());
+
+        responseWriter().write(CocoRateLimitErrorCode.EXCEEDED.request(), request(Locale.US, "en-US"), response);
+
+        assertThat(response.statusWhenOutputStreamWasRequested).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+    }
+
+    @Test
+    void doesNotWriteAnErrorResponseAfterTheResponseHasBeenCommitted() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setStatus(HttpStatus.CREATED.value());
+        response.getOutputStream().write("already-written".getBytes(StandardCharsets.UTF_8));
+        response.flushBuffer();
+        CocoException exception = CocoRateLimitErrorCode.EXCEEDED.request();
+
+        assertThatThrownBy(() -> responseWriter().write(exception, request(Locale.US, "en-US"), response))
+                .isSameAs(exception);
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.CREATED.value());
+        assertThat(response.getContentAsString()).isEqualTo("already-written");
     }
 
     @Test
@@ -113,17 +149,58 @@ class CocoRateLimitRequestHandlerTest {
         assertThat(route.getMatcher().getPathPatterns()).isEmpty();
     }
 
+    @Test
+    void logsQuotaRejectionsAtInfoAndCapacityRejectionsAtWarn() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(CocoRateLimitRequestHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        try {
+            CocoRateLimitStore quotaStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                    permit.resetAt(), false);
+            CocoRateLimitStore capacityStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                    permit.resetAt(), true);
+
+            assertThat(handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "quota"), quotaStore)
+                    .handle(route(), request(Locale.US, "en-US"), new MockHttpServletResponse())).isFalse();
+            assertThat(handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "capacity"), capacityStore)
+                    .handle(route(), request(Locale.US, "en-US"), new MockHttpServletResponse())).isFalse();
+
+            assertThat(appender.list)
+                    .filteredOn(event -> event.getFormattedMessage().contains("quota is exhausted"))
+                    .singleElement()
+                    .satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.INFO));
+            assertThat(appender.list)
+                    .filteredOn(event -> event.getFormattedMessage().contains("capacity is exhausted"))
+                    .singleElement()
+                    .satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.WARN));
+        }
+        finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
     static CocoRateLimitRequestHandler handler(Instant now, CocoRateLimitKeyResolver keyResolver) {
         CocoRateLimitProperties properties = new CocoRateLimitProperties();
         CocoRateLimitProperties.InMemory inMemory = new CocoRateLimitProperties.InMemory();
         inMemory.setMaxEntries(10);
         properties.setInMemory(inMemory);
-        InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties,
-                Clock.fixed(now, ZoneOffset.UTC), false);
+        return handler(now, keyResolver, new InMemoryCocoRateLimitStore(properties,
+                Clock.fixed(now, ZoneOffset.UTC), false));
+    }
+
+    static CocoRateLimitRequestHandler handler(Instant now, CocoRateLimitKeyResolver keyResolver,
+            CocoRateLimitStore store) {
+        return new CocoRateLimitRequestHandler(keyResolver, store, (traceId, request) -> null,
+                responseWriter(), Clock.fixed(now, ZoneOffset.UTC));
+    }
+
+    private static CocoRateLimitResponseWriter responseWriter() {
         CocoWebExceptionHandler exceptionHandler = new CocoWebExceptionHandler(new TestMessageService(),
                 (CocoExceptionHttpStatusResolver) exception -> HttpStatus.BAD_REQUEST, new TestSystemCodeProvider());
-        return new CocoRateLimitRequestHandler(keyResolver, store, (traceId, request) -> null,
-                new CocoRateLimitResponseWriter(exceptionHandler, new ObjectMapper()), Clock.fixed(now, ZoneOffset.UTC));
+        return new CocoRateLimitResponseWriter(exceptionHandler, new ObjectMapper());
     }
 
     private static CocoRateLimitRoute route() {
@@ -199,5 +276,20 @@ class CocoRateLimitRequestHandlerTest {
         @Override public int notFound() { return 40400; }
         @Override public int conflict() { return 40900; }
         @Override public int internalError() { return 50000; }
+    }
+
+    private static final class StatusCheckingResponse extends HttpServletResponseWrapper {
+
+        private int statusWhenOutputStreamWasRequested = -1;
+
+        private StatusCheckingResponse(HttpServletResponse response) {
+            super(response);
+        }
+
+        @Override
+        public ServletOutputStream getOutputStream() throws IOException {
+            this.statusWhenOutputStreamWasRequested = getStatus();
+            return super.getOutputStream();
+        }
     }
 }

@@ -13,9 +13,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 
 /**
  * 限流自动配置测试。
@@ -23,6 +25,10 @@ import org.springframework.context.annotation.Configuration;
 class CocoRateLimitAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(CocoRateLimitAutoConfiguration.class))
+            .withUserConfiguration(WebMatcherConfiguration.class);
+
+    private final WebApplicationContextRunner servletContextRunner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CocoRateLimitAutoConfiguration.class))
             .withUserConfiguration(WebMatcherConfiguration.class);
 
@@ -36,7 +42,7 @@ class CocoRateLimitAutoConfigurationTest {
 
     @Test
     void createsReplaceableInfrastructureOnlyWhenEnabled() {
-        this.contextRunner.withPropertyValues(
+        this.servletContextRunner.withPropertyValues(
                 "coco.rate-limit.enabled=true",
                 "coco.rate-limit.routes[0].id=public-api",
                 "coco.rate-limit.routes[0].matcher.path-patterns[0]=/api/**",
@@ -98,6 +104,33 @@ class CocoRateLimitAutoConfigurationTest {
         this.contextRunner.withPropertyValues("coco.rate-limit.enabled=true")
                 .withBean("cocoRateLimitClock", Clock.class, () -> clock)
                 .run(context -> assertThat(context.getBean("cocoRateLimitClock")).isSameAs(clock));
+    }
+
+    @Test
+    void registersTheServletFilterAndMvcFallbackAtDocumentedOrders() {
+        CocoRateLimitRouteMatcher routeMatcher = new CocoRateLimitRouteMatcher() {
+            @Override
+            public java.util.Optional<CocoRateLimitRoute> resolve(jakarta.servlet.http.HttpServletRequest request) {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public java.util.Optional<CocoRateLimitRoute> resolve(String routeId) {
+                return java.util.Optional.empty();
+            }
+        };
+        CocoRateLimitRequestHandler handler = CocoRateLimitRequestHandlerTest.handler(
+                Instant.parse("2026-07-15T00:00:00Z"),
+                (request, route) -> new CocoRateLimitKey(route.getId(), "trusted-client"));
+
+        FilterRegistrationBean<CocoRateLimitFilter> registration = new CocoRateLimitAutoConfiguration()
+                .cocoRateLimitFilterRegistration(routeMatcher, handler);
+
+        assertThat(CocoRateLimitAutoConfiguration.MVC_INTERCEPTOR_ORDER)
+                .isEqualTo(Ordered.HIGHEST_PRECEDENCE);
+        assertThat(registration.getOrder()).isEqualTo(CocoRateLimitAutoConfiguration.FILTER_ORDER);
+        assertThat(registration.getOrder()).isGreaterThan(CocoRateLimitAutoConfiguration.MVC_INTERCEPTOR_ORDER);
+        assertThat(registration.getUrlPatterns()).containsExactly("/*");
     }
 
     @Configuration(proxyBeanMethods = false)

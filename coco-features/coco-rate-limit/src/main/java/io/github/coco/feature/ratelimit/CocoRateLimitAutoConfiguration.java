@@ -33,6 +33,10 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @ConditionalOnProperty(prefix = "coco.rate-limit", name = "enabled", havingValue = "true")
 public class CocoRateLimitAutoConfiguration {
 
+    static final int MVC_INTERCEPTOR_ORDER = Ordered.HIGHEST_PRECEDENCE;
+
+    static final int FILTER_ORDER = Ordered.HIGHEST_PRECEDENCE + 20;
+
     /**
      * 注册限流模块内置国际化消息资源。
      * @return 限流消息资源注册器
@@ -82,6 +86,7 @@ public class CocoRateLimitAutoConfiguration {
      * @return 默认限流路由匹配器
      */
     @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnBean(CocoWebRequestMatcher.class)
     @ConditionalOnMissingBean
     public CocoRateLimitRouteMatcher cocoRateLimitRouteMatcher(CocoRateLimitProperties properties,
@@ -139,7 +144,7 @@ public class CocoRateLimitAutoConfiguration {
         FilterRegistrationBean<CocoRateLimitFilter> registration = new FilterRegistrationBean<>(
                 new CocoRateLimitFilter(routeMatcher, requestHandler));
         registration.setName("cocoRateLimitFilter");
-        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 20);
+        registration.setOrder(FILTER_ORDER);
         registration.addUrlPatterns("/*");
         return registration;
     }
@@ -170,7 +175,7 @@ public class CocoRateLimitAutoConfiguration {
 
         @Override
         public void addInterceptors(InterceptorRegistry registry) {
-            registry.addInterceptor(this.interceptor).order(Ordered.HIGHEST_PRECEDENCE);
+            registry.addInterceptor(this.interceptor).order(MVC_INTERCEPTOR_ORDER);
         }
     }
 }
