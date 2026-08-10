@@ -1,5 +1,10 @@
 package io.github.coco.spring.boot;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -12,11 +17,13 @@ import io.github.coco.common.logging.autoconfigure.CocoCommonLoggingAutoConfigur
 import io.github.coco.logging.core.CocoLoggingProperties;
 import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.spring.boot.banner.CocoBannerProperties;
+import io.github.coco.spring.boot.banner.CocoSpringBanner;
 import io.github.coco.spring.boot.banner.CocoStartupBanner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.util.ClassUtils;
 
 /**
@@ -132,13 +139,27 @@ class CocoAutoConfigurationTest {
 
         assertTrue(rendered.contains("██████╗ ██████╗"));
         assertTrue(rendered.contains("███████╗██████╗"));
-        assertTrue(rendered.contains("：：coco 9.9.9"));
+        assertTrue(rendered.contains("：：coco spring 9.9.9"));
         assertTrue(rendered.contains("：：spring boot "));
+        assertEquals(8, rendered.split(Pattern.quote(System.lineSeparator()), -1).length - 1);
         assertFalse(rendered.contains("fast web framework"));
         assertFalse(rendered.contains("╭"));
         assertFalse(rendered.contains("│"));
         assertFalse(rendered.contains("Author"));
         assertFalse(rendered.contains("Repository"));
         assertFalse(rendered.contains(":: Spring Boot ::"));
+    }
+
+    @Test
+    void writesChineseBannerAsUtf8AcrossPlatformOutputStreams() {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        PrintStream nonUtf8Output = new PrintStream(output, true, StandardCharsets.US_ASCII);
+
+        new CocoSpringBanner().printBanner(new StandardEnvironment(), getClass(), nonUtf8Output);
+
+        String rendered = new String(output.toByteArray(), StandardCharsets.UTF_8);
+        assertTrue(rendered.contains("：：coco spring "));
+        assertTrue(rendered.contains("：：spring boot "));
+        assertTrue(rendered.endsWith(System.lineSeparator()));
     }
 }
