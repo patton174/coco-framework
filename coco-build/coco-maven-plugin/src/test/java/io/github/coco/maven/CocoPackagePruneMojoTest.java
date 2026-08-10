@@ -47,7 +47,9 @@ import org.apache.maven.model.Build;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.artifact.DefaultArtifact;
+import org.apache.maven.artifact.handler.ArtifactHandler;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
+import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.project.DependencyResolutionRequest;
 import org.apache.maven.project.DependencyResolutionResult;
@@ -80,6 +82,23 @@ class CocoPackagePruneMojoTest {
     Path tempDir;
 
     private final Map<String, byte[]> resolvedArtifactBytes = new HashMap<>();
+
+    @Test
+    void mapsTestJarDependencyToJarTestsIdentity() throws Exception {
+        Dependency dependency = dependency("com.example", "demo", "1.0.0");
+        dependency.setType("test-jar");
+
+        assertThat(dependencyKey(newMojo(), dependency)).isEqualTo("com.example:demo:jar:tests");
+    }
+
+    @Test
+    void explicitClassifierOverridesArtifactHandlerClassifier() throws Exception {
+        Dependency dependency = dependency("com.example", "demo", "1.0.0");
+        dependency.setType("test-jar");
+        dependency.setClassifier("custom");
+
+        assertThat(dependencyKey(newMojo(), dependency)).isEqualTo("com.example:demo:jar:custom");
+    }
 
     @Test
     void removesDisabledFeatureJarsFromSpringBootArchive() throws Exception {
@@ -276,10 +295,20 @@ class CocoPackagePruneMojoTest {
         Dependency directOptional = dependency("com.example", "mybatis-extra", "1.0.0");
         directOptional.setOptional(true);
         project.getModel().addDependency(directOptional);
+        Dependency directOptionalTestJar = dependency("com.example", "mybatis-extra-tests", "1.0.0");
+        directOptionalTestJar.setOptional(true);
+        directOptionalTestJar.setType("test-jar");
+        project.getModel().addDependency(directOptionalTestJar);
         project.setArtifacts(mybatisArchiveArtifacts());
+        Set<org.apache.maven.artifact.Artifact> directDependencyArtifacts = new LinkedHashSet<>(List.of(
+                resolvedArtifact("com.example", "business-library", "1.0.0")));
+        project.setDependencyArtifacts(directDependencyArtifacts);
 
         org.eclipse.aether.graph.Dependency optionalRoot =
                 resolvedDependency("com.example", "mybatis-extra", "1.0.0").setOptional(true);
+        org.eclipse.aether.graph.Dependency optionalTestJarRoot =
+                resolvedDependency("com.example", "mybatis-extra-tests", "tests", "jar", "1.0.0")
+                        .setOptional(true);
         org.eclipse.aether.graph.Dependency optionalTransitive =
                 resolvedDependency("com.example", "transitive-optional", "1.0.0").setOptional(true);
         DefaultDependencyNode projectRoot = new DefaultDependencyNode(
@@ -294,8 +323,12 @@ class CocoPackagePruneMojoTest {
         CocoPackagePruneMojo mojo = newMojo();
         set(mojo, "project", project);
         set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> {
+            assertThat(request.getMavenProject()).isNotSameAs(project);
+            assertThat(request.getMavenProject().getDependencyArtifacts()).isNull();
             assertThat(request.getResolutionFilter().accept(
                     new DefaultDependencyNode(optionalRoot), List.of(projectRoot))).isTrue();
+            assertThat(request.getResolutionFilter().accept(
+                    new DefaultDependencyNode(optionalTestJarRoot), List.of(projectRoot))).isTrue();
             assertThat(request.getResolutionFilter().accept(
                     new DefaultDependencyNode(optionalTransitive), List.of(transitiveParent, projectRoot))).isFalse();
             return List.of(survivingWeb, survivingAudit, optionalRoot);
@@ -315,6 +348,8 @@ class CocoPackagePruneMojoTest {
                 "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
                 "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar");
         assertThat(directOptional.isOptional()).isTrue();
+        assertThat(project.getDependencyArtifacts()).isSameAs(directDependencyArtifacts)
+                .containsExactlyElementsOf(directDependencyArtifacts);
         assertIndexesMatchLibraries(archivePath);
     }
 
@@ -2637,8 +2672,63 @@ class CocoPackagePruneMojoTest {
     private CocoPackagePruneMojo newMojo() throws Exception {
         CocoPackagePruneMojo mojo = new CocoPackagePruneMojo();
         set(mojo, "projectDependenciesResolver", projectDependenciesResolverReturning(request -> List.of()));
+        set(mojo, "artifactHandlerManager", artifactHandlerManager());
         set(mojo, "repositorySystemSession", repositorySystemSession());
         return mojo;
+    }
+
+    private ArtifactHandlerManager artifactHandlerManager() {
+        return new ArtifactHandlerManager() {
+            @Override
+            public ArtifactHandler getArtifactHandler(String type) {
+                return new ArtifactHandler() {
+                    @Override
+                    public String getExtension() {
+                        return "jar";
+                    }
+
+                    @Override
+                    public String getClassifier() {
+                        return "test-jar".equals(type) ? "tests" : null;
+                    }
+
+                    @Override
+                    public String getDirectory() {
+                        return "jar";
+                    }
+
+                    @Override
+                    public String getPackaging() {
+                        return type;
+                    }
+
+                    @Override
+                    public boolean isIncludesDependencies() {
+                        return false;
+                    }
+
+                    @Override
+                    public String getLanguage() {
+                        return "java";
+                    }
+
+                    @Override
+                    public boolean isAddedToClasspath() {
+                        return true;
+                    }
+                };
+            }
+
+            @Override
+            public void addHandlers(Map<String, ArtifactHandler> handlers) {
+            }
+        };
+    }
+
+    private String dependencyKey(CocoPackagePruneMojo mojo, Dependency dependency) throws Exception {
+        var method = CocoPackagePruneMojo.class.getDeclaredMethod("dependencyKey", Dependency.class);
+        method.setAccessible(true);
+        return (String) method.invoke(mojo, dependency);
     }
 
     private void inspectPreflight(Path archivePath, CocoArchiveLimits limits) throws Exception {
@@ -3116,8 +3206,13 @@ class CocoPackagePruneMojoTest {
 
     private org.eclipse.aether.graph.Dependency resolvedDependency(String groupId, String artifactId,
             String version) throws Exception {
+        return resolvedDependency(groupId, artifactId, "", "jar", version);
+    }
+
+    private org.eclipse.aether.graph.Dependency resolvedDependency(String groupId, String artifactId,
+            String classifier, String extension, String version) throws Exception {
         org.eclipse.aether.artifact.Artifact artifact = new org.eclipse.aether.artifact.DefaultArtifact(
-                groupId, artifactId, "jar", version)
+                groupId, artifactId, classifier, extension, version)
                 .setFile(resolvedArtifact(groupId, artifactId, version).getFile());
         return new org.eclipse.aether.graph.Dependency(artifact, "compile");
     }

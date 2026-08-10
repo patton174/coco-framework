@@ -35,6 +35,8 @@ import io.github.coco.feature.model.CocoFeatureManifestLoader;
 import io.github.coco.feature.model.StandardCocoFeatures;
 import org.apache.maven.RepositoryUtils;
 import org.apache.maven.artifact.Artifact;
+import org.apache.maven.artifact.handler.ArtifactHandler;
+import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Exclusion;
 import org.apache.maven.plugin.AbstractMojo;
@@ -78,6 +80,9 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
 
     @Component
     private ProjectDependenciesResolver projectDependenciesResolver;
+
+    @Component
+    private ArtifactHandlerManager artifactHandlerManager;
 
     @Parameter(defaultValue = "${repositorySystemSession}", readonly = true)
     private RepositorySystemSession repositorySystemSession;
@@ -255,14 +260,16 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
             throws MojoExecutionException {
         DefaultDependencyResolutionRequest request = new DefaultDependencyResolutionRequest(
                 resolutionProject, this.repositorySystemSession);
+        Set<String> directOptionalRoots = directOptionalRoots(resolutionProject);
         request.setResolutionFilter((node, parents) -> {
             org.eclipse.aether.graph.Dependency candidate = node.getDependency();
             if (candidate == null) {
                 return true;
             }
             String scope = candidate.getScope();
-            boolean directDependency = parents.size() == 1;
-            return (!candidate.isOptional() || directDependency)
+            boolean directOptionalRoot = candidate.isOptional() && candidate.getArtifact() != null
+                    && directOptionalRoots.contains(dependencyKey(candidate.getArtifact()));
+            return (!candidate.isOptional() || directOptionalRoot)
                     && (Artifact.SCOPE_COMPILE.equals(scope) || Artifact.SCOPE_RUNTIME.equals(scope));
         });
         try {
@@ -279,6 +286,47 @@ public final class CocoPackagePruneMojo extends AbstractMojo {
         catch (DependencyResolutionException ex) {
             throw new MojoExecutionException("Failed to resolve " + description + ".", ex);
         }
+    }
+
+    private Set<String> directOptionalRoots(MavenProject resolutionProject)
+            throws MojoExecutionException {
+        Set<String> roots = new LinkedHashSet<>();
+        for (Dependency dependency : resolutionProject.getModel().getDependencies()) {
+            String scope = dependency.getScope();
+            if (dependency.isOptional() && (scope == null || Artifact.SCOPE_COMPILE.equals(scope)
+                    || Artifact.SCOPE_RUNTIME.equals(scope))) {
+                roots.add(dependencyKey(dependency));
+            }
+        }
+        return Set.copyOf(roots);
+    }
+
+    private String dependencyKey(Dependency dependency) throws MojoExecutionException {
+        if (this.artifactHandlerManager == null) {
+            throw new MojoExecutionException("Maven artifact handler manager is required to resolve direct "
+                    + "optional dependency identities.");
+        }
+        String type = dependency.getType() == null ? "jar" : dependency.getType();
+        ArtifactHandler handler = this.artifactHandlerManager.getArtifactHandler(type);
+        if (handler == null) {
+            throw new MojoExecutionException("Maven artifact handler is unavailable for direct optional dependency "
+                    + "type '" + type + "'.");
+        }
+        String classifier = dependency.getClassifier();
+        if (classifier == null || classifier.isEmpty()) {
+            classifier = handler.getClassifier();
+        }
+        String extension = handler.getExtension();
+        return dependency.getGroupId() + ":" + dependency.getArtifactId() + ":"
+                + (extension == null || extension.isEmpty() ? "jar" : extension) + ":"
+                + (classifier == null ? "" : classifier);
+    }
+
+    private static String dependencyKey(org.eclipse.aether.artifact.Artifact artifact) {
+        return artifact.getGroupId() + ":" + artifact.getArtifactId() + ":"
+                + (artifact.getExtension() == null || artifact.getExtension().isEmpty()
+                        ? "jar" : artifact.getExtension()) + ":"
+                + (artifact.getClassifier() == null ? "" : artifact.getClassifier());
     }
 
     private void excludeDisabledFeatureRoots(MavenProject resolutionProject,
