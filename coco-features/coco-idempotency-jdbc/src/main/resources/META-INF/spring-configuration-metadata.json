@@ -1,0 +1,17 @@
+{
+  "groups": [
+    {
+      "name": "coco.idempotency.jdbc",
+      "type": "io.github.coco.feature.idempotency.jdbc.CocoIdempotencyJdbcProperties",
+      "sourceType": "io.github.coco.feature.idempotency.jdbc.CocoIdempotencyJdbcProperties"
+    }
+  ],
+  "properties": [
+    { "name": "coco.idempotency.jdbc.enabled", "type": "java.lang.Boolean", "defaultValue": false },
+    { "name": "coco.idempotency.jdbc.schema", "type": "java.lang.String" },
+    { "name": "coco.idempotency.jdbc.table-name", "type": "java.lang.String", "defaultValue": "coco_idempotency" },
+    { "name": "coco.idempotency.jdbc.key-prefix", "type": "java.lang.String", "defaultValue": "coco:" },
+    { "name": "coco.idempotency.jdbc.max-response-bytes", "type": "java.lang.Integer", "defaultValue": 1048576 },
+    { "name": "coco.idempotency.jdbc.max-header-bytes", "type": "java.lang.Integer", "defaultValue": 65536 }
+  ]
+}

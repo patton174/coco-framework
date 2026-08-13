@@ -41,6 +41,7 @@
         <module>coco-scheduler</module>
         <module>coco-idempotency</module>
         <module>coco-idempotency-redis</module>
+        <module>coco-idempotency-jdbc</module>
         <module>coco-concurrency-limit</module>
     </modules>
 </project>
