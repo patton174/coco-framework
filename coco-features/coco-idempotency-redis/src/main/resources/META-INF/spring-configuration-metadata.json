@@ -1,0 +1,31 @@
+{
+  "groups": [
+    {
+      "name": "coco.idempotency.redis",
+      "type": "io.github.coco.feature.idempotency.redis.CocoIdempotencyRedisProperties",
+      "sourceType": "io.github.coco.feature.idempotency.redis.CocoIdempotencyRedisProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "coco.idempotency.redis.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false
+    },
+    {
+      "name": "coco.idempotency.redis.key-prefix",
+      "type": "java.lang.String",
+      "defaultValue": "coco:idempotency:"
+    },
+    {
+      "name": "coco.idempotency.redis.max-response-bytes",
+      "type": "java.lang.Integer",
+      "defaultValue": 1048576
+    },
+    {
+      "name": "coco.idempotency.redis.max-header-bytes",
+      "type": "java.lang.Integer",
+      "defaultValue": 65536
+    }
+  ]
+}
