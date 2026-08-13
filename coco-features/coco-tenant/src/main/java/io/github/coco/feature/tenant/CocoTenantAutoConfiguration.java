@@ -2,10 +2,13 @@ package io.github.coco.feature.tenant;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.context.CocoContextSnapshotContributor;
+import io.github.coco.feature.tenant.context.CocoTenantContextHolder;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.tenant.context.CocoTenantContextResolver;
 import io.github.coco.feature.tenant.context.HolderCocoTenantContextResolver;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -30,6 +33,17 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.TENANT)
 @EnableConfigurationProperties(CocoTenantProperties.class)
 public class CocoTenantAutoConfiguration {
+
+    @Bean
+    @ConditionalOnClass(name = "io.github.coco.context.spring.CocoContextTaskDecorator")
+    @ConditionalOnMissingBean(name = "cocoTenantContextSnapshotContributor")
+    public CocoContextSnapshotContributor cocoTenantContextSnapshotContributor() {
+        return new CocoContextSnapshotContributor() {
+            @Override public String id() { return "tenant"; }
+            @Override public int order() { return 40; }
+            @Override public io.github.coco.context.CocoContextSnapshot capture() { return CocoTenantContextHolder.capture(); }
+        };
+    }
 
     /**
      * <p>

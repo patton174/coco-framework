@@ -41,6 +41,7 @@
         <module>coco-build/coco-parent</module>
         <module>coco-foundation/coco-api</module>
         <module>coco-foundation/coco-context</module>
+        <module>coco-foundation/coco-context-spring</module>
         <module>coco-foundation/coco-exception</module>
         <module>coco-foundation/coco-feature-model</module>
         <module>coco-foundation/coco-i18n</module>
@@ -122,6 +123,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-context</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-context-spring</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>

@@ -2,6 +2,8 @@ package io.github.coco.feature.security;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.context.CocoContextSnapshotContributor;
+import io.github.coco.feature.security.context.CocoSecurityContextHolder;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.security.context.CocoSecurityContextResolver;
 import io.github.coco.feature.security.context.HolderCocoSecurityContextResolver;
@@ -50,6 +52,17 @@ import org.springframework.core.Ordered;
 @ConditionalOnCocoFeature(CocoFeature.SECURITY)
 @EnableConfigurationProperties(CocoSecurityProperties.class)
 public class CocoSecurityAutoConfiguration {
+
+    @Bean
+    @ConditionalOnClass(name = "io.github.coco.context.spring.CocoContextTaskDecorator")
+    @ConditionalOnMissingBean(name = "cocoSecurityContextSnapshotContributor")
+    public CocoContextSnapshotContributor cocoSecurityContextSnapshotContributor() {
+        return new CocoContextSnapshotContributor() {
+            @Override public String id() { return "security"; }
+            @Override public int order() { return 30; }
+            @Override public io.github.coco.context.CocoContextSnapshot capture() { return CocoSecurityContextHolder.capture(); }
+        };
+    }
 
     /**
      * <p>
