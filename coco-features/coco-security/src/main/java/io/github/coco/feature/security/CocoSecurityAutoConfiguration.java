@@ -5,6 +5,10 @@ import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.feature.security.context.CocoSecurityContextResolver;
 import io.github.coco.feature.security.context.HolderCocoSecurityContextResolver;
+import io.github.coco.feature.security.authorization.CocoMethodAuthorizationInterceptor;
+import io.github.coco.feature.security.authorization.CocoMethodAuthorizationManager;
+import io.github.coco.feature.security.authorization.CocoMethodAuthorizationResolver;
+import io.github.coco.feature.security.authorization.DefaultCocoMethodAuthorizationManager;
 import io.github.coco.feature.security.web.CocoSecurityWebFilter;
 import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
 import io.github.coco.feature.security.web.HeaderCocoWebSecurityContextResolver;
@@ -18,6 +22,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Role;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator;
+import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
+import org.springframework.aop.support.DefaultPointcutAdvisor;
+import org.springframework.aop.support.StaticMethodMatcherPointcut;
 import org.springframework.core.Ordered;
 
 /**
@@ -63,6 +73,77 @@ public class CocoSecurityAutoConfiguration {
     @ConditionalOnMissingBean
     public CocoSecurityContextResolver cocoSecurityContextResolver() {
         return new HolderCocoSecurityContextResolver();
+    }
+
+    /**
+     * 创建默认方法授权决策器。
+     * @return 方法授权决策器
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "coco.security.method", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean(CocoMethodAuthorizationManager.class)
+    public CocoMethodAuthorizationManager cocoMethodAuthorizationManager() {
+        return new DefaultCocoMethodAuthorizationManager();
+    }
+
+    /**
+     * 创建方法授权注解解析器。
+     * @return 方法授权注解解析器
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "coco.security.method", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean
+    public CocoMethodAuthorizationResolver cocoMethodAuthorizationResolver() {
+        return new CocoMethodAuthorizationResolver();
+    }
+
+    /**
+     * 创建 {@link io.github.coco.feature.security.authorization.CocoAuthorize} AOP 顾问。
+     * @param authorizationManager 方法授权决策器
+     * @param contextResolver 安全上下文解析器
+     * @param authorizationResolver 注解解析器
+     * @return 方法授权顾问
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "coco.security.method", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean(name = "cocoMethodAuthorizationAdvisor")
+    public DefaultPointcutAdvisor cocoMethodAuthorizationAdvisor(CocoMethodAuthorizationManager authorizationManager,
+            CocoSecurityContextResolver contextResolver, CocoMethodAuthorizationResolver authorizationResolver) {
+        return new DefaultPointcutAdvisor(new CocoMethodAuthorizationPointcut(authorizationResolver),
+                new CocoMethodAuthorizationInterceptor(authorizationManager, contextResolver, authorizationResolver));
+    }
+
+    /**
+     * 在应用未自行提供 Advisor 自动代理创建器时注册基础设施代理创建器。
+     * @return Advisor 自动代理创建器
+     */
+    @Bean
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    @ConditionalOnProperty(prefix = "coco.security.method", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    @ConditionalOnMissingBean(AbstractAdvisorAutoProxyCreator.class)
+    public DefaultAdvisorAutoProxyCreator cocoMethodAuthorizationAutoProxyCreator() {
+        return new DefaultAdvisorAutoProxyCreator();
+    }
+
+    /**
+     * 方法授权静态切点。
+     */
+    private static final class CocoMethodAuthorizationPointcut extends StaticMethodMatcherPointcut {
+
+        private final CocoMethodAuthorizationResolver authorizationResolver;
+
+        private CocoMethodAuthorizationPointcut(CocoMethodAuthorizationResolver authorizationResolver) {
+            this.authorizationResolver = authorizationResolver;
+        }
+
+        @Override
+        public boolean matches(java.lang.reflect.Method method, Class<?> targetClass) {
+            return this.authorizationResolver.requiresAuthorization(method, targetClass);
+        }
     }
 
     /**

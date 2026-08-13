@@ -1,6 +1,7 @@
 package io.github.coco.feature.security;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import io.github.coco.feature.security.method.CocoSecurityMethodProperties;
 import io.github.coco.feature.security.web.CocoSecurityWebProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -27,6 +28,9 @@ public class CocoSecurityProperties {
     @NestedConfigurationProperty
     private CocoSecurityWebProperties web = new CocoSecurityWebProperties();
 
+    @NestedConfigurationProperty
+    private CocoSecurityMethodProperties method = new CocoSecurityMethodProperties();
+
     public CocoSecurityProperties() {
     }
 
@@ -52,5 +56,27 @@ public class CocoSecurityProperties {
      */
     public void setWeb(CocoSecurityWebProperties web) {
         this.web = web == null ? new CocoSecurityWebProperties() : new CocoSecurityWebProperties(web);
+    }
+
+    /**
+     * 返回方法授权配置。
+     * <p>
+     * Spring Binder 和 Java 配置使用者需要通过 {@code getMethod().set...} 更新该嵌套配置，
+     * 因此保留可变的实时引用语义。
+     * </p>
+     * @return 方法授权配置
+     */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "ConfigurationProperties nested JavaBean "
+            + "accessors retain live mutable semantics for Spring Binder and Java consumers.")
+    public CocoSecurityMethodProperties getMethod() {
+        return this.method;
+    }
+
+    /**
+     * 设置方法授权配置。
+     * @param method 方法授权配置
+     */
+    public void setMethod(CocoSecurityMethodProperties method) {
+        this.method = method == null ? new CocoSecurityMethodProperties() : method;
     }
 }
