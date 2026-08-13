@@ -1,5 +1,6 @@
 package io.github.coco.feature.lock.redis;
 
+import io.github.coco.feature.lock.CocoLockAutoConfiguration;
 import io.github.coco.feature.lock.CocoLockManager;
 import io.github.coco.feature.lock.LocalCocoLockManager;
 import org.junit.jupiter.api.Test;
@@ -18,20 +19,69 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CocoLockRedisAutoConfigurationTest {
-    private final ApplicationContextRunner runner = new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(CocoLockRedisAutoConfiguration.class));
+
+    private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(CocoLockRedisAutoConfiguration.class,
+                    CocoLockAutoConfiguration.class, CocoLockRedisInfrastructureAutoConfiguration.class));
 
     @Test
-    void registersOnlyWhenBothLockAndRedisAdapterAreEnabled() {
-        this.runner.withUserConfiguration(RedisFactory.class).withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders").run(context -> assertThat(context).hasSingleBean(CocoLockManager.class).getBean(CocoLockManager.class).isInstanceOf(RedisCocoLockManager.class));
-        this.runner.withUserConfiguration(RedisFactory.class).run(context -> assertThat(context).doesNotHaveBean(CocoLockManager.class));
-        this.runner.withUserConfiguration(RedisFactory.class).withPropertyValues("coco.lock.enabled=false", "coco.lock.redis.enabled=true", "spring.application.name=orders").run(context -> assertThat(context).doesNotHaveBean(CocoLockManager.class));
+    void redisDisabledUsesLocalManager() {
+        this.runner.run(context -> {
+            assertThat(context).hasNotFailed().hasSingleBean(CocoLockManager.class).hasBean("cocoLockAdvisor");
+            assertThat(context.getBean(CocoLockManager.class)).isInstanceOf(LocalCocoLockManager.class);
+        });
     }
 
     @Test
-    void backsOffForMissingFactoryMissingClassesAndBusinessManager() {
-        this.runner.withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders").run(context -> assertThat(context).doesNotHaveBean(CocoLockManager.class));
-        this.runner.withClassLoader(new FilteredClassLoader(RedisConnectionFactory.class)).withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders").run(context -> assertThat(context).doesNotHaveBean(CocoLockManager.class));
-        this.runner.withUserConfiguration(RedisFactory.class, BusinessManagers.class).withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders").run(context -> assertThat(context).hasBean("firstBusinessManager").hasBean("secondBusinessManager").doesNotHaveBean("redisCocoLockManager"));
+    void redisEnabledWithFactoryUsesRedisManager() {
+        this.runner.withUserConfiguration(RedisFactoryConfiguration.class)
+                .withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoLockManager.class)
+                            .hasBean("cocoLockAdvisor");
+                    assertThat(context.getBean(CocoLockManager.class)).isInstanceOf(RedisCocoLockManager.class);
+                });
+    }
+
+    @Test
+    void redisEnabledWithoutFactoryFailsFastWithoutLocalFallback() {
+        this.runner.withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders")
+                .run(context -> assertThat(context).hasFailed()
+                        .getFailure().hasMessageContaining("RedisConnectionFactory"));
+    }
+
+    @Test
+    void redisEnabledWithoutSpringDataRedisFailsFastWithoutLoadingMissingClass() {
+        this.runner.withClassLoader(new FilteredClassLoader(RedisConnectionFactory.class))
+                .withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders")
+                .run(context -> assertThat(context).hasFailed()
+                        .getFailure().hasMessageContaining("Spring Data Redis"));
+    }
+
+    @Test
+    void businessManagerOverridesRedisAndDoesNotRequireInfrastructure() {
+        this.runner.withClassLoader(new FilteredClassLoader(RedisConnectionFactory.class))
+                .withUserConfiguration(BusinessManagerConfiguration.class)
+                .withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(CocoLockManager.class)
+                            .hasBean("cocoLockAdvisor").doesNotHaveBean("redisCocoLockManager")
+                            .doesNotHaveBean("cocoLockRedisInfrastructureValidation");
+                    assertThat(context.getBean(CocoLockManager.class)).isInstanceOf(LocalCocoLockManager.class);
+                });
+    }
+
+    @Test
+    void multipleBusinessManagersMakeAdapterAndValidatorBackOff() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(CocoLockRedisAutoConfiguration.class,
+                        CocoLockRedisInfrastructureAutoConfiguration.class))
+                .withClassLoader(new FilteredClassLoader(RedisConnectionFactory.class))
+                .withUserConfiguration(BusinessManagersConfiguration.class)
+                .withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders")
+                .run(context -> assertThat(context).hasNotFailed().hasBean("firstBusinessManager")
+                        .hasBean("secondBusinessManager").doesNotHaveBean("redisCocoLockManager")
+                        .doesNotHaveBean("cocoLockRedisInfrastructureValidation"));
     }
 
     @Test
@@ -40,13 +90,34 @@ class CocoLockRedisAutoConfigurationTest {
         assertThatThrownBy(() -> properties.resolveKeyPrefix(null)).isInstanceOf(IllegalArgumentException.class);
         for (String unsafe : new String[] { "evil{slot}", "evil*", "evil key", "evil\nkey" }) {
             properties.setKeyPrefix(unsafe);
-            assertThatThrownBy(() -> properties.resolveKeyPrefix("orders")).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> properties.resolveKeyPrefix("orders"))
+                    .isInstanceOf(IllegalArgumentException.class);
         }
         properties.setKeyPrefix("tenant-orders");
         assertThat(properties.resolveKeyPrefix("ignored")).isEqualTo("coco:lock:tenant-orders:");
     }
 
-    @Configuration(proxyBeanMethods = false) static class RedisFactory { @Bean RedisConnectionFactory redisConnectionFactory() { return new StubFactory(); } }
-    @Configuration(proxyBeanMethods = false) static class BusinessManagers { @Bean CocoLockManager firstBusinessManager() { return new LocalCocoLockManager(); } @Bean CocoLockManager secondBusinessManager() { return new LocalCocoLockManager(); } }
-    static class StubFactory implements RedisConnectionFactory { @Override public boolean getConvertPipelineAndTxResults() { return false; } @Override public RedisConnection getConnection() { throw new AssertionError("not used at startup"); } @Override public RedisClusterConnection getClusterConnection() { return null; } @Override public RedisSentinelConnection getSentinelConnection() { return null; } @Override public DataAccessException translateExceptionIfPossible(RuntimeException e) { return null; } }
+    @Configuration(proxyBeanMethods = false)
+    static class RedisFactoryConfiguration {
+        @Bean RedisConnectionFactory redisConnectionFactory() { return new StubFactory(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class BusinessManagerConfiguration {
+        @Bean CocoLockManager businessManager() { return new LocalCocoLockManager(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class BusinessManagersConfiguration {
+        @Bean CocoLockManager firstBusinessManager() { return new LocalCocoLockManager(); }
+        @Bean CocoLockManager secondBusinessManager() { return new LocalCocoLockManager(); }
+    }
+
+    static class StubFactory implements RedisConnectionFactory {
+        @Override public boolean getConvertPipelineAndTxResults() { return false; }
+        @Override public RedisConnection getConnection() { throw new AssertionError("not used at startup"); }
+        @Override public RedisClusterConnection getClusterConnection() { return null; }
+        @Override public RedisSentinelConnection getSentinelConnection() { return null; }
+        @Override public DataAccessException translateExceptionIfPossible(RuntimeException exception) { return null; }
+    }
 }
