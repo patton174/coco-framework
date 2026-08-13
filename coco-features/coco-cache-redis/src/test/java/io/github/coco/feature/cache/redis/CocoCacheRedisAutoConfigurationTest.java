@@ -152,8 +152,10 @@ class CocoCacheRedisAutoConfigurationTest {
     void validatesUnsafeRedisConfiguration() {
         assertInvalid("coco.cache.redis.time-to-live=0s", "time-to-live");
         assertInvalid("coco.cache.redis.key-prefix= ", "key-prefix");
+        assertInvalid("coco.cache.redis.key-prefix=business:*", "Redis glob metacharacters");
         assertInvalid("coco.cache.redis.cache-names=orders,orders", "cache-names");
         assertInvalid("coco.cache.redis.cache-names=orders,\u0001", "cache-names");
+        assertInvalid("coco.cache.redis.cache-names=orders?", "Redis glob metacharacters");
         this.contextRunner.withUserConfiguration(ConnectionFactoryConfiguration.class)
                 .withPropertyValues("coco.cache.redis.enabled=true", "coco.cache.redis.use-key-prefix=false")
                 .run(context -> {
@@ -169,6 +171,34 @@ class CocoCacheRedisAutoConfigurationTest {
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().hasStackTraceContaining("spring.application.name"));
         assertInvalid("coco.cache.redis.key-prefix={unsafe}", "key-prefix");
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(CocoCacheRedisAutoConfiguration.class))
+                .withUserConfiguration(ConnectionFactoryConfiguration.class)
+                .withPropertyValues("spring.application.name=unsafe[app",
+                        "coco.cache.redis.enabled=true")
+                .run(context -> assertThat(context).hasFailed()
+                        .getFailure().hasStackTraceContaining("spring.application.name")
+                        .hasStackTraceContaining("Redis glob metacharacters"));
+    }
+
+    @Test
+    void rejectsEveryRedisGlobMetacharacterAndDynamicCacheNameBypasses() {
+        for (String metacharacter : List.of("*", "?", "[", "]", "\\")) {
+            assertThatThrownBy(() -> CocoRedisCacheNamespaceValidator.validate(
+                    "namespace" + metacharacter, "test namespace"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Redis glob metacharacters");
+        }
+
+        this.contextRunner.withUserConfiguration(ConnectionFactoryConfiguration.class)
+                .withPropertyValues("coco.cache.redis.enabled=true")
+                .run(context -> {
+                    CacheManager manager = context.getBean(CacheManager.class);
+                    assertThatThrownBy(() -> manager.getCache("runtime*"))
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("Redis cache name")
+                            .hasMessageContaining("Redis glob metacharacters");
+                });
     }
 
     @Test

@@ -2,8 +2,6 @@ package io.github.coco.feature.cache.redis;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -47,8 +45,6 @@ public class CocoCacheRedisAutoConfiguration {
     public static final String CACHE_CONFIGURATION_BEAN_NAME = "cocoRedisCacheConfiguration";
 
     private static final String APPLICATION_NAME_PROPERTY = "spring.application.name";
-
-    private static final int MAX_NAMESPACE_LENGTH = 128;
 
     /**
      * 创建安全的默认 Redis 缓存配置。
@@ -96,7 +92,7 @@ public class CocoCacheRedisAutoConfiguration {
     public RedisCacheManager cocoRedisCacheManager(RedisConnectionFactory connectionFactory,
             CocoCacheRedisProperties properties,
             @Qualifier(CACHE_CONFIGURATION_BEAN_NAME) RedisCacheConfiguration cacheConfiguration) {
-        Set<String> cacheNames = validatedCacheNames(properties.getCacheNames());
+        Set<String> cacheNames = CocoRedisCacheNamespaceValidator.validateCacheNames(properties.getCacheNames());
         Map<String, RedisCacheConfiguration> initialConfigurations = new LinkedHashMap<>();
         for (String cacheName : cacheNames) {
             initialConfigurations.put(cacheName, cacheConfiguration);
@@ -123,35 +119,11 @@ public class CocoCacheRedisAutoConfiguration {
     private static String resolveKeyPrefix(CocoCacheRedisProperties properties, Environment environment) {
         String configuredPrefix = properties.getKeyPrefix();
         if (configuredPrefix != null) {
-            validateNamespace(configuredPrefix, "coco.cache.redis.key-prefix");
+            CocoRedisCacheNamespaceValidator.validate(configuredPrefix, "coco.cache.redis.key-prefix");
             return configuredPrefix;
         }
         String applicationName = environment.getProperty(APPLICATION_NAME_PROPERTY);
-        validateNamespace(applicationName, APPLICATION_NAME_PROPERTY);
+        CocoRedisCacheNamespaceValidator.validate(applicationName, APPLICATION_NAME_PROPERTY);
         return "coco:" + applicationName + ":";
-    }
-
-    private static Set<String> validatedCacheNames(List<String> configuredNames) {
-        Set<String> names = new LinkedHashSet<>();
-        for (String cacheName : configuredNames) {
-            if (!isSafeName(cacheName) || !names.add(cacheName)) {
-                throw new IllegalStateException("coco.cache.redis.cache-names must be nonblank, unique, at most "
-                        + MAX_NAMESPACE_LENGTH + " characters, and contain no whitespace, control characters, or braces");
-            }
-        }
-        return names;
-    }
-
-    private static void validateNamespace(String value, String propertyName) {
-        if (!isSafeName(value)) {
-            throw new IllegalStateException(propertyName + " must be nonblank, at most " + MAX_NAMESPACE_LENGTH
-                    + " characters, and contain no whitespace, control characters, or braces");
-        }
-    }
-
-    private static boolean isSafeName(String value) {
-        return value != null && !value.isBlank() && value.length() <= MAX_NAMESPACE_LENGTH
-                && value.chars().noneMatch(character -> Character.isISOControl(character)
-                        || Character.isWhitespace(character) || character == '{' || character == '}');
     }
 }

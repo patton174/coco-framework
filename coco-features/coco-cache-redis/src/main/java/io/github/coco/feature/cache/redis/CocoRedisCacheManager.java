@@ -18,6 +18,7 @@ final class CocoRedisCacheManager extends RedisCacheManager {
 
     @Override
     protected RedisCache createRedisCache(String name, RedisCacheConfiguration configuration) {
+        CocoRedisCacheNamespaceValidator.validate(name, "Redis cache name");
         return new CocoRedisCache(name, getCacheWriter(), configuration);
     }
 }
