@@ -44,5 +44,6 @@
         <module>coco-idempotency</module>
         <module>coco-idempotency-redis</module>
         <module>coco-concurrency-limit</module>
+        <module>coco-concurrency-limit-redis</module>
     </modules>
 </project>
