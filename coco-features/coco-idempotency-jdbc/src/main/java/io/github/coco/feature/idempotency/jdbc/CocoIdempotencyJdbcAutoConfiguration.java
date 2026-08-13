@@ -1,5 +1,7 @@
 package io.github.coco.feature.idempotency.jdbc;
 
+import java.util.Map;
+
 import javax.sql.DataSource;
 
 import io.github.coco.api.feature.CocoFeature;
@@ -7,14 +9,14 @@ import io.github.coco.feature.idempotency.CocoIdempotencyAutoConfiguration;
 import io.github.coco.feature.idempotency.CocoIdempotencyFeature;
 import io.github.coco.feature.idempotency.store.CocoIdempotencyStore;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.BeanFactoryUtils;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -39,21 +41,26 @@ public class CocoIdempotencyJdbcAutoConfiguration {
 
     /**
      * 注册 JDBC 幂等存储。
-     * @param dedicatedDataSource 业务可选的专用幂等数据源
-     * @param dataSources 业务的数据源候选项
+     * @param beanFactory Bean 工厂，用于按名称和严格数量选择数据源
      * @param properties JDBC 适配器配置
      * @return JDBC 幂等存储
      */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean(CocoIdempotencyStore.class)
-    public JdbcCocoIdempotencyStore jdbcCocoIdempotencyStore(
-            @Qualifier(DATA_SOURCE_BEAN_NAME) ObjectProvider<DataSource> dedicatedDataSource,
-            ObjectProvider<DataSource> dataSources, CocoIdempotencyJdbcProperties properties) {
-        DataSource resolved = dedicatedDataSource.getIfAvailable();
-        if (resolved == null) resolved = dataSources.getIfUnique();
+    public JdbcCocoIdempotencyStore jdbcCocoIdempotencyStore(ListableBeanFactory beanFactory,
+            CocoIdempotencyJdbcProperties properties) {
+        DataSource resolved;
+        if (beanFactory.containsBean(DATA_SOURCE_BEAN_NAME)) {
+            resolved = beanFactory.getBean(DATA_SOURCE_BEAN_NAME, DataSource.class);
+        }
+        else {
+            Map<String, DataSource> dataSources = BeanFactoryUtils.beansOfTypeIncludingAncestors(
+                    beanFactory, DataSource.class);
+            resolved = dataSources.size() == 1 ? dataSources.values().iterator().next() : null;
+        }
         if (resolved == null) {
             throw new IllegalStateException("coco.idempotency.jdbc.enabled requires a DataSource named "
-                    + DATA_SOURCE_BEAN_NAME + " or a single DataSource");
+                    + DATA_SOURCE_BEAN_NAME + " or exactly one DataSource bean");
         }
         return new JdbcCocoIdempotencyStore(resolved, properties);
     }

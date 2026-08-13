@@ -11,6 +11,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
@@ -49,6 +50,8 @@ import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
 
     private static final int MAX_ACQUIRE_ATTEMPTS = 6;
+
+    private static final int MAX_SQL_EXCEPTION_NODES = 32;
 
     private static final SecureRandom OWNER_RANDOM = new SecureRandom();
 
@@ -198,7 +201,7 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
             return InsertAttempt.success();
         }
         catch (DataAccessResourceFailureException ex) {
-            if (isIntegrityConstraintViolation(sqlCause(ex))) return InsertAttempt.failed(ex);
+            if (isDuplicateKey(sqlCause(ex))) return InsertAttempt.failed(ex);
             throw ex;
         }
     }
@@ -477,10 +480,20 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         return connection;
     }
 
-    private static boolean isIntegrityConstraintViolation(SQLException exception) {
-        for (SQLException current = exception; current != null; current = current.getNextException()) {
-            if (current instanceof java.sql.SQLIntegrityConstraintViolationException
-                    || (current.getSQLState() != null && current.getSQLState().startsWith("23"))) return true;
+    private static boolean isDuplicateKey(SQLException exception) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        ArrayDeque<Throwable> pending = new ArrayDeque<>();
+        pending.add(exception);
+        for (int inspected = 0; inspected < MAX_SQL_EXCEPTION_NODES && !pending.isEmpty(); inspected++) {
+            Throwable current = pending.removeFirst();
+            if (!visited.add(current)) continue;
+            if (current instanceof SQLException sqlException) {
+                String sqlState = sqlException.getSQLState();
+                if ("23505".equals(sqlState)
+                        || ("23000".equals(sqlState) && sqlException.getErrorCode() == 1062)) return true;
+                if (sqlException.getNextException() != null) pending.addLast(sqlException.getNextException());
+            }
+            if (current.getCause() != null) pending.addLast(current.getCause());
         }
         return false;
     }

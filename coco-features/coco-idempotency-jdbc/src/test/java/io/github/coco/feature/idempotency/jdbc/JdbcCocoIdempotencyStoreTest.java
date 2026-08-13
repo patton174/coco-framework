@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -210,20 +211,65 @@ class JdbcCocoIdempotencyStoreTest {
     void integrityConstraintFailuresWithoutACompetingRowAreRethrown() {
         this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD CONSTRAINT reject_key "
                 + "CHECK (idempotency_key = 'never')");
-        assertConstraintFailure(request("check", "payload"));
+        assertConstraintFailure(request("check", "payload"), "23513", 0);
     }
 
     @Test
     void notNullAndForeignKeyFailuresWithoutACompetingRowAreRethrown() {
         this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD required_marker VARCHAR(1) NOT NULL");
-        assertConstraintFailure(request("not-null", "payload"));
+        assertConstraintFailure(request("not-null", "payload"), "23502", 0);
 
         this.jdbcTemplate.execute("ALTER TABLE coco_idempotency DROP COLUMN required_marker");
         this.jdbcTemplate.execute("CREATE TABLE idempotency_parent (parent_id INTEGER PRIMARY KEY)");
         this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD parent_id INTEGER DEFAULT 999 NOT NULL");
         this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD CONSTRAINT fk_idempotency_parent "
                 + "FOREIGN KEY (parent_id) REFERENCES idempotency_parent(parent_id)");
-        assertConstraintFailure(request("foreign-key", "payload"));
+        assertConstraintFailure(request("foreign-key", "payload"), "23506", 0);
+    }
+
+    @Test
+    void checkViolationIsNotTreatedAsDuplicateWhenTheKeyAlreadyExists() {
+        CocoIdempotencyRequest existing = request("same-key-check", "accepted");
+        assertThat(this.store.acquire(existing, NOW, NOW.plusSeconds(60)).status())
+                .isEqualTo(CocoIdempotencyAcquireStatus.ACQUIRED);
+        this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD CONSTRAINT reject_other_payloads CHECK "
+                + "(request_hash = '" + existing.requestHash() + "')");
+
+        assertConstraintFailure(request("same-key-check", "rejected"), "23513", 1);
+    }
+
+    @Test
+    void recognizesOnlyExplicitPostgresqlH2AndMysqlDuplicateCodesAcrossExceptionChains() throws Throwable {
+        Method duplicateKey = JdbcCocoIdempotencyStore.class.getDeclaredMethod("isDuplicateKey", SQLException.class);
+        duplicateKey.setAccessible(true);
+
+        assertThat(invoke(duplicateKey, null, new SQLException("duplicate", "23505"))).isEqualTo(true);
+        assertThat(invoke(duplicateKey, null, new SQLException("duplicate", "23000", 1062))).isEqualTo(true);
+
+        SQLException nextException = new SQLException("wrapper", "HY000");
+        nextException.setNextException(new SQLException("duplicate", "23000", 1062));
+        assertThat(invoke(duplicateKey, null, nextException)).isEqualTo(true);
+        SQLException causeException = new SQLException("wrapper", "HY000",
+                new SQLException("duplicate", "23505"));
+        assertThat(invoke(duplicateKey, null, causeException)).isEqualTo(true);
+
+        for (SQLException notDuplicate : List.of(new SQLException("check", "23513"),
+                new SQLException("not-null", "23502"), new SQLException("foreign-key", "23503"),
+                new SQLException("unknown mysql", "23000", 9999), new SQLException("unknown", "ZZZZZ"))) {
+            assertThat(invoke(duplicateKey, null, notDuplicate)).isEqualTo(false);
+        }
+    }
+
+    @Test
+    void unknownInsertSqlStatePropagatesTheOriginalException() {
+        SQLException original = new SQLException("unknown insert failure", "ZZZZZ", 777);
+        JdbcCocoIdempotencyStore unknownDriverStore = new JdbcCocoIdempotencyStore(
+                insertFailingDataSource(this.dataSource, original), properties());
+
+        assertThatThrownBy(() -> unknownDriverStore.acquire(request("unknown-driver", "payload"), NOW,
+                NOW.plusSeconds(60)))
+                .isInstanceOf(DataAccessResourceFailureException.class)
+                .satisfies(failure -> assertThat(failure.getCause()).isSameAs(original));
     }
 
     @Test
@@ -394,15 +440,17 @@ class JdbcCocoIdempotencyStoreTest {
         return properties;
     }
 
-    private void assertConstraintFailure(CocoIdempotencyRequest request) {
+    private void assertConstraintFailure(CocoIdempotencyRequest request, String expectedSqlState,
+            int expectedRowCount) {
         assertThatThrownBy(() -> this.store.acquire(request, NOW, NOW.plusSeconds(60)))
                 .isInstanceOf(DataAccessResourceFailureException.class)
                 .satisfies(failure -> {
                     SQLException sqlException = (SQLException) failure.getCause();
-                    assertThat(sqlException.getSQLState()).startsWith("23");
+                    assertThat(sqlException.getSQLState()).isEqualTo(expectedSqlState);
                     assertThat(failure.getMessage()).doesNotContain(request.keyHash(), request.requestHash());
                 });
-        assertThat(this.jdbcTemplate.queryForObject("SELECT COUNT(*) FROM coco_idempotency", Integer.class)).isZero();
+        assertThat(this.jdbcTemplate.queryForObject("SELECT COUNT(*) FROM coco_idempotency", Integer.class))
+                .isEqualTo(expectedRowCount);
     }
 
     private void insertCompleted(String key, String payload, String headersJson, byte[] body) {
@@ -422,6 +470,29 @@ class JdbcCocoIdempotencyStoreTest {
                     case "toString" -> "unwrapOnlyDataSource";
                     default -> throw new AssertionError("Unexpected DataSource method: " + method.getName());
                 });
+    }
+
+    private static DataSource insertFailingDataSource(DataSource target, SQLException failure) {
+        return new DelegatingDataSource(target) {
+            @Override
+            public Connection getConnection() throws SQLException {
+                Connection connection = super.getConnection();
+                return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
+                        new Class<?>[] { Connection.class }, (proxy, method, arguments) -> {
+                            if ("prepareStatement".equals(method.getName()) && arguments != null
+                                    && arguments.length > 0 && arguments[0] instanceof String sql
+                                    && sql.startsWith("INSERT INTO")) {
+                                throw failure;
+                            }
+                            try {
+                                return method.invoke(connection, arguments);
+                            }
+                            catch (InvocationTargetException ex) {
+                                throw ex.getCause();
+                            }
+                        });
+            }
+        };
     }
 
     private static Object invoke(Method method, Object target, Object argument) throws Throwable {

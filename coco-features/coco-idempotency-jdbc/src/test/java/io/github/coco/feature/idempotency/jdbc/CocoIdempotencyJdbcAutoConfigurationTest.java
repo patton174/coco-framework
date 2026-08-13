@@ -70,13 +70,30 @@ class CocoIdempotencyJdbcAutoConfigurationTest {
     void namedDedicatedDataSourceWinsWhenSeveralDataSourcesExist() {
         DataSource dedicated = dataSource("auto_dedicated");
         this.contextRunner.withPropertyValues(enabled())
-                .withBean("businessDataSource", DataSource.class,
-                        () -> new TransactionAwareDataSourceProxy(dataSource("auto_business")))
+                .withBean("primaryBusinessDataSource", DataSource.class,
+                        () -> dataSource("auto_primary_business"), beanDefinition -> beanDefinition.setPrimary(true))
+                .withBean("secondaryBusinessDataSource", DataSource.class,
+                        () -> dataSource("auto_secondary_business"))
                 .withBean(CocoIdempotencyJdbcAutoConfiguration.DATA_SOURCE_BEAN_NAME, DataSource.class,
                         () -> dedicated)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(JdbcCocoIdempotencyStore.class);
+                    assertThat(context.getBean(JdbcCocoIdempotencyStore.class))
+                            .extracting("dataSource").isSameAs(dedicated);
+                });
+    }
+
+    @Test
+    void primaryDataSourceDoesNotOverrideStrictSingleBeanFallback() {
+        this.contextRunner.withPropertyValues(enabled())
+                .withBean("primaryDataSource", DataSource.class, () -> dataSource("auto_primary"),
+                        beanDefinition -> beanDefinition.setPrimary(true))
+                .withBean("secondaryDataSource", DataSource.class, () -> dataSource("auto_secondary"))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalStateException.class)
+                            .rootCause().hasMessageContaining("exactly one DataSource bean");
                 });
     }
 
