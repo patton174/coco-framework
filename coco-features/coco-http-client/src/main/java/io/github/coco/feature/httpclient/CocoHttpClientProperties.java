@@ -25,6 +25,9 @@ public class CocoHttpClientProperties {
     private static final Pattern HEADER_NAME = Pattern.compile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$");
     private static final Set<String> FORBIDDEN_HEADERS = Set.of("authorization", "proxy-authorization", "cookie", "set-cookie");
 
+    /** HTTP 客户端连接和读取超时的统一最大值。 */
+    private static final Duration MAX_TIMEOUT = Duration.ofMinutes(5);
+
     private boolean enabled = true;
     private Map<String, Client> clients = new LinkedHashMap<>();
 
@@ -65,14 +68,18 @@ public class CocoHttpClientProperties {
             try {
                 URI uri = URI.create(this.baseUrl);
                 if (!uri.isAbsolute() || uri.getHost() == null || uri.getUserInfo() != null
+                        || uri.getRawQuery() != null || uri.getRawFragment() != null
                         || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
                     throw new IllegalArgumentException();
                 }
             } catch (RuntimeException ex) {
-                throw new IllegalStateException(prefix + ".base-url must be an absolute HTTP URI without user-info", ex);
+                throw new IllegalStateException(prefix
+                        + ".base-url must be an absolute HTTP URI without user-info, query, or fragment", ex);
             }
             if (this.connectTimeout == null || this.connectTimeout.isZero() || this.connectTimeout.isNegative()) throw new IllegalStateException(prefix + ".connect-timeout must be positive");
             if (this.readTimeout == null || this.readTimeout.isZero() || this.readTimeout.isNegative()) throw new IllegalStateException(prefix + ".read-timeout must be positive");
+            if (this.connectTimeout.compareTo(MAX_TIMEOUT) > 0) throw new IllegalStateException(prefix + ".connect-timeout must not exceed 5 minutes");
+            if (this.readTimeout.compareTo(MAX_TIMEOUT) > 0) throw new IllegalStateException(prefix + ".read-timeout must not exceed 5 minutes");
             this.defaultHeaders.forEach((name, value) -> {
                 if (name == null || !HEADER_NAME.matcher(name).matches()) throw new IllegalStateException(prefix + ".default-headers contains an invalid header name");
                 if (FORBIDDEN_HEADERS.contains(name.toLowerCase(Locale.ROOT))) throw new IllegalStateException(prefix + ".default-headers must not configure " + name);

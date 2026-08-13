@@ -110,6 +110,39 @@ class CocoHttpClientAutoConfigurationTest {
     }
 
     @Test
+    void rejectsBaseUrlWithQuery() {
+        this.contextRunner.withPropertyValues("coco.http.clients.inventory.base-url=" + this.baseUrl + "?fixed=true")
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasStackTraceContaining("without user-info, query, or fragment"));
+    }
+
+    @Test
+    void rejectsBaseUrlWithFragment() {
+        this.contextRunner.withPropertyValues("coco.http.clients.inventory.base-url=" + this.baseUrl + "#fixed")
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasStackTraceContaining("without user-info, query, or fragment"));
+    }
+
+    @Test
+    void acceptsTimeoutsAtFiveMinuteBoundary() {
+        this.contextRunner.withPropertyValues("coco.http.clients.inventory.base-url=" + this.baseUrl,
+                "coco.http.clients.inventory.connect-timeout=5m", "coco.http.clients.inventory.read-timeout=5m")
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(CocoHttpClients.class));
+    }
+
+    @Test
+    void rejectsConnectAndReadTimeoutsAboveFiveMinutes() {
+        this.contextRunner.withPropertyValues("coco.http.clients.inventory.base-url=" + this.baseUrl,
+                "coco.http.clients.inventory.connect-timeout=300001ms")
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasStackTraceContaining("connect-timeout must not exceed 5 minutes"));
+        this.contextRunner.withPropertyValues("coco.http.clients.inventory.base-url=" + this.baseUrl,
+                "coco.http.clients.inventory.read-timeout=300001ms")
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasStackTraceContaining("read-timeout must not exceed 5 minutes"));
+    }
+
+    @Test
     void appliesConfiguredReadTimeout() {
         this.contextRunner.withPropertyValues("coco.http.clients.inventory.base-url=" + this.baseUrl,
                 "coco.http.clients.inventory.connect-timeout=1s", "coco.http.clients.inventory.read-timeout=50ms")
