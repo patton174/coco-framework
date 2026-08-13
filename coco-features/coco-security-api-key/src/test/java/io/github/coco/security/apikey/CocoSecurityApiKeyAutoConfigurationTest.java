@@ -2,11 +2,9 @@ package io.github.coco.security.apikey;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.feature.security.CocoSecurityAutoConfiguration;
 import io.github.coco.feature.security.context.CocoSecurityContext;
-import io.github.coco.feature.security.web.CocoSecurityWebFilter;
 import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
 import io.github.coco.feature.web.CocoWebAutoConfiguration;
 import org.junit.jupiter.api.Test;
@@ -44,6 +42,7 @@ class CocoSecurityApiKeyAutoConfigurationTest {
     void registersDefaultVerifierResolverAndFilterBeforeCoreSecurityBridge() {
         this.contextRunner.run(context -> {
             assertThat(context).hasSingleBean(CocoApiKeyVerifier.class);
+            assertThat(context).hasSingleBean(DefaultCocoApiKeyVerifier.class);
             assertThat(context).hasSingleBean(CocoWebSecurityContextResolver.class);
             assertThat(context).hasBean("cocoApiKeyAuthenticationFilterRegistration");
             FilterRegistrationBean<?> apiKeyFilter = context.getBean("cocoApiKeyAuthenticationFilterRegistration",
@@ -62,6 +61,8 @@ class CocoSecurityApiKeyAutoConfigurationTest {
         this.contextRunner.withBean(CocoApiKeyVerifier.class, () -> verifier).run(context -> {
             assertThat(context).hasSingleBean(CocoApiKeyVerifier.class);
             assertThat(context.getBean(CocoApiKeyVerifier.class)).isSameAs(verifier);
+            assertThat(context).doesNotHaveBean(DefaultCocoApiKeyVerifier.class);
+            assertThat(context).hasBean("cocoApiKeyAuthenticationFilterRegistration");
             CocoWebSecurityContextResolver resolver = context.getBean(CocoWebSecurityContextResolver.class);
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
             request.addHeader("X-API-Key", "any-key");
@@ -78,7 +79,21 @@ class CocoSecurityApiKeyAutoConfigurationTest {
         this.contextRunner.withBean(CocoWebSecurityContextResolver.class, () -> resolver).run(context -> {
             assertThat(context).hasSingleBean(CocoWebSecurityContextResolver.class);
             assertThat(context.getBean(CocoWebSecurityContextResolver.class)).isSameAs(resolver);
+            assertThat(context).doesNotHaveBean(CocoApiKeyVerifier.class);
+            assertThat(context).doesNotHaveBean(DefaultCocoApiKeyVerifier.class);
             assertThat(context).doesNotHaveBean("cocoApiKeyAuthenticationFilterRegistration");
+        });
+    }
+
+    @Test
+    void failsFastWhenCoreSecurityWebBridgeIsDisabled() {
+        this.contextRunner.withPropertyValues("coco.security.web.enabled=false").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(rootCause(context.getStartupFailure()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("API Key authentication requires Coco security web bridge")
+                    .hasMessageNotContaining("api-key-123")
+                    .hasMessageNotContaining("074c1fd1ac9d1c67ec22e8ae841db4c570a2740372e70b0bc3c763416cac9ca0");
         });
     }
 
@@ -90,5 +105,13 @@ class CocoSecurityApiKeyAutoConfigurationTest {
                     .hasMessageNotContaining("api-key-123")
                     .hasMessageNotContaining("074c1fd1ac9d1c67ec22e8ae841db4c570a2740372e70b0bc3c763416cac9ca0");
         });
+    }
+
+    private static Throwable rootCause(Throwable failure) {
+        Throwable cause = failure;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 }

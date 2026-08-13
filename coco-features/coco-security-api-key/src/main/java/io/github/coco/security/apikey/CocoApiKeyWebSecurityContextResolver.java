@@ -56,7 +56,7 @@ public final class CocoApiKeyWebSecurityContextResolver implements CocoWebSecuri
         if (headerValue.headerMissing()) {
             return this.properties.isRequired() ? rejected() : Resolution.empty();
         }
-        if (!headerValue.valid() || headerValue.value().isBlank()
+        if (!headerValue.valid() || headerValue.value().isBlank() || containsIsoControl(headerValue.value())
                 || headerValue.value().length() > this.properties.getMaxKeyLength()) {
             return rejected();
         }
@@ -76,6 +76,15 @@ public final class CocoApiKeyWebSecurityContextResolver implements CocoWebSecuri
 
     private static Resolution rejected() {
         return Resolution.denied();
+    }
+
+    private static boolean containsIsoControl(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (Character.isISOControl(value.charAt(index))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record HeaderValue(boolean valid, boolean headerMissing, String value) {

@@ -3,8 +3,8 @@ package io.github.coco.security.apikey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.Map;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.coco.feature.security.context.CocoSecurityContextHolder;
@@ -72,6 +72,27 @@ class CocoApiKeyWebSecurityContextResolverTest {
         assertRejected(resolver, requestWith("not-the-key"));
         assertRejected(resolver, requestWith(" "));
         assertRejected(resolver, requestWith("x".repeat(513)));
+    }
+
+    @Test
+    void rejectsIsoControlCharactersEvenWhenKeyIsNotRequired() {
+        CocoApiKeyProperties properties = enabledProperties();
+        properties.setRequired(false);
+        properties.afterPropertiesSet();
+        AtomicInteger verifications = new AtomicInteger();
+        CocoApiKeyWebSecurityContextResolver resolver = new CocoApiKeyWebSecurityContextResolver(properties, key -> {
+            verifications.incrementAndGet();
+            return java.util.Optional.empty();
+        });
+
+        for (char control : new char[] { '\u0000', '\u0001', '\r', '\n', '\u007f' }) {
+            String key = "prefix" + control + "suffix";
+            assertThatThrownBy(() -> resolver.resolve(requestWith(key)))
+                    .isInstanceOf(CocoApiKeyAuthenticationException.class)
+                    .hasMessageNotContaining(key)
+                    .hasMessageNotContaining(API_KEY_SHA_256);
+        }
+        assertThat(verifications).hasValue(0);
     }
 
     @Test

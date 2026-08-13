@@ -53,6 +53,34 @@ class CocoApiKeyAuthenticationFilterTest {
         assertThat(CocoSecurityContextHolder.current()).contains(previous);
     }
 
+    @Test
+    void controlCharactersAlwaysProduceSecretFreeUnauthorizedBodyWhenKeyIsOptional() throws Exception {
+        CocoApiKeyProperties properties = CocoApiKeyWebSecurityContextResolverTest.enabledProperties();
+        properties.setRequired(false);
+        properties.afterPropertiesSet();
+        CocoApiKeyWebSecurityContextResolver resolver = new CocoApiKeyWebSecurityContextResolver(properties,
+                key -> java.util.Optional.of(CocoSecurityPrincipal.of("unexpected", "Unexpected")));
+        CocoSecurityWebFilter securityFilter = new CocoSecurityWebFilter(resolver);
+        CocoApiKeyAuthenticationFilter filter = new CocoApiKeyAuthenticationFilter(responseWriter());
+
+        for (char control : new char[] { '\u0000', '\u0001', '\r', '\n', '\u007f' }) {
+            String key = "prefix" + control + "suffix";
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
+            request.addHeader("X-API-Key", key);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            filter.doFilter(request, response, (servletRequest, servletResponse) ->
+                    securityFilter.doFilter(servletRequest, servletResponse, (ignoredRequest, ignoredResponse) -> {
+                        throw new AssertionError("business chain must not execute");
+                    }));
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getContentAsString()).doesNotContain(key)
+                    .doesNotContain("074c1fd1ac9d1c67ec22e8ae841db4c570a2740372e70b0bc3c763416cac9ca0");
+            assertThat(CocoSecurityContextHolder.current()).isEmpty();
+        }
+    }
+
     private static CocoFilterExceptionResponseWriter responseWriter() {
         CocoMessageService messageService = new CocoMessageService() {
             @Override

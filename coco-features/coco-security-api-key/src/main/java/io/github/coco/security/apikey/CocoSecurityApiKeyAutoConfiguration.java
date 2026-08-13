@@ -40,31 +40,31 @@ public class CocoSecurityApiKeyAutoConfiguration {
      * @param environment 当前环境
      */
     @Bean
-    public CocoApiKeyAuthenticationConflictValidator cocoApiKeyAuthenticationConflictValidator(Environment environment) {
-        return new CocoApiKeyAuthenticationConflictValidator(environment);
+    public CocoApiKeyAuthenticationConfigurationValidator cocoApiKeyAuthenticationConfigurationValidator(
+            Environment environment) {
+        return new CocoApiKeyAuthenticationConfigurationValidator(environment);
     }
 
     /**
-     * 创建默认 API Key 校验器。
-     * @param properties API Key 配置
-     * @return API Key 校验器
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public CocoApiKeyVerifier cocoApiKeyVerifier(CocoApiKeyProperties properties) {
-        return new DefaultCocoApiKeyVerifier(properties.getCredentials());
-    }
-
-    /**
-     * 创建默认 API Key Web 安全上下文解析器。
-     * @param properties API Key 配置
-     * @param verifier API Key 校验器
-     * @param environment 当前环境
-     * @return Web 安全上下文解析器
+     * API Key 默认 Web 认证接线。
+     * <p>
+     * 业务提供 Web 安全上下文解析器时，该配置组整体回退。
+     * </p>
      */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnMissingBean(CocoWebSecurityContextResolver.class)
     static class CocoApiKeyWebSecurityConfiguration {
+
+        /**
+         * 创建默认 API Key 校验器。
+         * @param properties API Key 配置
+         * @return API Key 校验器
+         */
+        @Bean
+        @ConditionalOnMissingBean(CocoApiKeyVerifier.class)
+        CocoApiKeyVerifier cocoApiKeyVerifier(CocoApiKeyProperties properties) {
+            return new DefaultCocoApiKeyVerifier(properties.getCredentials());
+        }
 
         /**
          * 创建默认 API Key Web 安全上下文解析器。
@@ -96,11 +96,14 @@ public class CocoSecurityApiKeyAutoConfiguration {
         }
     }
 
-    static final class CocoApiKeyAuthenticationConflictValidator {
+    static final class CocoApiKeyAuthenticationConfigurationValidator {
 
-        private CocoApiKeyAuthenticationConflictValidator(Environment environment) {
+        private CocoApiKeyAuthenticationConfigurationValidator(Environment environment) {
             if (environment.getProperty("coco.security.jwt.enabled", Boolean.class, false)) {
                 throw new IllegalStateException("Authentication mechanisms conflict");
+            }
+            if (!environment.getProperty("coco.security.web.enabled", Boolean.class, true)) {
+                throw new IllegalStateException("API Key authentication requires Coco security web bridge");
             }
         }
     }
