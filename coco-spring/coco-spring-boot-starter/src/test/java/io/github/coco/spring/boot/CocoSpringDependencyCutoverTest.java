@@ -179,6 +179,15 @@ class CocoSpringDependencyCutoverTest {
     }
 
     @Test
+    void exposesSpringContextPropagationThroughTheSingleStarter() throws Exception {
+        Path projectRoot = projectRoot();
+        Path starterPom = projectRoot.resolve("coco-spring/coco-spring-boot-starter/pom.xml");
+
+        assertThat(directProductionDependencyArtifactIds(readPom(starterPom)))
+                .contains("coco-context-spring");
+    }
+
+    @Test
     void keepsFacadesSourceFreeWithSingleCanonicalDependency() throws Exception {
         Path projectRoot = projectRoot();
 

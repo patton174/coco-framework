@@ -26,12 +26,30 @@ class CocoContextSpringAutoConfigurationTest {
     }
 
     @Test
-    void backsOffForBusinessFactoryOrTaskDecorator() {
+    void usesBusinessFactoryAndComposesWithBusinessTaskDecorator() {
         contextRunner.withBean(CocoContextSnapshotFactory.class,
                 () -> new CocoContextSnapshotFactory(List.of())).run(context ->
-                        assertThat(context.getBeansOfType(TaskDecorator.class)).isEmpty());
-        contextRunner.withBean(TaskDecorator.class, () -> runnable -> runnable).run(context ->
-                assertThat(context).doesNotHaveBean(CocoContextTaskDecorator.class));
+                        assertThat(context).hasSingleBean(CocoContextTaskDecorator.class));
+        contextRunner.withBean("businessTaskDecorator", TaskDecorator.class, () -> runnable -> runnable)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(CocoContextTaskDecorator.class);
+                    assertThat(context.getBeansOfType(TaskDecorator.class)).hasSize(2);
+                });
+    }
+
+    @Test
+    void backsOffOnlyForExplicitCocoDecoratorBeanName() {
+        contextRunner.withBean("cocoContextTaskDecorator", TaskDecorator.class, () -> runnable -> runnable)
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(CocoContextTaskDecorator.class);
+                    assertThat(context.getBeansOfType(TaskDecorator.class)).hasSize(1);
+                });
+        contextRunner.withBean("customCocoDecorator", CocoContextTaskDecorator.class,
+                () -> new CocoContextTaskDecorator(new CocoContextSnapshotFactory(List.of())))
+                .run(context -> {
+                    assertThat(context).hasSingleBean(CocoContextTaskDecorator.class);
+                    assertThat(context).doesNotHaveBean("cocoContextTaskDecorator");
+                });
     }
 
     @Test
