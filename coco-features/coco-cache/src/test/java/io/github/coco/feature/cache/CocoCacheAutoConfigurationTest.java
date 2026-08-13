@@ -16,6 +16,7 @@ import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.cache.interceptor.CacheOperationSource;
+import org.springframework.cache.interceptor.SimpleCacheResolver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -42,6 +43,15 @@ class CocoCacheAutoConfigurationTest {
             assertThat(context.getBean(CacheManager.class)).isInstanceOf(ConcurrentMapCacheManager.class);
             assertThat(context).hasSingleBean(CacheOperationSource.class);
         });
+    }
+
+    @Test
+    void backsOffWhenApplicationProvidesCacheResolver() {
+        this.contextRunner.withUserConfiguration(CustomCacheResolverConfiguration.class).run(context ->
+                assertThat(context).doesNotHaveBean(CacheManager.class));
+        this.contextRunner.withClassLoader(new FilteredClassLoader(Caffeine.class))
+                .withUserConfiguration(CustomCacheResolverConfiguration.class)
+                .run(context -> assertThat(context).doesNotHaveBean(CacheManager.class));
     }
 
     @Test
@@ -105,6 +115,15 @@ class CocoCacheAutoConfigurationTest {
         @Bean
         CacheManager applicationCacheManager() {
             return new ConcurrentMapCacheManager("application");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomCacheResolverConfiguration {
+
+        @Bean("cacheResolver")
+        SimpleCacheResolver cacheResolver() {
+            return new SimpleCacheResolver(new ConcurrentMapCacheManager());
         }
     }
 }
