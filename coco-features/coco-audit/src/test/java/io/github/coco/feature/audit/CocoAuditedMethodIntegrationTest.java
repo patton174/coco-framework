@@ -15,9 +15,12 @@ import io.github.coco.feature.lock.CocoLockManager;
 import io.github.coco.feature.lock.CocoLocked;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.AopProxyUtils;
+import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator;
+import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
 import org.springframework.aop.support.DefaultPointcutAdvisor;
 import org.springframework.aop.support.annotation.AnnotationMatchingPointcut;
-import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -96,13 +99,19 @@ class CocoAuditedMethodIntegrationTest {
     @Test
     void publisherFailureOnSuccessPropagatesButBusinessFailureRemainsPrimary() {
         IllegalStateException publisherFailure = new IllegalStateException("publisher failure");
+        AtomicInteger publicationAttempts = new AtomicInteger();
+        List<Boolean> attemptedStates = new CopyOnWriteArrayList<>();
         this.contextRunner.withUserConfiguration(AuditedServicesConfiguration.class)
                 .withBean(CocoAuditPublisher.class, () -> event -> {
+                    publicationAttempts.incrementAndGet();
+                    attemptedStates.add(event.success());
                     throw publisherFailure;
                 })
                 .run(context -> {
                     AuditedService service = context.getBean(AuditedService.class);
                     assertThatThrownBy(() -> service.method("ignored")).isSameAs(publisherFailure);
+                    assertThat(publicationAttempts).hasValue(1);
+                    assertThat(attemptedStates).containsExactly(true);
 
                     RuntimeException businessFailure = new IllegalStateException("business failure");
                     try {
@@ -111,9 +120,43 @@ class CocoAuditedMethodIntegrationTest {
                     catch (RuntimeException ex) {
                         assertThat(ex).isSameAs(businessFailure);
                         assertThat(ex.getSuppressed()).containsExactly(publisherFailure);
+                        assertThat(publicationAttempts).hasValue(2);
+                        assertThat(attemptedStates).containsExactly(true, false);
                         return;
                     }
                     throw new AssertionError("expected business failure");
+                });
+    }
+
+    @Test
+    void eventFactoryFailureAfterBusinessSuccessPropagatesWithoutFailurePublication() {
+        IllegalStateException factoryFailure = new IllegalStateException("factory failure");
+        AtomicInteger factoryCalls = new AtomicInteger();
+        AtomicInteger publicationAttempts = new AtomicInteger();
+        this.contextRunner.withUserConfiguration(AuditedServicesConfiguration.class)
+                .withBean(CocoAuditPublisher.class, () -> event -> publicationAttempts.incrementAndGet())
+                .withBean(CocoAuditEventFactory.class, () -> invocation -> {
+                    factoryCalls.incrementAndGet();
+                    assertThat(invocation.success()).isTrue();
+                    throw factoryFailure;
+                })
+                .run(context -> assertThatThrownBy(() -> context.getBean(AuditedService.class).method("ignored"))
+                        .isSameAs(factoryFailure));
+        assertThat(factoryCalls).hasValue(1);
+        assertThat(publicationAttempts).hasValue(0);
+    }
+
+    @Test
+    void doesNotSelfSuppressWhenFailurePublisherThrowsBusinessFailure() {
+        RuntimeException businessFailure = new IllegalStateException("business failure");
+        this.contextRunner.withUserConfiguration(AuditedServicesConfiguration.class)
+                .withBean(CocoAuditPublisher.class, () -> event -> {
+                    throw businessFailure;
+                })
+                .run(context -> {
+                    assertThatThrownBy(() -> context.getBean(AuditedService.class).runtime(businessFailure))
+                            .isSameAs(businessFailure);
+                    assertThat(businessFailure.getSuppressed()).isEmpty();
                 });
     }
 
@@ -129,17 +172,46 @@ class CocoAuditedMethodIntegrationTest {
     }
 
     @Test
-    void resolvesInterfaceAndImplementationMethodAnnotationsOnce() {
+    void resolvesInterfaceMethodAnnotationThroughJdkProxyOnce() {
         CapturingPublisher publisher = new CapturingPublisher();
         this.contextRunner.withUserConfiguration(InterfaceServiceConfiguration.class)
                 .withBean(CocoAuditPublisher.class, () -> publisher)
                 .run(context -> {
                     Contract contract = context.getBean(Contract.class);
+                    assertThat(AopUtils.isJdkDynamicProxy(contract)).isTrue();
                     assertThat(contract.interfaceAnnotated()).isEqualTo("interface");
+                });
+        assertThat(publisher.events).extracting(CocoAuditEvent::type)
+                .containsExactly("interface-method");
+    }
+
+    @Test
+    void resolvesInterfaceMethodAnnotationThroughCglibProxyOnce() {
+        CapturingPublisher publisher = new CapturingPublisher();
+        this.contextRunner.withUserConfiguration(InterfaceServiceConfiguration.class,
+                        ForceCglibProxyConfiguration.class)
+                .withBean(CocoAuditPublisher.class, () -> publisher)
+                .run(context -> {
+                    Contract contract = context.getBean(Contract.class);
+                    assertThat(AopUtils.isCglibProxy(contract)).isTrue();
+                    assertThat(AopProxyUtils.ultimateTargetClass(contract)).isEqualTo(ContractImpl.class);
+                    assertThat(contract.interfaceAnnotated()).isEqualTo("interface");
+                });
+        assertThat(publisher.events).extracting(CocoAuditEvent::type)
+                .containsExactly("interface-method");
+    }
+
+    @Test
+    void implementationMethodAnnotationOverridesInterfaceAndTypeAnnotations() {
+        CapturingPublisher publisher = new CapturingPublisher();
+        this.contextRunner.withUserConfiguration(InterfaceServiceConfiguration.class)
+                .withBean(CocoAuditPublisher.class, () -> publisher)
+                .run(context -> {
+                    Contract contract = context.getBean(Contract.class);
                     assertThat(contract.implementationAnnotated()).isEqualTo("implementation");
                 });
         assertThat(publisher.events).extracting(CocoAuditEvent::type)
-                .containsExactly("interface-method", "implementation-method");
+                .containsExactly("implementation-method");
     }
 
     @Test
@@ -288,6 +360,7 @@ class CocoAuditedMethodIntegrationTest {
     interface Contract {
         @CocoAudited(type = "interface-method")
         String interfaceAnnotated();
+        @CocoAudited(type = "interface-fallback")
         String implementationAnnotated();
     }
 
@@ -296,10 +369,21 @@ class CocoAuditedMethodIntegrationTest {
         @Bean Contract contract() { return new ContractImpl(); }
     }
 
+    @CocoAudited(type = "contract-type")
     static class ContractImpl implements Contract {
         @Override public String interfaceAnnotated() { return "interface"; }
         @Override @CocoAudited(type = "implementation-method")
         public String implementationAnnotated() { return "implementation"; }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ForceCglibProxyConfiguration {
+        @Bean
+        static DefaultAdvisorAutoProxyCreator forcedCglibAutoProxyCreator() {
+            DefaultAdvisorAutoProxyCreator autoProxyCreator = new DefaultAdvisorAutoProxyCreator();
+            autoProxyCreator.setProxyTargetClass(true);
+            return autoProxyCreator;
+        }
     }
 
     @Configuration(proxyBeanMethods = false)

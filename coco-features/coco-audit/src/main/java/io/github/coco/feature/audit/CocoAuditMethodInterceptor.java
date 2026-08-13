@@ -36,10 +36,9 @@ final class CocoAuditMethodInterceptor implements MethodInterceptor {
         }
         CocoAuditInvocation.requireType(audited);
         Instant startedAt = Instant.now();
+        Object result;
         try {
-            Object result = invocation.proceed();
-            publish(targetClass, method, audited, true, null, startedAt);
-            return result;
+            result = invocation.proceed();
         }
         catch (Throwable businessFailure) {
             try {
@@ -52,6 +51,8 @@ final class CocoAuditMethodInterceptor implements MethodInterceptor {
             }
             throw businessFailure;
         }
+        publish(targetClass, method, audited, true, null, startedAt);
+        return result;
     }
 
     private void publish(Class<?> targetClass, Method method, CocoAudited audited, boolean success, String exceptionType,
@@ -63,7 +64,15 @@ final class CocoAuditMethodInterceptor implements MethodInterceptor {
 
     static CocoAudited findAnnotation(Method method, Method invokedMethod, Class<?> targetClass) {
         CocoAudited annotation = AnnotatedElementUtils.findMergedAnnotation(method, CocoAudited.class);
-        if (annotation == null && !method.equals(invokedMethod)) {
+        if (annotation != null) {
+            return annotation;
+        }
+        Method interfaceMethod = ClassUtils.getInterfaceMethodIfPossible(method, targetClass);
+        if (!interfaceMethod.equals(method)) {
+            annotation = AnnotatedElementUtils.findMergedAnnotation(interfaceMethod, CocoAudited.class);
+        }
+        if (annotation == null && invokedMethod.getDeclaringClass().isInterface()
+                && !invokedMethod.equals(interfaceMethod)) {
             annotation = AnnotatedElementUtils.findMergedAnnotation(invokedMethod, CocoAudited.class);
         }
         if (annotation != null) {

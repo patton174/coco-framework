@@ -4,6 +4,8 @@ import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.Objects;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
 /**
  * 声明式审计方法调用的最小只读描述。
  * <p>
@@ -38,6 +40,17 @@ public record CocoAuditInvocation(Class<?> targetClass, Method method, CocoAudit
             throw new IllegalArgumentException("exceptionType must not be blank for a failed invocation");
         }
         exceptionType = normalize(exceptionType);
+    }
+
+    /**
+     * 返回被解析后的业务方法。
+     * @return 业务方法
+     */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "java.lang.reflect.Method is an explicit part of "
+            + "the safe invocation SPI and has no defensive-copy API; the model still excludes target instances, "
+            + "arguments, return values, and exception objects")
+    public Method method() {
+        return this.method;
     }
 
     /**
