@@ -3,8 +3,16 @@ package io.github.coco.feature.idempotency.jdbc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.StringReader;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,9 +35,11 @@ import io.github.coco.feature.idempotency.store.CocoIdempotencyStoredResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.UncategorizedSQLException;
+import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
+import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** JDBC 幂等存储 H2 集成测试。 */
@@ -173,12 +183,57 @@ class JdbcCocoIdempotencyStoreTest {
     }
 
     @Test
+    void rejectsTransactionAwareProxyWithoutCommittingBusinessTransaction() {
+        this.jdbcTemplate.execute("CREATE TABLE proxy_marker (marker_value VARCHAR(32) NOT NULL)");
+        TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(this.dataSource));
+        transaction.executeWithoutResult(status -> {
+            this.jdbcTemplate.update("INSERT INTO proxy_marker(marker_value) VALUES ('rollback')");
+            assertThatThrownBy(() -> new JdbcCocoIdempotencyStore(
+                    new TransactionAwareDataSourceProxy(this.dataSource), properties()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not be transaction-aware");
+            assertThatThrownBy(() -> new JdbcCocoIdempotencyStore(
+                    new LazyConnectionDataSourceProxy(new TransactionAwareDataSourceProxy(this.dataSource)),
+                    properties()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not be transaction-aware");
+            assertThatThrownBy(() -> new JdbcCocoIdempotencyStore(
+                    unwrapOnlyProxy(new TransactionAwareDataSourceProxy(this.dataSource)), properties()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not be transaction-aware");
+            status.setRollbackOnly();
+        });
+        assertThat(this.jdbcTemplate.queryForObject("SELECT COUNT(*) FROM proxy_marker", Integer.class)).isZero();
+    }
+
+    @Test
+    void integrityConstraintFailuresWithoutACompetingRowAreRethrown() {
+        this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD CONSTRAINT reject_key "
+                + "CHECK (idempotency_key = 'never')");
+        assertConstraintFailure(request("check", "payload"));
+    }
+
+    @Test
+    void notNullAndForeignKeyFailuresWithoutACompetingRowAreRethrown() {
+        this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD required_marker VARCHAR(1) NOT NULL");
+        assertConstraintFailure(request("not-null", "payload"));
+
+        this.jdbcTemplate.execute("ALTER TABLE coco_idempotency DROP COLUMN required_marker");
+        this.jdbcTemplate.execute("CREATE TABLE idempotency_parent (parent_id INTEGER PRIMARY KEY)");
+        this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD parent_id INTEGER DEFAULT 999 NOT NULL");
+        this.jdbcTemplate.execute("ALTER TABLE coco_idempotency ADD CONSTRAINT fk_idempotency_parent "
+                + "FOREIGN KEY (parent_id) REFERENCES idempotency_parent(parent_id)");
+        assertConstraintFailure(request("foreign-key", "payload"));
+    }
+
+    @Test
     void rejectsOversizedOrCorruptResponsesWithoutCommittingPartialState() {
         CocoIdempotencyJdbcProperties limited = properties();
         limited.setMaxResponseBytes(2);
         JdbcCocoIdempotencyStore limitedStore = new JdbcCocoIdempotencyStore(this.dataSource, limited);
         CocoIdempotencyRequest limitedRequest = request("limited", "payload");
-        CocoIdempotencyLease lease = limitedStore.acquire(limitedRequest, NOW, NOW.plusSeconds(60)).lease().orElseThrow();
+        CocoIdempotencyLease lease = limitedStore.acquire(limitedRequest, NOW, NOW.plusSeconds(60))
+                .lease().orElseThrow();
         assertThatThrownBy(() -> limitedStore.complete(lease,
                 new CocoIdempotencyStoredResponse(200, Map.of(), new byte[] { 1, 2, 3 }), NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("max-response-bytes");
@@ -210,6 +265,89 @@ class JdbcCocoIdempotencyStoreTest {
     }
 
     @Test
+    void boundsStoredLobsByUtf8BytesWithoutExposingTheirContents() {
+        CocoIdempotencyJdbcProperties limited = properties();
+        limited.setMaxHeaderBytes(32);
+        limited.setMaxResponseBytes(16);
+        JdbcCocoIdempotencyStore limitedStore = new JdbcCocoIdempotencyStore(this.dataSource, limited);
+
+        String headerMaxPlusOne = "{\"X\":[\"" + "h".repeat(23) + "\"]}";
+        assertThat(headerMaxPlusOne.getBytes(StandardCharsets.UTF_8)).hasSize(limited.getMaxHeaderBytes() + 1);
+        insertCompleted("header-max-plus-one", "payload", headerMaxPlusOne, new byte[0]);
+        assertThatThrownBy(() -> limitedStore.acquire(request("header-max-plus-one", "payload"), NOW,
+                NOW.plusSeconds(60)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("headers exceed configured limit");
+
+        String headerSecret = "header-secret-" + "汉".repeat(40);
+        insertCompleted("much-larger-header", "payload", "{\"X\":[\"" + headerSecret + "\"]}", new byte[0]);
+        assertThatThrownBy(() -> limitedStore.acquire(request("much-larger-header", "payload"), NOW,
+                NOW.plusSeconds(60)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("headers exceed configured limit")
+                .hasMessageNotContaining(headerSecret);
+
+        byte[] bodyMaxPlusOne = "body-secret-value".getBytes(StandardCharsets.UTF_8);
+        assertThat(bodyMaxPlusOne).hasSize(limited.getMaxResponseBytes() + 1);
+        insertCompleted("body-max-plus-one", "payload", "{}", bodyMaxPlusOne);
+        assertThatThrownBy(() -> limitedStore.acquire(request("body-max-plus-one", "payload"), NOW,
+                NOW.plusSeconds(60)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("body exceeds configured limit")
+                .hasMessageNotContaining("body-secret-value");
+
+        byte[] muchLargerBody = new byte[100_000];
+        java.util.Arrays.fill(muchLargerBody, (byte) 0x5a);
+        insertCompleted("much-larger-body", "payload", "{}", muchLargerBody);
+        assertThatThrownBy(() -> limitedStore.acquire(request("much-larger-body", "payload"), NOW,
+                NOW.plusSeconds(60)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("body exceeds configured limit");
+    }
+
+    @Test
+    void delegatesStoredHeaderValidationToStoredResponse() {
+        insertCompleted("invalid-header", "payload", "{\"\":[\"hidden-value\"]}", new byte[0]);
+        assertThatThrownBy(() -> this.store.acquire(request("invalid-header", "payload"), NOW, NOW.plusSeconds(60)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("headers are invalid")
+                .hasMessageNotContaining("hidden-value")
+                .hasRootCauseMessage("header name must not be blank");
+    }
+
+    @Test
+    void preservesLobCloseFailuresAsSuppressedOnLimitErrors() throws Exception {
+        CocoIdempotencyJdbcProperties limited = properties();
+        limited.setMaxHeaderBytes(1);
+        limited.setMaxResponseBytes(1);
+        JdbcCocoIdempotencyStore limitedStore = new JdbcCocoIdempotencyStore(this.dataSource, limited);
+        IOException headerCloseFailure = new IOException("header stream close failed");
+        IOException bodyCloseFailure = new IOException("body stream close failed");
+        Method readHeaders = JdbcCocoIdempotencyStore.class.getDeclaredMethod("readHeaders", java.io.Reader.class);
+        Method readBody = JdbcCocoIdempotencyStore.class.getDeclaredMethod("readBody", java.io.InputStream.class);
+        readHeaders.setAccessible(true);
+        readBody.setAccessible(true);
+
+        Reader failingReader = new Reader() {
+            private final StringReader delegate = new StringReader("xx");
+            @Override public int read(char[] buffer, int offset, int length) throws IOException {
+                return this.delegate.read(buffer, offset, length);
+            }
+            @Override public int read() throws IOException { return this.delegate.read(); }
+            @Override public void close() throws IOException { throw headerCloseFailure; }
+        };
+        assertThatThrownBy(() -> invoke(readHeaders, limitedStore, failingReader))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("headers exceed configured limit")
+                .satisfies(failure -> assertThat(failure.getSuppressed()).containsExactly(headerCloseFailure));
+        assertThatThrownBy(() -> invoke(readBody, limitedStore, new ByteArrayInputStream(new byte[] { 1, 2 }) {
+            @Override public void close() throws IOException { throw bodyCloseFailure; }
+        })).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("body exceeds configured limit")
+                .satisfies(failure -> assertThat(failure.getSuppressed()).containsExactly(bodyCloseFailure));
+    }
+
+    @Test
     void rejectsUnsafePropertiesPropagatesConnectionErrorsAndDoesNotCloseDataSource() throws Exception {
         for (String identifier : List.of("bad.table", "bad;drop", "bad name", "1bad", "\"bad\"")) {
             CocoIdempotencyJdbcProperties properties = properties();
@@ -223,8 +361,12 @@ class JdbcCocoIdempotencyStoreTest {
                 .isInstanceOf(IllegalArgumentException.class);
 
         DataSource failing = new DataSource() {
-            @Override public Connection getConnection() throws java.sql.SQLException { throw new java.sql.SQLException("down", "08001"); }
-            @Override public Connection getConnection(String username, String password) throws java.sql.SQLException { return getConnection(); }
+            @Override public Connection getConnection() throws SQLException {
+                throw new SQLException("down", "08001");
+            }
+            @Override public Connection getConnection(String username, String password) throws SQLException {
+                return getConnection();
+            }
             @Override public <T> T unwrap(Class<T> iface) { throw new UnsupportedOperationException(); }
             @Override public boolean isWrapperFor(Class<?> iface) { return false; }
             @Override public java.io.PrintWriter getLogWriter() { return null; }
@@ -235,7 +377,9 @@ class JdbcCocoIdempotencyStoreTest {
         };
         assertThatThrownBy(() -> new JdbcCocoIdempotencyStore(failing, properties())
                 .acquire(request("down", "payload"), NOW, NOW.plusSeconds(60)))
-                .isInstanceOf(UncategorizedSQLException.class).hasCauseInstanceOf(java.sql.SQLException.class);
+                .isInstanceOf(DataAccessResourceFailureException.class)
+                .hasMessage("JDBC idempotency database operation failed")
+                .hasCauseInstanceOf(SQLException.class);
 
         this.store.close();
         assertThat(this.dataSource.isClosed()).isFalse();
@@ -248,6 +392,45 @@ class JdbcCocoIdempotencyStoreTest {
         CocoIdempotencyJdbcProperties properties = new CocoIdempotencyJdbcProperties();
         properties.setKeyPrefix("coco:");
         return properties;
+    }
+
+    private void assertConstraintFailure(CocoIdempotencyRequest request) {
+        assertThatThrownBy(() -> this.store.acquire(request, NOW, NOW.plusSeconds(60)))
+                .isInstanceOf(DataAccessResourceFailureException.class)
+                .satisfies(failure -> {
+                    SQLException sqlException = (SQLException) failure.getCause();
+                    assertThat(sqlException.getSQLState()).startsWith("23");
+                    assertThat(failure.getMessage()).doesNotContain(request.keyHash(), request.requestHash());
+                });
+        assertThat(this.jdbcTemplate.queryForObject("SELECT COUNT(*) FROM coco_idempotency", Integer.class)).isZero();
+    }
+
+    private void insertCompleted(String key, String payload, String headersJson, byte[] body) {
+        this.jdbcTemplate.update("INSERT INTO coco_idempotency (idempotency_key, request_hash, owner_token, status, "
+                        + "expires_at_epoch_millis, response_status, response_headers_json, response_body) "
+                        + "VALUES (?, ?, ?, 'COMPLETED', ?, 200, ?, ?)",
+                "coco:" + hash(key), hash(payload), "stored-owner", NOW.plusSeconds(60).toEpochMilli(),
+                headersJson, body);
+    }
+
+    private static DataSource unwrapOnlyProxy(TransactionAwareDataSourceProxy transactionAwareDataSource) {
+        return (DataSource) Proxy.newProxyInstance(DataSource.class.getClassLoader(),
+                new Class<?>[] { DataSource.class }, (proxy, method, arguments) -> switch (method.getName()) {
+                    case "isWrapperFor" -> arguments[0] == TransactionAwareDataSourceProxy.class;
+                    case "unwrap" -> arguments[0] == TransactionAwareDataSourceProxy.class
+                            ? transactionAwareDataSource : null;
+                    case "toString" -> "unwrapOnlyDataSource";
+                    default -> throw new AssertionError("Unexpected DataSource method: " + method.getName());
+                });
+    }
+
+    private static Object invoke(Method method, Object target, Object argument) throws Throwable {
+        try {
+            return method.invoke(target, argument);
+        }
+        catch (InvocationTargetException ex) {
+            throw ex.getCause();
+        }
     }
 
     private static CocoIdempotencyRequest request(String key, String payload) {

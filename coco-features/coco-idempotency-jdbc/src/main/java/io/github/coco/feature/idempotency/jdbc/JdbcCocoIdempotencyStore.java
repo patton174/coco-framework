@@ -1,6 +1,10 @@
 package io.github.coco.feature.idempotency.jdbc;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -8,11 +12,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.sql.DataSource;
@@ -25,12 +32,16 @@ import io.github.coco.feature.idempotency.store.CocoIdempotencyLease;
 import io.github.coco.feature.idempotency.store.CocoIdempotencyRequest;
 import io.github.coco.feature.idempotency.store.CocoIdempotencyStore;
 import io.github.coco.feature.idempotency.store.CocoIdempotencyStoredResponse;
-import org.springframework.jdbc.UncategorizedSQLException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
+import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 
 /**
  * 基于 JDBC 的多实例幂等共享存储。
  * <p>每次操作都直接从 {@link DataSource} 获取独立连接，并只提交本存储的短事务；实现不会通过
- * Spring 的线程绑定连接工具取得连接，因此不会提交或回滚业务事务。业务数据源必须能够提供独立物理连接。</p>
+ * Spring 的线程绑定连接工具取得连接，因此不会提交或回滚业务事务。业务数据源必须能够提供绝对独立的物理连接；
+ * 可以使用普通业务连接池，也可以提供命名为 {@code cocoIdempotencyDataSource} 的专用连接池，但不能传入
+ * {@link TransactionAwareDataSourceProxy} 或包装该代理的数据源。</p>
  *
  * @author patton174
  * @since 1.0.0
@@ -76,7 +87,7 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
      */
     public JdbcCocoIdempotencyStore(DataSource dataSource, CocoIdempotencyJdbcProperties properties,
             ObjectMapper objectMapper) {
-        this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
+        this.dataSource = requireIndependentDataSource(dataSource);
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.properties.validate();
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
@@ -108,12 +119,24 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         ensureOpen();
         String ownerToken = ownerToken();
         for (int attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt++) {
-            if (tryInsert(checkedRequest, checkedExpiresAt, ownerToken)) {
+            InsertAttempt insertion = tryInsert(checkedRequest, checkedExpiresAt, ownerToken);
+            if (insertion.acquired) {
                 return CocoIdempotencyAcquireResult.acquired(
                         new CocoIdempotencyLease(checkedRequest, ownerToken, checkedExpiresAt));
             }
-            AcquireAttempt outcome = inTransaction(connection -> readOrRemoveExpired(connection, checkedRequest,
-                    checkedNow));
+            AcquireAttempt outcome;
+            AtomicBoolean rowObserved = new AtomicBoolean();
+            try {
+                outcome = inTransaction(connection -> readOrRemoveExpired(connection, checkedRequest,
+                        checkedNow, insertion.failure, rowObserved));
+            }
+            catch (RuntimeException verificationFailure) {
+                if (!rowObserved.get() && verificationFailure != insertion.failure) {
+                    insertion.failure.addSuppressed(verificationFailure);
+                    throw insertion.failure;
+                }
+                throw verificationFailure;
+            }
             if (outcome.result != null) return outcome.result;
         }
         throw new IllegalStateException("JDBC idempotency acquire could not establish a stable row state");
@@ -158,9 +181,9 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         this.closed.set(true);
     }
 
-    private boolean tryInsert(CocoIdempotencyRequest request, Instant expiresAt, String ownerToken) {
+    private InsertAttempt tryInsert(CocoIdempotencyRequest request, Instant expiresAt, String ownerToken) {
         try {
-            return inTransaction(connection -> {
+            boolean inserted = inTransaction(connection -> {
                 try (PreparedStatement statement = connection.prepareStatement(this.insertSql)) {
                     statement.setString(1, storageKey(request));
                     statement.setString(2, request.requestHash());
@@ -169,17 +192,21 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
                     return statement.executeUpdate() == 1;
                 }
             });
+            if (!inserted) {
+                throw new IllegalStateException("JDBC idempotency insert did not create a row");
+            }
+            return InsertAttempt.success();
         }
-        catch (UncategorizedSQLException ex) {
-            if (isDuplicateKey(ex)) return false;
+        catch (DataAccessResourceFailureException ex) {
+            if (isIntegrityConstraintViolation(sqlCause(ex))) return InsertAttempt.failed(ex);
             throw ex;
         }
     }
 
-    private AcquireAttempt readOrRemoveExpired(Connection connection, CocoIdempotencyRequest request, Instant now)
-            throws SQLException {
-        Row row = selectForUpdate(connection, storageKey(request));
-        if (row == null) return AcquireAttempt.retry();
+    private AcquireAttempt readOrRemoveExpired(Connection connection, CocoIdempotencyRequest request, Instant now,
+            DataAccessResourceFailureException insertFailure, AtomicBoolean rowObserved) throws SQLException {
+        Row row = selectForUpdate(connection, storageKey(request), request.requestHash(), rowObserved);
+        if (row == null) throw insertFailure;
         if (row.expiresAtEpochMillis <= now.toEpochMilli()) {
             try (PreparedStatement statement = connection.prepareStatement(this.deleteExpiredSql)) {
                 statement.setString(1, storageKey(request));
@@ -201,18 +228,100 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         throw new IllegalStateException("JDBC idempotency row has an invalid status");
     }
 
-    private Row selectForUpdate(Connection connection, String key) throws SQLException {
+    private Row selectForUpdate(Connection connection, String key, String expectedRequestHash,
+            AtomicBoolean rowObserved) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(this.selectForUpdateSql)) {
             statement.setString(1, key);
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next()) return null;
-                Row row = new Row(resultSet.getString(1), resultSet.getString(2), resultSet.getString(3),
-                        resultSet.getLong(4), resultSet.getObject(5, Integer.class), resultSet.getString(6),
-                        resultSet.getBytes(7));
+                rowObserved.set(true);
+                String requestHash = resultSet.getString(1);
+                String status = resultSet.getString(3);
+                String responseHeadersJson = null;
+                byte[] responseBody = null;
+                if ("COMPLETED".equals(status) && Objects.equals(requestHash, expectedRequestHash)) {
+                    responseHeadersJson = readHeaders(resultSet.getCharacterStream(6));
+                    InputStream bodyStream = resultSet.getBinaryStream(7);
+                    responseBody = bodyStream == null ? null : readBody(bodyStream);
+                }
+                Row row = new Row(requestHash, resultSet.getString(2), status,
+                        resultSet.getLong(4), resultSet.getObject(5, Integer.class), responseHeadersJson,
+                        responseBody);
                 if (resultSet.next()) throw new IllegalStateException("JDBC idempotency key is not unique");
                 return row;
             }
         }
+    }
+
+    private String readHeaders(Reader source) throws SQLException {
+        if (source == null) return null;
+        int maximum = this.properties.getMaxHeaderBytes();
+        int allocation = Math.min(maximum, 8_192);
+        StringBuilder value = new StringBuilder(allocation);
+        int bytesRead = 0;
+        try (Reader reader = source) {
+            int character;
+            while ((character = reader.read()) >= 0) {
+                char first = (char) character;
+                int utf8Length;
+                char second = 0;
+                if (Character.isHighSurrogate(first)) {
+                    int following = reader.read();
+                    if (following < 0 || !Character.isLowSurrogate((char) following)) {
+                        throw invalidStoredRow("JDBC completed idempotency headers contain invalid Unicode");
+                    }
+                    second = (char) following;
+                    utf8Length = 4;
+                }
+                else if (Character.isLowSurrogate(first)) {
+                    throw invalidStoredRow("JDBC completed idempotency headers contain invalid Unicode");
+                }
+                else if (first <= 0x7f) {
+                    utf8Length = 1;
+                }
+                else if (first <= 0x7ff) {
+                    utf8Length = 2;
+                }
+                else {
+                    utf8Length = 3;
+                }
+                if (bytesRead > maximum - utf8Length) {
+                    throw invalidStoredRow("JDBC completed idempotency headers exceed configured limit");
+                }
+                value.append(first);
+                if (second != 0) value.append(second);
+                bytesRead += utf8Length;
+            }
+        }
+        catch (IOException ex) {
+            throw lobReadFailure("headers", ex);
+        }
+        return value.toString();
+    }
+
+    private byte[] readBody(InputStream source) throws SQLException {
+        Objects.requireNonNull(source, "source must not be null");
+        int maximum = this.properties.getMaxResponseBytes();
+        int allocation = Math.min(maximum + 1, 8_192);
+        byte[] buffer = new byte[Math.max(1, allocation)];
+        ByteArrayOutputStream output = new ByteArrayOutputStream(allocation);
+        int total = 0;
+        try (InputStream input = source) {
+            while (total <= maximum) {
+                int allowed = Math.min(buffer.length, maximum + 1 - total);
+                int count = input.read(buffer, 0, allowed);
+                if (count < 0) break;
+                total += count;
+                if (total > maximum) {
+                    throw invalidStoredRow("JDBC completed idempotency body exceeds configured limit");
+                }
+                output.write(buffer, 0, count);
+            }
+        }
+        catch (IOException ex) {
+            throw lobReadFailure("body", ex);
+        }
+        return output.toByteArray();
     }
 
     private StoredResponse serializeResponse(CocoIdempotencyStoredResponse response) {
@@ -225,7 +334,7 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         }
         try {
             String headersJson = this.objectMapper.writeValueAsString(response.headers());
-            if (headersJson.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > this.properties.getMaxHeaderBytes()) {
+            if (headersJson.getBytes(StandardCharsets.UTF_8).length > this.properties.getMaxHeaderBytes()) {
                 throw new IllegalArgumentException("response headers exceed coco.idempotency.jdbc.max-header-bytes");
             }
             return new StoredResponse(response.status(), headersJson, body);
@@ -239,10 +348,11 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         if (row.responseStatus == null || row.responseHeadersJson == null || row.responseBody == null) {
             throw new IllegalStateException("JDBC completed idempotency row is incomplete");
         }
-        if (row.responseStatus < 100 || row.responseStatus > 599 || row.responseBody.length > this.properties.getMaxResponseBytes()) {
+        if (row.responseStatus < 100 || row.responseStatus > 599
+                || row.responseBody.length > this.properties.getMaxResponseBytes()) {
             throw new IllegalStateException("JDBC completed idempotency row exceeds configured response limits");
         }
-        byte[] headerBytes = row.responseHeadersJson.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] headerBytes = row.responseHeadersJson.getBytes(StandardCharsets.UTF_8);
         if (headerBytes.length > this.properties.getMaxHeaderBytes()) {
             throw new IllegalStateException("JDBC completed idempotency headers exceed configured limit");
         }
@@ -259,7 +369,7 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         if (node == null || !node.isObject()) throw new IllegalArgumentException("headers must be an object");
         Map<String, List<String>> headers = new LinkedHashMap<>();
         node.fields().forEachRemaining(entry -> {
-            if (entry.getKey().isBlank() || !entry.getValue().isArray()) {
+            if (!entry.getValue().isArray()) {
                 throw new IllegalArgumentException("headers have an invalid shape");
             }
             List<String> values = new ArrayList<>();
@@ -367,7 +477,7 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         return connection;
     }
 
-    private static boolean isDuplicateKey(SQLException exception) {
+    private static boolean isIntegrityConstraintViolation(SQLException exception) {
         for (SQLException current = exception; current != null; current = current.getNextException()) {
             if (current instanceof java.sql.SQLIntegrityConstraintViolationException
                     || (current.getSQLState() != null && current.getSQLState().startsWith("23"))) return true;
@@ -375,8 +485,51 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         return false;
     }
 
-    private static boolean isDuplicateKey(UncategorizedSQLException exception) {
-        return isDuplicateKey(exception.getSQLException());
+    private static SQLException sqlCause(DataAccessResourceFailureException exception) {
+        if (exception.getCause() instanceof SQLException sqlException) return sqlException;
+        throw exception;
+    }
+
+    private static DataSource requireIndependentDataSource(DataSource source) {
+        DataSource checked = Objects.requireNonNull(source, "dataSource must not be null");
+        Set<DataSource> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        DataSource current = checked;
+        while (true) {
+            if (!visited.add(current)) {
+                throw new IllegalArgumentException("JDBC idempotency data source proxy chain must not contain a cycle");
+            }
+            if (current instanceof TransactionAwareDataSourceProxy || unwrapsTransactionAwareProxy(current)) {
+                throw new IllegalArgumentException("JDBC idempotency data source must not be transaction-aware");
+            }
+            if (current instanceof DelegatingDataSource delegatingDataSource) {
+                current = delegatingDataSource.getTargetDataSource();
+                if (current == null) {
+                    throw new IllegalArgumentException("JDBC idempotency delegating data source must have a target");
+                }
+            }
+            else {
+                break;
+            }
+        }
+        return checked;
+    }
+
+    private static boolean unwrapsTransactionAwareProxy(DataSource dataSource) {
+        try {
+            return dataSource.isWrapperFor(TransactionAwareDataSourceProxy.class)
+                    && dataSource.unwrap(TransactionAwareDataSourceProxy.class) != null;
+        }
+        catch (SQLException ex) {
+            throw new IllegalArgumentException("JDBC idempotency data source proxy chain cannot be validated", ex);
+        }
+    }
+
+    private static SQLException lobReadFailure(String field, IOException cause) {
+        return new SQLException("JDBC completed idempotency " + field + " cannot be read", cause);
+    }
+
+    private static IllegalStateException invalidStoredRow(String message) {
+        return new IllegalStateException(message);
     }
 
     private static String ownerToken() {
@@ -385,8 +538,8 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
         return HexFormat.of().formatHex(value);
     }
 
-    private static UncategorizedSQLException databaseFailure(SQLException cause) {
-        return new UncategorizedSQLException("JDBC idempotency database operation failed", "", cause);
+    private static DataAccessResourceFailureException databaseFailure(SQLException cause) {
+        return new DataAccessResourceFailureException("JDBC idempotency database operation failed", cause);
     }
 
     private void ensureOpen() {
@@ -401,6 +554,13 @@ public final class JdbcCocoIdempotencyStore implements CocoIdempotencyStore {
     private record AcquireAttempt(CocoIdempotencyAcquireResult result) {
         private static AcquireAttempt result(CocoIdempotencyAcquireResult result) { return new AcquireAttempt(result); }
         private static AcquireAttempt retry() { return new AcquireAttempt(null); }
+    }
+
+    private record InsertAttempt(boolean acquired, DataAccessResourceFailureException failure) {
+        private static InsertAttempt success() { return new InsertAttempt(true, null); }
+        private static InsertAttempt failed(DataAccessResourceFailureException failure) {
+            return new InsertAttempt(false, Objects.requireNonNull(failure));
+        }
     }
 
     private record Row(String requestHash, String ownerToken, String status, long expiresAtEpochMillis,

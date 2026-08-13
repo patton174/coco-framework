@@ -2,8 +2,11 @@ package io.github.coco.feature.idempotency.jdbc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Locale;
+
+import javax.sql.DataSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.feature.idempotency.CocoIdempotencyAutoConfiguration;
@@ -18,13 +21,15 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.core.JdbcTemplate;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.response.CocoSystemCodes;
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageService;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
+import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 
 class CocoIdempotencyJdbcAutoConfigurationTest {
 
@@ -46,10 +51,9 @@ class CocoIdempotencyJdbcAutoConfigurationTest {
     }
 
     @Test
-    void registersStoreFromJdbcTemplateAndUserStoreBacksOff() {
-        this.contextRunner.withPropertyValues(enabled()).withBean(JdbcTemplate.class,
-                () -> new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
-                        "jdbc:h2:mem:auto_jdbc;DB_CLOSE_DELAY=-1", "sa", ""))).run(context -> {
+    void registersStoreFromSingleDataSourceAndUserStoreBacksOff() {
+        this.contextRunner.withPropertyValues(enabled()).withBean(DataSource.class,
+                () -> dataSource("auto_jdbc")).run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(CocoIdempotencyStore.class);
                     assertThat(context.getBean(CocoIdempotencyStore.class)).isInstanceOf(JdbcCocoIdempotencyStore.class);
@@ -63,10 +67,56 @@ class CocoIdempotencyJdbcAutoConfigurationTest {
     }
 
     @Test
+    void namedDedicatedDataSourceWinsWhenSeveralDataSourcesExist() {
+        DataSource dedicated = dataSource("auto_dedicated");
+        this.contextRunner.withPropertyValues(enabled())
+                .withBean("businessDataSource", DataSource.class,
+                        () -> new TransactionAwareDataSourceProxy(dataSource("auto_business")))
+                .withBean(CocoIdempotencyJdbcAutoConfiguration.DATA_SOURCE_BEAN_NAME, DataSource.class,
+                        () -> dedicated)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(JdbcCocoIdempotencyStore.class);
+                });
+    }
+
+    @Test
+    void severalOrdinaryDataSourcesWithoutDedicatedBeanFailFast() {
+        this.contextRunner.withPropertyValues(enabled())
+                .withBean("firstDataSource", DataSource.class, () -> dataSource("auto_first"))
+                .withBean("secondDataSource", DataSource.class, () -> dataSource("auto_second"))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalStateException.class)
+                            .rootCause().hasMessageContaining(
+                                    CocoIdempotencyJdbcAutoConfiguration.DATA_SOURCE_BEAN_NAME);
+                });
+    }
+
+    @Test
+    void rejectsTransactionAwareDataSourceAtStartupIncludingNestedProxy() {
+        DataSource target = dataSource("auto_transaction_aware");
+        this.contextRunner.withPropertyValues(enabled())
+                .withBean(DataSource.class, () -> new TransactionAwareDataSourceProxy(target))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
+                            .rootCause().hasMessageContaining("must not be transaction-aware");
+                });
+        this.contextRunner.withPropertyValues(enabled())
+                .withBean(DataSource.class,
+                        () -> new LazyConnectionDataSourceProxy(new TransactionAwareDataSourceProxy(target)))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
+                            .rootCause().hasMessageContaining("must not be transaction-aware");
+                });
+    }
+
+    @Test
     void jdbcStoreWinsOverCoreMemoryStoreWhenBothConfigurationsArePresent() {
         this.webContextRunner
-                .withBean(JdbcTemplate.class, () -> new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
-                        "jdbc:h2:mem:auto_core;DB_CLOSE_DELAY=-1", "sa", "")))
+                .withBean(DataSource.class, () -> dataSource("auto_core"))
                 .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.jdbc.enabled=true",
                         "coco.idempotency.routes[0].methods[0]=POST",
                         "coco.idempotency.routes[0].path-patterns[0]=/orders/**").run(context -> {
@@ -76,12 +126,20 @@ class CocoIdempotencyJdbcAutoConfigurationTest {
     }
 
     @Test
-    void referenceDdlIsPackaged() {
-        assertThat(getClass().getClassLoader().getResource("META-INF/coco/idempotency-jdbc-reference.sql")).isNotNull();
+    void dialectDdlResourcesArePackagedWithoutAmbiguousReferenceDdl() {
+        ClassLoader loader = getClass().getClassLoader();
+        assertThat(loader.getResource("META-INF/coco/idempotency-jdbc-h2.sql")).isNotNull();
+        assertThat(loader.getResource("META-INF/coco/idempotency-jdbc-postgresql.sql")).isNotNull();
+        assertThat(loader.getResource("META-INF/coco/idempotency-jdbc-mysql.sql")).isNotNull();
+        assertThat(Path.of("src/main/resources/META-INF/coco/idempotency-jdbc-reference.sql")).doesNotExist();
     }
 
     private static String[] enabled() {
         return new String[] { "coco.idempotency.enabled=true", "coco.idempotency.jdbc.enabled=true" };
+    }
+
+    private static DataSource dataSource(String databaseName) {
+        return new DriverManagerDataSource("jdbc:h2:mem:" + databaseName + ";DB_CLOSE_DELAY=-1", "sa", "");
     }
 
     @Configuration(proxyBeanMethods = false)
