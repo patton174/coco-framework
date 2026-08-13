@@ -10,9 +10,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClas
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.cache.interceptor.CacheResolver;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -31,11 +35,36 @@ import org.springframework.core.env.Environment;
 public class CocoCacheAutoConfiguration {
 
     @Configuration(proxyBeanMethods = false)
+    @ConditionalOnBean(name = "cacheResolver")
+    static class CacheResolverConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(CachingConfigurer.class)
+        CachingConfigurer cocoCacheResolverConfigurer(@Qualifier("cacheResolver") CacheResolver cacheResolver) {
+            return new CacheResolverCachingConfigurer(cacheResolver);
+        }
+
+        private static final class CacheResolverCachingConfigurer implements CachingConfigurer {
+
+            private final CacheResolver cacheResolver;
+
+            private CacheResolverCachingConfigurer(CacheResolver cacheResolver) {
+                this.cacheResolver = cacheResolver;
+            }
+
+            @Override
+            public CacheResolver cacheResolver() {
+                return this.cacheResolver;
+            }
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(Caffeine.class)
     static class CaffeineCacheConfiguration {
 
         @Bean
-        @ConditionalOnMissingBean(CacheManager.class)
+        @ConditionalOnMissingBean(value = CacheManager.class, name = "cacheResolver")
         CaffeineCacheManager cocoCacheManager(CocoCacheProperties properties) {
             Caffeine<Object, Object> builder = Caffeine.newBuilder();
             if (properties.getMaximumSize() != null) {
@@ -57,7 +86,7 @@ public class CocoCacheAutoConfiguration {
     static class ConcurrentMapCacheConfiguration {
 
         @Bean
-        @ConditionalOnMissingBean(CacheManager.class)
+        @ConditionalOnMissingBean(value = CacheManager.class, name = "cacheResolver")
         ConcurrentMapCacheManager cocoCacheManager(CocoCacheProperties properties, Environment environment) {
             rejectCaffeineOnlyProperties(environment);
             ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager();

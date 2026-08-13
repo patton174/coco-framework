@@ -2,23 +2,17 @@ package io.github.coco.feature.cache.redis;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
-import jakarta.validation.constraints.AssertTrue;
-import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.validation.annotation.Validated;
 
 /**
  * Coco Redis 缓存配置属性。
  * <p>
- * 该适配器默认关闭。开启后仅在应用没有自行声明 {@code CacheManager} 或名为
- * {@code cacheResolver} 的 Bean 时提供 Redis {@code CacheManager}。
+ * 该适配器默认关闭。默认配置需要安全的显式 {@code key-prefix}，或者非空的
+ * {@code spring.application.name} 以生成应用隔离前缀。
  * </p>
  */
-@Validated
 @ConfigurationProperties(CocoCacheRedisProperties.PROPERTY_PREFIX)
 public class CocoCacheRedisProperties {
 
@@ -27,9 +21,8 @@ public class CocoCacheRedisProperties {
 
     private boolean enabled;
 
-    private String keyPrefix = "coco:";
+    private String keyPrefix;
 
-    @NotNull
     private Duration timeToLive = Duration.ofMinutes(30);
 
     private List<String> cacheNames = new ArrayList<>();
@@ -84,46 +77,5 @@ public class CocoCacheRedisProperties {
 
     public void setUseKeyPrefix(boolean useKeyPrefix) {
         this.useKeyPrefix = useKeyPrefix;
-    }
-
-    /**
-     * 校验缓存生存时间为正数。
-     * @return 生存时间有效时返回 {@code true}
-     */
-    @AssertTrue(message = "coco.cache.redis.time-to-live must be positive")
-    public boolean isTimeToLivePositive() {
-        return this.timeToLive != null && !this.timeToLive.isZero() && !this.timeToLive.isNegative();
-    }
-
-    /**
-     * 校验 Redis 缓存键前缀。
-     * @return 前缀非空且不含控制字符时返回 {@code true}
-     */
-    @AssertTrue(message = "coco.cache.redis.key-prefix must not be blank or contain control characters")
-    public boolean isKeyPrefixValid() {
-        return !isBlank(this.keyPrefix) && !containsControlCharacter(this.keyPrefix);
-    }
-
-    /**
-     * 校验显式缓存名称。
-     * @return 缓存名称均安全且唯一时返回 {@code true}
-     */
-    @AssertTrue(message = "coco.cache.redis.cache-names must be nonblank, unique, and contain no control characters")
-    public boolean isCacheNamesValid() {
-        Set<String> names = new LinkedHashSet<>();
-        for (String cacheName : this.cacheNames) {
-            if (isBlank(cacheName) || containsControlCharacter(cacheName) || !names.add(cacheName)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
-    }
-
-    private static boolean containsControlCharacter(String value) {
-        return value != null && value.chars().anyMatch(Character::isISOControl);
     }
 }
