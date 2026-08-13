@@ -1,0 +1,6 @@
+{
+  "properties": [
+    { "name": "coco.lock.redis.enabled", "type": "java.lang.Boolean", "description": "Whether the Redis lock adapter is enabled.", "defaultValue": false },
+    { "name": "coco.lock.redis.key-prefix", "type": "java.lang.String", "description": "Safe application-isolating prefix. Defaults to spring.application.name." }
+  ]
+}

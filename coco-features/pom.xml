@@ -32,6 +32,7 @@
         <module>coco-openapi</module>
         <module>coco-replay-redis</module>
         <module>coco-lock</module>
+        <module>coco-lock-redis</module>
         <module>coco-rate-limit</module>
         <module>coco-rate-limit-redis</module>
         <module>coco-observability</module>
