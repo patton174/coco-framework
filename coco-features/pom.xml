@@ -22,6 +22,7 @@
         <module>coco-audit</module>
         <module>coco-audit-jdbc</module>
         <module>coco-security</module>
+        <module>coco-security-jwt</module>
         <module>coco-tenant</module>
         <module>coco-data-permission</module>
         <module>coco-openapi</module>
@@ -32,6 +33,7 @@
         <module>coco-observability</module>
         <module>coco-feature-codegen</module>
         <module>coco-cache</module>
+        <module>coco-storage</module>
         <module>coco-scheduler</module>
         <module>coco-idempotency</module>
         <module>coco-concurrency-limit</module>
