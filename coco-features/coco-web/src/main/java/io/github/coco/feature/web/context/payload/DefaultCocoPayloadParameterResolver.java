@@ -123,6 +123,34 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
     }
 
     /**
+     * 从已序列化且可重复读取的请求体解析原始 payload 参数。
+     *
+     * <p>该入口与 Servlet 请求解析使用相同的 JSON、表单、数量及深度规则，供出站签名等非 Servlet 场景复用。</p>
+     *
+     * @param content 已序列化请求体
+     * @param contentType 请求内容类型
+     * @param charset 请求字符集；为空时使用 UTF-8
+     * @return 原始 payload 参数解析结果
+     */
+    public CocoWebPayloadParseResult resolveRawPayloadParseResult(byte[] content, String contentType,
+            Charset charset) {
+        if (!this.properties.getPayload().isEnabled()) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.DISABLED, CocoWebParameterSource.NONE);
+        }
+        byte[] checkedContent = content == null ? new byte[0] : content;
+        String normalizedContentType = normalizeMediaType(contentType);
+        if (checkedContent.length == 0) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.NO_BODY, CocoWebParameterSource.NONE);
+        }
+        if (!isIncludedContentType(normalizedContentType)) {
+            return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.UNSUPPORTED_CONTENT_TYPE,
+                    inferPayloadSource(normalizedContentType));
+        }
+        return parseContent(normalizedContentType, checkedContent,
+                charset == null ? StandardCharsets.UTF_8 : charset, false);
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
@@ -169,12 +197,16 @@ public final class DefaultCocoPayloadParameterResolver implements CocoPayloadPar
         if (content.length == 0) {
             return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.PARSED, inferPayloadSource(contentType));
         }
+        return parseContent(contentType, content, requestCharset(request), sanitize);
+    }
+
+    private CocoWebPayloadParseResult parseContent(String contentType, byte[] content, Charset charset,
+            boolean sanitize) {
         if (FORM_URLENCODED.equals(contentType)) {
-            return adapt(parseFormPayload(new String(content, requestCharset(request))), true, requestCharset(request),
-                    sanitize);
+            return adapt(parseFormPayload(new String(content, charset)), true, charset, sanitize);
         }
         if (isJsonContentType(contentType)) {
-            return adapt(parseJsonPayload(content), false, requestCharset(request), sanitize);
+            return adapt(parseJsonPayload(content), false, charset, sanitize);
         }
         return CocoWebPayloadParseResult.empty(CocoWebPayloadParseStatus.UNSUPPORTED_CONTENT_TYPE,
                 inferPayloadSource(contentType));

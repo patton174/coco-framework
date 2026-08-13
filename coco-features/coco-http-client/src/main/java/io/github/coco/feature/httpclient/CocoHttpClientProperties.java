@@ -112,8 +112,7 @@ public class CocoHttpClientProperties {
         private String nonceHeaderName = "X-Coco-Nonce";
         private String signatureHeaderName = "X-Coco-Sign";
         private String algorithmHeaderName = "X-Coco-Sign-Algorithm";
-        private Set<String> canonicalHeaderNames = Set.of("content-md5", "content-type", "x-coco-app-id",
-                "x-coco-timestamp", "x-coco-nonce", "x-coco-key-id", "x-coco-sign-algorithm");
+        private Set<String> canonicalHeaderNames = Set.of();
 
         public boolean isEnabled() { return this.enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -137,6 +136,12 @@ public class CocoHttpClientProperties {
         public void setSignatureHeaderName(String value) { this.signatureHeaderName = value; }
         public String getAlgorithmHeaderName() { return this.algorithmHeaderName; }
         public void setAlgorithmHeaderName(String value) { this.algorithmHeaderName = value; }
+        /**
+         * 返回发送端覆盖的规范化请求头基集。
+         *
+         * <p>为空时继承当前进程 {@code coco.web.context.canonical-header-names}；显式配置时，接收端必须使用相同基集。</p>
+         * @return 发送端规范化请求头基集
+         */
         public Set<String> getCanonicalHeaderNames() { return this.canonicalHeaderNames; }
         public void setCanonicalHeaderNames(Set<String> values) {
             this.canonicalHeaderNames = values == null ? Set.of() : values.stream()

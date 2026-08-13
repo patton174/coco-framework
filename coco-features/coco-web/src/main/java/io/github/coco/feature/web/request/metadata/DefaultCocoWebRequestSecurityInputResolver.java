@@ -3,9 +3,7 @@ package io.github.coco.feature.web.request.metadata;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -155,9 +153,11 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
             CocoRequestBodyResolver requestBodyResolver, CocoTraceProperties traceProperties,
             CocoTraceIdValidator traceIdValidator) {
         CocoWebContextProperties contextProperties = properties == null ? new CocoWebContextProperties() : properties;
-        this.securityHeaderNames = securityHeaderNames(contextProperties, signatureProperties, encryptionProperties,
+        this.securityHeaderNames = CocoWebSecurityHeaderNames.securityHeaderNames(
+                contextProperties.getSecurityHeaderNames(), signatureProperties, encryptionProperties,
                 replayProperties);
-        this.canonicalHeaderNames = canonicalHeaderNames(contextProperties, signatureProperties, encryptionProperties,
+        this.canonicalHeaderNames = CocoWebSecurityHeaderNames.canonicalHeaderNames(
+                contextProperties.getCanonicalHeaderNames(), signatureProperties, encryptionProperties,
                 replayProperties);
         this.canonicalCookieNames = contextProperties.getCanonicalCookieNames();
         this.requestHeaderResolver = requestHeaderResolver == null
@@ -221,72 +221,6 @@ public final class DefaultCocoWebRequestSecurityInputResolver implements CocoWeb
                 this.traceIdValidator)
                 .isEmpty()) {
             throw CocoBusinessExceptions.request(INVALID_TRACE_ID_CODE);
-        }
-    }
-
-    private static Set<String> securityHeaderNames(CocoWebContextProperties properties,
-            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
-            CocoReplayProperties replayProperties) {
-        LinkedHashSet<String> headerNames = new LinkedHashSet<>(properties.getSecurityHeaderNames());
-        CocoSignatureProperties signature = signatureProperties == null
-                ? new CocoSignatureProperties()
-                : signatureProperties;
-        CocoEncryptionProperties encryption = encryptionProperties == null
-                ? new CocoEncryptionProperties()
-                : encryptionProperties;
-        CocoReplayProperties replay = replayProperties == null ? new CocoReplayProperties() : replayProperties;
-        add(headerNames, signature.getAppIdHeaderName());
-        add(headerNames, signature.getKeyIdHeaderName());
-        add(headerNames, signature.getTimestampHeaderName());
-        add(headerNames, signature.getNonceHeaderName());
-        add(headerNames, signature.getSignatureHeaderName());
-        add(headerNames, signature.getSignatureFallbackHeaderName());
-        add(headerNames, signature.getAlgorithmHeaderName());
-        add(headerNames, encryption.getEncryptedHeaderName());
-        add(headerNames, encryption.getAppIdHeaderName());
-        add(headerNames, encryption.getKeyIdHeaderName());
-        add(headerNames, encryption.getIvHeaderName());
-        add(headerNames, encryption.getAlgorithmHeaderName());
-        add(headerNames, replay.getAppIdHeaderName());
-        add(headerNames, replay.getKeyIdHeaderName());
-        add(headerNames, replay.getTimestampHeaderName());
-        add(headerNames, replay.getNonceHeaderName());
-        return Set.copyOf(headerNames);
-    }
-
-    private static Set<String> canonicalHeaderNames(CocoWebContextProperties properties,
-            CocoSignatureProperties signatureProperties, CocoEncryptionProperties encryptionProperties,
-            CocoReplayProperties replayProperties) {
-        LinkedHashSet<String> headerNames = new LinkedHashSet<>(properties.getCanonicalHeaderNames());
-        CocoSignatureProperties signature = signatureProperties == null
-                ? new CocoSignatureProperties()
-                : signatureProperties;
-        CocoEncryptionProperties encryption = encryptionProperties == null
-                ? new CocoEncryptionProperties()
-                : encryptionProperties;
-        CocoReplayProperties replay = replayProperties == null ? new CocoReplayProperties() : replayProperties;
-        add(headerNames, signature.getAppIdHeaderName());
-        add(headerNames, signature.getKeyIdHeaderName());
-        add(headerNames, signature.getTimestampHeaderName());
-        add(headerNames, signature.getNonceHeaderName());
-        add(headerNames, signature.getAlgorithmHeaderName());
-        add(headerNames, encryption.getAppIdHeaderName());
-        add(headerNames, encryption.getKeyIdHeaderName());
-        add(headerNames, encryption.getIvHeaderName());
-        add(headerNames, encryption.getAlgorithmHeaderName());
-        add(headerNames, replay.getAppIdHeaderName());
-        add(headerNames, replay.getKeyIdHeaderName());
-        add(headerNames, replay.getTimestampHeaderName());
-        add(headerNames, replay.getNonceHeaderName());
-        return Set.copyOf(headerNames);
-    }
-
-    private static void add(Set<String> headerNames, String headerName) {
-        String normalizedName = headerName == null || headerName.isBlank()
-                ? null
-                : headerName.trim().toLowerCase(Locale.ROOT);
-        if (normalizedName != null) {
-            headerNames.add(normalizedName);
         }
     }
 

@@ -2,6 +2,8 @@ package io.github.coco.feature.httpclient;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -17,11 +19,14 @@ import io.github.coco.feature.web.context.CocoWebRequestCanonicalForm;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationContext;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizationPurpose;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
+import io.github.coco.feature.web.context.payload.CocoWebPayloadParseResult;
+import io.github.coco.feature.web.context.payload.DefaultCocoPayloadParameterResolver;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityInput;
 import io.github.coco.feature.web.request.metadata.CocoWebRequestSecurityMetadata;
 import io.github.coco.feature.web.signature.HmacSha256CocoSignatureSigner;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
@@ -37,43 +42,47 @@ final class CocoHttpClientSigningInterceptor implements ClientHttpRequestInterce
     private static final Set<String> SENSITIVE_HEADERS = Set.of("authorization", "proxy-authorization", "cookie");
     private static final SecureRandom NONCE_RANDOM = new SecureRandom();
 
-    private final String clientName;
     private final CocoHttpClientProperties.Signing signing;
-    private final CocoHttpClientSigningCredentialProvider credentialProvider;
+    private final CocoHttpClientSigningCredential credential;
     private final CocoWebRequestCanonicalizer canonicalizer;
+    private final Set<String> canonicalHeaderNames;
+    private final DefaultCocoPayloadParameterResolver payloadParameterResolver;
 
-    CocoHttpClientSigningInterceptor(String clientName, CocoHttpClientProperties.Signing signing,
-            CocoHttpClientSigningCredentialProvider credentialProvider, CocoWebRequestCanonicalizer canonicalizer) {
-        this.clientName = clientName;
+    CocoHttpClientSigningInterceptor(CocoHttpClientProperties.Signing signing,
+            CocoHttpClientSigningCredential credential, CocoWebRequestCanonicalizer canonicalizer,
+            Set<String> canonicalHeaderNames, DefaultCocoPayloadParameterResolver payloadParameterResolver) {
         this.signing = signing;
-        this.credentialProvider = credentialProvider;
+        this.credential = credential;
         this.canonicalizer = canonicalizer;
+        this.canonicalHeaderNames = Set.copyOf(canonicalHeaderNames);
+        this.payloadParameterResolver = payloadParameterResolver;
     }
 
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
         rejectConflictingSecurityHeaders(request.getHeaders());
-        CocoHttpClientSigningCredential credential = this.credentialProvider.resolve(this.clientName)
-                .orElseThrow(() -> new IllegalStateException("Coco HTTP client signing credential is not configured"));
         String timestamp = Long.toString(System.currentTimeMillis());
         String nonce = nonce();
-        applySecurityHeaders(request.getHeaders(), credential, timestamp, nonce);
+        applySecurityHeaders(request.getHeaders(), this.credential, timestamp, nonce);
         CocoWebRequestSecurityInput input = securityInput(request, body);
         CocoWebRequestCanonicalForm canonicalForm = this.canonicalizer.canonicalize(
                 new CocoWebRequestCanonicalizationContext(CocoWebRequestCanonicalizationPurpose.SIGNATURE, input,
                         CocoWebRequestSecurityMetadata.empty(), null));
         request.getHeaders().set(this.signing.getSignatureHeaderName(),
-                HmacSha256CocoSignatureSigner.sign(credential.algorithm(), canonicalForm.text(), credential.secret()));
+                HmacSha256CocoSignatureSigner.sign(this.credential.algorithm(), canonicalForm.text(),
+                        this.credential.secret()));
         return execution.execute(request, body);
     }
 
     private CocoWebRequestSecurityInput securityInput(HttpRequest request, byte[] body) {
         URI uri = request.getURI();
         Map<String, List<String>> canonicalHeaders = selectedCanonicalHeaders(request.getHeaders());
+        CocoWebPayloadParseResult payload = this.payloadParameterResolver.resolveRawPayloadParseResult(body,
+                request.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE), charset(request.getHeaders()));
         return new CocoWebRequestSecurityInput(request.getMethod().name(), rawPath(uri), uri.getRawQuery(),
-                queryParameters(uri.getRawQuery()), Map.of(), Map.of(), Map.of(), join(canonicalHeaders), sha256(body),
-                (long) body.length, true, canonicalHeaders, Map.of());
+                Map.of(), queryParameters(uri.getRawQuery()), payload.parameters(), Map.of(), join(canonicalHeaders),
+                sha256(body), (long) body.length, true, canonicalHeaders, Map.of(), payload.source());
     }
 
     private void applySecurityHeaders(HttpHeaders headers, CocoHttpClientSigningCredential credential,
@@ -97,7 +106,7 @@ final class CocoHttpClientSigningInterceptor implements ClientHttpRequestInterce
 
     private Map<String, List<String>> selectedCanonicalHeaders(HttpHeaders headers) {
         Map<String, List<String>> values = new LinkedHashMap<>();
-        for (String headerName : this.signing.getCanonicalHeaderNames()) {
+        for (String headerName : this.canonicalHeaderNames) {
             if (SENSITIVE_HEADERS.contains(headerName)) continue;
             List<String> headerValues = headers.get(headerName);
             if (headerValues != null && !headerValues.isEmpty()) values.put(headerName, List.copyOf(headerValues));
@@ -127,6 +136,18 @@ final class CocoHttpClientSigningInterceptor implements ClientHttpRequestInterce
     private static String rawPath(URI uri) {
         String rawPath = uri.getRawPath();
         return rawPath == null || rawPath.isEmpty() ? "/" : rawPath;
+    }
+
+    private static Charset charset(HttpHeaders headers) {
+        String contentType = headers.getFirst(HttpHeaders.CONTENT_TYPE);
+        if (contentType == null) return StandardCharsets.UTF_8;
+        try {
+            Charset charset = MediaType.parseMediaType(contentType).getCharset();
+            return charset == null ? StandardCharsets.UTF_8 : charset;
+        }
+        catch (IllegalArgumentException ex) {
+            return StandardCharsets.UTF_8;
+        }
     }
 
     private static String sha256(byte[] body) {
