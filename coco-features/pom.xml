@@ -37,6 +37,7 @@
         <module>coco-feature-codegen</module>
         <module>coco-cache</module>
         <module>coco-storage</module>
+        <module>coco-storage-s3</module>
         <module>coco-scheduler</module>
         <module>coco-idempotency</module>
         <module>coco-idempotency-redis</module>

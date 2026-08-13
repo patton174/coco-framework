@@ -66,6 +66,7 @@
         <revision>1.0.0-SNAPSHOT</revision>
         <java.version>17</java.version>
         <spring-boot.version>4.1.0</spring-boot.version>
+        <aws.sdk.version>2.46.8</aws.sdk.version>
         <springdoc-openapi.version>3.0.3</springdoc-openapi.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <maven.version>3.9.16</maven.version>
@@ -103,6 +104,13 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
