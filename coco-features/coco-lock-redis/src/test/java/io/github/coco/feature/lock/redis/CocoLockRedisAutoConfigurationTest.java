@@ -85,8 +85,8 @@ class CocoLockRedisAutoConfigurationTest {
                 .withPropertyValues("coco.lock.redis.enabled=true", "spring.application.name=orders")
                 .run(context -> assertThat(context).hasFailed().getFailure()
                         .hasMessageContaining("Coco lock manager selection is ambiguous")
-                        .hasMessageContaining("firstBusinessManager(")
-                        .hasMessageContaining("secondBusinessManager(")
+                        .hasMessageContaining("lockManagers(")
+                        .hasMessageContaining("secondaryBusinessManager(")
                         .hasMessageContaining(CocoLockManager.class.getName())
                         .hasMessageNotContaining("manager-secret"));
     }
@@ -142,8 +142,8 @@ class CocoLockRedisAutoConfigurationTest {
 
     @Configuration(proxyBeanMethods = false)
     static class BusinessManagersConfiguration {
-        @Bean CocoLockManager firstBusinessManager() { return new RecordingCocoLockManager(); }
-        @Bean CocoLockManager secondBusinessManager() { return new RecordingCocoLockManager(); }
+        @Bean CocoLockManager lockManagers() { return new RecordingCocoLockManager(); }
+        @Bean CocoLockManager secondaryBusinessManager() { return new RecordingCocoLockManager(); }
     }
 
     @Configuration(proxyBeanMethods = false)

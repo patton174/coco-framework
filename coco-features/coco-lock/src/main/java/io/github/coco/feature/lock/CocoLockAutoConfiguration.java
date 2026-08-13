@@ -4,8 +4,7 @@ import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreat
 import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
 import org.springframework.aop.support.DefaultPointcutAdvisor;
 import org.springframework.aop.support.StaticMethodMatcherPointcut;
-import org.springframework.beans.factory.ListableBeanFactory;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -43,9 +42,9 @@ public class CocoLockAutoConfiguration {
     @Bean
     @ConditionalOnBean(CocoLockManager.class)
     @ConditionalOnMissingBean(name = "cocoLockAdvisor")
-    public DefaultPointcutAdvisor cocoLockAdvisor(ObjectProvider<CocoLockManager> lockManagers,
-            ListableBeanFactory beanFactory, CocoLockProperties properties) {
-        CocoLockManager lockManager = CocoLockManagerResolver.resolve(lockManagers, beanFactory);
+    public DefaultPointcutAdvisor cocoLockAdvisor(ConfigurableListableBeanFactory beanFactory,
+            CocoLockProperties properties) {
+        CocoLockManager lockManager = CocoLockManagerResolver.resolve(beanFactory);
         return new DefaultPointcutAdvisor(new CocoLockedPointcut(),
                 new CocoLockMethodInterceptor(lockManager, properties));
     }
