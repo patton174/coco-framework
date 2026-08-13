@@ -19,6 +19,12 @@ import io.github.coco.feature.audit.core.DefaultCocoAuditFormatter;
 import io.github.coco.feature.audit.core.LoggingCocoAuditRecorder;
 import io.github.coco.feature.audit.core.PolicyCocoAuditErrorHandler;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
+import org.springframework.aop.Pointcut;
+import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator;
+import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.aop.support.DefaultPointcutAdvisor;
+import org.springframework.aop.support.StaticMethodMatcherPointcut;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -42,7 +48,8 @@ import org.springframework.context.annotation.Bean;
  * @author patton174
  * @since 1.0.0
  */
-@AutoConfiguration(after = CocoCommonLoggingAutoConfiguration.class)
+@AutoConfiguration(after = CocoCommonLoggingAutoConfiguration.class,
+        afterName = "io.github.coco.feature.lock.CocoLockAutoConfiguration")
 @ConditionalOnCocoFeature(CocoFeature.AUDIT)
 @EnableConfigurationProperties(CocoAuditProperties.class)
 public class CocoAuditAutoConfiguration {
@@ -168,5 +175,57 @@ public class CocoAuditAutoConfiguration {
             matchIfMissing = true)
     public CocoAccessLogRecorder cocoAccessLogAuditRecorder(CocoAuditPublisher auditPublisher) {
         return new CocoAccessLogAuditRecorder(auditPublisher);
+    }
+
+    /**
+     * <p>
+     * 创建声明式业务审计事件工厂。
+     * </p>
+     * @return 默认声明式审计事件工厂
+     */
+    @Bean
+    @ConditionalOnBean(CocoAuditPublisher.class)
+    @ConditionalOnMissingBean(CocoAuditEventFactory.class)
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public CocoAuditEventFactory cocoAuditEventFactory() {
+        return new DefaultCocoAuditEventFactory();
+    }
+
+    /**
+     * <p>
+     * 创建 {@link CocoAudited} AOP 顾问。方法注解优先于目标类型和接口类型注解。
+     * </p>
+     * @param auditPublisher 审计事件发布器
+     * @param eventFactory 审计事件工厂
+     * @return 声明式审计顾问
+     */
+    @Bean(name = "cocoAuditAdvisor")
+    @ConditionalOnBean(CocoAuditPublisher.class)
+    @ConditionalOnMissingBean(name = "cocoAuditAdvisor")
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public DefaultPointcutAdvisor cocoAuditAdvisor(CocoAuditPublisher auditPublisher,
+            CocoAuditEventFactory eventFactory) {
+        Pointcut pointcut = new StaticMethodMatcherPointcut() {
+            @Override
+            public boolean matches(java.lang.reflect.Method method, Class<?> targetClass) {
+                java.lang.reflect.Method specificMethod = org.springframework.core.BridgeMethodResolver.findBridgedMethod(
+                        AopUtils.getMostSpecificMethod(method, targetClass));
+                return CocoAuditMethodInterceptor.findAnnotation(specificMethod, method, targetClass) != null;
+            }
+        };
+        return new DefaultPointcutAdvisor(pointcut, new CocoAuditMethodInterceptor(auditPublisher, eventFactory));
+    }
+
+    /**
+     * <p>
+     * 注册基于 Advisor 的自动代理创建器。已有的 Spring 或其他 Coco 模块代理创建器会被复用。
+     * </p>
+     * @return Advisor 自动代理创建器
+     */
+    @Bean(name = "cocoAuditAutoProxyCreator")
+    @ConditionalOnMissingBean(AbstractAdvisorAutoProxyCreator.class)
+    @ConditionalOnProperty(prefix = "coco.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public DefaultAdvisorAutoProxyCreator cocoAuditAutoProxyCreator() {
+        return new DefaultAdvisorAutoProxyCreator();
     }
 }
