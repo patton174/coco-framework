@@ -321,7 +321,7 @@ class TrustedPublicApiRunnerTest(unittest.TestCase):
         ledger = load_baseline_ledger(ledger_path)
 
         self.assertEqual(20, len(ledger.artifacts))
-        self.assertEqual(12, len(ledger.missing_artifacts))
+        self.assertEqual(31, len(ledger.missing_artifacts))
         self.assertEqual(
             sorted(entry.artifact for entry in ledger.artifacts),
             [entry.artifact for entry in ledger.artifacts],
@@ -339,7 +339,7 @@ class TrustedPublicApiRunnerTest(unittest.TestCase):
                 for entry in missing_entries
             )
         )
-        self.assertEqual(12, len(missing_entries))
+        self.assertEqual(31, len(missing_entries))
         self.assertTrue(
             all(
                 entry["pomSize"] > 0 and entry["jarSize"] > 0

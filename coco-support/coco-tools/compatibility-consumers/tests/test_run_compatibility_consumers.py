@@ -134,7 +134,9 @@ class FixtureContractTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(RUNNER.HarnessError, "locale pass-through evidence"):
+            with self.assertRaisesRegex(
+                RUNNER.HarnessError, "locale pass-through evidence"
+            ):
                 RUNNER.validate_fixture_contracts(fixtures)
 
 
@@ -224,7 +226,11 @@ class DiagnosticContractTests(unittest.TestCase):
         )
         for marker, assertion in protected_markers:
             self.assertEqual(assertion(marker), marker)
-            for forged in ("prefix " + marker, marker + " suffix", marker + "\n" + marker):
+            for forged in (
+                "prefix " + marker,
+                marker + " suffix",
+                marker + "\n" + marker,
+            ):
                 with self.assertRaises(RUNNER.HarnessError):
                     assertion(forged)
 
@@ -330,7 +336,9 @@ class RuntimeRegistrationRunnerTests(unittest.TestCase):
 
 
 class BinaryCompatibilityRunnerTests(unittest.TestCase):
-    def test_runs_fixed_class_on_aliases_then_canonical_without_recompiling(self) -> None:
+    def test_runs_fixed_class_on_aliases_then_canonical_without_recompiling(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             fixtures = Path(temporary_directory) / "fixtures"
             class_file = self._write_feature_consumer_class(fixtures)
@@ -344,8 +352,10 @@ class BinaryCompatibilityRunnerTests(unittest.TestCase):
                         RUNNER.I18N_BASENAME_CONSUMER_EVIDENCE,
                         RUNNER.COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE,
                         RUNNER.LOCALE_PASS_THROUGH_CONSUMER_EVIDENCE,
-                        *(entry.removesuffix(".class").replace("/", ".")
-                          for entry in RUNNER.FEATURE_CLASS_ENTRIES),
+                        *(
+                            entry.removesuffix(".class").replace("/", ".")
+                            for entry in RUNNER.FEATURE_CLASS_ENTRIES
+                        ),
                     )
                 )
                 return RUNNER.subprocess.CompletedProcess(arguments, 0, stdout=output)
@@ -359,19 +369,34 @@ class BinaryCompatibilityRunnerTests(unittest.TestCase):
                     "assert_class_file_unchanged",
                     wraps=RUNNER.assert_class_file_unchanged,
                 ) as hash_check,
-                mock.patch.object(RUNNER, "run_command", side_effect=completed_consumer) as run_command,
+                mock.patch.object(
+                    RUNNER, "run_command", side_effect=completed_consumer
+                ) as run_command,
             ):
-                RUNNER.run_binary_compatibility(harness, "2.0.2-SNAPSHOT", baseline_hash)
+                RUNNER.run_binary_compatibility(
+                    harness, "2.0.2-SNAPSHOT", baseline_hash
+                )
 
-            self.assertEqual([call["profile"] for call in harness.classpath_calls], ["aliases", "canonical"])
-            self.assertTrue(all(call["clean"] is False for call in harness.classpath_calls))
+            self.assertEqual(
+                [call["profile"] for call in harness.classpath_calls],
+                ["aliases", "canonical"],
+            )
+            self.assertTrue(
+                all(call["clean"] is False for call in harness.classpath_calls)
+            )
             self.assertEqual(hash_check.call_count, 6)
             self.assertEqual(
-                [call.args[1][2].split(RUNNER.os.pathsep)[0] for call in run_command.call_args_list],
+                [
+                    call.args[1][2].split(RUNNER.os.pathsep)[0]
+                    for call in run_command.call_args_list
+                ],
                 [str(fixtures / "feature-api/target/classes")] * 2,
             )
             self.assertEqual(
-                [call.args[1][2].split(RUNNER.os.pathsep)[-3:] for call in run_command.call_args_list],
+                [
+                    call.args[1][2].split(RUNNER.os.pathsep)[-3:]
+                    for call in run_command.call_args_list
+                ],
                 [[str(dependency) for dependency in dependencies]] * 2,
             )
             absent.assert_called_once()
@@ -386,11 +411,15 @@ class BinaryCompatibilityRunnerTests(unittest.TestCase):
                     RUNNER.I18N_BASENAME_CONSUMER_EVIDENCE,
                     RUNNER.COMMON_LOCALE_FACTORY_CONSUMER_EVIDENCE,
                     RUNNER.LOCALE_PASS_THROUGH_CONSUMER_EVIDENCE,
-                    *(entry.removesuffix(".class").replace("/", ".")
-                      for entry in RUNNER.FEATURE_CLASS_ENTRIES),
+                    *(
+                        entry.removesuffix(".class").replace("/", ".")
+                        for entry in RUNNER.FEATURE_CLASS_ENTRIES
+                    ),
                 )
             )
-            successful_run = RUNNER.subprocess.CompletedProcess([], 0, stdout=successful_output)
+            successful_run = RUNNER.subprocess.CompletedProcess(
+                [], 0, stdout=successful_output
+            )
 
             with (
                 mock.patch.object(RUNNER, "assert_artifacts_present"),
@@ -399,7 +428,10 @@ class BinaryCompatibilityRunnerTests(unittest.TestCase):
                 mock.patch.object(
                     RUNNER,
                     "run_command",
-                    side_effect=(successful_run, RUNNER.HarnessError("canonical failure")),
+                    side_effect=(
+                        successful_run,
+                        RUNNER.HarnessError("canonical failure"),
+                    ),
                 ),
             ):
                 with self.assertRaisesRegex(RUNNER.HarnessError, "canonical failure"):
@@ -407,7 +439,10 @@ class BinaryCompatibilityRunnerTests(unittest.TestCase):
                         harness, "2.0.2-SNAPSHOT", RUNNER.sha256_file(class_file)
                     )
 
-            self.assertEqual([call["profile"] for call in harness.classpath_calls], ["aliases", "canonical"])
+            self.assertEqual(
+                [call["profile"] for call in harness.classpath_calls],
+                ["aliases", "canonical"],
+            )
             absent.assert_called_once()
 
     def test_missing_consumer_class_hash_is_a_harness_error(self) -> None:

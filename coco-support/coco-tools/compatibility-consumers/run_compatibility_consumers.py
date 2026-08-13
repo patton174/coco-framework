@@ -404,7 +404,9 @@ def validate_fixture_contracts(fixture_root: Path = FIXTURE_ROOT) -> None:
         LOCALE_PASS_THROUGH_CONSUMER_EVIDENCE,
     )
     missing_locale_pass_through_tokens = [
-        token for token in required_locale_pass_through_tokens if token not in feature_source
+        token
+        for token in required_locale_pass_through_tokens
+        if token not in feature_source
     ]
     if missing_locale_pass_through_tokens:
         raise HarnessError(
@@ -609,7 +611,9 @@ def assert_locale_pass_through_consumer_evidence(output: str) -> str:
 
 def assert_exact_marker(output: str, marker: str, error_message: str) -> str:
     normalized = strip_ansi(output)
-    matching_lines = [line.strip() for line in normalized.splitlines() if line.strip() == marker]
+    matching_lines = [
+        line.strip() for line in normalized.splitlines() if line.strip() == marker
+    ]
     if len(matching_lines) != 1:
         raise HarnessError(f"{error_message}.\n{normalized.rstrip()}")
     return matching_lines[0]
@@ -835,8 +839,13 @@ def run_binary_compatibility(
 ) -> None:
     feature_fixture = harness.fixtures / "feature-api"
     class_file = feature_fixture / FEATURE_CONSUMER_CLASS_FILE
-    for profile, classpath_name in (("aliases", "candidate facades"), ("canonical", "canonical artifacts")):
-        assert_class_file_unchanged(class_file, baseline_hash, f"Before resolving {classpath_name}")
+    for profile, classpath_name in (
+        ("aliases", "candidate facades"),
+        ("canonical", "canonical artifacts"),
+    ):
+        assert_class_file_unchanged(
+            class_file, baseline_hash, f"Before resolving {classpath_name}"
+        )
         candidate_classpath = harness.build_classpath(
             "feature-api",
             candidate_version,
@@ -844,10 +853,16 @@ def run_binary_compatibility(
             output_name=f"binary-{profile}-classpath.txt",
             clean=False,
         )
-        assert_class_file_unchanged(class_file, baseline_hash, f"Resolving {classpath_name}")
-        assert_artifacts_present(candidate_classpath, CANONICAL_FEATURE_ARTIFACTS, candidate_version)
+        assert_class_file_unchanged(
+            class_file, baseline_hash, f"Resolving {classpath_name}"
+        )
+        assert_artifacts_present(
+            candidate_classpath, CANONICAL_FEATURE_ARTIFACTS, candidate_version
+        )
         if profile == "aliases":
-            assert_artifacts_present(candidate_classpath, ALIAS_FEATURE_ARTIFACTS, candidate_version)
+            assert_artifacts_present(
+                candidate_classpath, ALIAS_FEATURE_ARTIFACTS, candidate_version
+            )
             assert_facades_source_free(
                 candidate_classpath,
                 ALIAS_FEATURE_ARTIFACTS,
@@ -855,7 +870,9 @@ def run_binary_compatibility(
                 ("io/github/coco/feature/",),
             )
         else:
-            assert_artifacts_absent(candidate_classpath, ALIAS_FEATURE_ARTIFACTS, candidate_version)
+            assert_artifacts_absent(
+                candidate_classpath, ALIAS_FEATURE_ARTIFACTS, candidate_version
+            )
         runtime_classpath = os.pathsep.join(
             [
                 str(feature_fixture / "target/classes"),
@@ -872,7 +889,9 @@ def run_binary_compatibility(
         print(f"[EVID] {assert_i18n_basename_consumer_evidence(output)}")
         print(f"[EVID] {assert_common_locale_factory_consumer_evidence(output)}")
         print(f"[EVID] {assert_locale_pass_through_consumer_evidence(output)}")
-        assert_class_file_unchanged(class_file, baseline_hash, f"Running on {classpath_name}")
+        assert_class_file_unchanged(
+            class_file, baseline_hash, f"Running on {classpath_name}"
+        )
         for class_entry in FEATURE_CLASS_ENTRIES:
             fqcn = class_entry.removesuffix(".class").replace("/", ".")
             if fqcn not in output:
