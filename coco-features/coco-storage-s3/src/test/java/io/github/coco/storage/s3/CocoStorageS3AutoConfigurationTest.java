@@ -1,5 +1,8 @@
 package io.github.coco.storage.s3;
 
+import java.lang.reflect.Proxy;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import io.github.coco.feature.storage.CocoObjectStorage;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -41,6 +44,34 @@ class CocoStorageS3AutoConfigurationTest {
                     assertThat(result).hasSingleBean(S3Client.class).hasSingleBean(CocoObjectStorage.class);
                     assertThat(result.getBean(CocoObjectStorage.class)).isSameAs(storage);
                 });
+    }
+
+    @Test
+    void businessS3ClientCreatesAdapterAndIsNotClosedByModule() {
+        AtomicBoolean closed = new AtomicBoolean();
+        S3Client client = (S3Client) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] { S3Client.class }, (proxy, method, arguments) -> {
+                    if ("close".equals(method.getName())) {
+                        closed.set(true);
+                    }
+                    if ("serviceName".equals(method.getName())) {
+                        return "S3";
+                    }
+                    return null;
+                });
+
+        this.context.withPropertyValues("coco.storage.s3.enabled=true", "coco.storage.s3.bucket=bucket",
+                        "coco.storage.s3.region=us-east-1")
+                .withBean("businessS3Client", S3Client.class, () -> client, definition ->
+                        definition.setDestroyMethodName(""))
+                .run(result -> {
+                    assertThat(result).doesNotHaveBean("cocoStorageS3Client");
+                    assertThat(result).hasSingleBean(S3Client.class).hasSingleBean(CocoObjectStorage.class);
+                    assertThat(result.getBean(S3Client.class)).isSameAs(client);
+                    assertThat(result.getBean(CocoObjectStorage.class)).isInstanceOf(S3CocoObjectStorage.class);
+                });
+
+        assertThat(closed).isFalse();
     }
 
     @Test

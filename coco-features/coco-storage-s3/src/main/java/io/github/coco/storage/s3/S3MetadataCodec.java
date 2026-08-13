@@ -5,6 +5,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -37,6 +39,8 @@ final class S3MetadataCodec {
                     if (entry.getKey() == null || entry.getValue() == null) {
                         throw new IOException("S3 metadata must not contain null keys or values");
                     }
+                    validateCharacters(entry.getKey());
+                    validateCharacters(entry.getValue());
                     write(output, entry.getKey());
                     write(output, entry.getValue());
                 }
@@ -85,7 +89,18 @@ final class S3MetadataCodec {
     }
 
     private static void write(DataOutputStream output, String value) throws IOException {
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes;
+        try {
+            java.nio.ByteBuffer buffer = StandardCharsets.UTF_8.newEncoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .encode(java.nio.CharBuffer.wrap(value));
+            bytes = new byte[buffer.remaining()];
+            buffer.get(bytes);
+        }
+        catch (CharacterCodingException exception) {
+            throw new IOException("invalid UTF-16 in S3 metadata", exception);
+        }
         if (bytes.length > 65535) {
             throw new IOException("S3 metadata value exceeds supported size");
         }
@@ -99,6 +114,24 @@ final class S3MetadataCodec {
         if (bytes.length != length) {
             throw new IOException("truncated S3 metadata header");
         }
-        return new String(bytes, StandardCharsets.UTF_8);
+        try {
+            String value = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            validateCharacters(value);
+            return value;
+        }
+        catch (CharacterCodingException exception) {
+            throw new IOException("invalid UTF-8 in S3 metadata header", exception);
+        }
+    }
+
+    private static void validateCharacters(String value) throws IOException {
+        for (int index = 0; index < value.length(); index++) {
+            if (Character.isISOControl(value.charAt(index))) {
+                throw new IOException("S3 metadata contains control characters");
+            }
+        }
     }
 }

@@ -2,10 +2,14 @@ package io.github.coco.storage.s3;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,9 +36,14 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.S3Exception;
 
-/** Coco object storage implementation backed by synchronous AWS SDK S3 operations. */
+/**
+ * Coco object storage implementation backed by synchronous AWS SDK S3 operations.
+ * <p>
+ * Create-only writes require backend support for S3 conditional writes. A successful response is accepted according
+ * to the S3 protocol; an S3-compatible backend that silently ignores {@code If-None-Match} cannot be detected.
+ * </p>
+ */
 public final class S3CocoObjectStorage implements CocoObjectStorage {
 
     private final S3Client s3Client;
@@ -83,7 +92,14 @@ public final class S3CocoObjectStorage implements CocoObjectStorage {
                 Files.deleteIfExists(staged.path());
             }
         } catch (SdkException exception) {
-            throw translate("put", key, exception);
+            restoreInterrupt(exception);
+            if (!this.overwrite && preconditionFailed(exception)) {
+                throw new FileAlreadyExistsException("S3 put");
+            }
+            throw translate("put", exception);
+        } catch (IOException exception) {
+            restoreInterrupt(exception);
+            throw exception;
         }
     }
 
@@ -98,12 +114,14 @@ public final class S3CocoObjectStorage implements CocoObjectStorage {
                     response.metadata(), response.lastModified()), stream));
         } catch (SdkException exception) {
             closeQuietly(stream);
-            if (notFound(exception)) {
+            restoreInterrupt(exception);
+            if (objectNotFound(exception)) {
                 return Optional.empty();
             }
-            throw translate("get", checkedKey, exception);
+            throw translate("get", exception);
         } catch (IOException | RuntimeException exception) {
             closeQuietly(stream);
+            restoreInterrupt(exception);
             throw exception;
         }
     }
@@ -117,16 +135,21 @@ public final class S3CocoObjectStorage implements CocoObjectStorage {
             return CocoObjectStat.found(metadata(checkedKey, response.contentLength(), response.contentType(),
                     response.metadata(), response.lastModified()));
         } catch (SdkException exception) {
-            if (notFound(exception)) {
+            restoreInterrupt(exception);
+            if (objectNotFound(exception)) {
                 return CocoObjectStat.notFound(checkedKey);
             }
-            throw translate("stat", checkedKey, exception);
+            throw translate("stat", exception);
+        } catch (IOException exception) {
+            restoreInterrupt(exception);
+            throw exception;
         }
     }
 
     /**
-     * Deletes with the current ETag as an S3 conditional request. A service that ignores the conditional header can
-     * still race a concurrent overwrite; such an incompatible service is not treated as offering atomic deletion.
+     * Checks existence with HEAD and then deletes the object. When HEAD supplies an ETag, the adapter sends
+     * {@code If-Match} as a best-effort guard. This SPI does not promise atomic compare-delete behavior, and an
+     * S3-compatible backend that ignores the condition can delete a concurrent replacement without detection.
      */
     @Override
     public boolean delete(String key) throws IOException {
@@ -134,17 +157,19 @@ public final class S3CocoObjectStorage implements CocoObjectStorage {
         try {
             HeadObjectResponse head = this.s3Client.headObject(HeadObjectRequest.builder()
                     .bucket(this.bucket).key(remoteKey(checkedKey)).build());
-            if (head.eTag() == null || head.eTag().isBlank()) {
-                throw new IOException("delete cannot obtain a conditional ETag");
+            DeleteObjectRequest.Builder request = DeleteObjectRequest.builder()
+                    .bucket(this.bucket).key(remoteKey(checkedKey));
+            if (head.eTag() != null && !head.eTag().isBlank()) {
+                request.ifMatch(head.eTag());
             }
-            this.s3Client.deleteObject(DeleteObjectRequest.builder().bucket(this.bucket).key(remoteKey(checkedKey))
-                    .ifMatch(head.eTag()).build());
+            this.s3Client.deleteObject(request.build());
             return true;
         } catch (SdkException exception) {
-            if (notFound(exception) || status(exception) == 412) {
+            restoreInterrupt(exception);
+            if (objectNotFound(exception) || preconditionFailed(exception)) {
                 return false;
             }
-            throw translate("delete", checkedKey, exception);
+            throw translate("delete", exception);
         }
     }
 
@@ -155,21 +180,51 @@ public final class S3CocoObjectStorage implements CocoObjectStorage {
         if (limit < 1 || limit > this.listMaxSize) {
             throw new IllegalArgumentException("invalid list limit");
         }
+        String providerToken = S3ContinuationTokenCodec.decode(continuationToken, this.bucket,
+                this.keyPrefix, checkedPrefix);
         try {
             ListObjectsV2Response response = this.s3Client.listObjectsV2(ListObjectsV2Request.builder()
                     .bucket(this.bucket).prefix(remotePrefix(checkedPrefix)).maxKeys(limit)
-                    .continuationToken(continuationToken).build());
+                    .continuationToken(providerToken).build());
+            if (response.contents().size() > limit) {
+                throw new IOException("S3 list returned too many objects");
+            }
             List<CocoObjectStat> values = new ArrayList<>();
-            response.contents().forEach(item -> {
-                String logicalKey = localKey(item.key());
-                if (logicalKey != null) {
-                    values.add(CocoObjectStat.found(new CocoObjectMetadata(logicalKey, item.size(), null, Map.of(),
-                            item.lastModified())));
+            for (software.amazon.awssdk.services.s3.model.S3Object item : response.contents()) {
+                if (item == null || item.key() == null) {
+                    throw new IOException("S3 list returned an object without a key");
                 }
-            });
-            return new CocoObjectListResult(List.copyOf(values), response.nextContinuationToken());
+                String logicalKey = localKey(item.key());
+                if (logicalKey == null || !logicalKey.startsWith(checkedPrefix)) {
+                    throw new IOException("S3 list returned an object outside the requested namespace");
+                }
+                try {
+                    CocoObjectKey.validate(logicalKey);
+                }
+                catch (IllegalArgumentException exception) {
+                    throw new IOException("S3 list returned an invalid object key");
+                }
+                if (item.size() == null || item.size() < 0 || item.lastModified() == null) {
+                    throw new IOException("S3 list returned incomplete object metadata");
+                }
+                values.add(CocoObjectStat.found(new CocoObjectMetadata(logicalKey, item.size(), null, Map.of(),
+                        item.lastModified())));
+            }
+            values.sort(Comparator.comparing(value -> value.metadata().key()));
+            String providerNextToken = response.nextContinuationToken();
+            boolean hasNextToken = providerNextToken != null && !providerNextToken.isEmpty();
+            if (Boolean.TRUE.equals(response.isTruncated()) != hasNextToken) {
+                throw new IOException("S3 list returned inconsistent continuation state");
+            }
+            String nextToken = hasNextToken
+                    ? encodeProviderToken(checkedPrefix, providerNextToken)
+                    : null;
+            return new CocoObjectListResult(List.copyOf(values), nextToken);
         } catch (SdkException exception) {
-            throw translate("list", checkedPrefix, exception);
+            throw translate("list", exception);
+        } catch (IOException exception) {
+            restoreInterrupt(exception);
+            throw exception;
         }
     }
 
@@ -234,50 +289,65 @@ public final class S3CocoObjectStorage implements CocoObjectStorage {
         return remoteKey.startsWith(expectedPrefix) ? remoteKey.substring(expectedPrefix.length()) : null;
     }
 
+    private String encodeProviderToken(String requestPrefix, String providerToken) throws IOException {
+        try {
+            return S3ContinuationTokenCodec.encode(this.bucket, this.keyPrefix, requestPrefix, providerToken);
+        }
+        catch (IllegalArgumentException exception) {
+            throw new IOException("S3 list returned an invalid continuation token");
+        }
+    }
+
     private static void validatePrefix(String prefix) {
         if (!prefix.isEmpty()) {
             CocoObjectKey.validate(prefix.endsWith("/") ? prefix + "x" : prefix);
         }
     }
 
-    private IOException translate(String operation, String key, SdkException exception) {
-        if (interrupted(exception)) {
-            Thread.currentThread().interrupt();
+    private static IOException translate(String operation, SdkException exception) {
+        restoreInterrupt(exception);
+        int status = status(exception);
+        return new IOException("S3 " + operation + " failed" + (status > 0 ? " with HTTP status " + status : ""));
+    }
+
+    private static boolean objectNotFound(SdkException exception) {
+        String errorCode = errorCode(exception);
+        return exception instanceof NoSuchKeyException || "NoSuchKey".equals(errorCode)
+                || "NotFound".equals(errorCode);
+    }
+
+    private static boolean preconditionFailed(SdkException exception) {
+        return status(exception) == 412 || "PreconditionFailed".equals(errorCode(exception));
+    }
+
+    private static String errorCode(SdkException exception) {
+        if (exception instanceof AwsServiceException serviceException
+                && serviceException.awsErrorDetails() != null) {
+            return serviceException.awsErrorDetails().errorCode();
         }
-        return new IOException("S3 " + operation + " failed for bucket=" + safeBucket() + ", key=" + safeKey(key)
-                + ", status=" + status(exception));
-    }
-
-    private String safeBucket() {
-        return safeKey(this.bucket);
-    }
-
-    private static String safeKey(String key) {
-        return Integer.toUnsignedString(key.hashCode(), 16);
-    }
-
-    private static boolean notFound(SdkException exception) {
-        return exception instanceof NoSuchKeyException || status(exception) == 404;
+        return null;
     }
 
     private static int status(SdkException exception) {
         return exception instanceof AwsServiceException serviceException ? serviceException.statusCode() : 0;
     }
 
-    private static boolean interrupted(Throwable value) {
+    private static void restoreInterrupt(Throwable value) {
         for (Throwable current = value; current != null; current = current.getCause()) {
-            if (current instanceof InterruptedException) {
-                return true;
+            if (current instanceof InterruptedException || current instanceof InterruptedIOException
+                    || current instanceof ClosedByInterruptException) {
+                Thread.currentThread().interrupt();
+                return;
             }
         }
-        return false;
     }
 
     private static void closeQuietly(InputStream input) {
         if (input != null) {
             try {
                 input.close();
-            } catch (IOException ignored) {
+            } catch (IOException exception) {
+                restoreInterrupt(exception);
                 // A failed response is already being translated.
             }
         }
