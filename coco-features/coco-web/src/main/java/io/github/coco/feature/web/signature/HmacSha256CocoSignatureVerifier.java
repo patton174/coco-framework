@@ -5,11 +5,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HexFormat;
-import java.util.Locale;
 import java.util.Objects;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 /**
  * HMAC-SHA256 Coco 请求签名验证器。
@@ -29,10 +26,6 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public final class HmacSha256CocoSignatureVerifier implements CocoSignatureVerifier {
 
-    private static final String ALGORITHM_NAME = "HMAC-SHA256";
-
-    private static final String JCA_ALGORITHM_NAME = "HmacSHA256";
-
     /**
      * {@inheritDoc}
      */
@@ -44,37 +37,15 @@ public final class HmacSha256CocoSignatureVerifier implements CocoSignatureVerif
         if (!supports(request.algorithm())) {
             return false;
         }
-        byte[] signature = hmacSha256(request.canonicalText(), checkedContext.secret().value());
-        String expectedHex = HexFormat.of().formatHex(signature);
-        String expectedBase64 = Base64.getEncoder().encodeToString(signature);
+        String expectedHex = HmacSha256CocoSignatureSigner.sign(request.algorithm(), request.canonicalText(),
+                checkedContext.secret().value());
+        String expectedBase64 = Base64.getEncoder().encodeToString(HexFormat.of().parseHex(expectedHex));
         return constantTimeEquals(request.signature(), expectedHex)
                 || constantTimeEquals(request.signature(), expectedBase64);
     }
 
     private static boolean supports(String algorithm) {
-        return algorithm != null && ALGORITHM_NAME.equals(normalizeAlgorithm(algorithm));
-    }
-
-    private static String normalizeAlgorithm(String algorithm) {
-        return algorithm.trim()
-                .toUpperCase(Locale.ROOT)
-                .replace("_", "-")
-                .replace("HMACSHA", "HMAC-SHA")
-                .trim();
-    }
-
-    private static byte[] hmacSha256(String canonicalText, String secret) {
-        try {
-            Mac mac = Mac.getInstance(JCA_ALGORITHM_NAME);
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), JCA_ALGORITHM_NAME));
-            return mac.doFinal(canonicalText.getBytes(StandardCharsets.UTF_8));
-        }
-        catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("HMAC-SHA256 algorithm is not available", ex);
-        }
-        catch (java.security.InvalidKeyException ex) {
-            throw new IllegalArgumentException("signature secret is invalid", ex);
-        }
+        return HmacSha256CocoSignatureSigner.supports(algorithm);
     }
 
     private static boolean constantTimeEquals(String left, String right) {

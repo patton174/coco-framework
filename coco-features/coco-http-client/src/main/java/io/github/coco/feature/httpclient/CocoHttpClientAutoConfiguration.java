@@ -8,6 +8,8 @@ import java.util.Map;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.coco.context.trace.CocoTraceContext;
 import io.github.coco.feature.web.CocoWebProperties;
+import io.github.coco.feature.web.context.DefaultCocoWebRequestCanonicalizer;
+import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -41,25 +43,40 @@ public class CocoHttpClientAutoConfiguration {
     @ConditionalOnMissingBean(CocoHttpClients.class)
     CocoHttpClients cocoHttpClients(CocoHttpClientProperties properties, CocoWebProperties webProperties,
             CocoHttpErrorMapper errorMapper, ObjectProvider<RestClient.Builder> builderProvider,
-            ObjectProvider<CocoHttpClientCustomizer> customizerProvider) {
+            ObjectProvider<CocoHttpClientCustomizer> customizerProvider,
+            ObjectProvider<CocoHttpClientSigningCredentialProvider> credentialProvider,
+            ObjectProvider<CocoWebRequestCanonicalizer> canonicalizerProvider) {
         properties.validate();
         List<CocoHttpClientCustomizer> customizers = customizerProvider.orderedStream().toList();
+        CocoHttpClientSigningCredentialProvider propertiesProvider = name -> java.util.Optional.ofNullable(
+                properties.getClients().get(name)).filter(client -> client.getSigning().isEnabled())
+                .flatMap(client -> java.util.Optional.of(client.getSigning().credential()));
+        CocoHttpClientSigningCredentialProvider businessProvider = credentialProvider.getIfUnique();
+        CocoHttpClientSigningCredentialProvider signingProvider = businessProvider == null
+                ? propertiesProvider
+                : businessProvider;
+        CocoWebRequestCanonicalizer canonicalizer = canonicalizerProvider.getIfAvailable(() ->
+                new DefaultCocoWebRequestCanonicalizer(webProperties.getContext().getCanonicalization(),
+                        webProperties.getTrace(), null));
         Map<String, RestClient> clients = new LinkedHashMap<>();
         properties.getClients().forEach((name, client) -> clients.put(name,
                 build(name, client, webProperties.getTrace(), errorMapper,
-                        builderProvider.getIfAvailable(RestClient::builder), customizers)));
+                        builderProvider.getIfAvailable(RestClient::builder), customizers, signingProvider, canonicalizer)));
         return new DefaultCocoHttpClients(clients);
     }
 
     private static RestClient build(String name, CocoHttpClientProperties.Client client,
             CocoTraceProperties traceProperties, CocoHttpErrorMapper errorMapper, RestClient.Builder baseBuilder,
-            List<CocoHttpClientCustomizer> customizers) {
+            List<CocoHttpClientCustomizer> customizers, CocoHttpClientSigningCredentialProvider signingProvider,
+            CocoWebRequestCanonicalizer canonicalizer) {
         RestClient.Builder builder = baseBuilder.clone();
         HttpClient httpClient = HttpClient.newBuilder().connectTimeout(client.getConnectTimeout()).build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(client.getReadTimeout());
         builder.baseUrl(client.getBaseUrl()).requestFactory(factory).defaultHeaders(headers ->
                 client.getDefaultHeaders().forEach(headers::set));
+        customizers.stream().filter(customizer -> customizer.supports(name))
+                .forEach(customizer -> customizer.customize(name, builder));
         builder.requestInterceptor((request, body, execution) -> {
             String headerName = traceProperties.getHeaderName();
             if (!request.getHeaders().containsHeader(headerName)) {
@@ -67,10 +84,15 @@ public class CocoHttpClientAutoConfiguration {
             }
             return execution.execute(request, body);
         });
+        if (client.getSigning().isEnabled()) {
+            if (signingProvider.resolve(name).isEmpty()) {
+                throw new IllegalStateException("coco.http.clients." + name + ".signing credential is required");
+            }
+            builder.requestInterceptor(new CocoHttpClientSigningInterceptor(name, client.getSigning(), signingProvider,
+                    canonicalizer));
+        }
         builder.defaultStatusHandler(status -> !status.is2xxSuccessful(),
                 (request, response) -> { throw errorMapper.map(name, request, response); });
-        customizers.stream().filter(customizer -> customizer.supports(name))
-                .forEach(customizer -> customizer.customize(name, builder));
         return builder.build();
     }
 }
