@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Servlet requires repeated getWriter/getOutputStream calls to return the same instance. -->
+    <Match>
+        <Class name="io.github.coco.feature.idempotency.servlet.CocoIdempotencyResponseWrapper"/>
+        <Method name="getOutputStream"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="io.github.coco.feature.idempotency.servlet.CocoIdempotencyResponseWrapper"/>
+        <Method name="getWriter"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+</FindBugsFilter>
