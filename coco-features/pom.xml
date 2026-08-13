@@ -18,6 +18,7 @@
 
     <modules>
         <module>coco-web</module>
+        <module>coco-cors</module>
         <module>coco-mybatis-plus</module>
         <module>coco-audit</module>
         <module>coco-audit-jdbc</module>
