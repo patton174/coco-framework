@@ -46,5 +46,6 @@
         <module>coco-idempotency-redis</module>
         <module>coco-idempotency-jdbc</module>
         <module>coco-concurrency-limit</module>
+        <module>coco-concurrency-limit-redis</module>
     </modules>
 </project>
