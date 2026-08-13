@@ -2,6 +2,8 @@ package io.github.coco.feature.datapermission;
 
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
+import io.github.coco.context.CocoContextSnapshotContributor;
+import io.github.coco.feature.datapermission.context.CocoDataPermissionContextHolder;
 import io.github.coco.feature.datapermission.context.CocoDataPermissionContextResolver;
 import io.github.coco.feature.datapermission.context.HolderCocoDataPermissionContextResolver;
 import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
@@ -30,6 +32,17 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnCocoFeature(CocoFeature.DATA_PERMISSION)
 @EnableConfigurationProperties(CocoDataPermissionProperties.class)
 public class CocoDataPermissionAutoConfiguration {
+
+    @Bean
+    @ConditionalOnClass(name = "io.github.coco.context.spring.CocoContextTaskDecorator")
+    @ConditionalOnMissingBean(name = "cocoDataPermissionContextSnapshotContributor")
+    public CocoContextSnapshotContributor cocoDataPermissionContextSnapshotContributor() {
+        return new CocoContextSnapshotContributor() {
+            @Override public String id() { return "data-permission"; }
+            @Override public int order() { return 50; }
+            @Override public io.github.coco.context.CocoContextSnapshot capture() { return CocoDataPermissionContextHolder.capture(); }
+        };
+    }
 
     /**
      * <p>
