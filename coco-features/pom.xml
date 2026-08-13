@@ -26,6 +26,7 @@
         <module>coco-security</module>
         <module>coco-security-api-key</module>
         <module>coco-security-jwt</module>
+        <module>coco-security-spring</module>
         <module>coco-tenant</module>
         <module>coco-data-permission</module>
         <module>coco-openapi</module>
