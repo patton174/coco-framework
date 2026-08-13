@@ -166,6 +166,8 @@ class CocoNoStarterWebTestCompileFixtureTest {
                 .containsExactlyInAnyOrderElementsOf(listValues(starterBefore, "artifacts="));
         assertThat(listValues(starterAfter, "testClasspath="))
                 .containsExactlyInAnyOrderElementsOf(listValues(starterBefore, "testClasspath="));
+        assertThat(listValues(starterAfter, "testClasspathOrder="))
+                .containsExactlyElementsOf(listValues(starterBefore, "testClasspathOrder="));
         assertThat(line(starterAfter, "dependencies="))
                 .contains("coco-api", "coco-spring-boot-starter")
                 .doesNotContain("coco-web");
