@@ -89,19 +89,14 @@ public final class RedisCocoConcurrencyLimitStore implements CocoConcurrencyLimi
 
     @Override
     public void release(CocoConcurrencyLimitPermit permit) {
-        Permit owned = ownedPermit(permit);
-        if (owned.renewalFailed.get()) {
-            throw new IllegalStateException("Redis concurrency-limit permit renewal is no longer safe");
-        }
-        releaseOwned(owned);
+        releaseOwned(ownedPermit(permit));
     }
 
     @Override
     public void close() {
-        if (!this.closed.compareAndSet(false, true)) {
-            return;
+        if (this.closed.compareAndSet(false, true)) {
+            this.renewer.shutdownNow();
         }
-        this.renewer.shutdownNow();
         for (Permit permit : List.copyOf(this.permits.values())) {
             try {
                 releaseOwned(permit);
@@ -121,29 +116,49 @@ public final class RedisCocoConcurrencyLimitStore implements CocoConcurrencyLimi
             return;
         }
         for (Permit permit : this.permits.values()) {
-            if (permit.released.get()) {
-                continue;
-            }
-            try {
-                String result = this.executor.execute(RedisConcurrencyLimitOperation.RENEW, permit.keys,
-                        List.of(permit.token, Long.toString(this.leaseMillis)));
-                if (!"1".equals(result)) {
-                    permit.renewalFailed.set(true);
+            synchronized (permit) {
+                if (permit.released.get()) {
+                    continue;
                 }
-            }
-            catch (RuntimeException exception) {
-                permit.renewalFailed.set(true);
-                LOGGER.warn("Redis concurrency-limit permit renewal failed; subsequent release will fail closed");
+                try {
+                    String result = this.executor.execute(RedisConcurrencyLimitOperation.RENEW, permit.keys,
+                            List.of(permit.token, Long.toString(this.leaseMillis)));
+                    if ("1".equals(result)) {
+                        permit.renewalFailed.set(false);
+                    }
+                    else if (permit.renewalFailed.compareAndSet(false, true)) {
+                        LOGGER.warn("Redis concurrency-limit permit renewal was not accepted");
+                    }
+                }
+                catch (RuntimeException exception) {
+                    permit.renewalFailed.set(true);
+                    LOGGER.warn("Redis concurrency-limit permit renewal failed", exception);
+                }
             }
         }
     }
 
     private void releaseOwned(Permit permit) {
-        if (!permit.released.compareAndSet(false, true)) {
-            return;
+        synchronized (permit) {
+            if (!permit.released.compareAndSet(false, true)) {
+                return;
+            }
+            boolean completed = false;
+            try {
+                String result = this.executor.execute(RedisConcurrencyLimitOperation.RELEASE, permit.keys,
+                        List.of(permit.token));
+                if (!"0".equals(result) && !"1".equals(result)) {
+                    throw invalidReply();
+                }
+                this.permits.remove(permit.token, permit);
+                completed = true;
+            }
+            finally {
+                if (!completed) {
+                    permit.released.set(false);
+                }
+            }
         }
-        this.permits.remove(permit.token);
-        this.executor.execute(RedisConcurrencyLimitOperation.RELEASE, permit.keys, List.of(permit.token));
     }
 
     private Permit ownedPermit(CocoConcurrencyLimitPermit permit) {

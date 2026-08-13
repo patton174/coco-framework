@@ -91,19 +91,73 @@ class RedisCocoConcurrencyLimitStoreTest {
     }
 
     @Test
-    void renewalFailureFailsClosedAndCloseDoesNotReleaseOtherStore() {
+    void renewalFailureCanRecoverAndDoesNotBlockRelease() {
         LeaseExecutor executor = new LeaseExecutor();
-        RedisCocoConcurrencyLimitStore first = store(executor);
-        RedisCocoConcurrencyLimitStore second = store(executor);
-        CocoConcurrencyLimitAcquisition own = first.acquire(request(route(2)));
-        CocoConcurrencyLimitAcquisition other = second.acquire(request(route(2)));
-        executor.failRenewal = true;
-        first.renewNowForTests();
-        assertThatIllegalStateException().isThrownBy(() -> first.release(own.permit()))
-                .satisfies(exception -> assertThat(exception.getMessage()).contains("no longer safe"));
-        first.close();
+        RedisCocoConcurrencyLimitStore store = store(executor);
+        CocoConcurrencyLimitAcquisition acquisition = store.acquire(request(route(1)));
+        executor.failNextRenewals = 1;
+
+        store.renewNowForTests();
+        store.renewNowForTests();
+        store.release(acquisition.permit());
+
+        assertThat(executor.active("route")).isZero();
+        assertThat(executor.renewAttempts).isEqualTo(2);
+        assertThat(executor.releaseAttempts).isOne();
+    }
+
+    @Test
+    void renewalFailureDoesNotBlockImmediateRelease() {
+        LeaseExecutor executor = new LeaseExecutor();
+        RedisCocoConcurrencyLimitStore store = store(executor);
+        CocoConcurrencyLimitAcquisition acquisition = store.acquire(request(route(1)));
+        executor.failNextRenewals = 1;
+
+        store.renewNowForTests();
+        store.release(acquisition.permit());
+
+        assertThat(executor.active("route")).isZero();
+        assertThat(executor.releaseAttempts).isOne();
+    }
+
+    @Test
+    void releaseFailureCanBeRetriedByCallerAndClose() {
+        LeaseExecutor executor = new LeaseExecutor();
+        RedisCocoConcurrencyLimitStore callerStore = store(executor);
+        CocoConcurrencyLimitAcquisition callerPermit = callerStore.acquire(request(route(2)));
+        executor.failNextReleases = 1;
+
+        assertThatIllegalStateException().isThrownBy(() -> callerStore.release(callerPermit.permit()))
+                .withMessage("offline");
+        assertThat(executor.active("route")).isEqualTo(1);
+        callerStore.release(callerPermit.permit());
+
+        RedisCocoConcurrencyLimitStore closingStore = store(executor);
+        closingStore.acquire(request(route(2)));
+        executor.failNextReleases = 1;
+        closingStore.close();
         assertThat(executor.active("route")).isOne();
-        second.release(other.permit());
+        closingStore.close();
+
+        assertThat(executor.active("route")).isZero();
+        assertThat(executor.releaseAttempts).isEqualTo(4);
+    }
+
+    @Test
+    void expiredOldTokenCannotReleaseNewOwner() {
+        LeaseExecutor executor = new LeaseExecutor();
+        RedisCocoConcurrencyLimitStore oldStore = store(executor);
+        RedisCocoConcurrencyLimitStore newStore = store(executor);
+        CocoConcurrencyLimitAcquisition old = oldStore.acquire(request(route(1)));
+        executor.advance(Duration.ofSeconds(31));
+        CocoConcurrencyLimitAcquisition current = newStore.acquire(request(route(1)));
+
+        oldStore.release(old.permit());
+
+        assertThat(executor.active("route")).isOne();
+        assertThatIllegalArgumentException().isThrownBy(() -> newStore.release(old.permit()));
+        assertThat(executor.active("route")).isOne();
+        newStore.release(current.permit());
         assertThat(executor.active("route")).isZero();
     }
 
@@ -131,7 +185,10 @@ class RedisCocoConcurrencyLimitStoreTest {
     private static final class LeaseExecutor implements RedisConcurrencyLimitExecutor {
         private final Map<String, PermitState> permits = new HashMap<>();
         private Instant now = Instant.parse("2026-08-14T00:00:00Z");
-        private boolean failRenewal;
+        private int failNextRenewals;
+        private int failNextReleases;
+        private int renewAttempts;
+        private int releaseAttempts;
         @Override public synchronized String execute(RedisConcurrencyLimitOperation operation, List<String> keys, List<String> args) {
             cleanup();
             return switch (operation) { case ACQUIRE -> acquire(keys, args); case RENEW -> renew(args); case RELEASE -> release(args); };
@@ -144,8 +201,27 @@ class RedisCocoConcurrencyLimitStoreTest {
             this.permits.put(token, new PermitState(List.copyOf(dimensions), this.now.plusMillis(lease)));
             return reply("G", -1, limits, dimensions);
         }
-        private String renew(List<String> args) { if (this.failRenewal) throw new IllegalStateException("offline"); PermitState permit=this.permits.get(args.get(0)); if(permit==null)return "0"; permit.expiresAt=this.now.plusMillis(Long.parseLong(args.get(1))); return "1"; }
-        private String release(List<String> args) { return this.permits.remove(args.get(0)) == null ? "0" : "1"; }
+        private String renew(List<String> args) {
+            this.renewAttempts++;
+            if (this.failNextRenewals > 0) {
+                this.failNextRenewals--;
+                throw new IllegalStateException("offline");
+            }
+            PermitState permit = this.permits.get(args.get(0));
+            if (permit == null) {
+                return "0";
+            }
+            permit.expiresAt = this.now.plusMillis(Long.parseLong(args.get(1)));
+            return "1";
+        }
+        private String release(List<String> args) {
+            this.releaseAttempts++;
+            if (this.failNextReleases > 0) {
+                this.failNextReleases--;
+                throw new IllegalStateException("offline");
+            }
+            return this.permits.remove(args.get(0)) == null ? "0" : "1";
+        }
         private String reply(String type, int rejected, List<Integer> limits, List<String> dimensions) {
             StringBuilder result = new StringBuilder(type);
             if (rejected >= 0) {
