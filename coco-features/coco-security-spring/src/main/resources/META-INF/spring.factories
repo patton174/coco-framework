@@ -1,0 +1,2 @@
+org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer=\
+io.github.coco.security.spring.CocoSpringSecurityConfigurer
