@@ -162,8 +162,12 @@ class CocoNoStarterWebTestCompileFixtureTest {
         String starterAfter = Files.readString(starterFixture.resolve("target/project-after.txt"));
         assertThat(starterOutput).contains("Coco feature manifest generated with 8 enabled features.");
         assertExecutedPluginMatchesWorkspace(starterOutput, projectVersion, candidatePluginArtifact, localRepository);
-        assertThat(jarCount(starterBefore, "testClasspath=")).isEqualTo(109);
-        assertThat(jarCount(starterAfter, "testClasspath=")).isEqualTo(109);
+        assertThat(listValues(starterAfter, "artifacts="))
+                .containsExactlyInAnyOrderElementsOf(listValues(starterBefore, "artifacts="));
+        assertThat(listValues(starterAfter, "testClasspath="))
+                .containsExactlyInAnyOrderElementsOf(listValues(starterBefore, "testClasspath="));
+        assertThat(listValues(starterAfter, "testClasspathOrder="))
+                .containsExactlyElementsOf(listValues(starterBefore, "testClasspathOrder="));
         assertThat(line(starterAfter, "dependencies="))
                 .contains("coco-api", "coco-spring-boot-starter")
                 .doesNotContain("coco-web");
@@ -651,11 +655,6 @@ class CocoNoStarterWebTestCompileFixtureTest {
             }
         }
         return children;
-    }
-
-    private static long jarCount(String dump, String prefix) {
-        String classpath = line(dump, prefix);
-        return classpath.split("\\.jar", -1).length - 1L;
     }
 
     private static List<String> listValues(String dump, String prefix) {
