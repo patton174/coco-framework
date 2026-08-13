@@ -29,5 +29,9 @@
         <module>coco-rate-limit</module>
         <module>coco-observability</module>
         <module>coco-feature-codegen</module>
+        <module>coco-cache</module>
+        <module>coco-scheduler</module>
+        <module>coco-idempotency</module>
+        <module>coco-concurrency-limit</module>
     </modules>
 </project>
