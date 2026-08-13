@@ -142,7 +142,7 @@ class TrustedPublicApiRunnerTest(unittest.TestCase):
         ledger = SCRIPT_DIR / "baseline-sha256.json"
         allowlist = SCRIPT_DIR / "allowlist.json"
         signing_key = SCRIPT_DIR / "baseline-signing-key.asc"
-        expected = "9b1b9498184856ef71a7426e8b595a1122a3654eb03a6902b6f4132db2148c4a"
+        expected = "124c0a3320bf6eee901487d6c2f9f8553d097129b3c7dcb6e1d2314b9bb66427"
 
         self.assertIs(checker.policy_bundle_sha256, policy_bundle.policy_bundle_sha256)
         self.assertIs(
@@ -530,7 +530,7 @@ class TrustedPublicApiRunnerTest(unittest.TestCase):
 
     def test_deep_execute_gate_binds_full_inventory_and_attestation(self) -> None:
         version = "1.0.0"
-        names = [f"artifact-{index:02d}" for index in range(32)]
+        names = [f"artifact-{index:02d}" for index in range(51)]
         available = names[:20]
 
         def pom_bytes(artifact_id: str) -> bytes:
@@ -915,11 +915,11 @@ class TrustedPublicApiRunnerTest(unittest.TestCase):
                         ),
                     )
                 evidence = json.loads(read_text(attestation, "deep attestation"))
-                self.assertEqual(32, len(evidence["reports"]))
-                self.assertEqual(22, len(evidence["candidates"]))
+                self.assertEqual(51, len(evidence["reports"]))
+                self.assertEqual(41, len(evidence["candidates"]))
                 self.assertEqual(20, len(evidence["baseline"]["artifacts"]))
                 self.assertEqual(
-                    12, len(evidence["baseline"]["verifiedMissingArtifacts"])
+                    31, len(evidence["baseline"]["verifiedMissingArtifacts"])
                 )
                 self.assertEqual("2" * 40, evidence["protectedSha"])
                 self.assertGreaterEqual(len(str(manifest_path)), 280)

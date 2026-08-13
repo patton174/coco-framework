@@ -30,18 +30,27 @@ OTHER_SHA = "c" * 40
 RUN_ID = 42
 ATTEMPT = 3
 WORKFLOW_ID = 7
-CANONICAL_POLICY_COMMIT = "a094f95ce7118db04617eb55bc050154205c1fdc"
-NAMES = [f"coco-{index:02d}.jar" for index in range(32)]
+CANONICAL_POLICY_COMMIT = "170566f0c403fd0eb18edd376fdb297b7059b36b"
+REPORT_OWNER_NAMES = [
+    f"coco-{index:02d}.jar" for index in range(protocol.REPORT_OWNER_COUNT)
+]
+NAMES = REPORT_OWNER_NAMES[protocol.DIRECT_REPLACEMENT_COUNT :]
 GOLDEN_POLICY_BUNDLE_SHA256 = (
-    "bb0fed58f1a21b4684c276099722c71f2c0d66dacc492bb4215ba7ea22c537e3"
+    "65a32f7069e36f38e281274645f855e23c492ce17b3b84ebffe6b736e6e58ff4"
 )
 REACTOR_ARTIFACT_IDS = sorted(
     [
         "coco-api",
         "coco-audit",
         "coco-audit-jdbc",
+        "coco-cache",
+        "coco-cache-redis",
+        "coco-concurrency-limit",
+        "coco-concurrency-limit-redis",
         "coco-config",
         "coco-context",
+        "coco-context-spring",
+        "coco-cors",
         "coco-data-permission",
         "coco-exception",
         "coco-feature-audit",
@@ -54,17 +63,30 @@ REACTOR_ARTIFACT_IDS = sorted(
         "coco-feature-security",
         "coco-feature-tenant",
         "coco-feature-web",
+        "coco-http-client",
         "coco-i18n",
+        "coco-idempotency",
+        "coco-idempotency-jdbc",
+        "coco-idempotency-redis",
+        "coco-lock",
+        "coco-lock-redis",
         "coco-logging",
         "coco-maven-plugin",
         "coco-mybatis-plus",
         "coco-observability",
         "coco-openapi",
         "coco-rate-limit",
+        "coco-rate-limit-redis",
         "coco-replay-redis",
+        "coco-scheduler",
         "coco-security",
+        "coco-security-api-key",
+        "coco-security-jwt",
+        "coco-security-spring",
         "coco-spring-boot-autoconfigure",
         "coco-spring-boot-starter",
+        "coco-storage",
+        "coco-storage-s3",
         "coco-tenant",
         "coco-test",
         "coco-test-support",
@@ -75,8 +97,14 @@ REACTOR_MODULE_PATHS = {
     "coco-api": "coco-foundation/coco-api",
     "coco-audit": "coco-features/coco-audit",
     "coco-audit-jdbc": "coco-features/coco-audit-jdbc",
+    "coco-cache": "coco-features/coco-cache",
+    "coco-cache-redis": "coco-features/coco-cache-redis",
+    "coco-concurrency-limit": "coco-features/coco-concurrency-limit",
+    "coco-concurrency-limit-redis": "coco-features/coco-concurrency-limit-redis",
     "coco-config": "coco-build/coco-compatibility/coco-config",
     "coco-context": "coco-foundation/coco-context",
+    "coco-context-spring": "coco-foundation/coco-context-spring",
+    "coco-cors": "coco-features/coco-cors",
     "coco-data-permission": "coco-features/coco-data-permission",
     "coco-exception": "coco-foundation/coco-exception",
     "coco-feature-audit": "coco-build/coco-compatibility/coco-feature-audit",
@@ -93,17 +121,30 @@ REACTOR_MODULE_PATHS = {
     "coco-feature-security": "coco-build/coco-compatibility/coco-feature-security",
     "coco-feature-tenant": "coco-build/coco-compatibility/coco-feature-tenant",
     "coco-feature-web": "coco-build/coco-compatibility/coco-feature-web",
+    "coco-http-client": "coco-features/coco-http-client",
     "coco-i18n": "coco-foundation/coco-i18n",
+    "coco-idempotency": "coco-features/coco-idempotency",
+    "coco-idempotency-jdbc": "coco-features/coco-idempotency-jdbc",
+    "coco-idempotency-redis": "coco-features/coco-idempotency-redis",
+    "coco-lock": "coco-features/coco-lock",
+    "coco-lock-redis": "coco-features/coco-lock-redis",
     "coco-logging": "coco-foundation/coco-logging",
     "coco-maven-plugin": "coco-build/coco-maven-plugin",
     "coco-mybatis-plus": "coco-features/coco-mybatis-plus",
     "coco-observability": "coco-features/coco-observability",
     "coco-openapi": "coco-features/coco-openapi",
     "coco-rate-limit": "coco-features/coco-rate-limit",
+    "coco-rate-limit-redis": "coco-features/coco-rate-limit-redis",
     "coco-replay-redis": "coco-features/coco-replay-redis",
+    "coco-scheduler": "coco-features/coco-scheduler",
     "coco-security": "coco-features/coco-security",
+    "coco-security-api-key": "coco-features/coco-security-api-key",
+    "coco-security-jwt": "coco-features/coco-security-jwt",
+    "coco-security-spring": "coco-features/coco-security-spring",
     "coco-spring-boot-autoconfigure": ("coco-spring/coco-spring-boot-autoconfigure"),
     "coco-spring-boot-starter": "coco-spring/coco-spring-boot-starter",
+    "coco-storage": "coco-features/coco-storage",
+    "coco-storage-s3": "coco-features/coco-storage-s3",
     "coco-tenant": "coco-features/coco-tenant",
     "coco-test": "coco-build/coco-compatibility/coco-test",
     "coco-test-support": "coco-support/coco-test-support",
@@ -227,9 +268,11 @@ def write_policy(
     baseline_ids: frozenset[str] | None = None,
     comparison_targets: dict[str, str] | None = None,
 ) -> None:
-    artifact_ids = artifact_ids or [name[:-4] for name in NAMES]
+    artifact_ids = artifact_ids or [name[:-4] for name in REPORT_OWNER_NAMES]
     artifact_ids = sorted(artifact_ids)
-    baseline_ids = baseline_ids or frozenset(artifact_ids[:20])
+    baseline_ids = baseline_ids or frozenset(
+        artifact_ids[: protocol.PRESENT_BASELINE_COUNT]
+    )
     current_only_ids = [
         artifact_id for artifact_id in artifact_ids if artifact_id not in baseline_ids
     ]
@@ -451,13 +494,13 @@ def artifact(
 
 
 class CandidateArtifactTests(unittest.TestCase):
-    def test_exact_32_jars_and_non_authoritative_manifest_are_accepted(self) -> None:
+    def test_exact_41_jars_and_non_authoritative_manifest_are_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_policy(root)
             data = artifact()
             self.assertEqual(
-                32,
+                protocol.CANONICAL_CANDIDATE_COUNT,
                 len(
                     protocol.validate_candidate_artifact(
                         data,
@@ -468,7 +511,7 @@ class CandidateArtifactTests(unittest.TestCase):
                 ),
             )
 
-    def test_31_33_jars_and_pseudo_xml_are_rejected(self) -> None:
+    def test_40_42_jars_and_pseudo_xml_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_policy(root)
@@ -476,6 +519,7 @@ class CandidateArtifactTests(unittest.TestCase):
             for value in (
                 artifact(names=NAMES[:-1]),
                 artifact(names=NAMES + ["extra.jar"]),
+                artifact(names=[REPORT_OWNER_NAMES[0], *NAMES[:-1]]),
                 artifact(extra={"reports/fake.xml": b"<pass/>"}),
             ):
                 with self.subTest(size=len(value)):
@@ -767,12 +811,19 @@ class ProtectedPolicyTests(unittest.TestCase):
                 with self.assertRaises(protocol.ProtocolError):
                     protocol.load_policy(root)
 
-    def test_v3_ledger_requires_exact_32_present_and_missing_entries(self) -> None:
+    def test_v3_ledger_requires_exact_51_present_and_missing_entries(self) -> None:
+        extra_missing = {
+            "artifactId": "coco-99",
+            "baselineState": "missing",
+            "jarStatus": 404,
+            "pomStatus": 404,
+        }
         mutations = (
             lambda value: value["artifacts"].pop(),
             lambda value: value["artifacts"][20].__setitem__("jarSha256", "f" * 64),
             lambda value: value["artifacts"][0].pop("jarSize"),
             lambda value: value["artifacts"][0].__setitem__("jarSize", 0),
+            lambda value: value["artifacts"].append(extra_missing),
         )
         for mutation in mutations:
             with (
@@ -782,6 +833,30 @@ class ProtectedPolicyTests(unittest.TestCase):
                 root = Path(directory)
                 write_policy(root)
                 mutate_policy_file(root, "baseline-sha256.json", mutation)
+                with self.assertRaises(protocol.ProtocolError):
+                    protocol.load_policy(root)
+
+    def test_profile_requires_exact_51_report_owners(self) -> None:
+        extra_owner = {
+            "artifactId": "coco-99",
+            "baselineState": "missing",
+            "comparison": {"targetArtifactId": "coco-99"},
+            "groupId": "io.github.coco",
+            "jarName": "coco-99.jar",
+            "modulePath": "modules/coco-99",
+        }
+        mutations = (
+            lambda value: value["artifacts"].pop(),
+            lambda value: value["artifacts"].append(extra_owner),
+        )
+        for mutation in mutations:
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                write_policy(root)
+                mutate_policy_file(root, "public-api-profile.json", mutation)
                 with self.assertRaises(protocol.ProtocolError):
                     protocol.load_policy(root)
 
@@ -1314,7 +1389,9 @@ class WorkflowContractTests(unittest.TestCase):
         )
         ci = self.read(".github/workflows/ci.yml")
         self.assertIn("candidate_repository", producer)
-        self.assertIn("Stage exactly 32 non-authoritative candidate JARs", producer)
+        self.assertIn(
+            "Stage exactly 41 profile-derived canonical candidate JARs", producer
+        )
         self.assertIn("-Drevision=2.0.2-SNAPSHOT", producer)
         self.assertNotIn(".api-protected", producer)
         self.assertNotIn("public-api-compatibility.xml", producer)
@@ -1409,8 +1486,14 @@ class RealReactorStagingIntegrationTests(unittest.TestCase):
                 ATTEMPT,
             )
             staged_names = sorted(path.name for path in (stage / "jars").iterdir())
+            canonical_ids = sorted(
+                artifact_id
+                for artifact_id in REACTOR_ARTIFACT_IDS
+                if REACTOR_COMPARISON_TARGETS.get(artifact_id, artifact_id)
+                == artifact_id
+            )
             self.assertEqual(
-                sorted(f"{artifact_id}.jar" for artifact_id in REACTOR_ARTIFACT_IDS),
+                [f"{artifact_id}.jar" for artifact_id in canonical_ids],
                 staged_names,
             )
             self.assertTrue(
@@ -1460,7 +1543,7 @@ class RealReactorStagingIntegrationTests(unittest.TestCase):
                 LocalPomApi(), actual_binding, policy
             )
             self.assertEqual(
-                32,
+                protocol.CANONICAL_CANDIDATE_COUNT,
                 len(
                     protocol.validate_candidate_artifact(
                         value,
