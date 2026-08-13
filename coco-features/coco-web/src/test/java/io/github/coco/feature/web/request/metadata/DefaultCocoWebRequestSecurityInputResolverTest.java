@@ -134,4 +134,22 @@ class DefaultCocoWebRequestSecurityInputResolverTest {
         assertNull(input.bodyLength());
         assertNull(input.bodySha256());
     }
+
+    @Test
+    void sharedCanonicalHeaderRuleAlwaysIncludesSignatureProtocolHeaders() {
+        CocoSignatureProperties signature = new CocoSignatureProperties();
+        signature.setAppIdHeaderName("X-App");
+        signature.setKeyIdHeaderName("X-Key");
+        signature.setTimestampHeaderName("X-Time");
+        signature.setNonceHeaderName("X-Nonce");
+        signature.setAlgorithmHeaderName("X-Algorithm");
+        signature.setSignatureHeaderName("X-Signature-Value");
+
+        Set<String> names = CocoWebSecurityHeaderNames.canonicalHeaderNames(Set.of("X-Business"), signature,
+                null, null);
+
+        assertTrue(names.containsAll(Set.of("x-business", "x-app", "x-key", "x-time", "x-nonce",
+                "x-algorithm")));
+        assertFalse(names.contains("x-signature-value"));
+    }
 }
