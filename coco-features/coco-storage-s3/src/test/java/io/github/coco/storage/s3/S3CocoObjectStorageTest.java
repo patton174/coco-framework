@@ -1,8 +1,6 @@
 package io.github.coco.storage.s3;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.lang.reflect.Proxy;
@@ -65,6 +63,9 @@ class S3CocoObjectStorageTest {
         assertThat(known.closed).isFalse();
         assertThat(unknown.closed).isFalse();
         assertThat(client.putRequests.get(0).metadata()).containsKey(S3MetadataCodec.HEADER);
+        assertThat(client.putRequests.get(1).metadata())
+                .containsEntry(S3MetadataCodec.HEADER, "e30");
+        assertThat(S3MetadataCodec.decode(client.putRequests.get(1).metadata())).isEmpty();
     }
 
     @Test
@@ -205,8 +206,56 @@ class S3CocoObjectStorageTest {
                 .metadata(Map.of(S3MetadataCodec.HEADER, craftedMetadata("key", "bad\nvalue"))).build();
         S3CocoObjectStorage storage = storage(client.client(), "bucket", "ns");
         assertThatIOException().isThrownBy(() -> storage.get("a.txt"))
-                .withMessageContaining("control");
+                .withMessage("invalid S3 metadata header");
         assertThat(client.responseClosed.get()).isTrue();
+    }
+
+    @Test
+    void metadataRequiresExactNonEmptyCanonicalCocoHeader() throws Exception {
+        String emptyHeader = S3MetadataCodec.encode(Map.of()).get(S3MetadataCodec.HEADER);
+        assertThat(emptyHeader).isEqualTo("e30");
+        assertThat(S3MetadataCodec.decode(Map.of(S3MetadataCodec.HEADER, emptyHeader,
+                "third-party", "ignored"))).isEmpty();
+
+        assertThatIOException().isThrownBy(() -> S3MetadataCodec.decode(Map.of()))
+                .withMessageContaining("missing");
+        assertThatIOException().isThrownBy(() -> S3MetadataCodec.decode(Map.of("third-party", "ignored")))
+                .withMessageContaining("missing");
+        assertThatIOException().isThrownBy(() -> S3MetadataCodec.decode(
+                Map.of(S3MetadataCodec.HEADER, ""))).withMessageContaining("marker");
+        assertThatIOException().isThrownBy(() -> S3MetadataCodec.decode(
+                Map.of(S3MetadataCodec.HEADER, "not-base64!"))).withMessage("invalid S3 metadata header");
+        assertThatIOException().isThrownBy(() -> S3MetadataCodec.decode(Map.of(
+                S3MetadataCodec.HEADER, emptyHeader,
+                "Coco-Metadata-V1", emptyHeader))).withMessageContaining("marker");
+    }
+
+    @Test
+    void getRejectsIncompleteMetadataAndClosesResponseStream() throws Exception {
+        assertGetMetadataRejected(GetObjectResponse.builder().contentLength(3L)
+                .lastModified(Instant.EPOCH).build(), "metadata header");
+        assertGetMetadataRejected(GetObjectResponse.builder().contentLength(3L)
+                .lastModified(Instant.EPOCH).metadata(Map.of(S3MetadataCodec.HEADER, "")).build(), "marker");
+        assertGetMetadataRejected(GetObjectResponse.builder().lastModified(Instant.EPOCH)
+                .metadata(S3MetadataCodec.encode(Map.of())).build(), "incomplete");
+        assertGetMetadataRejected(GetObjectResponse.builder().contentLength(3L)
+                .metadata(S3MetadataCodec.encode(Map.of())).build(), "incomplete");
+        assertGetMetadataRejected(GetObjectResponse.builder().contentLength(-1L)
+                .lastModified(Instant.EPOCH).metadata(S3MetadataCodec.encode(Map.of())).build(), "incomplete");
+    }
+
+    @Test
+    void statRejectsIncompleteMetadataFields() throws Exception {
+        assertStatMetadataRejected(HeadObjectResponse.builder().contentLength(3L)
+                .lastModified(Instant.EPOCH).build());
+        assertStatMetadataRejected(HeadObjectResponse.builder().contentLength(3L)
+                .lastModified(Instant.EPOCH).metadata(Map.of(S3MetadataCodec.HEADER, "")).build());
+        assertStatMetadataRejected(HeadObjectResponse.builder().lastModified(Instant.EPOCH)
+                .metadata(S3MetadataCodec.encode(Map.of())).build());
+        assertStatMetadataRejected(HeadObjectResponse.builder().contentLength(3L)
+                .metadata(S3MetadataCodec.encode(Map.of())).build());
+        assertStatMetadataRejected(HeadObjectResponse.builder().contentLength(-1L)
+                .lastModified(Instant.EPOCH).metadata(S3MetadataCodec.encode(Map.of())).build());
     }
 
     @Test
@@ -300,20 +349,25 @@ class S3CocoObjectStorageTest {
         return S3Object.builder().key(key).size(size).lastModified(Instant.EPOCH).build();
     }
 
-    private static String craftedMetadata(String key, String value) throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (DataOutputStream output = new DataOutputStream(bytes)) {
-            output.writeInt(1);
-            writeMetadataText(output, key);
-            writeMetadataText(output, value);
-        }
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes.toByteArray());
+    private static void assertGetMetadataRejected(GetObjectResponse response, String message) {
+        RecordingS3 client = new RecordingS3();
+        client.getResponse = response;
+        S3CocoObjectStorage storage = storage(client.client(), "bucket", "ns");
+        assertThatIOException().isThrownBy(() -> storage.get("a.txt")).withMessageContaining(message);
+        assertThat(client.responseClosed.get()).isTrue();
     }
 
-    private static void writeMetadataText(DataOutputStream output, String value) throws IOException {
-        byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        output.writeShort(bytes.length);
-        output.write(bytes);
+    private static void assertStatMetadataRejected(HeadObjectResponse response) {
+        RecordingS3 client = new RecordingS3();
+        client.headResponse = response;
+        S3CocoObjectStorage storage = storage(client.client(), "bucket", "ns");
+        assertThatIOException().isThrownBy(() -> storage.stat("a.txt"));
+    }
+
+    private static String craftedMetadata(String key, String value) {
+        String json = "{\"" + key + "\":\"" + value.replace("\n", "\\n") + "\"}";
+        return Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static S3Exception s3Failure(int status, String errorCode, String message) {

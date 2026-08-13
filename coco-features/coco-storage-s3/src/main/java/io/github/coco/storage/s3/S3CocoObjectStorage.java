@@ -266,8 +266,10 @@ public final class S3CocoObjectStorage implements CocoObjectStorage {
 
     private CocoObjectMetadata metadata(String key, Long length, String contentType, Map<String, String> headers,
             Instant lastModified) throws IOException {
-        return new CocoObjectMetadata(key, length == null ? 0 : length, contentType, S3MetadataCodec.decode(headers),
-                lastModified == null ? Instant.EPOCH : lastModified);
+        if (length == null || length < 0 || lastModified == null) {
+            throw new IOException("S3 object metadata is incomplete");
+        }
+        return new CocoObjectMetadata(key, length, contentType, S3MetadataCodec.decode(headers), lastModified);
     }
 
     private String remoteKey(String key) {

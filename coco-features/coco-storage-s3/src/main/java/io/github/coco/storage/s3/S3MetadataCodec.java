@@ -1,16 +1,17 @@
 package io.github.coco.storage.s3;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeMap;
+
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.StreamReadFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /** Reversible single-header codec that prevents S3 metadata key canonicalization from changing business metadata. */
 final class S3MetadataCodec {
@@ -21,110 +22,106 @@ final class S3MetadataCodec {
 
     private static final int MAX_ENTRIES = 128;
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private S3MetadataCodec() {
     }
 
     static Map<String, String> encode(Map<String, String> metadata) throws IOException {
-        if (metadata == null || metadata.isEmpty()) {
-            return Map.of();
-        }
-        if (metadata.size() > MAX_ENTRIES) {
+        Map<String, String> checkedMetadata = metadata == null ? Map.of() : metadata;
+        if (checkedMetadata.size() > MAX_ENTRIES) {
             throw new IOException("S3 metadata exceeds supported entry limit");
         }
-        try {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            try (DataOutputStream output = new DataOutputStream(bytes)) {
-                output.writeInt(metadata.size());
-                for (Map.Entry<String, String> entry : metadata.entrySet()) {
-                    if (entry.getKey() == null || entry.getValue() == null) {
-                        throw new IOException("S3 metadata must not contain null keys or values");
-                    }
-                    validateCharacters(entry.getKey());
-                    validateCharacters(entry.getValue());
-                    write(output, entry.getKey());
-                    write(output, entry.getValue());
-                }
+        Map<String, String> sortedMetadata = new TreeMap<>();
+        for (Map.Entry<String, String> entry : checkedMetadata.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                throw new IOException("S3 metadata must not contain null keys or values");
             }
-            String encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes.toByteArray());
-            if (encoded.length() > MAX_ENCODED_BYTES) {
-                throw new IOException("S3 metadata exceeds supported encoded size");
-            }
-            return Map.of(HEADER, encoded);
-        } catch (IllegalArgumentException exception) {
-            throw new IOException("S3 metadata cannot be encoded", exception);
+            validateCharacters(entry.getKey());
+            validateCharacters(entry.getValue());
+            sortedMetadata.put(entry.getKey(), entry.getValue());
         }
+        ObjectNode root = OBJECT_MAPPER.createObjectNode();
+        for (Map.Entry<String, String> entry : sortedMetadata.entrySet()) {
+            root.put(entry.getKey(), entry.getValue());
+        }
+        String encoded;
+        try {
+            encoded = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(OBJECT_MAPPER.writeValueAsBytes(root));
+        }
+        catch (RuntimeException exception) {
+            throw new IOException("S3 metadata cannot be encoded");
+        }
+        if (encoded.length() > MAX_ENCODED_BYTES) {
+            throw new IOException("S3 metadata exceeds supported encoded size");
+        }
+        return Map.of(HEADER, encoded);
     }
 
     static Map<String, String> decode(Map<String, String> headers) throws IOException {
-        if (headers == null || headers.isEmpty()) {
-            return Map.of();
-        }
-        String encoded = headers.get(HEADER);
-        if (encoded == null) {
-            return Map.of();
-        }
+        String encoded = requireHeader(headers);
         if (encoded.length() > MAX_ENCODED_BYTES) {
             throw new IOException("S3 metadata header exceeds supported size");
         }
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(Base64.getUrlDecoder().decode(encoded)))) {
-            int count = input.readInt();
-            if (count < 0 || count > MAX_ENTRIES) {
-                throw new IOException("invalid S3 metadata header");
-            }
-            Map<String, String> result = new LinkedHashMap<>();
-            for (int index = 0; index < count; index++) {
-                String key = read(input);
-                String value = read(input);
-                if (result.putIfAbsent(key, value) != null) {
-                    throw new IOException("duplicate S3 metadata key");
+        try {
+            byte[] json = Base64.getUrlDecoder().decode(encoded);
+            JsonNode root;
+            try (JsonParser parser = OBJECT_MAPPER.getFactory().createParser(json)) {
+                parser.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION.mappedFeature());
+                root = OBJECT_MAPPER.readTree(parser);
+                if (root == null || parser.nextToken() != null) {
+                    throw invalidHeader();
                 }
             }
-            if (input.read() != -1) {
-                throw new IOException("invalid S3 metadata header");
+            if (!root.isObject() || root.size() > MAX_ENTRIES) {
+                throw invalidHeader();
             }
-            return Map.copyOf(result);
-        } catch (IllegalArgumentException exception) {
-            throw new IOException("invalid S3 metadata header", exception);
+            Map<String, String> result = new LinkedHashMap<>();
+            var fields = root.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (!field.getValue().isTextual()) {
+                    throw invalidHeader();
+                }
+                validateCharacters(field.getKey());
+                validateCharacters(field.getValue().textValue());
+                result.put(field.getKey(), field.getValue().textValue());
+            }
+            Map<String, String> decoded = Map.copyOf(result);
+            if (!encoded.equals(encode(decoded).get(HEADER))) {
+                throw invalidHeader();
+            }
+            return decoded;
+        }
+        catch (IOException | RuntimeException exception) {
+            throw invalidHeader();
         }
     }
 
-    private static void write(DataOutputStream output, String value) throws IOException {
-        byte[] bytes;
-        try {
-            java.nio.ByteBuffer buffer = StandardCharsets.UTF_8.newEncoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .encode(java.nio.CharBuffer.wrap(value));
-            bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
+    private static String requireHeader(Map<String, String> headers) throws IOException {
+        if (headers == null || headers.isEmpty()) {
+            throw new IOException("missing S3 metadata header");
         }
-        catch (CharacterCodingException exception) {
-            throw new IOException("invalid UTF-16 in S3 metadata", exception);
+        int matchingHeaders = 0;
+        boolean exactHeader = false;
+        String encoded = null;
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() != null && HEADER.equalsIgnoreCase(entry.getKey())) {
+                matchingHeaders++;
+                if (HEADER.equals(entry.getKey())) {
+                    exactHeader = true;
+                    encoded = entry.getValue();
+                }
+            }
         }
-        if (bytes.length > 65535) {
-            throw new IOException("S3 metadata value exceeds supported size");
+        if (matchingHeaders == 0) {
+            throw new IOException("missing S3 metadata header");
         }
-        output.writeShort(bytes.length);
-        output.write(bytes);
-    }
-
-    private static String read(DataInputStream input) throws IOException {
-        int length = input.readUnsignedShort();
-        byte[] bytes = input.readNBytes(length);
-        if (bytes.length != length) {
-            throw new IOException("truncated S3 metadata header");
+        if (matchingHeaders != 1 || !exactHeader || encoded == null || encoded.isEmpty()) {
+            throw new IOException("invalid S3 metadata header marker");
         }
-        try {
-            String value = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
-            validateCharacters(value);
-            return value;
-        }
-        catch (CharacterCodingException exception) {
-            throw new IOException("invalid UTF-8 in S3 metadata header", exception);
-        }
+        return encoded;
     }
 
     private static void validateCharacters(String value) throws IOException {
@@ -133,5 +130,13 @@ final class S3MetadataCodec {
                 throw new IOException("S3 metadata contains control characters");
             }
         }
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        if (!value.equals(new String(bytes, StandardCharsets.UTF_8))) {
+            throw new IOException("invalid Unicode in S3 metadata");
+        }
+    }
+
+    private static IOException invalidHeader() {
+        return new IOException("invalid S3 metadata header");
     }
 }
