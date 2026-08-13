@@ -28,9 +28,10 @@ import org.junit.jupiter.api.Test;
 class CocoSecurityConfigurationMetadataTest {
 
     @Test
-    void exposesSecurityWebPropertyMetadata() throws IOException {
+    void exposesSecurityPropertyMetadata() throws IOException {
         JsonNode metadata = CocoTestSupport.configurationMetadata(getClass());
 
+        assertProperty(metadata, "coco.security.method.enabled", "java.lang.Boolean", "true");
         assertProperty(metadata, "coco.security.web.enabled", "java.lang.Boolean", "true");
         assertProperty(metadata, "coco.security.web.header.enabled", "java.lang.Boolean", "false");
         assertProperty(metadata, "coco.security.web.header.principal-id-header-name",
