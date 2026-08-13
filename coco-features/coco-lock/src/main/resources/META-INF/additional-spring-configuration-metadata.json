@@ -7,12 +7,6 @@
       "defaultValue": true
     },
     {
-      "name": "coco.lock.type",
-      "type": "io.github.coco.feature.lock.CocoLockProperties$Type",
-      "description": "Default Coco lock implementation type.",
-      "defaultValue": "local"
-    },
-    {
       "name": "coco.lock.default-wait",
       "type": "java.time.Duration",
       "description": "Default maximum time to wait for a lock.",
@@ -23,12 +17,6 @@
       "type": "java.time.Duration",
       "description": "Default positive lock lease duration.",
       "defaultValue": "30s"
-    },
-    {
-      "name": "coco.lock.key-prefix",
-      "type": "java.lang.String",
-      "description": "Prefix for Redis lock keys.",
-      "defaultValue": "coco:lock:"
     }
   ]
 }

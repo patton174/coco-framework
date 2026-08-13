@@ -27,17 +27,6 @@ class CocoLockAutoConfigurationTest {
     }
 
     @Test
-    void redisWithoutConnectionFactoryFailsFast() {
-        this.contextRunner.withPropertyValues("coco.lock.type=redis")
-                .run(context -> assertThat(context.getStartupFailure()).isNotNull()
-                        .hasMessageContaining("requires a RedisConnectionFactory"));
-        this.contextRunner.withPropertyValues("coco.lock.type=redis")
-                .withBean(CocoLockManager.class, LocalCocoLockManager::new)
-                .run(context -> assertThat(context.getStartupFailure()).isNotNull()
-                        .hasMessageContaining("requires a RedisConnectionFactory"));
-    }
-
-    @Test
     void invalidConfigurationFailsDuringStartupEvenWithBusinessManager() {
         this.contextRunner.withPropertyValues("coco.lock.default-lease=PT0S")
                 .withBean(CocoLockManager.class, LocalCocoLockManager::new)

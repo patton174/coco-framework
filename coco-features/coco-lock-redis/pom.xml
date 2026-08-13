@@ -9,19 +9,28 @@
         <version>${revision}</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
-
-    <artifactId>coco-lock</artifactId>
-    <name>Coco Lock</name>
-    <description>Core local lock infrastructure and public SPI for Coco applications.</description>
+    <artifactId>coco-lock-redis</artifactId>
+    <name>Coco Lock Redis</name>
+    <description>Optional Spring Data Redis distributed lock adapter for Coco.</description>
 
     <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-lock</artifactId>
+            <version>${revision}</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-aop</artifactId>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-redis</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-annotations</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
