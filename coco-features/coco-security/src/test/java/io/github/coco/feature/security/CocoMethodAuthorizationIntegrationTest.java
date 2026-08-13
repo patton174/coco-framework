@@ -19,7 +19,10 @@ import io.github.coco.exception.type.CocoUnauthorizedException;
 import io.github.coco.feature.security.authorization.CocoAuthorizationMode;
 import io.github.coco.feature.security.authorization.CocoAuthorizationRequirement;
 import io.github.coco.feature.security.authorization.CocoAuthorize;
+import io.github.coco.feature.security.authorization.CocoMethodAuthorizationInterceptor;
 import io.github.coco.feature.security.authorization.CocoMethodAuthorizationManager;
+import io.github.coco.feature.security.authorization.CocoMethodAuthorizationResolver;
+import io.github.coco.feature.security.authorization.DefaultCocoMethodAuthorizationManager;
 import io.github.coco.feature.security.context.CocoSecurityContext;
 import io.github.coco.feature.security.context.CocoSecurityContextHolder;
 import io.github.coco.feature.security.context.CocoSecurityContextResolver;
@@ -27,6 +30,7 @@ import io.github.coco.feature.security.context.CocoSecurityPrincipal;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.Advised;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator;
 import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
 import org.aopalliance.intercept.MethodInterceptor;
@@ -199,6 +203,81 @@ class CocoMethodAuthorizationIntegrationTest {
                 });
     }
 
+    @Test
+    void isolatesJdkInterfaceMethodCacheEntriesForSameSignature() throws Throwable {
+        MultiPortService target = new MultiPortService();
+        CocoMethodAuthorizationResolver resolver = new CocoMethodAuthorizationResolver();
+        UserPort userPort = jdkProxy(target, UserPort.class, resolver);
+        AdminPort adminPort = jdkProxy(target, AdminPort.class, resolver);
+
+        CocoSecurityPrincipal user = principal(Set.of("user"), Set.of());
+        assertEquals("run", runAs(user, userPort::run));
+        assertEquals(1, target.calls.get());
+        assertForbidden(() -> runAs(user, adminPort::run));
+        assertEquals(1, target.calls.get());
+    }
+
+    @Test
+    void failsClosedForConflictingCglibInterfaceMethodsBeforeBusinessExecution() throws Throwable {
+        ConflictPortService target = new ConflictPortService();
+        ConflictPortService proxy = cglibProxy(target);
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> runWithResolverContext(Set.of("user"), proxy::run));
+
+        assertEquals(IllegalStateException.class, exception.getClass());
+        assertEquals("Conflicting Coco method authorization declarations", exception.getMessage());
+        assertEquals(0, target.calls.get());
+    }
+
+    @Test
+    void implementationMethodAnnotationOverridesConflictingInterfacesForCglib() throws Throwable {
+        ExplicitPortService target = new ExplicitPortService();
+        ExplicitPortService proxy = cglibProxy(target);
+
+        assertEquals("implementation", runWithResolverContext(Set.of("implementation"), proxy::run));
+        assertEquals(1, target.calls.get());
+    }
+
+    @Test
+    void acceptsEquivalentInterfaceMethodRequirementsForCglib() throws Throwable {
+        SharedPortService target = new SharedPortService();
+        SharedPortService proxy = cglibProxy(target);
+
+        assertEquals("shared", runWithResolverContext(Set.of("shared"), proxy::run));
+        assertEquals(1, target.calls.get());
+    }
+
+    @Test
+    void failsClosedForConflictingInterfaceTypesBeforeBusinessExecution() {
+        ConflictTypePortService target = new ConflictTypePortService();
+        ConflictTypePortService proxy = cglibProxy(target);
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, proxy::run);
+
+        assertEquals(IllegalStateException.class, exception.getClass());
+        assertEquals("Conflicting Coco method authorization declarations", exception.getMessage());
+        assertEquals(0, target.calls.get());
+    }
+
+    @Test
+    void concreteClassTypeAnnotationOverridesConflictingInterfaceTypes() throws Throwable {
+        ExplicitTypePortService target = new ExplicitTypePortService();
+        ExplicitTypePortService proxy = cglibProxy(target);
+
+        assertEquals("class-type", runWithResolverContext(Set.of("class-type"), proxy::run));
+        assertEquals(1, target.calls.get());
+    }
+
+    @Test
+    void acceptsEquivalentInterfaceTypeRequirements() throws Throwable {
+        SharedTypePortService target = new SharedTypePortService();
+        SharedTypePortService proxy = cglibProxy(target);
+
+        assertEquals("shared-type", runWithResolverContext(Set.of("shared-type"), proxy::run));
+        assertEquals(1, target.calls.get());
+    }
+
     private static DefaultPointcutAdvisor companionAdvisor(AtomicInteger calls) {
         return new DefaultPointcutAdvisor(new StaticMethodMatcherPointcut() {
             @Override
@@ -209,6 +288,46 @@ class CocoMethodAuthorizationIntegrationTest {
             calls.incrementAndGet();
             return invocation.proceed();
         });
+    }
+
+    private static <T extends PortContract> T cglibProxy(T target) {
+        CocoMethodAuthorizationResolver resolver = new CocoMethodAuthorizationResolver();
+        return cglibProxy(target, resolver);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends PortContract> T cglibProxy(T target, CocoMethodAuthorizationResolver resolver) {
+        ProxyFactory proxyFactory = authorizationProxyFactory(target, resolver);
+        proxyFactory.setProxyTargetClass(true);
+        return (T) proxyFactory.getProxy();
+    }
+
+    private static <T extends PortContract> T jdkProxy(T target, Class<T> interfaceType,
+            CocoMethodAuthorizationResolver resolver) {
+        ProxyFactory proxyFactory = authorizationProxyFactory(target, resolver);
+        proxyFactory.setProxyTargetClass(false);
+        proxyFactory.setInterfaces(interfaceType);
+        return interfaceType.cast(proxyFactory.getProxy());
+    }
+
+    private static ProxyFactory authorizationProxyFactory(PortContract target,
+            CocoMethodAuthorizationResolver resolver) {
+        CocoMethodAuthorizationManager manager = new DefaultCocoMethodAuthorizationManager();
+        CocoSecurityContextResolver contextResolver = () -> CocoSecurityContextHolder.current();
+        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(new StaticMethodMatcherPointcut() {
+            @Override
+            public boolean matches(java.lang.reflect.Method method, Class<?> targetClass) {
+                return resolver.requiresAuthorization(method, targetClass);
+            }
+        }, new CocoMethodAuthorizationInterceptor(manager, contextResolver, resolver));
+        ProxyFactory proxyFactory = new ProxyFactory(target);
+        proxyFactory.addAdvisor(advisor);
+        return proxyFactory;
+    }
+
+    private static String runWithResolverContext(Set<String> roles, ThrowingSupplier<String> supplier)
+            throws Throwable {
+        return runAs(principal(roles, Set.of()), supplier);
     }
 
     private static CocoSecurityPrincipal principal(Set<String> roles, Set<String> permissions) {
@@ -338,6 +457,122 @@ class CocoMethodAuthorizationIntegrationTest {
     static class InterfaceTypeAuthorizedServiceImpl implements InterfaceTypeAuthorizedService {
         @Override
         public String fromInterfaceType() { return "interface-type"; }
+    }
+
+    interface PortContract {
+        String run();
+    }
+
+    interface UserPort extends PortContract {
+        @Override
+        @CocoAuthorize(roles = "user")
+        String run();
+    }
+
+    interface AdminPort extends PortContract {
+        @Override
+        @CocoAuthorize(roles = "admin")
+        String run();
+    }
+
+    static class MultiPortService implements UserPort, AdminPort {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String run() {
+            this.calls.incrementAndGet();
+            return "run";
+        }
+    }
+
+    static class ConflictPortService implements UserPort, AdminPort, PortContract {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String run() {
+            this.calls.incrementAndGet();
+            return "conflict";
+        }
+    }
+
+    static class ExplicitPortService implements UserPort, AdminPort, PortContract {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        @CocoAuthorize(roles = "implementation")
+        public String run() {
+            this.calls.incrementAndGet();
+            return "implementation";
+        }
+    }
+
+    interface SharedUserPort extends PortContract {
+        @Override
+        @CocoAuthorize(roles = "shared")
+        String run();
+    }
+
+    interface SharedAdminPort extends PortContract {
+        @Override
+        @CocoAuthorize(roles = "shared")
+        String run();
+    }
+
+    static class SharedPortService implements SharedUserPort, SharedAdminPort, PortContract {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String run() {
+            this.calls.incrementAndGet();
+            return "shared";
+        }
+    }
+
+    @CocoAuthorize(roles = "type-user")
+    interface UserTypePort extends PortContract {
+    }
+
+    @CocoAuthorize(roles = "type-admin")
+    interface AdminTypePort extends PortContract {
+    }
+
+    static class ConflictTypePortService implements UserTypePort, AdminTypePort {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String run() {
+            this.calls.incrementAndGet();
+            return "conflict-type";
+        }
+    }
+
+    @CocoAuthorize(roles = "class-type")
+    static class ExplicitTypePortService implements UserTypePort, AdminTypePort {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String run() {
+            this.calls.incrementAndGet();
+            return "class-type";
+        }
+    }
+
+    @CocoAuthorize(roles = "shared-type")
+    interface SharedUserTypePort extends PortContract {
+    }
+
+    @CocoAuthorize(roles = "shared-type")
+    interface SharedAdminTypePort extends PortContract {
+    }
+
+    static class SharedTypePortService implements SharedUserTypePort, SharedAdminTypePort {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String run() {
+            this.calls.incrementAndGet();
+            return "shared-type";
+        }
     }
 
     static class OpenService {
