@@ -24,7 +24,11 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-runtime</artifactId>
+            <artifactId>coco-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-spring-boot-autoconfigure</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
