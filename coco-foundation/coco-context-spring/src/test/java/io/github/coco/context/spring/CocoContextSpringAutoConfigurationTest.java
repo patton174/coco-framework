@@ -49,4 +49,14 @@ class CocoContextSpringAutoConfigurationTest {
             @Override public CocoContextSnapshot capture() { return CocoContextSnapshot.noop(); }
         }).run(context -> assertThat(context.getBeansOfType(CocoContextSnapshotContributor.class)).hasSize(4));
     }
+
+    @Test
+    void startsWhenOptionalFeatureClassesAreAbsent() {
+        contextRunner.withClassLoader(new org.springframework.boot.test.context.FilteredClassLoader(
+                "io.github.coco.feature.security", "io.github.coco.feature.tenant",
+                "io.github.coco.feature.datapermission")).run(context -> {
+                    assertThat(context).hasSingleBean(CocoContextTaskDecorator.class);
+                    assertThat(context.getBeansOfType(CocoContextSnapshotContributor.class)).hasSize(3);
+                });
+    }
 }

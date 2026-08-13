@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import io.github.coco.context.CocoContextSnapshotFactory;
@@ -26,6 +28,12 @@ class CocoContextTaskDecoratorTest {
             Future<String> result = executor.submit(() -> CocoTraceContext.currentTraceId().orElseThrow());
             CocoTraceContext.setTraceId("changed-after-submit");
             assertEquals("submitted", result.get());
+            CocoTraceContext.clear();
+
+            CocoTraceContext.setTraceId("submission-a");
+            assertEquals("submission-a", executor.submit(() -> CocoTraceContext.currentTraceId().orElseThrow()).get());
+            CocoTraceContext.setTraceId("submission-b");
+            assertEquals("submission-b", executor.submit(() -> CocoTraceContext.currentTraceId().orElseThrow()).get());
             CocoTraceContext.clear();
 
             Future<?> failed = executor.submit(() -> { CocoTraceContext.setTraceId("mutated"); throw new IllegalStateException("failure"); });
@@ -50,16 +58,25 @@ class CocoContextTaskDecoratorTest {
     }
 
     @Test
-    void restoresExistingThreadContextAfterDecoratedCallback() {
+    void restoresExistingWorkerContextWithControlledSingleThreadExecutor() throws Exception {
         CocoContextTaskDecorator decorator = new CocoContextTaskDecorator(new CocoContextSnapshotFactory(List.of(
                 new TraceContributor())));
-        CocoTraceContext.setTraceId("submitted");
-        Runnable decorated = decorator.decorate(() -> CocoTraceContext.setTraceId("mutated"));
-        CocoTraceContext.setTraceId("worker");
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            worker.submit(() -> CocoTraceContext.setTraceId("worker-old")).get();
+            CocoTraceContext.setTraceId("submitted");
+            Runnable decorated = decorator.decorate(() ->
+                    assertEquals("submitted", CocoTraceContext.currentTraceId().orElseThrow()));
+            CocoTraceContext.clear();
 
-        decorated.run();
+            worker.submit(decorated).get();
 
-        assertEquals("worker", CocoTraceContext.currentTraceId().orElseThrow());
+            assertEquals("worker-old", worker.submit(() -> CocoTraceContext.currentTraceId().orElseThrow()).get());
+        }
+        finally {
+            worker.submit(CocoTraceContext::clear).get();
+            worker.shutdownNow();
+        }
     }
 
     private static ThreadPoolTaskExecutor executor() {
