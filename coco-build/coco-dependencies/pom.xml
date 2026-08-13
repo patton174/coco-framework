@@ -207,6 +207,11 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>coco-idempotency-redis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-concurrency-limit</artifactId>
                 <version>${project.version}</version>
             </dependency>
