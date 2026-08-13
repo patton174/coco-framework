@@ -1,10 +1,11 @@
 package io.github.coco.feature.lock;
 
-import org.springframework.aop.Pointcut;
 import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator;
 import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
 import org.springframework.aop.support.DefaultPointcutAdvisor;
 import org.springframework.aop.support.StaticMethodMatcherPointcut;
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -42,15 +43,11 @@ public class CocoLockAutoConfiguration {
     @Bean
     @ConditionalOnBean(CocoLockManager.class)
     @ConditionalOnMissingBean(name = "cocoLockAdvisor")
-    public DefaultPointcutAdvisor cocoLockAdvisor(CocoLockManager lockManager, CocoLockProperties properties) {
-        Pointcut pointcut = new StaticMethodMatcherPointcut() {
-            @Override
-            public boolean matches(java.lang.reflect.Method method, Class<?> targetClass) {
-                return AnnotatedElementUtils.hasAnnotation(method, CocoLocked.class)
-                        || AnnotatedElementUtils.hasAnnotation(targetClass, CocoLocked.class);
-            }
-        };
-        return new DefaultPointcutAdvisor(pointcut, new CocoLockMethodInterceptor(lockManager, properties));
+    public DefaultPointcutAdvisor cocoLockAdvisor(ObjectProvider<CocoLockManager> lockManagers,
+            ListableBeanFactory beanFactory, CocoLockProperties properties) {
+        CocoLockManager lockManager = CocoLockManagerResolver.resolve(lockManagers, beanFactory);
+        return new DefaultPointcutAdvisor(new CocoLockedPointcut(),
+                new CocoLockMethodInterceptor(lockManager, properties));
     }
 
     /** @return Advisor 自动代理创建器 */
@@ -62,6 +59,14 @@ public class CocoLockAutoConfiguration {
 
     static final class CocoLockPropertiesValidation {
         private CocoLockPropertiesValidation() {
+        }
+    }
+
+    private static final class CocoLockedPointcut extends StaticMethodMatcherPointcut {
+        @Override
+        public boolean matches(java.lang.reflect.Method method, Class<?> targetClass) {
+            return AnnotatedElementUtils.hasAnnotation(method, CocoLocked.class)
+                    || AnnotatedElementUtils.hasAnnotation(targetClass, CocoLocked.class);
         }
     }
 }
