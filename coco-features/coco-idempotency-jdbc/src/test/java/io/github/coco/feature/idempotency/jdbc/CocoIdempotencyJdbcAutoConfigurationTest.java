@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Map;
 
 import javax.sql.DataSource;
 
@@ -20,6 +21,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
@@ -98,6 +100,50 @@ class CocoIdempotencyJdbcAutoConfigurationTest {
     }
 
     @Test
+    void fallsBackToTheOnlyDataSourceInAParentContext() {
+        DataSource parentDataSource = dataSource("auto_parent_only");
+        try (AnnotationConfigApplicationContext parent = parentContext(
+                Map.of("parentDataSource", parentDataSource))) {
+            this.contextRunner.withParent(parent).withPropertyValues(enabled()).run(context -> {
+                assertThat(context).hasNotFailed();
+                assertThat(context.getBean(JdbcCocoIdempotencyStore.class))
+                        .extracting("dataSource").isSameAs(parentDataSource);
+            });
+        }
+    }
+
+    @Test
+    void parentAndChildDataSourcesFailStrictFallback() {
+        try (AnnotationConfigApplicationContext parent = parentContext(
+                Map.of("parentDataSource", dataSource("auto_parent_candidate")))) {
+            this.contextRunner.withParent(parent).withPropertyValues(enabled())
+                    .withBean("childDataSource", DataSource.class, () -> dataSource("auto_child_candidate"))
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalStateException.class)
+                                .rootCause().hasMessageContaining("exactly one DataSource bean");
+                    });
+        }
+    }
+
+    @Test
+    void namedParentDataSourceWinsOverOtherParentAndChildDataSources() {
+        DataSource dedicated = dataSource("auto_parent_dedicated");
+        try (AnnotationConfigApplicationContext parent = parentContext(Map.of(
+                CocoIdempotencyJdbcAutoConfiguration.DATA_SOURCE_BEAN_NAME, dedicated,
+                "parentBusinessDataSource", dataSource("auto_parent_business")))) {
+            this.contextRunner.withParent(parent).withPropertyValues(enabled())
+                    .withBean("childBusinessDataSource", DataSource.class,
+                            () -> dataSource("auto_child_business"))
+                    .run(context -> {
+                        assertThat(context).hasNotFailed();
+                        assertThat(context.getBean(JdbcCocoIdempotencyStore.class))
+                                .extracting("dataSource").isSameAs(dedicated);
+                    });
+        }
+    }
+
+    @Test
     void severalOrdinaryDataSourcesWithoutDedicatedBeanFailFast() {
         this.contextRunner.withPropertyValues(enabled())
                 .withBean("firstDataSource", DataSource.class, () -> dataSource("auto_first"))
@@ -157,6 +203,13 @@ class CocoIdempotencyJdbcAutoConfigurationTest {
 
     private static DataSource dataSource(String databaseName) {
         return new DriverManagerDataSource("jdbc:h2:mem:" + databaseName + ";DB_CLOSE_DELAY=-1", "sa", "");
+    }
+
+    private static AnnotationConfigApplicationContext parentContext(Map<String, DataSource> dataSources) {
+        AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext();
+        dataSources.forEach((name, dataSource) -> parent.registerBean(name, DataSource.class, () -> dataSource));
+        parent.refresh();
+        return parent;
     }
 
     @Configuration(proxyBeanMethods = false)

@@ -13,6 +13,7 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.sql.DataSource;
 
@@ -258,18 +260,63 @@ class JdbcCocoIdempotencyStoreTest {
                 new SQLException("unknown mysql", "23000", 9999), new SQLException("unknown", "ZZZZZ"))) {
             assertThat(invoke(duplicateKey, null, notDuplicate)).isEqualTo(false);
         }
+
+        SQLException causeSelfLoop = new SQLException("cause self-loop", "HY000") {
+            @Override public synchronized Throwable getCause() { return this; }
+        };
+        SQLException nextSelfLoop = new SQLException("next self-loop", "HY000");
+        nextSelfLoop.setNextException(nextSelfLoop);
+        SQLException mutualFirst = new SQLException("mutual first", "HY000");
+        SQLException mutualSecond = new SQLException("mutual second", "HY000");
+        mutualFirst.setNextException(mutualSecond);
+        mutualSecond.initCause(mutualFirst);
+
+        SQLException longChain = new SQLException("node-0", "HY000");
+        SQLException tail = longChain;
+        for (int index = 1; index <= 32; index++) {
+            SQLException next = new SQLException("node-" + index, "HY000");
+            tail.setNextException(next);
+            tail = next;
+        }
+        tail.setNextException(new SQLException("duplicate beyond bound", "23505"));
+
+        for (SQLException cyclicOrLong : List.of(causeSelfLoop, nextSelfLoop, mutualFirst, longChain)) {
+            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1),
+                    () -> assertThat(invoke(duplicateKey, null, cyclicOrLong)).isEqualTo(false));
+        }
     }
 
     @Test
     void unknownInsertSqlStatePropagatesTheOriginalException() {
         SQLException original = new SQLException("unknown insert failure", "ZZZZZ", 777);
         JdbcCocoIdempotencyStore unknownDriverStore = new JdbcCocoIdempotencyStore(
-                insertFailingDataSource(this.dataSource, original), properties());
+                insertFailingDataSource(this.dataSource, original, new AtomicInteger()), properties());
 
         assertThatThrownBy(() -> unknownDriverStore.acquire(request("unknown-driver", "payload"), NOW,
                 NOW.plusSeconds(60)))
                 .isInstanceOf(DataAccessResourceFailureException.class)
                 .satisfies(failure -> assertThat(failure.getCause()).isSameAs(original));
+    }
+
+    @Test
+    void nonDuplicateInsertFailuresDoNotQueryAnExistingKey() {
+        CocoIdempotencyRequest existing = request("existing-before-insert-failure", "payload");
+        assertThat(this.store.acquire(existing, NOW, NOW.plusSeconds(60)).status())
+                .isEqualTo(CocoIdempotencyAcquireStatus.ACQUIRED);
+
+        for (SQLException original : List.of(new SQLException("not-null", "23502"),
+                new SQLException("foreign-key", "23503"), new SQLException("check", "23513"),
+                new SQLException("mysql non-duplicate", "23000", 1048),
+                new SQLException("unknown", "ZZZZZ", 777))) {
+            AtomicInteger queryCount = new AtomicInteger();
+            JdbcCocoIdempotencyStore failingStore = new JdbcCocoIdempotencyStore(
+                    insertFailingDataSource(this.dataSource, original, queryCount), properties());
+
+            assertThatThrownBy(() -> failingStore.acquire(existing, NOW, NOW.plusSeconds(60)))
+                    .isInstanceOf(DataAccessResourceFailureException.class)
+                    .satisfies(failure -> assertThat(failure.getCause()).isSameAs(original));
+            assertThat(queryCount).hasValue(0);
+        }
     }
 
     @Test
@@ -472,7 +519,8 @@ class JdbcCocoIdempotencyStoreTest {
                 });
     }
 
-    private static DataSource insertFailingDataSource(DataSource target, SQLException failure) {
+    private static DataSource insertFailingDataSource(DataSource target, SQLException failure,
+            AtomicInteger queryCount) {
         return new DelegatingDataSource(target) {
             @Override
             public Connection getConnection() throws SQLException {
@@ -480,9 +528,9 @@ class JdbcCocoIdempotencyStoreTest {
                 return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
                         new Class<?>[] { Connection.class }, (proxy, method, arguments) -> {
                             if ("prepareStatement".equals(method.getName()) && arguments != null
-                                    && arguments.length > 0 && arguments[0] instanceof String sql
-                                    && sql.startsWith("INSERT INTO")) {
-                                throw failure;
+                                    && arguments.length > 0 && arguments[0] instanceof String sql) {
+                                if (sql.startsWith("INSERT INTO")) throw failure;
+                                if (sql.startsWith("SELECT ")) queryCount.incrementAndGet();
                             }
                             try {
                                 return method.invoke(connection, arguments);
