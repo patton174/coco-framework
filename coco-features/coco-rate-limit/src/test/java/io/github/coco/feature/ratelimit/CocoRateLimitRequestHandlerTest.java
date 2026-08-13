@@ -18,6 +18,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.exception.CocoException;
+import io.github.coco.feature.web.context.CocoClientIpResolution;
+import io.github.coco.feature.web.context.CocoWebRequestSnapshot;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.response.CocoSystemCodeProvider;
@@ -30,8 +32,10 @@ import jakarta.servlet.http.HttpServletResponseWrapper;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.WebRequest;
 
 /**
  * 限流请求执行器 HTTP 契约测试。
@@ -91,6 +95,69 @@ class CocoRateLimitRequestHandlerTest {
         assertThatThrownBy(() -> responseWriter().write(exception, request(Locale.US, "en-US"), response))
                 .isSameAs(exception);
         assertThat(response.getStatus()).isEqualTo(HttpStatus.CREATED.value());
+        assertThat(response.getContentAsString()).isEqualTo("already-written");
+    }
+
+    @Test
+    void doesNotAppendABodyWhenTheExceptionHandlerCommitsTheResponse() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        CocoRateLimitResponseWriter writer = new CocoRateLimitResponseWriter(
+                new CocoWebExceptionHandler(new TestMessageService(), (CocoExceptionHttpStatusResolver) exception ->
+                        HttpStatus.BAD_REQUEST, new TestSystemCodeProvider()) {
+                    @Override
+                    public ResponseEntity<Object> handleCocoException(CocoException exception, WebRequest request,
+                            Locale locale) {
+                        try {
+                            response.getOutputStream().write("handler-committed".getBytes(StandardCharsets.UTF_8));
+                            response.flushBuffer();
+                        }
+                        catch (IOException writeFailure) {
+                            throw new IllegalStateException(writeFailure);
+                        }
+                        return ResponseEntity.badRequest().body("must-not-be-written");
+                    }
+                }, new ObjectMapper());
+
+        writer.write(CocoRateLimitErrorCode.EXCEEDED.request(), request(Locale.US, "en-US"), response);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+        assertThat(response.getContentAsString()).isEqualTo("handler-committed");
+    }
+
+    @Test
+    void doesNotOverwriteAnAlreadyCommittedResponseWhenRateLimitRejects() throws Exception {
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        CocoRateLimitStore rejectedStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                permit.resetAt(), false);
+        CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "key"),
+                rejectedStore);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setStatus(HttpStatus.CREATED.value());
+        response.setHeader("RateLimit-Limit", "original");
+        response.getOutputStream().write("already-written".getBytes(StandardCharsets.UTF_8));
+        response.flushBuffer();
+
+        assertThat(handler.handle(route(), request(Locale.US, "en-US"), response)).isFalse();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.CREATED.value());
+        assertThat(response.getHeader("RateLimit-Limit")).isEqualTo("original");
+        assertThat(response.getContentAsString()).isEqualTo("already-written");
+    }
+
+    @Test
+    void failsClosedWithoutWritingWhenTheResponseIsAlreadyCommittedEvenIfThePermitIsAllowed() throws Exception {
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        CocoRateLimitStore allowedStore = permit -> new CocoRateLimitDecision(true, permit.limit(),
+                permit.limit() - 1, permit.resetAt(), false);
+        CocoRateLimitRequestHandler handler = handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "key"),
+                allowedStore);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setStatus(HttpStatus.ACCEPTED.value());
+        response.getOutputStream().write("already-written".getBytes(StandardCharsets.UTF_8));
+        response.flushBuffer();
+
+        assertThat(handler.handle(route(), request(Locale.US, "en-US"), response)).isFalse();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.ACCEPTED.value());
+        assertThat(response.getHeader("RateLimit-Limit")).isNull();
         assertThat(response.getContentAsString()).isEqualTo("already-written");
     }
 
@@ -182,6 +249,27 @@ class CocoRateLimitRequestHandlerTest {
         }
     }
 
+    @Test
+    void distinguishesCapacityExhaustionFromOrdinaryQuotaExhaustionInTheResponseContract() throws Exception {
+        Instant now = Instant.parse("2026-07-15T00:00:00Z");
+        CocoRateLimitStore quotaStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                permit.resetAt(), false);
+        CocoRateLimitStore capacityStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                permit.resetAt(), true);
+        MockHttpServletResponse quotaResponse = new MockHttpServletResponse();
+        MockHttpServletResponse capacityResponse = new MockHttpServletResponse();
+
+        assertThat(handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "quota"), quotaStore)
+                .handle(route(), request(Locale.US, "en-US"), quotaResponse)).isFalse();
+        assertThat(handler(now, (snapshot, route) -> new CocoRateLimitKey("api", "capacity"), capacityStore)
+                .handle(route(), request(Locale.US, "en-US"), capacityResponse)).isFalse();
+
+        assertThat(quotaResponse.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+        assertThat(capacityResponse.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+        assertThat(quotaResponse.getContentAsString()).contains("Request rate limit has been exceeded.");
+        assertThat(capacityResponse.getContentAsString()).contains("Coco rate-limit is unavailable.");
+    }
+
     static CocoRateLimitRequestHandler handler(Instant now, CocoRateLimitKeyResolver keyResolver) {
         CocoRateLimitProperties properties = new CocoRateLimitProperties();
         CocoRateLimitProperties.InMemory inMemory = new CocoRateLimitProperties.InMemory();
@@ -193,8 +281,14 @@ class CocoRateLimitRequestHandlerTest {
 
     static CocoRateLimitRequestHandler handler(Instant now, CocoRateLimitKeyResolver keyResolver,
             CocoRateLimitStore store) {
-        return new CocoRateLimitRequestHandler(keyResolver, store, (traceId, request) -> null,
+        return new CocoRateLimitRequestHandler(keyResolver, store,
+                (traceId, request) -> snapshot(traceId, CocoClientIpResolution.remoteAddress("127.0.0.1")),
                 responseWriter(), Clock.fixed(now, ZoneOffset.UTC));
+    }
+
+    private static CocoWebRequestSnapshot snapshot(String traceId, CocoClientIpResolution clientIpResolution) {
+        return new CocoWebRequestSnapshot(traceId, "GET", "/api", null, clientIpResolution.clientIp(), null, null,
+                null, null, null, null, java.util.Map.of(), java.util.Map.of(), null, null, clientIpResolution);
     }
 
     private static CocoRateLimitResponseWriter responseWriter() {
@@ -252,11 +346,14 @@ class CocoRateLimitRequestHandlerTest {
 
         @Override
         public String resolve(CocoMessage message) {
-            return message(Locale.US);
+            return resolve(message, Locale.US);
         }
 
         @Override
         public String resolve(CocoMessage message, Locale locale) {
+            if (CocoRateLimitErrorCode.UNAVAILABLE.messageCode().equals(message.code())) {
+                return "Coco rate-limit is unavailable.";
+            }
             return message(locale);
         }
 

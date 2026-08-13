@@ -75,14 +75,21 @@ public final class CocoRateLimitRequestHandler {
             CocoRateLimitKey key = this.keyResolver.resolve(snapshot, checkedRoute);
             CocoRateLimitDecision decision = this.store.acquire(
                     new CocoRateLimitPermit(key, checkedRoute.getLimit(), resetAt));
+            if (response.isCommitted()) {
+                return false;
+            }
             writeRateLimitHeaders(response, decision, now);
             if (decision.allowed()) {
                 return true;
             }
-            reject(checkedRoute, traceId, decision, request, response, CocoRateLimitErrorCode.EXCEEDED);
+            reject(checkedRoute, traceId, decision, request, response,
+                    decision.capacityExhausted() ? CocoRateLimitErrorCode.UNAVAILABLE : CocoRateLimitErrorCode.EXCEEDED);
             return false;
         }
         catch (RuntimeException exception) {
+            if (response.isCommitted()) {
+                return false;
+            }
             CocoRateLimitDecision decision = new CocoRateLimitDecision(false, checkedRoute.getLimit(), 0, resetAt, true);
             writeRateLimitHeaders(response, decision, now);
             LOGGER.warn("Coco rate-limit unavailable; failing closed route={} traceId={}", checkedRoute.getId(), traceId,

@@ -52,11 +52,14 @@ public final class CocoRateLimitResponseWriter {
         if (response.isCommitted()) {
             throw exception;
         }
-        ResponseEntity<Object> entity = this.exceptionHandler.handleCocoException(exception,
-                new ServletWebRequest(request, response), request.getLocale());
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        ResponseEntity<Object> entity = this.exceptionHandler.handleCocoException(exception,
+                new ServletWebRequest(request, response), request.getLocale());
+        if (response.isCommitted()) {
+            return;
+        }
         this.objectMapper.writeValue(response.getOutputStream(), entity.getBody());
     }
 }
