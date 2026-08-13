@@ -26,7 +26,9 @@
         <module>coco-data-permission</module>
         <module>coco-openapi</module>
         <module>coco-replay-redis</module>
+        <module>coco-lock</module>
         <module>coco-rate-limit</module>
+        <module>coco-rate-limit-redis</module>
         <module>coco-observability</module>
         <module>coco-feature-codegen</module>
         <module>coco-cache</module>
