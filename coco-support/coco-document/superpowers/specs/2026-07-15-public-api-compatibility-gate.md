@@ -15,12 +15,12 @@ The tracked policy bundle has four non-overlapping schema-v3 JSON authorities. E
 an exact schema version and policy ID, and every identity-bearing array is
 sorted deterministically.
 
-1. `public-api-profile.json` is the sole authority for the 32 report-owning
-   non-POM reactor artifacts, modules, 22 canonical candidates, ten direct
+1. `public-api-profile.json` is the sole authority for the 51 report-owning
+   non-POM reactor artifacts and modules, 41 canonical candidate JARs, ten direct
    replacement mappings, normalized upload JAR names, baseline states, and the
    Maven `revision` candidate-version source.
 2. `baseline-sha256.json` is the sole authority for the exact Maven Central
-   origin, group and `2.0.1` version, 20 POM/JAR digest and size pairs, 12 exact
+   origin, group and `2.0.1` version, 20 POM/JAR digest and size pairs, 31 exact
    POM and JAR 404 results, the signing fingerprint, and the tracked key raw
    SHA-256.
 3. `allowlist.json` contains only exact incompatibility rules. It cannot define
@@ -49,26 +49,41 @@ HTTP `Content-Length`, complete POM coordinate, readable JAR ZIP, exact
 `pom.properties`, and both detached signatures. It uses only the tracked public key and requires fingerprint
 `5A99C8EF1C30294660E533E36191CBA3A67073D5`; no dynamic keyserver is trusted.
 
-The remaining 12 artifacts must return 404 independently for both POM and JAR.
+The remaining 31 artifacts must return 404 independently for both POM and JAR.
 The available and missing sets are disjoint and their union must equal the
 profile inventory. Baseline files and the signing key must be regular,
 non-symlink files. Same-path content replacement fails by digest even when an
 mtime is rolled back.
 
+The 19 additional report owners are the current recursive reactor modules added
+after the published `2.0.1` surface. Each has an explicit profile entry and
+ledger record, and its Maven Central `2.0.1` POM and JAR both return `404`.
+They remain report owners and must not be omitted merely because no baseline is
+published.
+
 ## Report And Candidate Contract
 
 The validator independently walks root and nested reactor POMs and requires
-that inventory to equal the 32 profile entries. Every replacement target must
+that inventory to equal the 51 profile entries. Every replacement target must
 be a profile self-candidate. Facade chains, cycles, undeclared targets, and
 candidate POM mismatches fail.
 
 The trusted runner performs a candidate `clean install`, snapshots each of the
-22 canonical JAR paths, explicit expected versions, and SHA-256 values, then
+41 canonical JAR paths, explicit expected versions, and SHA-256 values, then
 deletes and asserts absence of every legacy and run-scoped report directory. It
 records the run start and input hashes and invokes the profile with `clean
-verify` into one unique run ID. Exactly 32 non-empty reports must be newly
+verify` into one unique run ID. Exactly 51 non-empty reports must be newly
 created inside that run directory and fall within the recorded time window.
 Missing plugin output, empty XML, old residue, and future-dated reports fail.
+
+The candidate producer must first prove that its built reactor contains exactly
+the same 51 report-owner JARs with the profile's source path and GAV. It then
+uploads exactly the 41 self-owned canonical target JARs, derived from
+`comparison.targetArtifactId`, plus its non-authoritative manifest. The
+protected verifier independently derives the same 41-entry set from its exact
+protected profile. A facade JAR, missing canonical target, extra JAR, or a
+manifest/source-path/GAV/version/SHA mismatch fails; candidate input never
+chooses the trusted inventory.
 
 After Maven completes, the runner rehashes every candidate and records the
 before/after values in the attestation. The checker rehashes them again. Every

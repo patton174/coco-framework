@@ -3211,7 +3211,9 @@ class AgentReviewTests(unittest.TestCase):
             "BOOT-INF/lib/spring-tx-7.0.8.jar",
         )
         self.assertEqual(25, len(expected_removed_libraries))
-        self.assertEqual(tuple(sorted(expected_removed_libraries)), expected_removed_libraries)
+        self.assertEqual(
+            tuple(sorted(expected_removed_libraries)), expected_removed_libraries
+        )
         for library in expected_removed_libraries:
             self.assertIn(f'"{library}",', basic_archive_gate)
         self.assertIn("added_libraries == set()", basic_archive_gate)
@@ -3239,9 +3241,7 @@ class AgentReviewTests(unittest.TestCase):
         full_archive_gate = workflow.split(
             "      - name: Verify full sample feature composition\n", 1
         )[1].split("      - name: Verify full sample business flow with Python\n", 1)[0]
-        self.assertIn(
-            "grep 'BOOT-INF/lib/coco-feature-codegen-'", full_archive_gate
-        )
+        self.assertIn("grep 'BOOT-INF/lib/coco-feature-codegen-'", full_archive_gate)
         self.assertIn("len(codegen_libraries) == 1", full_archive_gate)
         self.assertIn(
             'codegen_library in index_references(full, "BOOT-INF/classpath.idx")',

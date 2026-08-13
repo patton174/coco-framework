@@ -79,7 +79,7 @@ class PathIoTest(unittest.TestCase):
                     SCRIPT_DIR / "public-api-profile.json", "repository API profile"
                 ).encode("utf-8"),
             )
-            self.assertEqual(32, len(load_manifest(profile).artifacts))
+            self.assertEqual(51, len(load_manifest(profile).artifacts))
             rmtree(root, "deep profile test tree")
 
     def test_atomic_create_never_overwrites_an_existing_target(self) -> None:

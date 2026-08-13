@@ -885,13 +885,15 @@ class PublicApiCompatibilityConfigurationTest(unittest.TestCase):
     ) -> None:
         manifest = load_manifest(SCRIPT_DIR / "public-api-profile.json")
         ledger = load_baseline_ledger(SCRIPT_DIR / "baseline-sha256.json")
-        self.assertEqual(32, len(manifest.artifacts))
         self.assertEqual(
-            22,
+            len(reactor_manifest(REPOSITORY_ROOT).artifacts), len(manifest.artifacts)
+        )
+        self.assertEqual(
+            41,
             sum(entry.comparison == "self" for entry in manifest.artifacts),
         )
         self.assertEqual(20, len(ledger.artifacts))
-        self.assertEqual(12, len(ledger.missing_artifacts))
+        self.assertEqual(31, len(ledger.missing_artifacts))
         self.assertEqual(
             {entry.artifact for entry in ledger.artifacts},
             {

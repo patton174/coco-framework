@@ -48,6 +48,11 @@ POLICY_ID = "coco-public-api-compatibility"
 PROFILE_ID = "public-api-compatibility"
 CANDIDATE_VERSION_SOURCE = "mavenProperty:revision"
 PROFILE_SCHEMA_VERSION = 3
+REPORT_OWNER_COUNT = 51
+CANONICAL_CANDIDATE_COUNT = 41
+PRESENT_BASELINE_COUNT = 20
+MISSING_BASELINE_COUNT = 31
+DIRECT_REPLACEMENT_COUNT = 10
 BASELINE_ORIGIN = "https://repo.maven.apache.org/maven2"
 BASELINE_VERSION = "2.0.1"
 JAPICMP_URL = (
@@ -379,7 +384,20 @@ def parse_candidate_module_pom(data: bytes) -> dict[str, str]:
     }
 
 
-def candidate_jars(root: Path) -> list[dict[str, Any]]:
+def canonical_candidate_artifacts(policy: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    candidates = tuple(
+        item
+        for item in policy["artifacts"]
+        if item["comparison"]["targetArtifactId"] == item["artifactId"]
+    )
+    require(
+        len(candidates) == CANONICAL_CANDIDATE_COUNT,
+        f"profile must define exactly {CANONICAL_CANDIDATE_COUNT} canonical candidate JARs",
+    )
+    return candidates
+
+
+def candidate_jars(root: Path, policy: dict[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     resolved_root = root.resolve(strict=True)
     for candidate in root.rglob("*.jar"):
@@ -425,12 +443,18 @@ def candidate_jars(root: Path) -> list[dict[str, Any]]:
             }
         )
     result.sort(key=lambda item: item["normalized_name"])
-    require(len(result) == 32, "candidate must produce exactly 32 JARs")
-    names = [item["normalized_name"] for item in result]
-    require(len(set(names)) == 32, "candidate JAR names are duplicated")
     require(
-        len({name.casefold() for name in names}) == 32,
-        "candidate JAR names case-collide",
+        len(result) == REPORT_OWNER_COUNT,
+        f"candidate reactor must produce exactly {REPORT_OWNER_COUNT} report-owner JARs",
+    )
+    names = [item["normalized_name"] for item in result]
+    require(
+        len(set(names)) == REPORT_OWNER_COUNT,
+        "candidate report-owner JAR names are duplicated",
+    )
+    require(
+        len({name.casefold() for name in names}) == REPORT_OWNER_COUNT,
+        "candidate report-owner JAR names case-collide",
     )
     require(
         all(JAR_NAME_RE.fullmatch(name) is not None for name in names),
@@ -440,8 +464,35 @@ def candidate_jars(root: Path) -> list[dict[str, Any]]:
         f"{item['metadata']['groupId']}:{item['metadata']['artifactId']}"
         for item in result
     ]
-    require(len(set(coordinates)) == 32, "candidate Maven coordinates are duplicated")
-    return result
+    require(
+        len(set(coordinates)) == REPORT_OWNER_COUNT,
+        "candidate report-owner Maven coordinates are duplicated",
+    )
+    by_artifact = {item["metadata"]["artifactId"]: item for item in result}
+    expected_owner_ids = set(policy["artifactsById"])
+    require(
+        set(by_artifact) == expected_owner_ids,
+        f"candidate reactor JAR inventory must equal all {REPORT_OWNER_COUNT} profile report owners",
+    )
+    for artifact_id, item in by_artifact.items():
+        profile = policy["artifactsById"][artifact_id]
+        require(
+            item["metadata"]["groupId"] == profile["groupId"]
+            and item["source_path"]
+            == (
+                f"{profile['modulePath']}/target/{artifact_id}-{CANDIDATE_VERSION}.jar"
+            ),
+            "candidate report-owner JAR path/GAV does not match profile",
+        )
+    candidates = [
+        by_artifact[item["artifactId"]]
+        for item in canonical_candidate_artifacts(policy)
+    ]
+    require(
+        len(candidates) == CANONICAL_CANDIDATE_COUNT,
+        f"candidate staging inventory must contain exactly {CANONICAL_CANDIDATE_COUNT} canonical JARs",
+    )
+    return candidates
 
 
 def stage_candidate(
@@ -458,7 +509,8 @@ def stage_candidate(
     valid_positive_int(source_run_attempt, "candidate run attempt is invalid")
     assert_clean_checkout(candidate_root, candidate_sha)
     require(not output_root.exists(), "candidate staging root already exists")
-    jars = candidate_jars(candidate_root)
+    policy = load_policy(candidate_root)
+    jars = candidate_jars(candidate_root, policy)
     (output_root / JAR_DIRECTORY).mkdir(parents=True)
     entries: list[dict[str, Any]] = []
     for jar in jars:
@@ -497,7 +549,10 @@ def read_safe_zip_entries(archive: zipfile.ZipFile) -> dict[str, bytes]:
     folded: set[str] = set()
     total = 0
     infos = archive.infolist()
-    require(0 < len(infos) <= 33, "artifact entry count is invalid")
+    require(
+        0 < len(infos) <= CANONICAL_CANDIDATE_COUNT + 1,
+        f"candidate artifact has more than {CANONICAL_CANDIDATE_COUNT} JARs plus its manifest",
+    )
     for info in infos:
         name = safe_path(info.filename)
         require(not info.is_dir(), "artifact directories are not permitted")
@@ -752,8 +807,8 @@ def validate_policy_bundle(
         and profile["profile"] == PROFILE_ID
         and profile["candidateVersionSource"] == CANDIDATE_VERSION_SOURCE
         and isinstance(profile["artifacts"], list)
-        and len(profile["artifacts"]) == 32,
-        "profile metadata is invalid",
+        and len(profile["artifacts"]) == REPORT_OWNER_COUNT,
+        f"profile must contain exactly {REPORT_OWNER_COUNT} report owners",
     )
     artifacts: list[dict[str, Any]] = []
     artifact_ids: list[str] = []
@@ -807,22 +862,23 @@ def validate_policy_bundle(
         module_paths.append(module_path)
     require(
         artifact_ids == sorted(artifact_ids)
-        and len(set(artifact_ids)) == 32
-        and len({item.casefold() for item in artifact_ids}) == 32,
-        "profile artifact inventory is not canonical",
+        and len(set(artifact_ids)) == REPORT_OWNER_COUNT
+        and len({item.casefold() for item in artifact_ids}) == REPORT_OWNER_COUNT,
+        f"profile report-owner inventory must contain exactly {REPORT_OWNER_COUNT} canonical identities",
     )
     require(
-        len(set(module_paths)) == 32
-        and len({item.casefold() for item in module_paths}) == 32,
-        "profile modulePath inventory is not unique",
+        len(set(module_paths)) == REPORT_OWNER_COUNT
+        and len({item.casefold() for item in module_paths}) == REPORT_OWNER_COUNT,
+        f"profile must contain exactly {REPORT_OWNER_COUNT} unique modulePath values",
     )
     artifacts_by_id = {item["artifactId"]: item for item in artifacts}
     present_ids = {
         item["artifactId"] for item in artifacts if item["baselineState"] == "present"
     }
     require(
-        len(present_ids) == 20 and len(artifacts) - len(present_ids) == 12,
-        "profile baseline state counts are invalid",
+        len(present_ids) == PRESENT_BASELINE_COUNT
+        and len(artifacts) - len(present_ids) == MISSING_BASELINE_COUNT,
+        f"profile must contain exactly {PRESENT_BASELINE_COUNT} present and {MISSING_BASELINE_COUNT} missing baselines",
     )
     replacements = 0
     for item in artifacts:
@@ -840,7 +896,20 @@ def validate_policy_bundle(
             )
         if target_id != item["artifactId"]:
             replacements += 1
-    require(replacements == 10, "profile replacement count is invalid")
+    require(
+        replacements == DIRECT_REPLACEMENT_COUNT,
+        f"profile must contain exactly {DIRECT_REPLACEMENT_COUNT} direct replacements",
+    )
+    canonical_ids = {
+        item["artifactId"]
+        for item in artifacts
+        if item["comparison"]["targetArtifactId"] == item["artifactId"]
+    }
+    target_ids = {item["comparison"]["targetArtifactId"] for item in artifacts}
+    require(
+        canonical_ids == target_ids and len(canonical_ids) == CANONICAL_CANDIDATE_COUNT,
+        f"profile must resolve to exactly {CANONICAL_CANDIDATE_COUNT} self-owned canonical candidates",
+    )
 
     ledger = exact_keys(
         value["baselineLedger"],
@@ -870,8 +939,8 @@ def validate_policy_bundle(
         and ledger["signingKeySha256"]
         == valid_sha256(value["signingKeySha256"], "policy signing key SHA is invalid")
         and isinstance(ledger["artifacts"], list)
-        and len(ledger["artifacts"]) == 32,
-        "baseline ledger metadata is invalid",
+        and len(ledger["artifacts"]) == REPORT_OWNER_COUNT,
+        f"baseline ledger must contain exactly {REPORT_OWNER_COUNT} report owners",
     )
     baselines: dict[str, dict[str, Any]] = {}
     ledger_ids: list[str] = []
@@ -939,10 +1008,10 @@ def validate_policy_bundle(
         ledger_ids.append(artifact_id)
     require(
         ledger_ids == sorted(ledger_ids)
-        and len(set(ledger_ids)) == 32
+        and len(set(ledger_ids)) == REPORT_OWNER_COUNT
         and set(ledger_ids) == set(artifact_ids)
         and set(baselines) == present_ids,
-        "baseline ledger coverage is invalid",
+        f"baseline ledger must exactly cover all {REPORT_OWNER_COUNT} profile report owners",
     )
 
     japicmp_policy = exact_keys(
@@ -1131,10 +1200,13 @@ def validate_candidate_files(
     for key in ("candidate_sha", "source_event", "source_run_id", "source_run_attempt"):
         require(manifest[key] == binding[key], "candidate manifest binding drift")
     require(
-        isinstance(manifest["jars"], list) and len(manifest["jars"]) == 32,
-        "candidate manifest JAR list is invalid",
+        isinstance(manifest["jars"], list)
+        and len(manifest["jars"]) == CANONICAL_CANDIDATE_COUNT,
+        f"candidate manifest must contain exactly {CANONICAL_CANDIDATE_COUNT} canonical JAR claims",
     )
-    expected_artifacts = {item["jarName"]: item for item in policy["artifacts"]}
+    expected_artifacts = {
+        item["jarName"]: item for item in canonical_candidate_artifacts(policy)
+    }
     expected = list(expected_artifacts)
     expected_paths = {MANIFEST_NAME, *(f"{JAR_DIRECTORY}/{name}" for name in expected)}
     require(set(files) == expected_paths, "candidate artifact inventory is invalid")
@@ -1193,8 +1265,9 @@ def validate_candidate_files(
         claims[normalized_name] = item
     require(set(claims) == set(expected), "candidate manifest JAR claims are invalid")
     require(
-        len({item["source_path"] for item in claims.values()}) == 32,
-        "candidate manifest source paths are duplicated",
+        len({item["source_path"] for item in claims.values()})
+        == CANONICAL_CANDIDATE_COUNT,
+        f"candidate manifest must contain exactly {CANONICAL_CANDIDATE_COUNT} unique canonical source paths",
     )
     jars: dict[str, bytes] = {}
     for name in expected:
