@@ -112,6 +112,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <useSystemClassLoader>false</useSystemClassLoader>
                     <systemPropertyVariables>
                         <coco.fixture.projectVersion>${project.version}</coco.fixture.projectVersion>
                         <coco.fixture.revision>${revision}</coco.fixture.revision>
