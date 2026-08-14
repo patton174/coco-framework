@@ -34,6 +34,8 @@ import org.slf4j.LoggerFactory;
  */
 class InMemoryCocoRateLimitStoreTest {
 
+    private static final long COORDINATION_TIMEOUT_SECONDS = 5L;
+
     @Test
     void acquiresAtMostTheConfiguredLimitUnderConcurrency() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
@@ -96,7 +98,9 @@ class InMemoryCocoRateLimitStoreTest {
         entries.blockNext(first.key());
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(
                 properties(1, 60), clock, false, entries)) {
-            ExecutorService executor = Executors.newFixedThreadPool(16);
+            ExecutorService executor = Executors.newFixedThreadPool(65);
+            CountDownLatch competingStarted = new CountDownLatch(64);
+            CountDownLatch acquireCompeting = new CountDownLatch(1);
             try {
                 Future<CocoRateLimitDecision> firstResult = executor.submit(() -> store.acquire(first));
                 assertThat(entries.awaitComputation()).isTrue();
@@ -106,9 +110,20 @@ class InMemoryCocoRateLimitStoreTest {
                 List<Future<CocoRateLimitDecision>> competing = new ArrayList<>();
                 for (int index = 1; index <= 64; index++) {
                     int key = index;
-                    competing.add(executor.submit(() -> store.acquire(permit("api", "203.0.113." + key, 1,
-                            clock.instant().plusSeconds(60)))));
+                    competing.add(executor.submit(() -> {
+                        competingStarted.countDown();
+                        acquireCompeting.await();
+                        return store.acquire(permit("api", "203.0.113." + key, 1,
+                                clock.instant().plusSeconds(60)));
+                    }));
                 }
+                assertThat(competingStarted.await(COORDINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+                acquireCompeting.countDown();
+
+                assertThat(store.size()).isLessThanOrEqualTo(1);
+                assertThat(store.activeEntryCount()).isLessThanOrEqualTo(1);
+
+                entries.releaseComputation();
                 for (Future<CocoRateLimitDecision> result : competing) {
                     CocoRateLimitDecision decision = get(result);
                     assertThat(decision.allowed()).isFalse();
@@ -117,8 +132,7 @@ class InMemoryCocoRateLimitStoreTest {
                     assertThat(store.activeEntryCount()).isLessThanOrEqualTo(1);
                 }
 
-                entries.releaseComputation();
-                assertThat(firstResult.get(1, TimeUnit.SECONDS).allowed()).isTrue();
+                assertThat(firstResult.get(COORDINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS).allowed()).isTrue();
                 assertThat(store.size()).isOne();
                 assertThat(store.activeEntryCount()).isOne();
             }
@@ -435,7 +449,7 @@ class InMemoryCocoRateLimitStoreTest {
 
     private static CocoRateLimitDecision get(Future<CocoRateLimitDecision> result) {
         try {
-            return result.get();
+            return result.get(COORDINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         }
         catch (Exception exception) {
             throw new AssertionError(exception);
@@ -489,7 +503,9 @@ class InMemoryCocoRateLimitStoreTest {
                 InMemoryCocoRateLimitStore.Bucket computed = remappingFunction.apply(computedKey, bucket);
                 this.computationReady.countDown();
                 try {
-                    this.releaseComputation.await();
+                    if (!this.releaseComputation.await(COORDINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Timed out while blocking rate-limit computation");
+                    }
                 }
                 catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
