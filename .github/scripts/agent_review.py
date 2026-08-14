@@ -835,18 +835,39 @@ def build_code_contexts(
     added: set[str] = set()
 
     def add_context(
-        source: str, kind: str, content: str, line_count: int | None = None
+        source: str,
+        kind: str,
+        content: str,
+        line_count: int | None = None,
+        max_chars: int | None = None,
+        require_complete: bool = False,
     ) -> None:
         nonlocal used
         if source in added or not content:
             return
         remaining = total_limit - used
         if remaining <= 0:
+            if require_complete:
+                raise ReviewError(
+                    f"Required code context exceeds the remaining budget: {source}"
+                )
             omissions.append(f"code context omitted by budget: {source}")
             return
-        clipped = clip_text(
-            content, min(per_file, remaining), f"code context {source}", omissions
-        )
+        limit = per_file if max_chars is None else max_chars
+        if require_complete:
+            if len(content) > limit:
+                raise ReviewError(
+                    f"Required code context exceeds its complete context limit: {source}"
+                )
+            if len(content) > remaining:
+                raise ReviewError(
+                    f"Required code context exceeds the remaining budget: {source}"
+                )
+            clipped = content
+        else:
+            clipped = clip_text(
+                content, min(limit, remaining), f"code context {source}", omissions
+            )
         item: dict[str, Any] = {"source": source, "kind": kind, "content": clipped}
         if line_count is not None:
             item["line_count"] = line_count
@@ -893,9 +914,9 @@ def build_code_contexts(
                 f"{starter_pom}"
             )
         remaining = total_limit - used
-        if len(starter_context) > per_file:
+        if len(starter_context) > full_file:
             raise ReviewError(
-                "Required starter composition context exceeds the per-file context "
+                "Required starter composition context exceeds the full-file context "
                 f"limit: {starter_pom}"
             )
         if len(starter_context) > remaining:
@@ -908,6 +929,8 @@ def build_code_contexts(
             "related-starter-pom",
             starter_context,
             len(starter_content.splitlines()),
+            max_chars=full_file,
+            require_complete=True,
         )
 
     for entry in selected_files:
