@@ -1486,7 +1486,65 @@ class AgentReviewTests(unittest.TestCase):
                     MODEL_CONFIG_SHA256,
                 )
 
-    def test_build_context_rejects_starter_context_over_per_file_limit(self) -> None:
+    def test_build_context_adds_complete_starter_context_over_per_file_limit(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Trusted policy", encoding="utf-8")
+            (root / "pom.xml").write_text("<project />", encoding="utf-8")
+            starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
+            starter.parent.mkdir(parents=True)
+            starter_lines = ["<project>"]
+            starter_lines.extend(
+                f"  <dependency>starter-{index:04d}</dependency>"
+                for index in range(180)
+            )
+            starter_lines.append("</project>")
+            starter_content = "\n".join(starter_lines)
+            starter.write_text(starter_content, encoding="utf-8")
+            filename = "coco-features/coco-feature-web/pom.xml"
+            starter_context = review.numbered_text(starter_content)
+            self.assertGreater(len(starter_context), 4_000)
+            self.assertLess(len(starter_context), 12_000)
+
+            context = review.build_context(
+                FakeContextClient({filename: "<project />"}),
+                REPOSITORY,
+                {
+                    "number": 1,
+                    "title": "Feature pom",
+                    "body": "",
+                    "base": {"sha": BASE_SHA},
+                    "head": {"sha": HEAD_SHA},
+                },
+                [
+                    {
+                        "filename": filename,
+                        "status": "modified",
+                        "patch": "@@ -1 +1 @@\n-old\n+new",
+                    }
+                ],
+                [],
+                "diff --git a/pom.xml b/pom.xml\n+new",
+                root,
+                config(per_file_chars=4_000, full_file_chars=12_000),
+                MODEL_CONFIG_SHA256,
+            )
+
+            starter_entry = next(
+                item
+                for item in context["untrusted"]["code_contexts"]
+                if item["source"] == "coco-spring/coco-spring-boot-starter/pom.xml"
+            )
+            self.assertEqual(starter_context, starter_entry["content"])
+            self.assertIn(
+                f"{len(starter_lines):6d} </project>", starter_entry["content"]
+            )
+
+    def test_build_context_rejects_starter_context_over_full_file_limit(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "AGENTS.md").write_text("Trusted policy", encoding="utf-8")
@@ -1501,7 +1559,7 @@ class AgentReviewTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 review.ReviewError,
-                "Required starter composition context exceeds the per-file context limit",
+                "Required starter composition context exceeds the full-file context limit",
             ):
                 review.build_context(
                     FakeContextClient({filename: "<project />"}),
@@ -1523,7 +1581,7 @@ class AgentReviewTests(unittest.TestCase):
                     [],
                     "diff --git a/pom.xml b/pom.xml\n+new",
                     root,
-                    config(per_file_chars=1),
+                    config(full_file_chars=1),
                     MODEL_CONFIG_SHA256,
                 )
 
