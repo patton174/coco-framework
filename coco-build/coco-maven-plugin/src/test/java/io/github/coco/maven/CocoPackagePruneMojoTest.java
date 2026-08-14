@@ -115,6 +115,7 @@ class CocoPackagePruneMojoTest {
                         "BOOT-INF/lib/mybatis-extra-1.0.0.jar",
                         "BOOT-INF/lib/spring-jdbc-7.0.0.jar")
                 .doesNotContain(
+                        "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/mybatis-3.5.19.jar",
                         "BOOT-INF/lib/mybatis-plus-core-3.5.16.jar",
@@ -126,6 +127,7 @@ class CocoPackagePruneMojoTest {
         assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
                 .contains("coco-feature-audit", "mybatis-extra", "spring-jdbc")
                 .doesNotContain(
+                        "coco-mybatis-plus",
                         "coco-feature-mybatis-plus",
                         "mybatis-3.5.19",
                         "mybatis-plus-core",
@@ -136,6 +138,7 @@ class CocoPackagePruneMojoTest {
         assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
                 .contains("coco-feature-audit", "mybatis-extra", "spring-jdbc")
                 .doesNotContain(
+                        "coco-mybatis-plus",
                         "coco-feature-mybatis-plus",
                         "mybatis-3.5.19",
                         "mybatis-plus-core",
@@ -144,6 +147,14 @@ class CocoPackagePruneMojoTest {
                         "mybatis-plus-spring-boot4-starter",
                         "mybatis-spring");
         assertRunnableSpringBootArchive(archivePath);
+        Path originalArchivePath = buildDirectory.resolve("coco-prune.original.jar");
+        assertThat(entries(originalArchivePath)).contains(
+                "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar",
+                "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar");
+        assertThat(readEntry(originalArchivePath, "BOOT-INF/classpath.idx"))
+                .contains("coco-mybatis-plus", "coco-feature-mybatis-plus");
+        assertThat(readEntry(originalArchivePath, "BOOT-INF/layers.idx"))
+                .contains("coco-mybatis-plus", "coco-feature-mybatis-plus");
     }
 
     @Test
@@ -223,6 +234,7 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/classpath.idx", """
                     - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-feature-audit-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/mybatis-3.5.19.jar"
                     - "BOOT-INF/lib/mybatis-extra-1.0.0.jar"
@@ -238,6 +250,7 @@ class CocoPackagePruneMojoTest {
                     - "dependencies":
                       - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-feature-audit-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/mybatis-3.5.19.jar"
                       - "BOOT-INF/lib/mybatis-extra-1.0.0.jar"
@@ -251,6 +264,7 @@ class CocoPackagePruneMojoTest {
                     """);
             add(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar", "web");
             add(outputStream, "BOOT-INF/lib/coco-feature-audit-1.0.0-SNAPSHOT.jar", "audit");
+            add(outputStream, "BOOT-INF/lib/coco-mybatis-plus-1.0.0-SNAPSHOT.jar", "canonical-mybatis-plus");
             add(outputStream, "BOOT-INF/lib/coco-feature-mybatis-plus-1.0.0-SNAPSHOT.jar", "mybatis-plus");
             add(outputStream, "BOOT-INF/lib/mybatis-3.5.19.jar", "mybatis");
             add(outputStream, "BOOT-INF/lib/mybatis-extra-1.0.0.jar", "mybatis-extra");

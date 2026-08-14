@@ -47,6 +47,9 @@ class StandardCocoFeaturesTest {
 
         assertEquals("io.github.coco.feature.web.CocoWebAutoConfiguration",
                 definitions.get(CocoFeature.WEB).autoConfigurationClassName());
+        assertEquals("coco-mybatis-plus", definitions.get(CocoFeature.MYBATIS_PLUS).artifactId());
+        assertTrue(definitions.get(CocoFeature.MYBATIS_PLUS).pruneArtifactIds().containsAll(
+                Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus")));
         assertEquals(Set.of(), definitions.get(CocoFeature.AUDIT).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
                 definitions.get(CocoFeature.TENANT).dependencies());
@@ -152,8 +155,15 @@ class StandardCocoFeaturesTest {
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.TENANT));
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.DATA_PERMISSION));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
+        CocoFeatureDefinition loadedMybatisPlusDefinition = loadedPlan.definitions().stream()
+                .filter(definition -> definition.feature() == CocoFeature.MYBATIS_PLUS)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(loadedMybatisPlusDefinition.pruneArtifactIds().containsAll(
+                Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus")));
         assertEquals(List.of(
                 "coco-feature-mybatis-plus",
+                "coco-mybatis-plus",
                 "mybatis",
                 "mybatis-plus",
                 "mybatis-plus-annotation",

@@ -215,8 +215,7 @@
         "coco-build/coco-compatibility/coco-config/**",
         "coco-spring-boot-autoconfigure/**",
         "coco-spring/coco-spring-boot-autoconfigure/**",
-        "coco-features/coco-feature-registry/**",
-        "coco-foundation/coco-feature-model/**"
+        "coco-features/coco-feature-registry/**"
       ],
       "spec_paths": [
         "coco-support/coco-document/superpowers/specs/2026-07-04-coco-api-core-i18n-design.md",
