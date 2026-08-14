@@ -62,7 +62,7 @@ jobs:
       verifier-matrix: ${{ steps.roles.outputs.verifiers }}
     steps:
       - name: Checkout protected binding helper
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.expected_base_sha }}
           path: .agent-review-bootstrap
@@ -123,7 +123,7 @@ jobs:
           PY
 
       - name: Checkout trusted base
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.binding.outputs.base-sha }}
           path: .agent-review-base
@@ -258,7 +258,7 @@ jobs:
         include: ${{ fromJSON(needs.prepare.outputs.specialist-matrix) }}
     steps:
       - name: Checkout trusted reviewer
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.base-sha }}
           path: .agent-review-base
@@ -335,7 +335,7 @@ jobs:
         include: ${{ fromJSON(needs.prepare.outputs.verifier-matrix) }}
     steps:
       - name: Checkout trusted verifier
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.base-sha }}
           path: .agent-review-base
@@ -417,7 +417,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted chair
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.base-sha }}
           path: .agent-review-base
@@ -508,7 +508,7 @@ jobs:
       reason: ${{ steps.export-admission.outputs.reason }}
     steps:
       - name: Checkout protected publisher admission helper
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.base-sha }}
           path: .agent-review-admission
@@ -600,7 +600,7 @@ jobs:
       statuses: write
     steps:
       - name: Checkout trusted publisher
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.base-sha }}
           path: .agent-review-base
@@ -757,7 +757,7 @@ jobs:
       statuses: write
     steps:
       - name: Checkout trusted no-secret publisher
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.base-sha }}
           path: .agent-review-base
