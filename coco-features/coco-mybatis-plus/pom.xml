@@ -9,9 +9,9 @@
         <version>${revision}</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
-    <artifactId>coco-feature-mybatis-plus</artifactId>
-    <name>Coco Feature MyBatis Plus</name>
-    <description>MyBatis-Plus pagination, SQL guard, and interceptor composition feature implementation.</description>
+    <artifactId>coco-mybatis-plus</artifactId>
+    <name>Coco MyBatis Plus</name>
+    <description>MyBatis-Plus pagination, SQL guard, and interceptor composition.</description>
 
     <dependencies>
         <dependency>

@@ -50,6 +50,7 @@
         <module>coco-spring/coco-spring-boot-starter</module>
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
+        <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
         <module>coco-support/coco-test</module>
     </modules>
 
@@ -133,6 +134,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-web</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-mybatis-plus</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>

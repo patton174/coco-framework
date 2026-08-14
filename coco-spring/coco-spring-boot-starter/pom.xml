@@ -50,7 +50,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-mybatis-plus</artifactId>
+            <artifactId>coco-mybatis-plus</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
