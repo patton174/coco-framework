@@ -869,6 +869,47 @@ def build_code_contexts(
             f"{len(text_files) - len(selected_files)}"
         )
 
+    starter_pom = "coco-spring/coco-spring-boot-starter/pom.xml"
+    feature_pom_changed = any(
+        re.fullmatch(r"coco-features/[^/]+/pom\.xml", path)
+        for entry in files
+        for path in (
+            str(entry.get("filename", "")),
+            str(entry.get("previous_filename") or ""),
+        )
+    )
+    if feature_pom_changed:
+        candidate = safe_base_file(base_root, starter_pom)
+        if not candidate.is_file():
+            raise ReviewError(
+                "Required starter composition context is missing at trusted base: "
+                f"{starter_pom}"
+            )
+        starter_content = candidate.read_text(encoding="utf-8", errors="replace")
+        starter_context = numbered_text(starter_content)
+        if not starter_context:
+            raise ReviewError(
+                "Required starter composition context is empty at trusted base: "
+                f"{starter_pom}"
+            )
+        remaining = total_limit - used
+        if len(starter_context) > per_file:
+            raise ReviewError(
+                "Required starter composition context exceeds the per-file context "
+                f"limit: {starter_pom}"
+            )
+        if len(starter_context) > remaining:
+            raise ReviewError(
+                "Required starter composition context exceeds the remaining code "
+                f"context budget: {starter_pom}"
+            )
+        add_context(
+            starter_pom,
+            "related-starter-pom",
+            starter_context,
+            len(starter_content.splitlines()),
+        )
+
     for entry in selected_files:
         if used >= total_limit:
             omissions.append(
