@@ -873,6 +873,7 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
                 "coco-features/coco-feature-data-permission/pom.xml",
                 "coco-features/coco-feature-mybatis-plus/pom.xml",
+                "coco-features/coco-mybatis-plus/pom.xml",
                 "coco-features/coco-feature-openapi/pom.xml",
                 "coco-features/coco-feature-security/pom.xml",
                 "coco-features/coco-feature-tenant/pom.xml",
