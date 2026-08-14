@@ -82,6 +82,35 @@ class CocoRateLimitSafetyTest {
                 .isGreaterThan(CocoRateLimitAutoConfiguration.MVC_INTERCEPTOR_ORDER);
     }
 
+    @Test
+    void retryAfterRoundsPositiveFractionalWindowsUpConservatively() {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        Instant now = Instant.parse("2026-08-14T00:00:00.250Z");
+
+        CocoRateLimitRequestHandler.writeRateLimitHeaders(response,
+                new CocoRateLimitDecision(false, 2, 0, now.plusMillis(1_500), false), now);
+
+        assertThat(response.getHeader("Retry-After")).isEqualTo("2");
+        assertThat(response.getHeader("RateLimit-Reset")).isEqualTo("2");
+    }
+
+    @Test
+    void handlerDoesNotOverwriteAnAlreadyCommittedResponse() throws Exception {
+        CocoRateLimitResponseWriter writer = new CocoRateLimitResponseWriter(messages(), new ObjectMapper());
+        CocoRateLimitRequestHandler handler = new CocoRateLimitRequestHandler(new DefaultCocoRateLimitKeyResolver(),
+                permit -> new CocoRateLimitDecision(false, permit.limit(), 0, permit.resetAt(), false), writer,
+                Clock.systemUTC());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
+        request.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setStatus(204);
+        response.setCommitted(true);
+
+        assertThat(handler.handle(route(), request, response)).isFalse();
+        assertThat(response.getStatus()).isEqualTo(204);
+        assertThat(response.getContentAsString()).isEmpty();
+    }
+
     private static CocoRateLimitRoute route() {
         CocoRateLimitRoute route = new CocoRateLimitRoute();
         route.setId("orders");
