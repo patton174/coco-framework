@@ -880,14 +880,35 @@ def build_code_contexts(
     )
     if feature_pom_changed:
         candidate = safe_base_file(base_root, starter_pom)
-        if candidate.is_file():
-            starter_content = candidate.read_text(encoding="utf-8", errors="replace")
-            add_context(
-                starter_pom,
-                "related-starter-pom",
-                numbered_text(starter_content),
-                len(starter_content.splitlines()),
+        if not candidate.is_file():
+            raise ReviewError(
+                "Required starter composition context is missing at trusted base: "
+                f"{starter_pom}"
             )
+        starter_content = candidate.read_text(encoding="utf-8", errors="replace")
+        starter_context = numbered_text(starter_content)
+        if not starter_context:
+            raise ReviewError(
+                "Required starter composition context is empty at trusted base: "
+                f"{starter_pom}"
+            )
+        remaining = total_limit - used
+        if len(starter_context) > per_file:
+            raise ReviewError(
+                "Required starter composition context exceeds the per-file context "
+                f"limit: {starter_pom}"
+            )
+        if len(starter_context) > remaining:
+            raise ReviewError(
+                "Required starter composition context exceeds the remaining code "
+                f"context budget: {starter_pom}"
+            )
+        add_context(
+            starter_pom,
+            "related-starter-pom",
+            starter_context,
+            len(starter_content.splitlines()),
+        )
 
     for entry in selected_files:
         if used >= total_limit:

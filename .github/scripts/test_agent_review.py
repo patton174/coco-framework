@@ -1413,6 +1413,81 @@ class AgentReviewTests(unittest.TestCase):
                 {item["source"] for item in context["untrusted"]["code_contexts"]},
             )
 
+    def test_build_context_rejects_feature_pom_without_starter_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Trusted policy", encoding="utf-8")
+            (root / "pom.xml").write_text("<project />", encoding="utf-8")
+            filename = "coco-features/coco-feature-web/pom.xml"
+
+            with self.assertRaisesRegex(
+                review.ReviewError,
+                "Required starter composition context is missing at trusted base",
+            ):
+                review.build_context(
+                    FakeContextClient({filename: "<project />"}),
+                    REPOSITORY,
+                    {"number": 1, "title": "Feature pom", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
+                    [{"filename": filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}],
+                    [],
+                    "diff --git a/pom.xml b/pom.xml\n+new",
+                    root,
+                    config(),
+                    MODEL_CONFIG_SHA256,
+                )
+
+    def test_build_context_rejects_starter_context_over_per_file_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Trusted policy", encoding="utf-8")
+            (root / "pom.xml").write_text("<project />", encoding="utf-8")
+            starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
+            starter.parent.mkdir(parents=True)
+            starter.write_text("<project>\n  <artifactId>starter</artifactId>\n</project>", encoding="utf-8")
+            filename = "coco-features/coco-feature-web/pom.xml"
+
+            with self.assertRaisesRegex(
+                review.ReviewError,
+                "Required starter composition context exceeds the per-file context limit",
+            ):
+                review.build_context(
+                    FakeContextClient({filename: "<project />"}),
+                    REPOSITORY,
+                    {"number": 1, "title": "Feature pom", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
+                    [{"filename": filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}],
+                    [],
+                    "diff --git a/pom.xml b/pom.xml\n+new",
+                    root,
+                    config(per_file_chars=1),
+                    MODEL_CONFIG_SHA256,
+                )
+
+    def test_build_context_rejects_starter_context_over_total_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Trusted policy", encoding="utf-8")
+            (root / "pom.xml").write_text("<project />", encoding="utf-8")
+            starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
+            starter.parent.mkdir(parents=True)
+            starter.write_text("<project>\n  <artifactId>starter</artifactId>\n</project>", encoding="utf-8")
+            filename = "coco-features/coco-feature-web/pom.xml"
+
+            with self.assertRaisesRegex(
+                review.ReviewError,
+                "Required starter composition context exceeds the remaining code context budget",
+            ):
+                review.build_context(
+                    FakeContextClient({filename: "<project />"}),
+                    REPOSITORY,
+                    {"number": 1, "title": "Feature pom", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
+                    [{"filename": filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}],
+                    [],
+                    "diff --git a/pom.xml b/pom.xml\n+new",
+                    root,
+                    config(code_context_chars=1),
+                    MODEL_CONFIG_SHA256,
+                )
+
     def test_build_context_deduplicates_starter_pom_for_unordered_feature_changes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
