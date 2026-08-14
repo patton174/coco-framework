@@ -3,6 +3,7 @@ package io.github.coco.feature.ratelimit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.i18n.CocoMessage;
@@ -50,17 +51,34 @@ class CocoRateLimitAutoConfigurationTest {
                             FilterRegistrationBean.class);
                     assertThat(registration.getFilter()).isInstanceOf(CocoRateLimitFilter.class);
                     CocoRateLimitFilter filter = (CocoRateLimitFilter) registration.getFilter();
-                    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders/42");
-                    request.setRemoteAddr("127.0.0.1");
-                    MockHttpServletResponse response = new MockHttpServletResponse();
-                    MockFilterChain chain = new MockFilterChain();
+                    MockHttpServletRequest firstRequest = request();
+                    MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+                    MockFilterChain firstChain = new MockFilterChain();
 
-                    filter.doFilter(request, response, chain);
+                    filter.doFilter(firstRequest, firstResponse, firstChain);
 
-                    assertThat(chain.getRequest()).isSameAs(request);
-                    assertThat(request.getAttribute(CocoRateLimitFilter.APPLIED_ROUTE_ATTRIBUTE)).isEqualTo("orders");
-                    assertThat(response.getHeader("RateLimit-Limit")).isEqualTo("2");
-                    assertThat(response.getHeader("RateLimit-Remaining")).isEqualTo("1");
+                    assertThat(firstChain.getRequest()).isSameAs(firstRequest);
+                    assertThat(firstRequest.getAttribute(CocoRateLimitFilter.APPLIED_ROUTE_ATTRIBUTE)).isEqualTo("orders");
+                    assertThat(firstResponse.getHeader("RateLimit-Limit")).isEqualTo("2");
+                    assertThat(firstResponse.getHeader("RateLimit-Remaining")).isEqualTo("1");
+                    MockHttpServletRequest secondRequest = request();
+                    MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+                    MockFilterChain secondChain = new MockFilterChain();
+
+                    filter.doFilter(secondRequest, secondResponse, secondChain);
+
+                    assertThat(secondChain.getRequest()).isSameAs(secondRequest);
+                    assertThat(secondRequest.getAttribute(CocoRateLimitFilter.APPLIED_ROUTE_ATTRIBUTE)).isEqualTo("orders");
+                    assertThat(secondResponse.getHeader("RateLimit-Remaining")).isEqualTo("0");
+                    AtomicBoolean rejectedChainCalled = new AtomicBoolean();
+                    MockHttpServletResponse rejectedResponse = new MockHttpServletResponse();
+
+                    filter.doFilter(request(), rejectedResponse,
+                            (servletRequest, servletResponse) -> rejectedChainCalled.set(true));
+
+                    assertThat(rejectedChainCalled).isFalse();
+                    assertThat(rejectedResponse.getStatus()).isEqualTo(429);
+                    assertThat(rejectedResponse.getContentAsString()).contains("\"code\":42900");
                 });
     }
 
@@ -76,6 +94,12 @@ class CocoRateLimitAutoConfigurationTest {
             assertThat(context).doesNotHaveBean("cocoRateLimitFilterRegistration");
             assertThat(context).doesNotHaveBean("cocoRateLimitMvcConfigurer");
         });
+    }
+
+    private static MockHttpServletRequest request() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders/42");
+        request.setRemoteAddr("127.0.0.1");
+        return request;
     }
 
     @Configuration(proxyBeanMethods = false)

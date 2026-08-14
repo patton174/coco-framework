@@ -72,18 +72,26 @@ class CocoRateLimitSafetyTest {
     }
 
     @Test
-    void responseSets429BeforeWritingTheBodyAndNeverWritesCommittedResponses() throws Exception {
+    void responseUsesDistinctStatusesBeforeWritingBodiesAndNeverWritesCommittedResponses() throws Exception {
         CocoRateLimitResponseWriter writer = new CocoRateLimitResponseWriter(messages(), new ObjectMapper());
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
         request.addPreferredLocale(Locale.US);
-        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockHttpServletResponse exceededResponse = new MockHttpServletResponse();
 
-        writer.write(CocoRateLimitErrorCode.EXCEEDED, request, response);
+        writer.write(CocoRateLimitErrorCode.EXCEEDED, request, exceededResponse);
 
-        assertThat(response.getStatus()).isEqualTo(429);
-        assertThat(response.getContentAsString()).contains("42900", "Request rate limit has been exceeded.");
-        response.setCommitted(true);
-        assertThatThrownBy(() -> writer.write(CocoRateLimitErrorCode.EXCEEDED, request, response))
+        assertThat(exceededResponse.getStatus()).isEqualTo(429);
+        assertThat(exceededResponse.getContentAsString()).contains("\"code\":42900",
+                "Request rate limit has been exceeded.");
+        MockHttpServletResponse unavailableResponse = new MockHttpServletResponse();
+
+        writer.write(CocoRateLimitErrorCode.UNAVAILABLE, request, unavailableResponse);
+
+        assertThat(unavailableResponse.getStatus()).isEqualTo(503);
+        assertThat(unavailableResponse.getContentAsString()).contains("\"code\":50300",
+                "Request rate limiting is temporarily unavailable.");
+        exceededResponse.setCommitted(true);
+        assertThatThrownBy(() -> writer.write(CocoRateLimitErrorCode.EXCEEDED, request, exceededResponse))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -102,8 +110,9 @@ class CocoRateLimitSafetyTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         assertThat(handler.handle(route(), request, response)).isFalse();
-        assertThat(response.getStatus()).isEqualTo(429);
-        assertThat(response.getContentAsString()).contains("Request rate limiting is temporarily unavailable.");
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getContentAsString()).contains("\"code\":50300",
+                "Request rate limiting is temporarily unavailable.");
     }
 
     @Test

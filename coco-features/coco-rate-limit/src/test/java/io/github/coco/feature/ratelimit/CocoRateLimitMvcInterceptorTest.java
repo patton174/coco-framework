@@ -2,6 +2,7 @@ package io.github.coco.feature.ratelimit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;

@@ -2,10 +2,10 @@ package io.github.coco.feature.ratelimit;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Objects;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.Map;
 
 import io.github.coco.i18n.CocoMessageService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,8 +16,8 @@ import org.springframework.http.MediaType;
 /**
  * 限流拒绝响应写出器。
  * <p>
- * 使用基础国际化契约写出稳定的限流错误体。模块不依赖具体 Coco Web 实现；应用可替换该 Bean 以对接自身的
- * 响应体约定。
+ * 使用基础国际化契约写出稳定的限流错误体。已配置配额耗尽使用 HTTP 429；存储容量或存储故障导致的
+ * fail-closed 拒绝使用 HTTP 503。模块不依赖具体 Coco Web 实现；应用可替换该 Bean 以对接自身的响应体约定。
  * </p>
  */
 public final class CocoRateLimitResponseWriter {
@@ -37,8 +37,12 @@ public final class CocoRateLimitResponseWriter {
     }
 
     /**
-     * 写出 HTTP 429 的 Coco 统一异常响应。
-     * @param exception 限流异常
+     * 写出与限流错误码匹配的 Coco 统一拒绝响应。
+     * <p>
+     * {@link CocoRateLimitErrorCode#EXCEEDED} 写出 HTTP 429，
+     * {@link CocoRateLimitErrorCode#UNAVAILABLE} 写出 HTTP 503。
+     * </p>
+     * @param errorCode 限流错误码
      * @param request 当前请求
      * @param response 当前响应
      * @throws IOException 响应写出失败时抛出
@@ -51,10 +55,17 @@ public final class CocoRateLimitResponseWriter {
         if (response.isCommitted()) {
             throw new IllegalStateException("Cannot write a rate-limit response after the response has been committed");
         }
-        response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+        response.setStatus(status(errorCode).value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         String message = this.messageService.getMessage(errorCode.messageCode(), request.getLocale());
         this.objectMapper.writeValue(response.getOutputStream(), Map.of("code", errorCode.code(), "message", message));
+    }
+
+    private static HttpStatus status(CocoRateLimitErrorCode errorCode) {
+        return switch (errorCode) {
+            case EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
+            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+        };
     }
 }
