@@ -40,6 +40,15 @@ tools, or return another format. Do not expose hidden reasoning.
 - Group only findings with the same protected deterministic duplicate identity.
   Preserve every contributing source id. All confirmed blockers must appear in
   exactly one group. Keep differing severities and dispositions separate.
+- `actionable_groups` may cite only canonical source finding ids listed in the
+  protected deterministic consensus. A group containing a confirmed P0/P1 id is
+  a confirmed-blocker group: every protected `confirmed_blocker_ids` member must
+  appear exactly once, and none can be selected as follow-up work. A follow-up
+  group may cite only `eligible_follow_up_ids`; it must never contain a confirmed
+  P0/P1 id. Every group member must have the same kind, severity, and protected
+  deterministic semantic identity. When there are no eligible follow-ups, emit
+  no follow-up group. Use `actionable_groups: []` only when there are no required
+  confirmed-blocker groups either.
 - Preserve exact repository-relative paths and positive line intervals from a
   source finding. Do not manufacture an anchor. If an anchor is inconsistent,
   leave the item in the deterministic non-confirmed disposition and state why.
@@ -77,5 +86,6 @@ Return exactly one valid JSON object with this shape:
 `confirmed_blocker_ids` must exactly equal the protected deterministic list.
 Every confirmed blocker must occur in exactly one group. Non-blocker group
 members may contain only existing P2/P3 source ids with `AGREE` from both
-required verifiers. Use only the listed fields and empty arrays when appropriate. Do not output Markdown,
-code fences, comments, prefixes, suffixes, new blocker ids, or hidden reasoning.
+required verifiers. Use only the listed fields and empty arrays when appropriate.
+Do not output Markdown, code fences, comments, prefixes, suffixes, new blocker
+ids, or hidden reasoning.

@@ -9299,6 +9299,181 @@ class AgentReviewTests(unittest.TestCase):
             self.assertEqual(too_many_questions, correction["previous_response"])
             self.assertEqual(valid, review.read_json(output_json)["chair"])
 
+    def test_chair_group_contract_correction_replaces_blocker_followup_group(
+        self,
+    ) -> None:
+        context = bound_context()
+        blocker_id = "correctness:f1"
+        followup_id = "architecture-api:f1"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            specialists = root / "specialists"
+            verifiers = root / "verifiers"
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_json = root / "chair.json"
+            output_markdown = root / "chair.md"
+            specialists.mkdir()
+            verifiers.mkdir()
+
+            with patch.dict(
+                "os.environ", model_env("openai-chat-completions"), clear=True
+            ):
+                context["binding"]["model_config_sha256"] = (
+                    review.model_configuration_sha256()
+                )
+                review.bind_context(context)
+
+            chair_config = config()
+            chair_config["roles"] = {
+                "chair": {"id": "chair", "lens": "Bounded test synthesis."}
+            }
+            for role in review.role_map(chair_config, "specialists"):
+                report = specialist_report(role, context)
+                if role == "architecture-api":
+                    report["findings"][0]["severity"] = "P2"
+                elif role != "correctness":
+                    report["findings"] = []
+                review.write_json(specialists / f"{role}.json", report)
+            for role in review.role_map(chair_config, "verifiers"):
+                report = verifier_report(role, context, blocker_id)
+                report["reviews"].extend(
+                    verifier_report(role, context, followup_id)["reviews"]
+                )
+                review.write_json(verifiers / f"{role}.json", report)
+            review.write_json(config_path, chair_config)
+            review.write_json(context_path, context)
+
+            valid = {
+                "schema_version": 1,
+                "role": "chair",
+                "head_sha": HEAD_SHA,
+                "context_sha256": context["binding"]["context_sha256"],
+                "verdict": "BLOCK",
+                "summary": "The deterministic consensus confirms the cited blocker.",
+                "confirmed_blocker_ids": [blocker_id],
+                "actionable_groups": [
+                    {
+                        "primary_finding_id": blocker_id,
+                        "duplicate_finding_ids": [],
+                    }
+                ],
+                "questions": [],
+            }
+            blocking_as_followup = dict(valid)
+            blocking_as_followup["actionable_groups"] = [
+                {
+                    "primary_finding_id": followup_id,
+                    "duplicate_finding_ids": [blocker_id],
+                }
+            ]
+
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict(
+                    "os.environ", model_env("openai-chat-completions"), clear=True
+                ),
+            ):
+                client_class.return_value.complete.side_effect = [
+                    blocking_as_followup,
+                    valid,
+                ]
+                result = review.command_chair(
+                    SimpleNamespace(
+                        config=config_path,
+                        prompt_root=Path(__file__).resolve().parents[1]
+                        / "agent-review",
+                        context=context_path,
+                        specialists=specialists,
+                        verifiers=verifiers,
+                        output_json=output_json,
+                        output_markdown=output_markdown,
+                    )
+                )
+
+            calls = client_class.return_value.complete.call_args_list
+            self.assertEqual(0, result)
+            self.assertEqual(2, len(calls))
+            for phrase in (
+                "may cite only canonical source finding IDs",
+                "can never be selected as follow-up work",
+                "one kind, one severity, and one deterministic semantic identity",
+            ):
+                self.assertIn(phrase, calls[0][0][0])
+                self.assertIn(phrase, calls[1][0][0])
+            self.assertIn(
+                "Reapply every role-specific protected source-ID", calls[1][0][0]
+            )
+            correction = json.loads(calls[1][0][1])
+            self.assertEqual(blocking_as_followup, correction["previous_response"])
+            self.assertEqual(valid, review.read_json(output_json)["chair"])
+
+    def test_chair_group_contract_fails_closed_after_three_invalid_outputs(
+        self,
+    ) -> None:
+        context = bound_context()
+        blocker = specialist_report("correctness", context)["findings"][0]
+        followup = json.loads(json.dumps(blocker))
+        followup["id"] = "architecture-api:f1"
+        followup["severity"] = "P2"
+        consensus = {
+            "confirmed": [{"finding": blocker}, {"finding": followup}],
+            "challenged": [],
+            "unverified": [],
+        }
+        invalid = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "BLOCK",
+            "summary": "The deterministic consensus confirms the cited blocker.",
+            "confirmed_blocker_ids": [blocker["id"]],
+            "actionable_groups": [
+                {
+                    "primary_finding_id": followup["id"],
+                    "duplicate_finding_ids": [blocker["id"]],
+                }
+            ],
+            "questions": [],
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        protected_system = (
+            "`actionable_groups` may cite only canonical source finding IDs. "
+            "Confirmed P0/P1 IDs can never be selected as follow-up work."
+        )
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(review.ReportShapeError, "mixes finding kinds"):
+                review.complete_with_shape_repair(
+                    client,
+                    protected_system,
+                    '{"task":"chair"}',
+                    100,
+                    lambda value: review.validate_chair(
+                        value,
+                        consensus,
+                        context,
+                        {followup["id"]},
+                    ),
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+        self.assertTrue(
+            all(
+                "Confirmed P0/P1 IDs can never be selected as follow-up work." in system
+                for system, _, _ in client.calls
+            )
+        )
+
     def test_chair_question_budget_fails_closed_after_invalid_corrections(self) -> None:
         context = bound_context()
         consensus = {"confirmed": [], "challenged": [], "unverified": []}
