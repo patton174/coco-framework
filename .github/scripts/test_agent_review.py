@@ -8550,6 +8550,152 @@ class AgentReviewTests(unittest.TestCase):
                 warning.assert_called_once()
                 self.assertIn("Protected protocol correction", client.calls[1][0])
 
+    def test_chair_question_budget_correction_converges(self) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            specialists = root / "specialists"
+            verifiers = root / "verifiers"
+            prompt_root = root / "prompts-root"
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_json = root / "chair.json"
+            output_markdown = root / "chair.md"
+            specialists.mkdir()
+            verifiers.mkdir()
+            (prompt_root / "prompts").mkdir(parents=True)
+            (prompt_root / "prompts/chair.md").write_text(
+                "Return strict JSON.", encoding="utf-8"
+            )
+
+            with patch.dict(
+                "os.environ", model_env("openai-chat-completions"), clear=True
+            ):
+                context["binding"]["model_config_sha256"] = (
+                    review.model_configuration_sha256()
+                )
+                review.bind_context(context)
+
+            chair_config = config()
+            chair_config["roles"] = {
+                "chair": {"id": "chair", "lens": "Bounded test synthesis."}
+            }
+            for role in review.role_map(chair_config, "specialists"):
+                report = specialist_report(role, context)
+                if role != "correctness":
+                    report["findings"] = []
+                review.write_json(specialists / f"{role}.json", report)
+            for role in review.role_map(chair_config, "verifiers"):
+                review.write_json(
+                    verifiers / f"{role}.json",
+                    verifier_report(role, context, finding_id),
+                )
+            review.write_json(config_path, chair_config)
+            review.write_json(context_path, context)
+
+            valid = {
+                "schema_version": 1,
+                "role": "chair",
+                "head_sha": HEAD_SHA,
+                "context_sha256": context["binding"]["context_sha256"],
+                "verdict": "BLOCK",
+                "summary": "The deterministic consensus confirms the cited blocker.",
+                "confirmed_blocker_ids": [finding_id],
+                "follow_up_finding_ids": [],
+                "questions": [
+                    "Which focused regression test proves the stated trigger?"
+                ],
+            }
+            too_many_questions = dict(valid)
+            too_many_questions["questions"] = [
+                f"Clarification question {index}" for index in range(6)
+            ]
+
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict(
+                    "os.environ", model_env("openai-chat-completions"), clear=True
+                ),
+            ):
+                client_class.return_value.complete.side_effect = [
+                    too_many_questions,
+                    valid,
+                ]
+                result = review.command_chair(
+                    SimpleNamespace(
+                        config=config_path,
+                        prompt_root=prompt_root,
+                        context=context_path,
+                        specialists=specialists,
+                        verifiers=verifiers,
+                        output_json=output_json,
+                        output_markdown=output_markdown,
+                    )
+                )
+
+            calls = client_class.return_value.complete.call_args_list
+            self.assertEqual(0, result)
+            self.assertEqual(2, len(calls))
+            self.assertIn("at most 5 non-empty strings", calls[0][0][0])
+            self.assertIn("at most 5 non-empty strings", calls[1][0][0])
+            self.assertIn("Apply every protected numeric output", calls[1][0][0])
+            correction = json.loads(calls[1][0][1])
+            self.assertEqual(too_many_questions, correction["previous_response"])
+            self.assertEqual(valid, review.read_json(output_json)["chair"])
+
+    def test_chair_question_budget_fails_closed_after_invalid_corrections(self) -> None:
+        context = bound_context()
+        consensus = {"confirmed": [], "challenged": [], "unverified": []}
+        valid = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "PASS",
+            "summary": "No independently confirmed blockers remain.",
+            "confirmed_blocker_ids": [],
+            "follow_up_finding_ids": [],
+            "questions": [],
+        }
+        too_many_questions = dict(valid)
+        too_many_questions["questions"] = [
+            f"Clarification question {index}" for index in range(6)
+        ]
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return too_many_questions
+
+        client = FakeClient()
+        protected_system = (
+            "The questions array must contain at most 5 non-empty strings."
+        )
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(
+                review.ReportShapeError, "Chair returned too many questions"
+            ):
+                review.complete_with_shape_repair(
+                    client,
+                    protected_system,
+                    '{"task":"chair"}',
+                    100,
+                    lambda value: review.validate_chair(
+                        value, consensus, context, set(), 5
+                    ),
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+        self.assertTrue(
+            all(
+                "at most 5 non-empty strings" in system for system, _, _ in client.calls
+            )
+        )
+
     def test_shape_repair_fails_closed_after_bounded_shape_errors(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
