@@ -29,13 +29,6 @@ on:
         required: false
         type: number
         default: 0
-    secrets:
-      ANTHROPIC_API_KEY:
-        required: false
-      ANTHROPIC_BASE_URL:
-        required: false
-      COCO_AGENT_APP_PRIVATE_KEY:
-        required: false
 
 permissions: {}
 
@@ -150,6 +143,10 @@ jobs:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
           COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
+          COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
+          COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
         run: |
           set -euo pipefail
           output_dir="${RUNNER_TEMP}/agent-review-input"
@@ -245,9 +242,13 @@ jobs:
   specialists:
     name: Specialist / ${{ matrix.id }}
     needs: prepare
-    if: needs.prepare.outputs.trusted == 'true' && needs.prepare.outputs.ignored == 'false'
+    if: >-
+      inputs.allow_deferred &&
+      needs.prepare.outputs.trusted == 'true' &&
+      needs.prepare.outputs.ignored == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: coco-agent-model
     permissions:
       actions: read
       contents: read
@@ -275,18 +276,27 @@ jobs:
       - name: Run isolated specialist model
         shell: bash
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
+          COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
+          COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
+          COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
           ROLE: ${{ matrix.id }}
         run: |
           set -euo pipefail
-          for variable in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL_THINKING COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
             if [[ -z "${!variable:-}" ]]; then
               echo "::error::${variable} must be configured for Agent review."
               exit 1
             fi
           done
+          case "${COCO_AGENT_MODEL_PROTOCOL}" in
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
+            *)
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
+              exit 1
+              ;;
+          esac
           output_dir="${RUNNER_TEMP}/agent-review-specialist"
           mkdir -p "${output_dir}"
           python3 .agent-review-base/.github/scripts/agent_review.py specialist \
@@ -309,11 +319,13 @@ jobs:
     name: Verifier / ${{ matrix.id }}
     needs: [prepare, specialists]
     if: >-
+      inputs.allow_deferred &&
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false' &&
       needs.specialists.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    environment: coco-agent-model
     permissions:
       actions: read
       contents: read
@@ -348,18 +360,27 @@ jobs:
       - name: Run isolated cross-review model
         shell: bash
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
+          COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
+          COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
+          COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
           ROLE: ${{ matrix.id }}
         run: |
           set -euo pipefail
-          for variable in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL_THINKING COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
             if [[ -z "${!variable:-}" ]]; then
               echo "::error::${variable} must be configured for Agent review."
               exit 1
             fi
           done
+          case "${COCO_AGENT_MODEL_PROTOCOL}" in
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
+            *)
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
+              exit 1
+              ;;
+          esac
           output_dir="${RUNNER_TEMP}/agent-review-verifier"
           mkdir -p "${output_dir}"
           python3 .agent-review-base/.github/scripts/agent_review.py cross-review \
@@ -383,12 +404,14 @@ jobs:
     name: Chair / deterministic synthesis
     needs: [prepare, specialists, verifiers]
     if: >-
+      inputs.allow_deferred &&
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false' &&
       needs.specialists.result == 'success' &&
       needs.verifiers.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: coco-agent-model
     permissions:
       actions: read
       contents: read
@@ -426,17 +449,26 @@ jobs:
       - name: Run chair model and deterministic validator
         shell: bash
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
+          COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
+          COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
+          COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
         run: |
           set -euo pipefail
-          for variable in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_MODEL; do
+          for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL_THINKING COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
             if [[ -z "${!variable:-}" ]]; then
               echo "::error::${variable} must be configured for Agent review."
               exit 1
             fi
           done
+          case "${COCO_AGENT_MODEL_PROTOCOL}" in
+            anthropic-messages|openai-chat-completions|openai-responses) ;;
+            *)
+              echo "::error::COCO_AGENT_MODEL_PROTOCOL must be anthropic-messages, openai-chat-completions, or openai-responses."
+              exit 1
+              ;;
+          esac
           output_dir="${RUNNER_TEMP}/agent-review-final"
           mkdir -p "${output_dir}"
           python3 .agent-review-base/.github/scripts/agent_review.py chair \
@@ -495,6 +527,10 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
+          COCO_AGENT_MODEL_PROTOCOL: ${{ vars.COCO_AGENT_MODEL_PROTOCOL }}
+          COCO_AGENT_MODEL_BASE_URL: ${{ vars.COCO_AGENT_MODEL_BASE_URL }}
+          COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
+          COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -544,6 +580,7 @@ jobs:
     needs: [prepare, specialists, verifiers, chair, publisher-admission]
     if: >-
       always() &&
+      inputs.allow_deferred &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false' &&
@@ -700,6 +737,7 @@ jobs:
     needs: [prepare, publisher-admission]
     if: >-
       always() &&
+      ! inputs.allow_deferred &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.trusted != 'true' &&
       needs.prepare.outputs.deferred == 'false' &&

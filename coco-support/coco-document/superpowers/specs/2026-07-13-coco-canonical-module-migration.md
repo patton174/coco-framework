@@ -146,7 +146,7 @@ own implementation, compatibility JARs do not, both resolve at one version, and
 starter/sample archives contain no old feature aliases. Update aligned README
 fragments and render generated READMEs; never edit generated READMEs directly.
 
-Each PR stays below `180000` diff characters, `48000` protected policy
+Each PR stays below `180000` diff characters, `52000` protected policy
 characters, `8000` intent characters, and the configured code-context limits.
 Required policy or tests are never omitted to fit a budget. All protected gates,
 current human approval, resolved conversations, and merge-commit flow remain

@@ -1,8 +1,8 @@
 name: Agent Review Jury
-run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / ${{ github.event.pull_request.head.sha }}"
+run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / head ${{ github.event.pull_request.head.sha }} / base ${{ github.event.pull_request.base.sha }}"
 
-# This entrypoint performs only protected-base routing. Secret-backed jobs are
-# called only for same-repository humans or the exact pinned Coco App identity.
+# This entrypoint performs only protected-base routing and no-secret work. A
+# successful marker is rebound by the default-branch workflow_run entrypoint.
 
 on:
   pull_request_target:
@@ -97,8 +97,7 @@ jobs:
           if route_mode == "route":
               review_route = payload.get("review_route")
               if review_route not in {
-                  "deferred-pinned-bot",
-                  "direct-secret",
+                  "deferred-secret",
                   "no-secret",
               }:
                   raise SystemExit("Protected-base router returned an invalid review route.")
@@ -156,28 +155,60 @@ jobs:
               target.write(f"review-route={review_route}\n")
           PY
 
-  direct-secret-review:
-    name: Run direct secret-backed jury
+  deferred-marker:
+    name: Emit protected no-secret marker
     needs: route
-    if: needs.route.outputs.review-route == 'direct-secret'
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-      statuses: write
-    uses: ./.github/workflows/reusable-agent-review-jury.yml
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      expected_base_sha: ${{ github.event.pull_request.base.sha }}
-      expected_head_sha: ${{ github.event.pull_request.head.sha }}
-      event_name: ${{ github.event_name }}
-      repository_id: ${{ fromJSON(github.repository_id) }}
-    secrets: inherit
+    if: needs.route.outputs.review-route == 'deferred-secret'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Bind marker to immutable event metadata
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          REVIEW_ROUTE: ${{ needs.route.outputs.review-route }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+
+          payload = {
+              "schema_version": 1,
+              "repository": os.environ["REPOSITORY"],
+              "repository_id": os.environ["REPOSITORY_ID"],
+              "pr_number": os.environ["PR_NUMBER"],
+              "base_sha": os.environ["BASE_SHA"],
+              "head_sha": os.environ["HEAD_SHA"],
+              "review_route": os.environ["REVIEW_ROUTE"],
+          }
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", payload["repository"]):
+              raise SystemExit("Deferred marker repository is invalid.")
+          if not payload["repository_id"].isdecimal() or int(payload["repository_id"]) < 1:
+              raise SystemExit("Deferred marker repository ID is invalid.")
+          if not payload["pr_number"].isdecimal() or int(payload["pr_number"]) < 1:
+              raise SystemExit("Deferred marker pull request number is invalid.")
+          for name in ("base_sha", "head_sha"):
+              if not re.fullmatch(r"[0-9a-f]{40}", payload[name]):
+                  raise SystemExit(f"Deferred marker {name} is invalid.")
+          if payload["review_route"] != "deferred-secret":
+              raise SystemExit("Deferred marker route is invalid.")
+          print(
+              "agent-review-deferred-marker "
+              + json.dumps(payload, sort_keys=True, separators=(",", ":"))
+          )
+          PY
 
   no-secret-review:
-    name: Run no-secret or deferred marker path
+    name: Run no-secret maintainer gate
     needs: route
-    if: needs.route.outputs.review-route == 'no-secret' || needs.route.outputs.review-route == 'deferred-pinned-bot'
+    if: needs.route.outputs.review-route == 'no-secret'
     permissions:
       actions: read
       contents: read

@@ -33,12 +33,16 @@ STATUS_CONTEXT = "Agent jury gate"
 OWNERSHIP_STATUS_CONTEXT = "Agent jury ownership"
 ISSUE_STATUS_CONTEXT = "Agent issue gate"
 PR_ROUTE_DIRECT = "direct-secret"
-PR_ROUTE_DEFERRED = "deferred-pinned-bot"
+PR_ROUTE_DEFERRED = "deferred-secret"
 PR_ROUTE_NO_SECRET = "no-secret"
 DIRECT_REVIEW_EVENTS = frozenset({"pull_request_target", "pull_request_review"})
 DEFERRED_REVIEW_EVENT = "workflow_run"
+DEFERRED_WORKFLOW_NAME = "Agent Review Jury"
+DEFERRED_WORKFLOW_FILE = "agent-review.yml"
 DEFERRED_WORKFLOW_PATH = ".github/workflows/agent-review.yml"
 DEFERRED_WORKFLOW_EVENT = "pull_request_target"
+DEFERRED_ROUTE_JOB_NAME = "Route bound pull request"
+DEFERRED_MARKER_JOB_NAME = "Emit protected no-secret marker"
 FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
@@ -46,6 +50,13 @@ GITHUB_LOOKUP_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_JITTER_RATIO = 0.25
 MODEL_COMPLETION_MAX_ATTEMPTS = 3
 MAX_MODEL_CONTINUATION_CHARS = 96_000
+MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
+MAX_MODEL_REQUEST_TIMEOUT_SECONDS = 300
+MODEL_PROTOCOL_ENDPOINTS = {
+    "anthropic-messages": "messages",
+    "openai-chat-completions": "chat/completions",
+    "openai-responses": "responses",
+}
 MAX_REVIEW_BODY_BYTES = 40_000
 MAX_GITHUB_COMMENT_BODY_BYTES = 64_000
 # GitHub platform limits are protocol constants, not operator-tunable budgets.
@@ -65,9 +76,6 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 APP_BOT_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?\[bot\]$")
-DEFERRED_RUN_TITLE_RE = re.compile(
-    r"^Agent Review Jury / PR #([1-9][0-9]*) / ([0-9a-f]{40})$"
-)
 RUN_OWNERSHIP_RE = re.compile(
     r"^Agent jury run ([1-9][0-9]*):([1-9][0-9]*) in progress$"
 )
@@ -350,7 +358,7 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
         "policy_chars": int(
             legacy.get(
                 "policy_chars",
-                context.get("protected_policy_and_specs_limit", 48000),
+                context.get("protected_policy_and_specs_limit", 52000),
             )
         ),
         "intent_chars": int(
@@ -431,6 +439,8 @@ def validate_context(context: dict[str, Any]) -> None:
             raise ReviewError(f"Context {name} is invalid.")
     if not re.fullmatch(r"[0-9a-f]{64}", str(binding.get("protocol_sha256", ""))):
         raise ReviewError("Context protocol_sha256 is invalid.")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(binding.get("model_config_sha256", ""))):
+        raise ReviewError("Context model_config_sha256 is invalid.")
     claimed = str(binding.get("context_sha256", ""))
     if not re.fullmatch(r"[0-9a-f]{64}", claimed) or claimed != context_digest(context):
         raise ReviewError("Context SHA-256 binding is invalid.")
@@ -1238,7 +1248,10 @@ def build_context(
     diff_text: str | None,
     base_root: Path,
     config: dict[str, Any],
+    model_config_sha256: str,
 ) -> dict[str, Any]:
+    if not re.fullmatch(r"[0-9a-f]{64}", model_config_sha256):
+        raise ReviewError("Agent model configuration digest is invalid.")
     limits = normalized_limits(config)
     max_diff = int(limits.get("diff_chars", 180000))
     patch_limit = int(limits.get("patch_chars", 180000))
@@ -1311,6 +1324,7 @@ def build_context(
             "base_sha": str(pr["base"]["sha"]),
             "head_sha": str(pr["head"]["sha"]),
             "protocol_sha256": protocol["protocol_sha256"],
+            "model_config_sha256": model_config_sha256,
             "context_sha256": "",
         },
         "trusted": {
@@ -1388,10 +1402,10 @@ def classify_pr_route_decision(
         route = PR_ROUTE_NO_SECRET
         reason = "head-repository-mismatch"
     elif human_author:
-        route = PR_ROUTE_DIRECT
+        route = PR_ROUTE_DEFERRED
         reason = "same-repository-human"
     elif trusted_app_author:
-        route = PR_ROUTE_DIRECT
+        route = PR_ROUTE_DEFERRED
         reason = "same-repository-trusted-app"
     elif deferred_bot_author:
         route = PR_ROUTE_DEFERRED
@@ -1433,10 +1447,10 @@ def classify_pr(
     trusted_app_login: str = "",
     trusted_app_bot_id: int = 0,
 ) -> bool:
-    """Preserve the legacy direct-secret eligibility helper contract.
+    """Return whether a PR may enter the protected two-stage jury route.
 
-    This compatibility shim is equivalent to
-    ``classify_pr_route(..., deferred_bot_authors=()) == PR_ROUTE_DIRECT``.
+    Configured deferred bots are intentionally excluded from this compatibility
+    helper because callers must opt into those identities through base config.
     """
     return (
         classify_pr_route(
@@ -1446,7 +1460,7 @@ def classify_pr(
             trusted_app_bot_id,
             deferred_bot_authors=(),
         )
-        == PR_ROUTE_DIRECT
+        == PR_ROUTE_DEFERRED
     )
 
 
@@ -1621,6 +1635,74 @@ def require_current_run_ownership(
         raise ReviewError("Current Agent jury run ownership status is missing.")
 
 
+def require_deferred_marker_jobs(
+    client: GitHubClient,
+    repository: str,
+    run_id: int,
+) -> None:
+    jobs_payload = github_get_json_with_retry(
+        client,
+        f"repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100",
+        "deferred-source-marker-binding",
+        retry_not_found=True,
+    )
+    if not isinstance(jobs_payload, dict):
+        raise ReviewError("Deferred Agent review source jobs are invalid.")
+    total_count = jobs_payload.get("total_count")
+    jobs = jobs_payload.get("jobs")
+    if (
+        type(total_count) is not int
+        or total_count < 1
+        or total_count > 100
+        or not isinstance(jobs, list)
+        or len(jobs) != total_count
+    ):
+        raise ReviewError("Deferred Agent review source jobs are invalid.")
+
+    expected_successes = {
+        DEFERRED_ROUTE_JOB_NAME: 0,
+        DEFERRED_MARKER_JOB_NAME: 0,
+    }
+    for job in jobs:
+        if not isinstance(job, dict):
+            raise ReviewError("Deferred Agent review source job is invalid.")
+        name = job.get("name")
+        status = job.get("status")
+        conclusion = job.get("conclusion")
+        if not isinstance(name, str) or status != "completed":
+            raise ReviewError("Deferred Agent review source job is invalid.")
+        if name in expected_successes:
+            if conclusion != "success":
+                raise ReviewError("Deferred Agent review marker did not succeed.")
+            expected_successes[name] += 1
+        elif conclusion != "skipped":
+            raise ReviewError("Deferred Agent review source ran an unexpected job.")
+    if any(count != 1 for count in expected_successes.values()):
+        raise ReviewError("Deferred Agent review marker binding is invalid.")
+
+
+def require_deferred_workflow_identity(client: GitHubClient, repository: str) -> int:
+    """Resolve the protected source workflow's canonical GitHub identity."""
+    workflow = github_get_json_with_retry(
+        client,
+        f"repos/{repository}/actions/workflows/{DEFERRED_WORKFLOW_FILE}",
+        "deferred-source-workflow-identity",
+        retry_not_found=True,
+    )
+    if not isinstance(workflow, dict):
+        raise ReviewError("Deferred Agent review source workflow is invalid.")
+    workflow_id = workflow.get("id")
+    if (
+        type(workflow_id) is not int
+        or workflow_id < 1
+        or workflow.get("name") != DEFERRED_WORKFLOW_NAME
+        or workflow.get("path") != DEFERRED_WORKFLOW_PATH
+        or workflow.get("state") != "active"
+    ):
+        raise ReviewError("Deferred Agent review source workflow identity is invalid.")
+    return workflow_id
+
+
 def deferred_review_candidate(
     client: GitHubClient,
     repository: str,
@@ -1636,6 +1718,7 @@ def deferred_review_candidate(
     if type(run_id) is not int or run_id < 1:
         raise ReviewError("Deferred Agent review workflow run ID is invalid.")
 
+    workflow_id = require_deferred_workflow_identity(client, checked_repository)
     run = github_get_json_with_retry(
         client,
         f"repos/{checked_repository}/actions/runs/{run_id}",
@@ -1648,12 +1731,9 @@ def deferred_review_candidate(
     run_head_repository = run.get("head_repository") or {}
     run_head_sha = str(run.get("head_sha") or "")
     run_head_branch = str(run.get("head_branch") or "")
-    # GitHub REST exposes the evaluated run-name through both fields when set.
-    run_name = str(run.get("name") or "")
-    run_display_title = str(run.get("display_title") or "")
     if (
         run.get("id") != run_id
-        or run_name != run_display_title
+        or run.get("workflow_id") != workflow_id
         or run.get("path") != DEFERRED_WORKFLOW_PATH
         or run.get("event") != DEFERRED_WORKFLOW_EVENT
         or run.get("status") != "completed"
@@ -1662,32 +1742,50 @@ def deferred_review_candidate(
         or run_repository.get("full_name") != checked_repository
         or run_head_repository.get("id") != repository_id
         or run_head_repository.get("full_name") != checked_repository
+        or not SHA_RE.fullmatch(run_head_sha)
+        or not run_head_branch
     ):
         raise ReviewError("Deferred Agent review workflow run binding is invalid.")
-
-    title_match = DEFERRED_RUN_TITLE_RE.fullmatch(run_display_title)
-    if title_match is None:
-        raise ReviewError("Deferred Agent review workflow run title is invalid.")
-    title_pr_number = int(title_match.group(1))
-    title_head_sha = title_match.group(2)
-    if run_head_sha != title_head_sha:
-        raise ReviewError("Deferred Agent review workflow run head SHA is invalid.")
-    if expected_pr_number and title_pr_number != expected_pr_number:
-        raise ReviewError("Deferred Agent review pull request number changed.")
-    if expected_head_sha and title_head_sha != expected_head_sha:
-        raise ReviewError("Deferred Agent review head SHA changed.")
 
     associated = run.get("pull_requests")
     if not isinstance(associated, list):
         raise ReviewError("Deferred Agent review pull request association is invalid.")
     if len(associated) != 1 or not isinstance(associated[0], dict):
         raise ReviewError("Deferred Agent review requires one associated pull request.")
-    if associated[0].get("number") != title_pr_number:
+    source_pr = associated[0]
+    source_pr_number = source_pr.get("number")
+    source_base = source_pr.get("base") or {}
+    source_head = source_pr.get("head") or {}
+    source_base_repository = source_base.get("repo") or {}
+    source_head_repository = source_head.get("repo") or {}
+    source_base_repository_id = source_base_repository.get("id")
+    source_head_repository_id = source_head_repository.get("id")
+    source_base_sha = str(source_base.get("sha") or "")
+    source_head_sha = str(source_head.get("sha") or "")
+    source_head_ref = str(source_head.get("ref") or "")
+    if (
+        type(source_pr_number) is not int
+        or source_pr_number < 1
+        or source_base.get("ref") != "main"
+        or type(source_base_repository_id) is not int
+        or source_base_repository_id < 1
+        or source_base_repository_id != repository_id
+        or type(source_head_repository_id) is not int
+        or source_head_repository_id < 1
+        or source_head_repository_id != repository_id
+        or not SHA_RE.fullmatch(source_base_sha)
+        or source_head_sha != run_head_sha
+        or source_head_ref != run_head_branch
+    ):
         raise ReviewError("Deferred Agent review pull request association is invalid.")
+    if expected_pr_number and source_pr_number != expected_pr_number:
+        raise ReviewError("Deferred Agent review pull request number changed.")
+    if expected_head_sha and source_head_sha != expected_head_sha:
+        raise ReviewError("Deferred Agent review head SHA changed.")
 
     pr = github_get_json_with_retry(
         client,
-        f"repos/{checked_repository}/pulls/{title_pr_number}",
+        f"repos/{checked_repository}/pulls/{source_pr_number}",
         "deferred-pull-request-binding",
         retry_not_found=True,
     )
@@ -1702,16 +1800,16 @@ def deferred_review_candidate(
     head_ref = str(head.get("ref") or "")
     if (
         pr.get("state") != "open"
-        or (pr.get("number") is not None and pr.get("number") != title_pr_number)
+        or (pr.get("number") is not None and pr.get("number") != source_pr_number)
         or base.get("ref") != "main"
         or base_repository.get("id") != repository_id
         or base_repository.get("full_name") != checked_repository
         or head_repository.get("id") != repository_id
         or head_repository.get("full_name") != checked_repository
         or not SHA_RE.fullmatch(base_sha)
-        or head_sha != run_head_sha
-        or not head_ref
-        or run_head_branch != head_ref
+        or base_sha != source_base_sha
+        or head_sha != source_head_sha
+        or head_ref != source_head_ref
     ):
         raise ReviewError("Deferred Agent review pull request binding is invalid.")
     trusted_app_login, trusted_app_bot_id = trusted_app_identity_from_environment()
@@ -1722,13 +1820,16 @@ def deferred_review_candidate(
         trusted_app_bot_id,
         configured_deferred_bot_authors(config),
     )
+    eligible = decision["review_route"] == PR_ROUTE_DEFERRED
+    if eligible:
+        require_deferred_marker_jobs(client, checked_repository, run_id)
     return {
         "schema_version": SCHEMA_VERSION,
-        "eligible": decision["review_route"] == PR_ROUTE_DEFERRED,
+        "eligible": eligible,
         "repository": checked_repository,
         "repository_id": repository_id,
         "run_id": run_id,
-        "pr_number": title_pr_number,
+        "pr_number": source_pr_number,
         "base_sha": base_sha,
         "head_sha": head_sha,
         **decision,
@@ -1884,7 +1985,9 @@ def prepare_deferred_route_state(
     if event_name != DEFERRED_REVIEW_EVENT or source_run_id < 1:
         raise ReviewError("Deferred Agent review mode requires a workflow_run binding.")
     if route != PR_ROUTE_DEFERRED:
-        raise ReviewError("Deferred Agent review mode accepts only pinned bots.")
+        raise ReviewError(
+            "Deferred Agent review mode requires a protected no-secret marker route."
+        )
     binding = deferred_review_binding(
         client,
         repository,
@@ -1978,7 +2081,9 @@ def command_prepare(args: argparse.Namespace) -> int:
     approved = False
     approvers: list[str] = []
     context_sha = ""
+    model_config_sha = ""
     if trusted and not ignored:
+        model_config_sha = model_configuration_sha256()
         expected_files = changed_file_count(pr)
         files = client.paginate(
             f"repos/{args.repository}/pulls/{args.pr_number}/files",
@@ -2003,6 +2108,7 @@ def command_prepare(args: argparse.Namespace) -> int:
             diff_text,
             args.base_root,
             config,
+            model_config_sha,
         )
         latest = github_get_json_with_retry(
             client,
@@ -2037,6 +2143,7 @@ def command_prepare(args: argparse.Namespace) -> int:
         "maintainer_approved": approved,
         "maintainer_approvers": approvers,
         "context_sha256": context_sha,
+        "model_config_sha256": model_config_sha,
         "protocol_sha256": (
             str(context["binding"]["protocol_sha256"])
             if trusted and not ignored
@@ -2057,73 +2164,221 @@ class ModelTextResponse:
     stop_reason: str
 
 
-class AnthropicClient:
-    supports_fragment_continuation = True
+def model_api_endpoint(protocol: str, base_url: str) -> str:
+    resource = MODEL_PROTOCOL_ENDPOINTS.get(protocol)
+    if resource is None:
+        supported = ", ".join(sorted(MODEL_PROTOCOL_ENDPOINTS))
+        raise ReviewError(f"COCO_AGENT_MODEL_PROTOCOL must be one of: {supported}.")
+    if (
+        not base_url
+        or base_url != base_url.strip()
+        or len(base_url) > 2048
+        or "\\" in base_url
+        or any(character.isspace() for character in base_url)
+    ):
+        raise ReviewError("COCO_AGENT_MODEL_BASE_URL is invalid.")
+    try:
+        parsed_url = urllib.parse.urlsplit(base_url)
+        port = parsed_url.port
+    except ValueError as exc:
+        raise ReviewError("COCO_AGENT_MODEL_BASE_URL is invalid.") from exc
+    if (
+        parsed_url.scheme != "https"
+        or not parsed_url.netloc
+        or not parsed_url.hostname
+        or parsed_url.username is not None
+        or parsed_url.password is not None
+        or parsed_url.query
+        or parsed_url.fragment
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ReviewError(
+            "COCO_AGENT_MODEL_BASE_URL must be an HTTPS base URL without credentials, query data, or fragments."
+        )
+    path = parsed_url.path.rstrip("/")
+    segments = path.split("/") if path else []
+    if any(segment in {".", ".."} for segment in segments) or "//" in path:
+        raise ReviewError("COCO_AGENT_MODEL_BASE_URL contains an invalid path.")
+    if path and (not segments or segments[-1] != "v1"):
+        raise ReviewError(
+            "COCO_AGENT_MODEL_BASE_URL path must be empty or end in the exact v1 segment."
+        )
+    if not path:
+        path = "/v1"
+    endpoint_path = f"{path}/{resource}"
+    return urllib.parse.urlunsplit(("https", parsed_url.netloc, endpoint_path, "", ""))
+
+
+def model_configuration() -> dict[str, str]:
+    protocol = os.environ.get("COCO_AGENT_MODEL_PROTOCOL", "")
+    base_url = os.environ.get("COCO_AGENT_MODEL_BASE_URL", "")
+    model = os.environ.get("COCO_AGENT_MODEL", "")
+    thinking = os.environ.get("COCO_AGENT_MODEL_THINKING", "")
+    if thinking not in {"auto", "enabled", "disabled"}:
+        raise ReviewError(
+            "COCO_AGENT_MODEL_THINKING must be auto, enabled, or disabled."
+        )
+    if (
+        not model
+        or model != model.strip()
+        or any(ord(character) < 0x20 for character in model)
+    ):
+        raise ReviewError("COCO_AGENT_MODEL is required and must be valid.")
+    model_api_endpoint(protocol, base_url)
+    parsed_url = urllib.parse.urlsplit(base_url)
+    path = parsed_url.path.rstrip("/") or "/v1"
+    endpoint_base = urllib.parse.urlunsplit(("https", parsed_url.netloc, path, "", ""))
+    if not endpoint_base:
+        raise ReviewError("COCO_AGENT_MODEL_BASE_URL is invalid.")
+    return {
+        "protocol": protocol,
+        "base_url": endpoint_base,
+        "model": model,
+        "thinking": thinking,
+    }
+
+
+def model_configuration_sha256() -> str:
+    return sha256_text(canonical_json(model_configuration()))
+
+
+def optional_model_configuration_sha256() -> str | None:
+    configured = (
+        os.environ.get("COCO_AGENT_MODEL_PROTOCOL", ""),
+        os.environ.get("COCO_AGENT_MODEL_BASE_URL", ""),
+        os.environ.get("COCO_AGENT_MODEL", ""),
+        os.environ.get("COCO_AGENT_MODEL_THINKING", ""),
+    )
+    if not any(configured):
+        return None
+    return model_configuration_sha256()
+
+
+def require_model_configuration_binding(binding: dict[str, Any]) -> None:
+    claimed = str(binding.get("model_config_sha256", ""))
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", claimed)
+        or model_configuration_sha256() != claimed
+    ):
+        raise ReviewError("Agent model configuration binding changed.")
+
+
+def revalidate_model_configuration_if_available(binding: dict[str, Any]) -> None:
+    current = optional_model_configuration_sha256()
+    if current is not None and current != binding.get("model_config_sha256"):
+        raise ReviewError("Agent model configuration binding changed.")
+
+
+class AgentModelClient:
+    supports_fragment_continuation = False
 
     def __init__(self, config: dict[str, Any]) -> None:
-        key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not key:
-            raise ReviewError("ANTHROPIC_API_KEY is required.")
-        base_url = os.environ.get(
-            "ANTHROPIC_BASE_URL", "https://api.anthropic.com"
-        ).rstrip("/")
-        parsed_url = urllib.parse.urlparse(base_url)
+        model_config = model_configuration()
+        api_key = os.environ.get("COCO_AGENT_MODEL_API_KEY", "")
         if (
-            parsed_url.scheme != "https"
-            or not parsed_url.netloc
-            or parsed_url.username is not None
-            or parsed_url.password is not None
-            or parsed_url.query
-            or parsed_url.fragment
+            not api_key
+            or api_key != api_key.strip()
+            or any(ord(character) < 0x20 for character in api_key)
         ):
-            raise ReviewError(
-                "ANTHROPIC_BASE_URL must be an HTTPS origin or /v1 endpoint without credentials or query data."
-            )
-        if not base_url.endswith("/v1"):
-            base_url += "/v1"
-        self.endpoint = f"{base_url}/messages"
-        self.key = key
-        self.model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
-        limits = normalized_limits(config)
+            raise ReviewError("COCO_AGENT_MODEL_API_KEY is required and must be valid.")
+        self.protocol = model_config["protocol"]
+        self.endpoint = (
+            f"{model_config['base_url']}/{MODEL_PROTOCOL_ENDPOINTS[self.protocol]}"
+        )
+        self.thinking = model_config["thinking"]
+        self.supports_fragment_continuation = self.protocol == "anthropic-messages"
+        self._api_key = api_key
+        self.model = model_config["model"]
+        try:
+            limits = normalized_limits(config)
+        except (TypeError, ValueError) as exc:
+            raise ReviewError("Agent model request limits are invalid.") from exc
         self.max_response_bytes = limits["response_bytes"]
         self.timeout = limits["request_timeout_seconds"]
+        if not 1 <= self.max_response_bytes <= MAX_MODEL_RESPONSE_BYTES:
+            raise ReviewError("Agent model response_bytes limit is invalid.")
+        if not 1 <= self.timeout <= MAX_MODEL_REQUEST_TIMEOUT_SECONDS:
+            raise ReviewError("Agent model request timeout limit is invalid.")
 
-    def complete_fragment(
-        self, system: str, user: str, max_tokens: int
-    ) -> ModelTextResponse:
-        payload = canonical_json(
-            {
+    def request_payload(self, system: str, user: str, max_tokens: int) -> bytes:
+        if self.protocol == "anthropic-messages":
+            value = {
                 "model": self.model,
                 "max_tokens": max_tokens,
                 "temperature": 0,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             }
-        ).encode("utf-8")
+        elif self.protocol == "openai-chat-completions":
+            value = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": 0,
+                "stream": False,
+                "response_format": {"type": "json_object"},
+            }
+            if self.thinking != "auto":
+                value["chat_template_kwargs"] = {
+                    "enable_thinking": self.thinking == "enabled"
+                }
+        else:
+            value = {
+                "model": self.model,
+                "instructions": system,
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": user}],
+                    }
+                ],
+                "max_output_tokens": max_tokens,
+                "store": False,
+                "stream": False,
+                "text": {"format": {"type": "json_object"}},
+                "truncation": "disabled",
+            }
+        return canonical_json(value).encode("utf-8")
+
+    def request_headers(self) -> dict[str, str]:
+        headers = {
+            "content-type": "application/json",
+            "user-agent": "coco-agent-review-jury",
+        }
+        if self.protocol == "anthropic-messages":
+            headers["x-api-key"] = self._api_key
+            headers["anthropic-version"] = "2023-06-01"
+        else:
+            headers["authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+    def request_envelope(self, system: str, user: str, max_tokens: int) -> Any:
         request = urllib.request.Request(
             self.endpoint,
             method="POST",
-            data=payload,
-            headers={
-                "x-api-key": self.key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-                "user-agent": "coco-agent-review-jury",
-            },
+            data=self.request_payload(system, user, max_tokens),
+            headers=self.request_headers(),
         )
+        provider = "Anthropic" if self.protocol == "anthropic-messages" else "OpenAI"
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 body = response.read(self.max_response_bytes + 1)
                 if len(body) > self.max_response_bytes:
-                    raise ReviewError("Anthropic response exceeded the bounded size.")
+                    raise ReviewError(f"{provider} response exceeded the bounded size.")
         except urllib.error.HTTPError as exc:
-            raise ReviewError(f"Anthropic API returned HTTP {exc.code}.") from exc
-        except urllib.error.URLError as exc:
-            raise ReviewError("Anthropic API transport failed.") from exc
+            raise ReviewError(f"{provider} API returned HTTP {exc.code}.") from None
+        except (urllib.error.URLError, TimeoutError):
+            raise ReviewError(f"{provider} API transport failed.") from None
         try:
-            envelope = json.loads(body)
-        except json.JSONDecodeError as exc:
-            raise ReviewError("Anthropic API returned invalid JSON.") from exc
+            return json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ReviewError(f"{provider} API returned invalid JSON.") from None
+
+    @staticmethod
+    def parse_anthropic_envelope(envelope: Any) -> ModelTextResponse:
         if not isinstance(envelope, dict) or not isinstance(
             envelope.get("content"), list
         ):
@@ -2135,7 +2390,7 @@ class AnthropicClient:
                     "Anthropic API returned an invalid response envelope."
                 )
             block_type = block.get("type")
-            if block_type == "refusal":
+            if block_type == "refusal" and isinstance(block.get("text"), str):
                 raise ReviewError("Anthropic refused the review.")
             if block_type != "text" or not isinstance(block.get("text"), str):
                 raise ReviewError(
@@ -2147,19 +2402,237 @@ class AnthropicClient:
             raise ReviewError(
                 f"Anthropic response did not complete (stop_reason={stop_reason!r})."
             )
-        text = "".join(text_blocks)
-        if not text.strip():
-            raise RetryableModelOutputError(
-                "Anthropic response contained no text.",
-                stop_reason=str(stop_reason or ""),
+        return ModelTextResponse("".join(text_blocks), str(stop_reason))
+
+    @staticmethod
+    def parse_openai_chat_envelope(envelope: Any) -> ModelTextResponse:
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("object") != "chat.completion"
+            or not isinstance(envelope.get("choices"), list)
+            or len(envelope["choices"]) != 1
+        ):
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
             )
-        return ModelTextResponse(text=text, stop_reason=str(stop_reason))
+        if envelope.get("error") is not None:
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        choice = envelope["choices"][0]
+        if not isinstance(choice, dict):
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        finish_reason = choice.get("finish_reason")
+        message = choice.get("message")
+        if finish_reason not in {"stop", "length"} or not isinstance(message, dict):
+            if finish_reason == "content_filter":
+                raise ReviewError(
+                    "OpenAI Chat Completions response did not complete (finish_reason='content_filter')."
+                )
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        if message.get("refusal") is not None:
+            raise ReviewError("OpenAI Chat Completions refused the review.")
+        if message.get("role") != "assistant" or not isinstance(
+            message.get("content"), str
+        ):
+            raise ReviewError(
+                "OpenAI Chat Completions API returned an invalid response envelope."
+            )
+        stop_reason = "max_tokens" if finish_reason == "length" else "end_turn"
+        return ModelTextResponse(message["content"], stop_reason)
+
+    @staticmethod
+    def openai_envelope_shape(envelope: Any) -> str:
+        """Return a bounded, content-free shape summary for diagnostics."""
+        if not isinstance(envelope, dict):
+            return f"root={type(envelope).__name__}"
+
+        def kind(value: Any, known: set[str]) -> str:
+            if not isinstance(value, str):
+                return type(value).__name__
+            return value if value in known else "other"
+
+        output = envelope.get("output")
+        if not isinstance(output, list):
+            return (
+                "root=object;object="
+                f"{kind(envelope.get('object'), {'response'})};status="
+                f"{kind(envelope.get('status'), {'completed', 'incomplete'})};"
+                f"output={type(output).__name__}"
+            )
+
+        item_kinds: list[str] = []
+        message_roles: list[str] = []
+        message_statuses: list[str] = []
+        content_kinds: list[str] = []
+        malformed_items = 0
+        malformed_blocks = 0
+        for item in output:
+            if not isinstance(item, dict):
+                malformed_items += 1
+                continue
+            item_kind = kind(item.get("type"), {"message", "reasoning"})
+            item_kinds.append(item_kind)
+            if item_kind != "message":
+                continue
+            message_roles.append(kind(item.get("role"), {"assistant"}))
+            message_statuses.append(
+                kind(item.get("status"), {"completed", "incomplete"})
+            )
+            content = item.get("content")
+            if not isinstance(content, list):
+                malformed_blocks += 1
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    malformed_blocks += 1
+                    continue
+                content_kinds.append(
+                    kind(block.get("type"), {"output_text", "refusal"})
+                )
+
+        def counts(values: list[str]) -> str:
+            if not values:
+                return "none"
+            return ",".join(
+                f"{value}={values.count(value)}" for value in sorted(set(values))
+            )
+
+        return (
+            "root=object;object="
+            f"{kind(envelope.get('object'), {'response'})};status="
+            f"{kind(envelope.get('status'), {'completed', 'incomplete'})};"
+            f"output=list:{len(output)};items={counts(item_kinds)};"
+            f"roles={counts(message_roles)};message_statuses={counts(message_statuses)};"
+            f"content={counts(content_kinds)};malformed_items={malformed_items};"
+            f"malformed_blocks={malformed_blocks}"
+        )
+
+    @classmethod
+    def invalid_openai_envelope(cls, envelope: Any) -> ReviewError:
+        return ReviewError(
+            "OpenAI API returned an invalid response envelope "
+            f"(shape={cls.openai_envelope_shape(envelope)})."
+        )
+
+    @classmethod
+    def parse_openai_envelope(cls, envelope: Any) -> ModelTextResponse:
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("object") != "response"
+            or not isinstance(envelope.get("status"), str)
+            or not isinstance(envelope.get("output"), list)
+        ):
+            raise cls.invalid_openai_envelope(envelope)
+        response_status = envelope["status"]
+        text_blocks: list[str] = []
+        refused = False
+        malformed = False
+        message_count = 0
+        message_status = ""
+        for item in envelope["output"]:
+            if not isinstance(item, dict) or not isinstance(item.get("type"), str):
+                malformed = True
+                continue
+            if item["type"] == "reasoning":
+                continue
+            if item["type"] != "message":
+                malformed = True
+                continue
+            message_count += 1
+            item_status = item.get("status")
+            if "status" in item and item_status not in {"completed", "incomplete"}:
+                malformed = True
+            message_status = (
+                item_status if isinstance(item_status, str) else response_status
+            )
+            content = item.get("content")
+            if (
+                item.get("role") != "assistant"
+                or message_status != response_status
+                or not isinstance(content, list)
+            ):
+                malformed = True
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    malformed = True
+                    continue
+                if block.get("type") == "refusal" and isinstance(
+                    block.get("refusal"), str
+                ):
+                    refused = True
+                elif block.get("type") == "output_text" and isinstance(
+                    block.get("text"), str
+                ):
+                    text_blocks.append(block["text"])
+                else:
+                    malformed = True
+        if refused:
+            raise ReviewError("OpenAI refused the review.")
+        if malformed:
+            raise cls.invalid_openai_envelope(envelope)
+        status = response_status
+        if envelope.get("error") is not None:
+            raise cls.invalid_openai_envelope(envelope)
+        if status == "completed":
+            if (
+                envelope.get("incomplete_details") is not None
+                or message_count != 1
+                or message_status != "completed"
+            ):
+                raise cls.invalid_openai_envelope(envelope)
+            stop_reason = "end_turn"
+        elif status == "incomplete":
+            details = envelope.get("incomplete_details")
+            if not isinstance(details, dict) or not isinstance(
+                details.get("reason"), str
+            ):
+                raise cls.invalid_openai_envelope(envelope)
+            if details["reason"] != "max_output_tokens":
+                raise ReviewError(
+                    f"OpenAI response did not complete (reason={details['reason']!r})."
+                )
+            if message_count > 1 or (
+                message_count == 1 and message_status != "incomplete"
+            ):
+                raise cls.invalid_openai_envelope(envelope)
+            stop_reason = "max_tokens"
+        else:
+            raise ReviewError(f"OpenAI response did not complete (status={status!r}).")
+        return ModelTextResponse("".join(text_blocks), stop_reason)
+
+    def complete_fragment(
+        self, system: str, user: str, max_tokens: int
+    ) -> ModelTextResponse:
+        envelope = self.request_envelope(system, user, max_tokens)
+        if self.protocol == "anthropic-messages":
+            response = self.parse_anthropic_envelope(envelope)
+        elif self.protocol == "openai-chat-completions":
+            response = self.parse_openai_chat_envelope(envelope)
+        else:
+            response = self.parse_openai_envelope(envelope)
+        text = response.text
+        if not text.strip() and not (
+            self.protocol in {"openai-responses", "openai-chat-completions"}
+            and response.stop_reason == "max_tokens"
+        ):
+            raise RetryableModelOutputError(
+                "Agent model response contained no text.",
+                stop_reason=response.stop_reason,
+            )
+        return response
 
     def complete(self, system: str, user: str, max_tokens: int) -> dict[str, Any]:
         response = self.complete_fragment(system, user, max_tokens)
         if response.stop_reason == "max_tokens":
             raise RetryableModelOutputError(
-                "Anthropic response did not complete (stop_reason='max_tokens').",
+                "Agent model response did not complete (stop_reason='max_tokens').",
                 stop_reason=response.stop_reason,
                 response_chars=len(response.text),
                 accumulated_chars=len(response.text),
@@ -2184,7 +2657,7 @@ def retryable_stop_reason(value: str) -> str:
 
 
 def complete_fragment_json(
-    client: AnthropicClient,
+    client: AgentModelClient,
     system: str,
     user: str,
     max_tokens: int,
@@ -2196,7 +2669,7 @@ def complete_fragment_json(
         raise ReviewError("Agent continuation exceeded the protected character limit.")
     if response.stop_reason == "max_tokens":
         raise RetryableModelOutputError(
-            "Anthropic response did not complete (stop_reason='max_tokens').",
+            "Agent model response did not complete (stop_reason='max_tokens').",
             stop_reason=response.stop_reason,
             response_chars=len(response.text),
             accumulated_chars=len(combined),
@@ -2217,7 +2690,7 @@ def complete_fragment_json(
 
 
 def complete_with_shape_repair(
-    client: AnthropicClient,
+    client: AgentModelClient,
     system: str,
     user: str,
     max_tokens: int,
@@ -2251,7 +2724,11 @@ def complete_with_shape_repair(
                 f"response_chars={exc.response_chars}; "
                 f"accumulated_chars={exc.accumulated_chars}."
             )
-            if exc.stop_reason == "max_tokens" and exc.partial_text:
+            if (
+                getattr(client, "supports_fragment_continuation", False) is True
+                and exc.stop_reason == "max_tokens"
+                and exc.partial_text
+            ):
                 partial_text = exc.partial_text
                 current_system = "\n\n".join(
                     [
@@ -2554,6 +3031,7 @@ def command_specialist(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     context = read_json(args.context)
     validate_context(context)
+    require_model_configuration_binding(context["binding"])
     roles = role_map(config, "specialists")
     if args.role not in roles:
         raise ReviewError(f"Unknown specialist role: {args.role}")
@@ -2580,7 +3058,7 @@ def command_specialist(args: argparse.Namespace) -> int:
     limits = normalized_limits(config)
     max_tokens = int(role.get("max_tokens", limits["specialist_tokens"]))
     report = complete_with_shape_repair(
-        AnthropicClient(config),
+        AgentModelClient(config),
         system,
         payload,
         max_tokens,
@@ -2763,6 +3241,7 @@ def command_cross(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     context = read_json(args.context)
     validate_context(context)
+    require_model_configuration_binding(context["binding"])
     specialist_roles = role_map(config, "specialists")
     reports = load_reports(args.reports)
     require_complete_role_set(reports, set(specialist_roles), "Specialist")
@@ -2805,7 +3284,7 @@ def command_cross(args: argparse.Namespace) -> int:
         verifier.get("max_tokens", normalized_limits(config)["verifier_tokens"])
     )
     report = complete_with_shape_repair(
-        AnthropicClient(config),
+        AgentModelClient(config),
         system,
         user,
         max_tokens,
@@ -3274,6 +3753,7 @@ def command_chair(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     context = read_json(args.context)
     validate_context(context)
+    require_model_configuration_binding(context["binding"])
     specialist_reports = load_reports(args.specialists)
     verifier_reports = load_reports(args.verifiers)
     specialists = role_map(config, "specialists")
@@ -3338,7 +3818,7 @@ def command_chair(args: argparse.Namespace) -> int:
     max_tokens = limits["chair_tokens"]
     allowed_followups = eligible_followup_ids
     chair = complete_with_shape_repair(
-        AnthropicClient(config),
+        AgentModelClient(config),
         system,
         user,
         max_tokens,
@@ -4102,6 +4582,9 @@ def command_admit_publisher(args: argparse.Namespace) -> int:
         base_sha = str(metadata.get("base_sha") or "")
         if not SHA_RE.fullmatch(head_sha) or not SHA_RE.fullmatch(base_sha):
             raise ReviewError("Agent jury admission commit binding is invalid.")
+        trusted = metadata.get("trusted") is True
+        if trusted:
+            require_model_configuration_binding(metadata)
 
         client = GitHubClient(
             os.environ.get("GH_TOKEN", ""),
@@ -4121,7 +4604,6 @@ def command_admit_publisher(args: argparse.Namespace) -> int:
         ):
             result["reason"] = "pull-request-binding-changed"
         else:
-            trusted = metadata.get("trusted") is True
             if trusted:
                 try:
                     require_current_run_ownership(
@@ -4187,6 +4669,8 @@ def command_publish(args: argparse.Namespace) -> int:
     elif trusted or deferred or source_run_id not in {0, "0", None}:
         raise ReviewError("No-secret Agent jury publication metadata is invalid.")
 
+    if trusted:
+        revalidate_model_configuration_if_available(metadata)
     run_order = metadata_run_order(metadata) if trusted else None
 
     def stale_run_result() -> int:
@@ -4309,6 +4793,8 @@ def command_publish(args: argparse.Namespace) -> int:
                     or binding.get("base_sha") != metadata.get("base_sha")
                     or binding.get("context_sha256") != metadata.get("context_sha256")
                     or binding.get("protocol_sha256") != metadata.get("protocol_sha256")
+                    or binding.get("model_config_sha256")
+                    != metadata.get("model_config_sha256")
                 ):
                     raise ReviewError(
                         "Prepared context does not match publication metadata."

@@ -1,5 +1,7 @@
 # Workflow Governance
 
+<!-- coco-agent-deferred-binding-contract:v1 {"canonical":["ID","name","path","state"],"source":["workflow_id","path","event","repository"],"association":["structured pull_requests","current PR re-fetch"],"jobs":{"route":"success","marker":"success","others":"skipped"},"untrusted":["run-name","name","display_title"]} -->
+
 ## Naming Convention
 
 - GitHub Actions workflow files use lowercase kebab-case names.
@@ -72,8 +74,22 @@ review tooling, prompts, policy, and token permissions always come from the
 protected base branch. It fetches proposed files and diffs through GitHub APIs
 as untrusted text and never checks out or executes the PR head.
 
-Same-repository pull requests authored by a human or by the exact configured
-Coco Agent App login and immutable Bot ID enter the secret-backed Agent path.
+Same-repository pull requests authored by a human, the exact configured Coco
+Agent App login and immutable Bot ID, or a base-configured deferred bot first
+run a protected-base no-secret marker. For those eligible routes, the source
+`pull_request_target` path does not call the reusable jury, declare an
+environment, read a secret, or execute PR-head content. This two-stage route is mandatory because GitHub binds
+an environment deployment made by a reusable workflow called from
+`pull_request_target` to the PR head ref; the exact-`main` environments must
+withhold their credentials in that context. Only the default-branch
+`workflow_run` entrypoint may call the secret-backed reusable jury, after it
+resolves the protected `.github/workflows/agent-review.yml` workflow through
+the GitHub API and rebinds its canonical ID/name/path, the source run's exact
+`workflow_id`/path/event, structured associated PR/base/head, repository
+identity, author/App identity, and the successful route/marker job pair. The
+evaluated `run-name`, `name`, and `display_title` fields are not identity or
+PR-binding inputs. The reusable model jobs and App publisher also require the
+explicit deferred input, so a direct caller cannot reach a secret environment.
 Forks and all other bots never receive repository Agent secrets; they publish a
 no-secret policy status and remain pending until a maintainer with write,
 maintain, or admin permission approves the current head SHA. This path does not
@@ -145,14 +161,39 @@ fingerprint. A later review updates, reopens, or closes that Issue. Any open
 bound Issue keeps `Agent issue gate` failed, including after the pull request
 head changes.
 
-Required repository secrets:
+Required `coco-agent-model` environment secret:
 
-- `ANTHROPIC_API_KEY`
-- `ANTHROPIC_BASE_URL`
+- `COCO_AGENT_MODEL_API_KEY`
 
-Optional repository variable:
+Required protected repository variables:
 
-- `CLAUDE_MODEL` (defaults to `claude-sonnet-4-6`)
+- `COCO_AGENT_MODEL_PROTOCOL`, exactly `anthropic-messages`,
+  `openai-chat-completions`, or `openai-responses`
+- `COCO_AGENT_MODEL_BASE_URL`, an HTTPS origin or an HTTPS base path whose final
+  path segment is exactly `/v1`; complete `/responses` or `/messages` endpoints,
+  credentials, query data, and fragments are rejected
+- `COCO_AGENT_MODEL`
+- `COCO_AGENT_MODEL_THINKING`, exactly `auto`, `enabled`, or `disabled`; `auto`
+  omits provider-specific thinking controls, while the other values map to the
+  OpenAI-compatible `chat_template_kwargs.enable_thinking` extension
+
+Create a dedicated `coco-agent-model` environment, restrict it to the exact
+`main` branch, disable administrator bypass, and store
+`COCO_AGENT_MODEL_API_KEY` there. Only specialist, verifier, and chair jobs
+declare this environment. The protocol has no default and no implicit fallback;
+protocol, base URL, and model are protected repository variables
+and must never come from pull request content. Trusted prepare receives the
+four non-secret values to bind the model-configuration digest; publisher
+admission requires the same current values and rejects digest drift. The API
+key is never available outside the three `coco-agent-model` jobs. Fork and
+no-secret routes may receive non-secret configuration where protected runtime
+binding requires it, but they never receive the key or execute a model job. The
+reusable workflow has no `workflow_call` secrets and callers must not use
+`secrets: inherit`.
+
+Legacy README-maintenance `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` secrets and
+the `CLAUDE_MODEL` variable may remain until that automation is migrated in a
+separate change. Agent Review must not reference or inherit them.
 
 Dedicated Agent identity configuration:
 
