@@ -1358,13 +1358,30 @@ class AgentReviewTests(unittest.TestCase):
             (root / "pom.xml").write_text("<project />", encoding="utf-8")
             starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
             starter.parent.mkdir(parents=True)
-            starter.write_text("<project>\n  <artifactId>starter</artifactId>\n</project>", encoding="utf-8")
+            starter.write_text(
+                "<project>\n  <artifactId>starter</artifactId>\n</project>",
+                encoding="utf-8",
+            )
             filename = "coco-features/coco-feature-web/pom.xml"
             context = review.build_context(
-                FakeContextClient({filename: "<project><artifactId>web</artifactId></project>"}),
+                FakeContextClient(
+                    {filename: "<project><artifactId>web</artifactId></project>"}
+                ),
                 REPOSITORY,
-                {"number": 1, "title": "Feature pom", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
-                [{"filename": filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}],
+                {
+                    "number": 1,
+                    "title": "Feature pom",
+                    "body": "",
+                    "base": {"sha": BASE_SHA},
+                    "head": {"sha": HEAD_SHA},
+                },
+                [
+                    {
+                        "filename": filename,
+                        "status": "modified",
+                        "patch": "@@ -1 +1 @@\n-old\n+new",
+                    }
+                ],
                 [],
                 "diff --git a/pom.xml b/pom.xml\n+new",
                 root,
@@ -1373,7 +1390,11 @@ class AgentReviewTests(unittest.TestCase):
             )
 
             contexts = context["untrusted"]["code_contexts"]
-            starter_context = next(item for item in contexts if item["source"] == "coco-spring/coco-spring-boot-starter/pom.xml")
+            starter_context = next(
+                item
+                for item in contexts
+                if item["source"] == "coco-spring/coco-spring-boot-starter/pom.xml"
+            )
             self.assertEqual("related-starter-pom", starter_context["kind"])
             self.assertEqual(3, starter_context["line_count"])
             self.assertIn("     3 </project>", starter_context["content"])
@@ -1385,7 +1406,10 @@ class AgentReviewTests(unittest.TestCase):
             (root / "pom.xml").write_text("<project />", encoding="utf-8")
             starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
             starter.parent.mkdir(parents=True)
-            starter.write_text("<project>\n  <artifactId>starter</artifactId>\n</project>", encoding="utf-8")
+            starter.write_text(
+                "<project>\n  <artifactId>starter</artifactId>\n</project>",
+                encoding="utf-8",
+            )
             pom_filename = "coco-spring/coco-config/pom.xml"
             file_filename = "docs/guide.md"
             context = review.build_context(
@@ -1396,10 +1420,24 @@ class AgentReviewTests(unittest.TestCase):
                     }
                 ),
                 REPOSITORY,
-                {"number": 1, "title": "Other files", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
+                {
+                    "number": 1,
+                    "title": "Other files",
+                    "body": "",
+                    "base": {"sha": BASE_SHA},
+                    "head": {"sha": HEAD_SHA},
+                },
                 [
-                    {"filename": pom_filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"},
-                    {"filename": file_filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"},
+                    {
+                        "filename": pom_filename,
+                        "status": "modified",
+                        "patch": "@@ -1 +1 @@\n-old\n+new",
+                    },
+                    {
+                        "filename": file_filename,
+                        "status": "modified",
+                        "patch": "@@ -1 +1 @@\n-old\n+new",
+                    },
                 ],
                 [],
                 "diff --git a/files b/files\n+new",
@@ -1427,8 +1465,20 @@ class AgentReviewTests(unittest.TestCase):
                 review.build_context(
                     FakeContextClient({filename: "<project />"}),
                     REPOSITORY,
-                    {"number": 1, "title": "Feature pom", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
-                    [{"filename": filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}],
+                    {
+                        "number": 1,
+                        "title": "Feature pom",
+                        "body": "",
+                        "base": {"sha": BASE_SHA},
+                        "head": {"sha": HEAD_SHA},
+                    },
+                    [
+                        {
+                            "filename": filename,
+                            "status": "modified",
+                            "patch": "@@ -1 +1 @@\n-old\n+new",
+                        }
+                    ],
                     [],
                     "diff --git a/pom.xml b/pom.xml\n+new",
                     root,
@@ -1443,7 +1493,10 @@ class AgentReviewTests(unittest.TestCase):
             (root / "pom.xml").write_text("<project />", encoding="utf-8")
             starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
             starter.parent.mkdir(parents=True)
-            starter.write_text("<project>\n  <artifactId>starter</artifactId>\n</project>", encoding="utf-8")
+            starter.write_text(
+                "<project>\n  <artifactId>starter</artifactId>\n</project>",
+                encoding="utf-8",
+            )
             filename = "coco-features/coco-feature-web/pom.xml"
 
             with self.assertRaisesRegex(
@@ -1453,8 +1506,20 @@ class AgentReviewTests(unittest.TestCase):
                 review.build_context(
                     FakeContextClient({filename: "<project />"}),
                     REPOSITORY,
-                    {"number": 1, "title": "Feature pom", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
-                    [{"filename": filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}],
+                    {
+                        "number": 1,
+                        "title": "Feature pom",
+                        "body": "",
+                        "base": {"sha": BASE_SHA},
+                        "head": {"sha": HEAD_SHA},
+                    },
+                    [
+                        {
+                            "filename": filename,
+                            "status": "modified",
+                            "patch": "@@ -1 +1 @@\n-old\n+new",
+                        }
+                    ],
                     [],
                     "diff --git a/pom.xml b/pom.xml\n+new",
                     root,
@@ -1469,7 +1534,10 @@ class AgentReviewTests(unittest.TestCase):
             (root / "pom.xml").write_text("<project />", encoding="utf-8")
             starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
             starter.parent.mkdir(parents=True)
-            starter.write_text("<project>\n  <artifactId>starter</artifactId>\n</project>", encoding="utf-8")
+            starter.write_text(
+                "<project>\n  <artifactId>starter</artifactId>\n</project>",
+                encoding="utf-8",
+            )
             filename = "coco-features/coco-feature-web/pom.xml"
 
             with self.assertRaisesRegex(
@@ -1479,8 +1547,20 @@ class AgentReviewTests(unittest.TestCase):
                 review.build_context(
                     FakeContextClient({filename: "<project />"}),
                     REPOSITORY,
-                    {"number": 1, "title": "Feature pom", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}},
-                    [{"filename": filename, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}],
+                    {
+                        "number": 1,
+                        "title": "Feature pom",
+                        "body": "",
+                        "base": {"sha": BASE_SHA},
+                        "head": {"sha": HEAD_SHA},
+                    },
+                    [
+                        {
+                            "filename": filename,
+                            "status": "modified",
+                            "patch": "@@ -1 +1 @@\n-old\n+new",
+                        }
+                    ],
                     [],
                     "diff --git a/pom.xml b/pom.xml\n+new",
                     root,
@@ -1488,33 +1568,82 @@ class AgentReviewTests(unittest.TestCase):
                     MODEL_CONFIG_SHA256,
                 )
 
-    def test_build_context_deduplicates_starter_pom_for_unordered_feature_changes(self) -> None:
+    def test_build_context_deduplicates_starter_pom_for_unordered_feature_changes(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "AGENTS.md").write_text("Trusted policy", encoding="utf-8")
             (root / "pom.xml").write_text("<project />", encoding="utf-8")
             starter = root / "coco-spring/coco-spring-boot-starter/pom.xml"
             starter.parent.mkdir(parents=True)
-            starter.write_text("<project>\n  <artifactId>starter</artifactId>\n</project>", encoding="utf-8")
+            starter.write_text(
+                "<project>\n  <artifactId>starter</artifactId>\n</project>",
+                encoding="utf-8",
+            )
             first = "coco-features/coco-feature-web/pom.xml"
             second = "coco-features/coco-feature-audit/pom.xml"
             entries = [
-                {"filename": first, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"},
-                {"filename": second, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"},
-                {"filename": first, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"},
+                {
+                    "filename": first,
+                    "status": "modified",
+                    "patch": "@@ -1 +1 @@\n-old\n+new",
+                },
+                {
+                    "filename": second,
+                    "status": "modified",
+                    "patch": "@@ -1 +1 @@\n-old\n+new",
+                },
+                {
+                    "filename": first,
+                    "status": "modified",
+                    "patch": "@@ -1 +1 @@\n-old\n+new",
+                },
             ]
             client = FakeContextClient({first: "<project />", second: "<project />"})
-            pr = {"number": 1, "title": "Feature poms", "body": "", "base": {"sha": BASE_SHA}, "head": {"sha": HEAD_SHA}}
-            forward = review.build_context(client, REPOSITORY, pr, entries, [], "diff", root, config(), MODEL_CONFIG_SHA256)
-            reverse = review.build_context(client, REPOSITORY, pr, list(reversed(entries)), [], "diff", root, config(), MODEL_CONFIG_SHA256)
+            pr = {
+                "number": 1,
+                "title": "Feature poms",
+                "body": "",
+                "base": {"sha": BASE_SHA},
+                "head": {"sha": HEAD_SHA},
+            }
+            forward = review.build_context(
+                client,
+                REPOSITORY,
+                pr,
+                entries,
+                [],
+                "diff",
+                root,
+                config(),
+                MODEL_CONFIG_SHA256,
+            )
+            reverse = review.build_context(
+                client,
+                REPOSITORY,
+                pr,
+                list(reversed(entries)),
+                [],
+                "diff",
+                root,
+                config(),
+                MODEL_CONFIG_SHA256,
+            )
 
             starter_source = "coco-spring/coco-spring-boot-starter/pom.xml"
-            forward_sources = [item["source"] for item in forward["untrusted"]["code_contexts"]]
-            reverse_sources = [item["source"] for item in reverse["untrusted"]["code_contexts"]]
+            forward_sources = [
+                item["source"] for item in forward["untrusted"]["code_contexts"]
+            ]
+            reverse_sources = [
+                item["source"] for item in reverse["untrusted"]["code_contexts"]
+            ]
             self.assertEqual(forward_sources, reverse_sources)
             self.assertEqual(1, forward_sources.count(starter_source))
 
-    def test_specialist_schema_rejects_starter_pom_without_injected_context(self) -> None:
+    def test_specialist_schema_rejects_starter_pom_without_injected_context(
+        self,
+    ) -> None:
         context = bound_context()
         report = specialist_report("correctness", context)
         report["findings"][0]["file"] = "coco-spring/coco-spring-boot-starter/pom.xml"
