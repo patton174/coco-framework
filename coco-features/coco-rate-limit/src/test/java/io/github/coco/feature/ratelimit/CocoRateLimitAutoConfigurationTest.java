@@ -2,6 +2,9 @@ package io.github.coco.feature.ratelimit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -104,6 +107,11 @@ class CocoRateLimitAutoConfigurationTest {
 
     @Configuration(proxyBeanMethods = false)
     static class RateLimitPrerequisites {
+
+        @Bean("cocoRateLimitClock")
+        Clock cocoRateLimitClock() {
+            return Clock.fixed(Instant.parse("2026-08-14T00:00:00Z"), ZoneOffset.UTC);
+        }
 
         @Bean
         CocoMessageService cocoMessageService() {
