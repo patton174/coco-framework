@@ -869,6 +869,26 @@ def build_code_contexts(
             f"{len(text_files) - len(selected_files)}"
         )
 
+    starter_pom = "coco-spring/coco-spring-boot-starter/pom.xml"
+    feature_pom_changed = any(
+        re.fullmatch(r"coco-features/[^/]+/pom\.xml", path)
+        for entry in files
+        for path in (
+            str(entry.get("filename", "")),
+            str(entry.get("previous_filename") or ""),
+        )
+    )
+    if feature_pom_changed:
+        candidate = safe_base_file(base_root, starter_pom)
+        if candidate.is_file():
+            starter_content = candidate.read_text(encoding="utf-8", errors="replace")
+            add_context(
+                starter_pom,
+                "related-starter-pom",
+                numbered_text(starter_content),
+                len(starter_content.splitlines()),
+            )
+
     for entry in selected_files:
         if used >= total_limit:
             omissions.append(
