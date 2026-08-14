@@ -60,8 +60,8 @@ public class CocoRateLimitAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public CocoRateLimitKeyResolver cocoRateLimitKeyResolver() {
-        return new DefaultCocoRateLimitKeyResolver();
+    public CocoRateLimitKeyResolver cocoRateLimitKeyResolver(CocoRateLimitProperties properties) {
+        return new DefaultCocoRateLimitKeyResolver(properties.getTrustedProxy());
     }
 
     /**
@@ -79,7 +79,6 @@ public class CocoRateLimitAutoConfiguration {
     /**
      * 创建默认限流路由匹配器。
      * @param properties 限流配置
-     * @param requestMatcher Coco Web 请求匹配器
      * @return 默认限流路由匹配器
      */
     @Bean
@@ -91,7 +90,7 @@ public class CocoRateLimitAutoConfiguration {
 
     /**
      * 创建限流拒绝响应写出器。
-     * @param exceptionHandler Coco Web 全局异常处理器
+     * @param messageService 国际化消息服务
      * @param objectMapper JSON 序列化器
      * @return 限流拒绝响应写出器
      */
@@ -106,7 +105,6 @@ public class CocoRateLimitAutoConfiguration {
      * 创建 Filter 和 MVC 注解后备共用的限流请求执行器。
      * @param keyResolver 限流键解析器
      * @param store 限流原子存储
-     * @param requestContextResolver Coco Web 请求上下文解析器
      * @param responseWriter 限流拒绝响应写出器
      * @param clock 限流时钟
      * @return 限流请求执行器
@@ -123,10 +121,9 @@ public class CocoRateLimitAutoConfiguration {
     /**
      * 创建限流 Servlet 过滤器注册器。
      * @param routeMatcher 限流路由匹配器
-     * @param keyResolver 限流键解析器
-     * @param store 限流原子存储
-     * @param requestContextResolver Coco Web 请求上下文解析器
-     * @param responseWriter 限流拒绝响应写出器
+     * @param routeMatcher 限流路由匹配器
+     * @param requestHandler 限流请求执行器
+     * @param properties 限流配置
      * @return 限流 Servlet 过滤器注册器
      */
     @Bean
@@ -134,9 +131,10 @@ public class CocoRateLimitAutoConfiguration {
     @ConditionalOnBean({ CocoRateLimitRouteMatcher.class, CocoRateLimitRequestHandler.class })
     @ConditionalOnMissingBean(name = "cocoRateLimitFilterRegistration")
     public FilterRegistrationBean<CocoRateLimitFilter> cocoRateLimitFilterRegistration(
-            CocoRateLimitRouteMatcher routeMatcher, CocoRateLimitRequestHandler requestHandler) {
+            CocoRateLimitRouteMatcher routeMatcher, CocoRateLimitRequestHandler requestHandler,
+            CocoRateLimitProperties properties) {
         FilterRegistrationBean<CocoRateLimitFilter> registration = new FilterRegistrationBean<>(
-                new CocoRateLimitFilter(routeMatcher, requestHandler));
+                new CocoRateLimitFilter(routeMatcher, requestHandler, properties.getFilter()));
         registration.setName("cocoRateLimitFilter");
         registration.setOrder(FILTER_ORDER);
         registration.addUrlPatterns("/*");

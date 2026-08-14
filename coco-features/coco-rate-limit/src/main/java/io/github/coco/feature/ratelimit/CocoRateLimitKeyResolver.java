@@ -14,7 +14,7 @@ public interface CocoRateLimitKeyResolver {
 
     /**
      * 解析当前请求的限流键。
-     * @param request 当前 Coco Web 请求快照
+     * @param request 当前 Servlet 请求
      * @param route 命中的限流路由
      * @return 原子限流存储使用的键
      */

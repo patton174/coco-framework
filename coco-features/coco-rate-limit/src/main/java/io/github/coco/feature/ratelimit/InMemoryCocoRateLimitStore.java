@@ -103,7 +103,11 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
             AtomicReference<CocoRateLimitDecision> decision = new AtomicReference<>();
             this.entries.compute(checkedPermit.key(),
                     (key, bucket) -> acquire(checkedPermit, now, bucket, decision));
-            return Objects.requireNonNull(decision.get(), "rate-limit decision must not be null");
+            CocoRateLimitDecision resolved = decision.get();
+            if (this.closed.get() || resolved == null) {
+                return unavailable(checkedPermit);
+            }
+            return resolved;
         }
         finally {
             this.lifecycleReadLock.unlock();

@@ -20,7 +20,6 @@ public final class DefaultCocoRateLimitRouteMatcher implements CocoRateLimitRout
     /**
      * 创建默认限流路由匹配器。
      * @param properties 限流配置
-     * @param requestMatcher Coco Web 请求匹配器
      */
     public DefaultCocoRateLimitRouteMatcher(CocoRateLimitProperties properties) {
         CocoRateLimitProperties checkedProperties = properties == null ? new CocoRateLimitProperties() : properties;

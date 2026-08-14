@@ -28,7 +28,7 @@ public final class CocoRateLimitResponseWriter {
 
     /**
      * 创建限流拒绝响应写出器。
-     * @param exceptionHandler Coco Web 全局异常处理器
+     * @param messageService 国际化消息服务
      * @param objectMapper JSON 序列化器
      */
     public CocoRateLimitResponseWriter(CocoMessageService messageService, ObjectMapper objectMapper) {

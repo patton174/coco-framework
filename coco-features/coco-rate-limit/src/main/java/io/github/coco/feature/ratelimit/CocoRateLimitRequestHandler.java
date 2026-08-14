@@ -35,7 +35,6 @@ public final class CocoRateLimitRequestHandler {
      * 创建限流请求执行器。
      * @param keyResolver 限流键解析器
      * @param store 限流原子存储
-     * @param requestContextResolver Coco Web 请求上下文解析器
      * @param responseWriter 限流拒绝响应写出器
      * @param clock 限流时钟
      */

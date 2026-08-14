@@ -89,6 +89,47 @@ class InMemoryCocoRateLimitStoreTest {
     }
 
     @Test
+    void distinctNewKeysCannotExceedCapacityWhileTheFirstMapCommitIsBlocked() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        BlockingComputeMap entries = new BlockingComputeMap();
+        CocoRateLimitPermit first = permit("api", "203.0.113.0", 1, clock.instant().plusSeconds(60));
+        entries.blockNext(first.key());
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(
+                properties(1, 60), clock, false, entries)) {
+            ExecutorService executor = Executors.newFixedThreadPool(16);
+            try {
+                Future<CocoRateLimitDecision> firstResult = executor.submit(() -> store.acquire(first));
+                assertThat(entries.awaitComputation()).isTrue();
+                assertThat(store.activeEntryCount()).isOne();
+                assertThat(store.size()).isZero();
+
+                List<Future<CocoRateLimitDecision>> competing = new ArrayList<>();
+                for (int index = 1; index <= 64; index++) {
+                    int key = index;
+                    competing.add(executor.submit(() -> store.acquire(permit("api", "203.0.113." + key, 1,
+                            clock.instant().plusSeconds(60)))));
+                }
+                for (Future<CocoRateLimitDecision> result : competing) {
+                    CocoRateLimitDecision decision = get(result);
+                    assertThat(decision.allowed()).isFalse();
+                    assertThat(decision.capacityExhausted()).isTrue();
+                    assertThat(store.size()).isLessThanOrEqualTo(1);
+                    assertThat(store.activeEntryCount()).isLessThanOrEqualTo(1);
+                }
+
+                entries.releaseComputation();
+                assertThat(firstResult.get(1, TimeUnit.SECONDS).allowed()).isTrue();
+                assertThat(store.size()).isOne();
+                assertThat(store.activeEntryCount()).isOne();
+            }
+            finally {
+                entries.releaseComputation();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     void expiresKeysAndReclaimsCapacity() {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         CocoRateLimitProperties properties = properties(1, 60);
@@ -232,7 +273,10 @@ class InMemoryCocoRateLimitStoreTest {
             assertThat(close.isDone()).isFalse();
 
             entries.releaseComputation();
-            assertThat(acquisition.get(1, TimeUnit.SECONDS).allowed()).isTrue();
+            CocoRateLimitDecision decision = acquisition.get(1, TimeUnit.SECONDS);
+            assertThat(decision).isNotNull();
+            assertThat(decision.allowed()).isFalse();
+            assertThat(decision.capacityExhausted()).isTrue();
             close.get(1, TimeUnit.SECONDS);
 
             assertThat(store.size()).isZero();

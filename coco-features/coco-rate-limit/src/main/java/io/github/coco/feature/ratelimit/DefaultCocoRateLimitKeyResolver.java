@@ -1,6 +1,8 @@
 package io.github.coco.feature.ratelimit;
 
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -14,6 +16,24 @@ import jakarta.servlet.http.HttpServletRequest;
  */
 public final class DefaultCocoRateLimitKeyResolver implements CocoRateLimitKeyResolver {
 
+    private final Set<String> trustedProxyRemoteAddresses;
+
+    /**
+     * 创建不信任任何转发头的默认解析器。
+     */
+    public DefaultCocoRateLimitKeyResolver() {
+        this(null);
+    }
+
+    /**
+     * 创建具有显式可信反向代理边界的解析器。
+     * @param trustedProxy 可信代理配置
+     */
+    public DefaultCocoRateLimitKeyResolver(CocoRateLimitProperties.TrustedProxy trustedProxy) {
+        CocoRateLimitProperties.TrustedProxy snapshot = CocoRateLimitProperties.TrustedProxy.copyOf(trustedProxy);
+        this.trustedProxyRemoteAddresses = Set.copyOf(new HashSet<>(snapshot.getRemoteAddresses()));
+    }
+
     @Override
     public CocoRateLimitKey resolve(HttpServletRequest request, CocoRateLimitRoute route) {
         HttpServletRequest checkedRequest = Objects.requireNonNull(request, "request must not be null");
@@ -22,6 +42,25 @@ public final class DefaultCocoRateLimitKeyResolver implements CocoRateLimitKeyRe
         if (remoteAddress == null || remoteAddress.isBlank()) {
             throw new IllegalArgumentException("Servlet request did not provide a remote address");
         }
-        return new CocoRateLimitKey(checkedRoute.getId(), remoteAddress.trim());
+        String normalizedRemoteAddress = remoteAddress.trim();
+        return new CocoRateLimitKey(checkedRoute.getId(), resolveSubject(checkedRequest, normalizedRemoteAddress));
+    }
+
+    private String resolveSubject(HttpServletRequest request, String remoteAddress) {
+        if (!this.trustedProxyRemoteAddresses.contains(remoteAddress)) {
+            return remoteAddress;
+        }
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor == null || forwardedFor.isBlank()) {
+            return remoteAddress;
+        }
+        String[] chain = forwardedFor.split(",");
+        for (int index = chain.length - 1; index >= 0; index--) {
+            String address = chain[index].trim();
+            if (!address.isEmpty() && !this.trustedProxyRemoteAddresses.contains(address)) {
+                return address;
+            }
+        }
+        return remoteAddress;
     }
 }
