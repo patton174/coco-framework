@@ -588,10 +588,8 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-common/coco-common-i18n",
                 "coco-foundation/coco-i18n",
             ): i18n_specs,
-            (
-                "coco-features/coco-feature-registry",
-                "coco-foundation/coco-feature-model",
-            ): i18n_specs,
+            ("coco-features/coco-feature-registry",): i18n_specs,
+            ("coco-foundation/coco-feature-model",): {module_layout_spec},
             (
                 "coco-config",
                 "coco-spring/coco-config",
@@ -855,6 +853,26 @@ class AgentReviewTests(unittest.TestCase):
                         sum(len(source["content"]) for source in sources),
                         review.normalized_limits(value)["policy_chars"],
                     )
+
+        canonical_feature_model_paths = [
+            "coco-foundation/coco-feature-model/src/main/java/"
+            "io/github/coco/feature/model/StandardCocoFeatures.java",
+        ]
+        omissions = []
+        sources = review.collect_policy(
+            repository_root,
+            value,
+            canonical_feature_model_paths,
+            omissions,
+        )
+        source_paths = {source["source"] for source in sources}
+        self.assertEqual([], omissions)
+        self.assertEqual(base_policy, source_paths)
+        self.assertFalse(i18n_specs & source_paths)
+        self.assertLess(
+            sum(len(source["content"]) for source in sources),
+            review.normalized_limits(value)["policy_chars"],
+        )
 
         # These are deterministic routing inputs, including planned relocation
         # paths. They are not evidence that those paths exist or compile.
