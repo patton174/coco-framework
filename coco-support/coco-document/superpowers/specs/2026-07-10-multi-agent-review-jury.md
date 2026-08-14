@@ -313,19 +313,25 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
   非法响应 envelope、角色、SHA、hash 或 binding 不匹配不进入任何重试，立即失败关闭。
   每次可重试输出只记录 attempt、受控 `stop_reason`、响应/累计字符数以及 expected/actual
   binding 的短前缀；不得记录 API key、原始响应分片、canonical context 或模型提示词。
-- P0/P1 只有同时得到 `evidence-verifier=AGREE` 和 `policy-skeptic=AGREE`，才能成为
-  confirmed blocker。
+- verifier 以结构化 claim/severity/anchor/trigger/impact/scope checks 和精确 evidence
+  references 报告；runtime 而非模型导出 `AGREE`、`DISAGREE` 或 `UNVERIFIED`。severity 与
+  scope 只能引用 `protected-policy` 或 `base-spec`，head/base code 不能伪装为政策。
+- P0/P1 只有同时得到两个 verifier runtime-derived `AGREE`，才能成为 confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不直接影响 jury verdict，并在评论中保留。
 - 任一验证者 `UNVERIFIED`：进入 unverified，不直接影响 jury verdict，并在评论中保留。
 - P2/P3 永不直接影响 jury verdict；只有两个 verifier 都为 `AGREE` 时才进入主席可选池。
-- 主席选中的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
+- 主席分组的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
   阻断独立的 `Agent issue gate`。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 只能
   展示，不得进入 `follow_up_finding_ids` 或 actionable 集合。
 - confirmed blocker 数量大于 0 时 verdict 必须为 BLOCK；等于 0 时必须为 PASS。
+- 主席必须把每个 confirmed P0/P1 恰好放入一个确定性 duplicate group，不能新增或删除 blocker；
+  group 不得混合严重级别或 P0/P1 与 P2/P3。
 - Chair 输出与确定性结果不一致时，Chair 阶段失败关闭。
 - publisher 重新加载全部 specialist、verifier 和 chair JSON，重新校验 schema、binding
   和完整角色集合，重算 consensus，并要求最终 Markdown 与重新渲染结果逐字一致；不能
   只信任 chair 上传的 `PASS`。
+- publisher 在任何 label、Issue、comment、close 或 reopen 写入前预检
+  `max_actionable_issue_groups`。超限时 Issue 侧必须零副作用，两个 gate 仅可失败关闭。
 
 上述分类和资格只能使用结构化 severity、finding ID 与显式 verifier status；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。

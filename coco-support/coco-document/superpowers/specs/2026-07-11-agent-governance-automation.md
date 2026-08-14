@@ -122,11 +122,14 @@ finding ID 必须是 `v1-` 加 64 位小写十六进制。普通用户文本中�
 
 受信 publisher 在重新验证所有模型产物和当前 PR 绑定后执行：
 
-1. 从确定性确认的 blocker 和主席接受的有来源 follow-up 中构建可执行 finding 集合。
-2. 根据规范化角色、路径、行区间、标题和 claim 计算稳定 fingerprint。
-3. 对同一 PR/fingerprint 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
+1. 从确定性确认的 blocker 和主席接受的有来源 follow-up group 中构建可执行集合。
+2. group 只能包含同一确定性 finding identity 的同 kind、同严重级别成员；所有 confirmed
+   blocker 必须恰好属于一个 group。
+3. 对同一 PR/group identity 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
 4. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
-5. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
+5. 在任何 Issue 侧写入前预检 `max_actionable_issue_groups`；超限时不创建 label、Issue、comment，
+   也不 close/reopen，直接失败关闭。
+6. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
 
 Issue 正文必须链接来源 PR、首次发现 head、当前验证 head、finding 来源、严重度、代码位置、触发、
 影响、证据和验证方式。Issue 不能取代 PR 汇总评论；评论仍展示完整评审团结果和 Issue 链接。
