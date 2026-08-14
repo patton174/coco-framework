@@ -155,6 +155,12 @@ class StandardCocoFeaturesTest {
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.TENANT));
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.DATA_PERMISSION));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
+        CocoFeatureDefinition loadedMybatisPlusDefinition = loadedPlan.definitions().stream()
+                .filter(definition -> definition.feature() == CocoFeature.MYBATIS_PLUS)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(loadedMybatisPlusDefinition.pruneArtifactIds().containsAll(
+                Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus")));
         assertEquals(List.of(
                 "coco-feature-mybatis-plus",
                 "coco-mybatis-plus",
