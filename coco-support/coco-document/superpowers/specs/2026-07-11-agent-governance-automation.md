@@ -115,21 +115,28 @@ README 维护 workflow 仅支持低频 schedule 和 `workflow_dispatch`。它从
 ```
 
 解析器必须严格验证字段集合、JSON 整数版本、PR 正整数、40 位小写十六进制 SHA 和受限 finding ID。
-finding ID 必须是 `v1-` 加 64 位小写十六进制。普通用户文本中的相似内容、非首行 marker、非法 JSON、
+finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionable group 写入 `v2-`，
+历史受管 Issue 可以保留其 `v1-` marker 直到受信 publisher 明确对账。普通用户文本中的相似内容、非首行 marker、非法 JSON、
 额外字段、重复 marker 或错误 label 均不能参与门禁。
 
 ### 生命周期
 
 受信 publisher 在重新验证所有模型产物和当前 PR 绑定后执行：
 
-1. 从确定性确认的 blocker 和主席接受的有来源 follow-up group 中构建可执行集合。
+1. 从确定性确认的 blocker 和主席接受的 `actionable_groups` 中构建可执行集合。
 2. group 只能包含同一确定性 finding identity 的同 kind、同严重级别成员；所有 confirmed
    blocker 必须恰好属于一个 group。
 3. 对同一 PR/group identity 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
+   当前 `v2-` group 也可以精确匹配其成员携带的一个历史 `v1-` alias。该匹配仅限同一 PR、
+   仅接受唯一候选；采用后把 marker 更新为 `v2-`，保留首次 head 和历史审计关系。多个候选、
+   一个 Issue 被多个 group 认领、或 alias 非法时在任何 Issue 写入前失败关闭。
 4. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
 5. 在任何 Issue 侧写入前预检 `max_actionable_issue_groups`；超限时不创建 label、Issue、comment，
-   也不 close/reopen，直接失败关闭。
+也不 close/reopen，直接失败关闭。
 6. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
+
+对账不得根据标题、正文、模型文字或语义相似性认领 Issue，也不得使用 previous head 恢复
+identity 或重试已知操作；跨 head identity continuity 属于独立后续协议，不在本生命周期内。
 
 Issue 正文必须链接来源 PR、首次发现 head、当前验证 head、finding 来源、严重度、代码位置、触发、
 影响、证据和验证方式。Issue 不能取代 PR 汇总评论；评论仍展示完整评审团结果和 Issue 链接。

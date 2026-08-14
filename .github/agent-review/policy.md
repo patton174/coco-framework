@@ -164,6 +164,17 @@ severity, override verifier outcomes, or change the deterministic verdict. Any
 required agent failure, schema failure, or SHA/hash mismatch is an infrastructure
 block.
 
+Every evidence source declares its total `line_count` and canonical,
+non-overlapping `available_line_ranges`. The ranges must exactly describe the
+visible source lines, but need not cover every line through `line_count`:
+clipped or gapped sources are valid context. An evidence reference must use an
+allowed trust domain and lie wholly in one available range. A duplicate,
+malformed, or unavailable reference rejects the report; a required check with
+no valid evidence remains `UNVERIFIED`. `actionable_groups` is a complete,
+strict chair contract: every group has one valid primary source finding and a
+sorted, unique duplicate list. Missing, malformed, invalid, or duplicate group
+members are an infrastructure failure, never entries to skip.
+
 ## Finding Issue Governance
 
 For successfully rebound same-repository human, exact Coco App, or configured
@@ -182,6 +193,18 @@ Each managed finding issue carries `agent-review` and one canonical single-line
 SHA, and stable finding identity. Later reviews update/reopen actionable findings,
 comment on and close disappeared findings, and retain the immutable first-head
 binding.
+
+Current actionable groups use a `v2-` identity and carry the sorted `v1-`
+identities of their source members as `legacy_finding_ids`. During reconciliation
+for the same pull request, the publisher may adopt exactly one existing managed
+Issue matched by either the current `v2-` identity or one of those exact member
+aliases. Adoption rewrites the marker to the `v2-` identity while preserving the
+immutable first-head binding and audit text, so an old v1-bound Issue is neither
+duplicated nor treated as disappeared. Multiple candidate matches, one Issue
+claimed by multiple groups, or an invalid alias fail closed before Issue writes.
+The publisher never matches by title, body text, semantic similarity, or a
+previous head; cross-head identity continuity and operation retry are outside
+this contract.
 
 `Agent issue gate` independently reads GitHub state for the current PR
 head: any open bound finding issue fails it, and none pass it. Issue close/reopen

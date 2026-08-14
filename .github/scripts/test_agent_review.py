@@ -179,6 +179,7 @@ def bound_context() -> dict:
                         "source": "AGENTS.md",
                         "trust_domain": "protected-policy",
                         "line_count": 1,
+                        "available_line_ranges": [[1, 1]],
                         "content": "Policy",
                     }
                 ],
@@ -194,6 +195,7 @@ def bound_context() -> dict:
                         "kind": "head-file",
                         "trust_domain": "head-code",
                         "line_count": 1,
+                        "available_line_ranges": [[1, 1]],
                         "content": "     1 class Foo {}",
                     }
                 ],
@@ -237,6 +239,7 @@ def verifier_report(
     finding_id: str,
     action: str = "AGREE",
     confidence: int = 5,
+    evidence_refs: list[dict] | None = None,
 ) -> dict:
     del confidence
     checks = {
@@ -251,7 +254,7 @@ def verifier_report(
         checks["claim"] = "CONTRADICTED"
     elif action == "UNVERIFIED":
         checks["claim"] = "UNVERIFIED"
-    evidence_refs = [
+    default_evidence_refs = [
         {
             "trust_domain": "head-code",
             "path": "src/Foo.java",
@@ -267,9 +270,10 @@ def verifier_report(
             "checks": ["change_scope", "severity"],
         },
     ]
-    evidence = (
-        "head-code:src/Foo.java#L1-L1; "
-        "protected-policy:AGENTS.md#L1-L1"
+    references = default_evidence_refs if evidence_refs is None else evidence_refs
+    evidence = "; ".join(
+        f"{item.get('trust_domain')}:{item.get('path')}#L{item.get('start_line')}-L{item.get('end_line')}"
+        for item in references
     )
     return {
         "schema_version": 1,
@@ -283,7 +287,7 @@ def verifier_report(
                 "finding_id": finding_id,
                 "action": action,
                 **checks,
-                "evidence_refs": evidence_refs,
+                "evidence_refs": references,
                 "reason": "The cited code and policy support this disposition.",
                 "evidence": evidence,
                 "verification": "Inspect the cited branch and exercise the stated trigger.",
@@ -2274,6 +2278,115 @@ class AgentReviewTests(unittest.TestCase):
                 report, "policy-skeptic", context, {"correctness:f1"}
             )
 
+    def test_context_evidence_ranges_allow_gaps_but_reject_gap_references(self) -> None:
+        context = bound_context()
+        source = context["untrusted"]["code_contexts"][0]
+        source.update(
+            {
+                "line_count": 10,
+                "available_line_ranges": [[1, 3], [5, 5], [7, 10]],
+                "content": "\n".join(
+                    f"{line:6d} line {line}" for line in (1, 2, 3, 5, 7, 8, 9, 10)
+                ),
+            }
+        )
+        context["binding"]["context_sha256"] = ""
+        context = review.bind_context(context)
+        self.assertEqual(
+            {1, 2, 3, 5, 7, 8, 9, 10},
+            review.context_evidence_sources(context)[("head-code", "src/Foo.java")],
+        )
+        valid_reference = [
+            {
+                "trust_domain": "head-code",
+                "path": "src/Foo.java",
+                "start_line": 5,
+                "end_line": 5,
+                "checks": ["claim"],
+            }
+        ]
+        report = verifier_report(
+            "evidence-verifier",
+            context,
+            "correctness:f1",
+            action="UNVERIFIED",
+            evidence_refs=valid_reference,
+        )
+        review.validate_cross_report(
+            report, "evidence-verifier", context, {"correctness:f1"}
+        )
+        self.assertEqual("UNVERIFIED", report["reviews"][0]["action"])
+        gap_reference = json.loads(json.dumps(valid_reference))
+        gap_reference[0]["start_line"] = 4
+        gap_reference[0]["end_line"] = 4
+        report = verifier_report(
+            "evidence-verifier",
+            context,
+            "correctness:f1",
+            action="UNVERIFIED",
+            evidence_refs=gap_reference,
+        )
+        with self.assertRaisesRegex(review.ReportShapeError, "outside canonical context"):
+            review.validate_cross_report(
+                report, "evidence-verifier", context, {"correctness:f1"}
+            )
+
+    def test_partial_evidence_derives_unverified_and_malformed_refs_fail_closed(self) -> None:
+        context = bound_context()
+        base = verifier_report("evidence-verifier", context, "correctness:f1")
+        partial = json.loads(json.dumps(base["reviews"][0]["evidence_refs"]))
+        partial[1]["checks"] = ["change_scope"]
+        report = verifier_report(
+            "evidence-verifier",
+            context,
+            "correctness:f1",
+            action="UNVERIFIED",
+            evidence_refs=partial,
+        )
+        review.validate_cross_report(
+            report, "evidence-verifier", context, {"correctness:f1"}
+        )
+        self.assertEqual("UNVERIFIED", report["reviews"][0]["action"])
+        for name, mutate in (
+            ("unknown-domain", lambda refs: refs[0].update(trust_domain="unknown")),
+            ("invalid-range", lambda refs: refs[0].update(start_line=2, end_line=1)),
+            ("outside-range", lambda refs: refs[0].update(start_line=2, end_line=2)),
+            ("duplicate", lambda refs: refs.append(json.loads(json.dumps(refs[0])))),
+        ):
+            with self.subTest(name=name):
+                malformed = json.loads(json.dumps(base["reviews"][0]["evidence_refs"]))
+                mutate(malformed)
+                report = verifier_report(
+                    "evidence-verifier",
+                    context,
+                    "correctness:f1",
+                    evidence_refs=malformed,
+                )
+                with self.assertRaises(review.ReportShapeError):
+                    review.validate_cross_report(
+                        report, "evidence-verifier", context, {"correctness:f1"}
+                    )
+
+    def test_chair_group_member_ids_rejects_malformed_groups(self) -> None:
+        cases = (
+            {},
+            {"actionable_groups": "not-an-array"},
+            {"actionable_groups": [None]},
+            {"actionable_groups": [{}]},
+            {"actionable_groups": [{"duplicate_finding_ids": []}]},
+            {"actionable_groups": [{"primary_finding_id": "invalid", "duplicate_finding_ids": []}]},
+            {"actionable_groups": [{"primary_finding_id": "correctness:f1"}]},
+            {"actionable_groups": [{"primary_finding_id": "correctness:f1", "duplicate_finding_ids": "architecture-api:f1"}]},
+            {"actionable_groups": [{"primary_finding_id": "correctness:f1", "duplicate_finding_ids": ["invalid"]}]},
+            {"actionable_groups": [{"primary_finding_id": "correctness:f1", "duplicate_finding_ids": ["correctness:f1"]}]},
+            {"actionable_groups": [{"primary_finding_id": "correctness:f1", "duplicate_finding_ids": ["correctness:f3", "architecture-api:f1"]}]},
+            {"actionable_groups": [{"primary_finding_id": "correctness:f1", "duplicate_finding_ids": ["architecture-api:f1", "architecture-api:f1"]}]},
+        )
+        for chair in cases:
+            with self.subTest(chair=chair):
+                with self.assertRaises(review.ReportShapeError):
+                    review.chair_group_member_ids(chair)
+
     def test_chair_groups_only_deterministic_duplicates_and_all_blockers(self) -> None:
         context = bound_context()
         first = specialist_report("correctness", context)["findings"][0]
@@ -3099,6 +3212,75 @@ class AgentReviewTests(unittest.TestCase):
         created_marker = review.parse_finding_issue_marker(created["body"])
         self.assertEqual(HEAD_SHA, created_marker["head_sha"])
 
+    def test_v1_bound_issue_reconciles_to_current_v2_group_without_duplication(self) -> None:
+        app_login = "coco-agent[bot]"
+        context = bound_context()
+        finding = specialist_report("correctness", context, severity="P1")["findings"][0]
+        legacy_id = review.stable_finding_id(finding)
+        group_id = review.stable_actionable_group_id([finding])
+        actionable = {
+            "stable_id": group_id,
+            "legacy_finding_ids": [legacy_id],
+            "source_id": finding["id"],
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.issue = {
+                    "number": 11,
+                    "title": "old finding",
+                    "body": review.finding_issue_marker(60, BASE_SHA, legacy_id) + "\nOld body",
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "html_url": "https://github.example/issues/11",
+                    "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                }
+                self.writes: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path.endswith("/labels/agent-review"):
+                    return {"name": review.FINDING_ISSUE_LABEL}
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if limit != 5000 or "issues?state=all&labels=agent-review" not in path:
+                    raise AssertionError(f"Unexpected pagination: {path}")
+                return [self.issue]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.writes.append((method, path, payload))
+                if method != "PATCH" or not path.endswith("/issues/11"):
+                    raise AssertionError(f"Unexpected write: {method} {path}")
+                self.issue.update(payload)
+                self.issue["labels"] = [
+                    {"name": value} for value in payload["labels"]
+                ]
+                return self.issue
+
+        client = FakeClient()
+        synchronized = review.synchronize_finding_issues(
+            client,
+            REPOSITORY,
+            60,
+            HEAD_SHA,
+            [actionable],
+            app_login,
+            APP_BOT_ID,
+            "https://github.example/runs/1",
+            "https://github.example",
+            lambda: {},
+        )
+        self.assertEqual(1, len(synchronized))
+        self.assertEqual(1, len(client.writes))
+        self.assertEqual("open", client.issue["state"])
+        marker = review.parse_finding_issue_marker(client.issue["body"])
+        self.assertEqual(group_id, marker["finding_id"])
+        self.assertEqual(BASE_SHA, marker["head_sha"])
+        self.assertIn(legacy_id, client.issue["body"])
+
     def test_finding_issue_convergence_retry_exhaustion_fails_closed(self) -> None:
         finding_id = "v1-" + "9" * 64
 
@@ -3850,6 +4032,7 @@ class AgentReviewTests(unittest.TestCase):
         chair = {
             "verdict": "PASS",
             "summary": "No independently confirmed blockers remain.",
+            "actionable_groups": [],
         }
         markdown = review.render_review(
             context, [specialist], [evidence, policy], consensus, chair
@@ -3975,7 +4158,7 @@ class AgentReviewTests(unittest.TestCase):
             {
                 "verdict": "PASS",
                 "summary": "No independently confirmed blockers remain.",
-                "follow_up_finding_ids": [],
+                "actionable_groups": [],
                 "questions": [],
             },
         )

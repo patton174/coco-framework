@@ -80,6 +80,7 @@ RUN_OWNERSHIP_RE = re.compile(
     r"^Agent jury run ([1-9][0-9]*):([1-9][0-9]*) in progress$"
 )
 STABLE_FINDING_ID_RE = re.compile(r"^v[12]-[0-9a-f]{64}$")
+LEGACY_STABLE_FINDING_ID_RE = re.compile(r"^v1-[0-9a-f]{64}$")
 SOURCE_FINDING_ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,48}:f[1-9][0-9]*$")
 VERIFIER_FACT_FIELDS = ("claim", "severity", "anchor", "trigger", "impact")
 VERIFIER_CHECK_FIELDS = (*VERIFIER_FACT_FIELDS, "change_scope")
@@ -527,6 +528,32 @@ def numbered_text(value: str, start: int = 1) -> str:
     )
 
 
+def available_line_ranges(lines: Iterable[int]) -> list[list[int]]:
+    values = sorted(set(lines))
+    if not values:
+        return []
+    ranges: list[list[int]] = []
+    start = values[0]
+    end = start
+    for value in values[1:]:
+        if value == end + 1:
+            end = value
+            continue
+        ranges.append([start, end])
+        start = value
+        end = value
+    ranges.append([start, end])
+    return ranges
+
+
+def numbered_available_lines(value: str) -> set[int]:
+    return {
+        int(match.group(1))
+        for line in value.splitlines()
+        if (match := re.match(r"^\s*([1-9][0-9]*) ", line))
+    }
+
+
 def dynamic_hunks(patch: str, content: str, before: int = 8, after: int = 3) -> str:
     lines = content.splitlines()
     ranges: list[tuple[int, int]] = []
@@ -838,6 +865,9 @@ def collect_policy(
                     else "base-spec"
                 ),
                 "line_count": len(content.splitlines()),
+                "available_line_ranges": available_line_ranges(
+                    range(1, len(clipped.splitlines()) + 1)
+                ),
                 "content": clipped,
             }
         )
@@ -881,6 +911,9 @@ def build_code_contexts(
             "kind": kind,
             "trust_domain": "head-code" if kind.startswith("head-") else "base-code",
             "line_count": line_count if line_count is not None else len(content.splitlines()),
+            "available_line_ranges": available_line_ranges(
+                numbered_available_lines(clipped)
+            ),
             "content": clipped,
         }
         contexts.append(item)
@@ -2904,6 +2937,7 @@ def context_evidence_sources(context: dict[str, Any]) -> dict[tuple[str, str], s
             domain = item.get("trust_domain")
             path = item.get("source")
             line_count = item.get("line_count")
+            declared_ranges = item.get("available_line_ranges")
             content = item.get("content")
             if (
                 domain not in POLICY_EVIDENCE_DOMAINS | CODE_EVIDENCE_DOMAINS
@@ -2913,17 +2947,31 @@ def context_evidence_sources(context: dict[str, Any]) -> dict[tuple[str, str], s
                 or line_count < 1
                 or not isinstance(content, str)
                 or not content
+                or not isinstance(declared_ranges, list)
             ):
                 raise ReportShapeError("Agent context evidence source is incomplete.")
-            if policy_source:
-                available = set(range(1, len(content.splitlines()) + 1))
-            else:
-                available = {
-                    int(match.group(1))
-                    for line in content.splitlines()
-                    if (match := re.match(r"^\s*([1-9][0-9]*) ", line))
-                }
-            if not available or max(available) > line_count:
+            available: set[int] = set()
+            previous_end = 0
+            for line_range in declared_ranges:
+                if (
+                    not isinstance(line_range, list)
+                    or len(line_range) != 2
+                    or type(line_range[0]) is not int
+                    or type(line_range[1]) is not int
+                    or line_range[0] < 1
+                    or line_range[1] < line_range[0]
+                    or (previous_end and line_range[0] <= previous_end + 1)
+                    or line_range[1] > line_count
+                ):
+                    raise ReportShapeError("Agent context evidence ranges are invalid.")
+                available.update(range(line_range[0], line_range[1] + 1))
+                previous_end = line_range[1]
+            visible_lines = (
+                set(range(1, len(content.splitlines()) + 1))
+                if policy_source
+                else numbered_available_lines(content)
+            )
+            if not available or available != visible_lines:
                 raise ReportShapeError("Agent context evidence line coverage is invalid.")
             key = (str(domain), path)
             if key in result:
@@ -3527,21 +3575,37 @@ def confirmed_finding_ids(consensus: dict[str, Any], severities: set[str]) -> se
 
 
 def chair_group_member_ids(chair: dict[str, Any]) -> set[str]:
+    if not isinstance(chair, dict):
+        raise ReportShapeError("Chair report must be an object.")
     groups = chair.get("actionable_groups")
-    if groups is None:
-        return set()
     if not isinstance(groups, list):
-        raise ReviewError("Chair actionable groups are invalid.")
-    return {
-        finding_id
-        for group in groups
-        if isinstance(group, dict)
-        for finding_id in [
-            group.get("primary_finding_id"),
-            *(group.get("duplicate_finding_ids") or []),
-        ]
-        if isinstance(finding_id, str)
-    }
+        raise ReportShapeError("Chair actionable_groups must be an array.")
+    members: set[str] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            raise ReportShapeError("Chair actionable group must be an object.")
+        require_report_fields(
+            group,
+            {"primary_finding_id", "duplicate_finding_ids"},
+            "Chair actionable group",
+        )
+        primary = group.get("primary_finding_id")
+        duplicates = group.get("duplicate_finding_ids")
+        if (
+            not isinstance(primary, str)
+            or not SOURCE_FINDING_ID_RE.fullmatch(primary)
+            or not isinstance(duplicates, list)
+            or any(
+                not isinstance(value, str)
+                or not SOURCE_FINDING_ID_RE.fullmatch(value)
+                for value in duplicates
+            )
+            or duplicates != sorted(set(duplicates))
+            or primary in duplicates
+        ):
+            raise ReportShapeError("Chair actionable group IDs are invalid.")
+        members.update([primary, *duplicates])
+    return members
 
 
 def validate_chair(
@@ -3598,8 +3662,9 @@ def _validate_chair_contract(
     if len(chair["questions"]) > max_questions:
         raise ReportShapeError("Chair returned too many questions.")
     groups = chair.get("actionable_groups")
+    chair_group_member_ids(chair)
     if not isinstance(groups, list):
-        raise ReportShapeError("Chair actionable_groups must be an array.")
+        raise AssertionError("Chair group validation must return an array.")
     confirmed_items = {
         str(item["finding"]["id"]): item["finding"]
         for item in consensus.get("confirmed", [])
@@ -4312,6 +4377,7 @@ def actionable_findings(
     groups = chair.get("actionable_groups")
     if not isinstance(groups, list):
         raise ReviewError("Chair actionable groups are invalid.")
+    chair_group_member_ids(chair)
     result: list[dict[str, Any]] = []
     selected_ids: set[str] = set()
     stable_ids: set[str] = set()
@@ -4342,6 +4408,9 @@ def actionable_findings(
         result.append(
             {
                 "stable_id": stable_id,
+                "legacy_finding_ids": sorted(
+                    {stable_finding_id(finding) for finding in typed_findings}
+                ),
                 "source_id": primary,
                 "source_ids": source_ids,
                 "duplicate_source_ids": duplicates,
@@ -4403,6 +4472,16 @@ def finding_issue_body(
         f"- Latest reviewed head: [`{current_head_sha}`]({repository_url}/commit/{current_head_sha})",
         f"- Source finding: `{markdown_code(actionable['source_id'], 120)}`",
         f"- Stable finding ID: `{stable_id}`",
+        (
+            "- Legacy v1 aliases: "
+            + (
+                ", ".join(
+                    f"`{markdown_code(value, 80)}`"
+                    for value in actionable.get("legacy_finding_ids", [])
+                )
+                or "None."
+            )
+        ),
         f"- Disposition: **{disposition}**",
         f"- Severity: **{markdown_text(finding['severity'])}**",
         f"- Category: `{markdown_code(finding['category'], 120)}`",
@@ -4583,13 +4662,47 @@ def synchronize_finding_issues(
     existing = app_finding_issues(
         client, repository, pr_number, expected_login, expected_bot_id
     )
+    selected = {str(item["stable_id"]): item for item in findings}
+    if len(selected) != len(findings) or any(
+        not STABLE_FINDING_ID_RE.fullmatch(stable_id) for stable_id in selected
+    ):
+        raise ReviewError("Actionable Issue group identities are invalid or duplicated.")
+    existing_binding: dict[str, str | None] = {}
+    claimed_existing_ids: set[str] = set()
+    for stable_id, actionable in selected.items():
+        aliases = actionable.get("legacy_finding_ids", [])
+        if (
+            not isinstance(aliases, list)
+            or any(
+                not isinstance(alias, str)
+                or not LEGACY_STABLE_FINDING_ID_RE.fullmatch(alias)
+                for alias in aliases
+            )
+            or aliases != sorted(set(aliases))
+        ):
+            raise ReviewError("Actionable Issue legacy finding aliases are invalid.")
+        candidates = [
+            candidate
+            for candidate in [stable_id, *aliases]
+            if candidate in existing
+        ]
+        if len(candidates) > 1:
+            raise ReviewError(
+                "Multiple managed Issues match one actionable Issue group."
+            )
+        matched = candidates[0] if candidates else None
+        if matched is not None and matched in claimed_existing_ids:
+            raise ReviewError("One managed Issue matches multiple actionable groups.")
+        existing_binding[stable_id] = matched
+        if matched is not None:
+            claimed_existing_ids.add(matched)
     if findings or existing:
         ensure_finding_issue_label(client, repository)
-    selected = {str(item["stable_id"]): item for item in findings}
     synchronized: list[dict[str, Any]] = []
 
     for stable_id, actionable in sorted(selected.items()):
-        previous = existing.get(stable_id)
+        previous_id = existing_binding[stable_id]
+        previous = existing.get(previous_id) if previous_id is not None else None
         first_head_sha = head_sha
         if previous is not None:
             marker = parse_finding_issue_marker(previous.get("body"))
@@ -4627,7 +4740,11 @@ def synchronize_finding_issues(
 
     repository_url = f"{server_url.rstrip('/')}/{repository}"
     for stable_id, issue in sorted(existing.items()):
-        if stable_id in selected or issue.get("state") != "open":
+        if (
+            stable_id in selected
+            or stable_id in claimed_existing_ids
+            or issue.get("state") != "open"
+        ):
             continue
         require_current_pr()
         comment = client.send_json(
