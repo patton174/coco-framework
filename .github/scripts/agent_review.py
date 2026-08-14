@@ -829,9 +829,7 @@ def collect_policy(
     unique_paths = list(dict.fromkeys(paths))
     limit = normalized_limits(config)["policy_chars"]
     sources: list[dict[str, Any]] = []
-    protected_paths = {
-        str(path) for path in config.get("protected_policy_paths", [])
-    }
+    protected_paths = {str(path) for path in config.get("protected_policy_paths", [])}
     used = 0
     for relative in unique_paths:
         path = safe_base_file(base_root, str(relative))
@@ -931,7 +929,9 @@ def build_code_contexts(
             "source": source,
             "kind": kind,
             "trust_domain": "head-code" if kind.startswith("head-") else "base-code",
-            "line_count": line_count if line_count is not None else len(content.splitlines()),
+            "line_count": line_count
+            if line_count is not None
+            else len(content.splitlines()),
             "available_line_ranges": available_line_ranges(
                 numbered_available_lines(clipped)
             ),
@@ -2989,7 +2989,9 @@ def context_file_set(context: dict[str, Any]) -> set[str]:
     return {path for path in paths if path}
 
 
-def context_evidence_sources(context: dict[str, Any]) -> dict[tuple[str, str], set[int]]:
+def context_evidence_sources(
+    context: dict[str, Any],
+) -> dict[tuple[str, str], set[int]]:
     result: dict[tuple[str, str], set[int]] = {}
     collections = (
         (context.get("trusted", {}).get("policy", []), True),
@@ -3039,7 +3041,9 @@ def context_evidence_sources(context: dict[str, Any]) -> dict[tuple[str, str], s
                 else numbered_available_lines(content)
             )
             if not available or available != visible_lines:
-                raise ReportShapeError("Agent context evidence line coverage is invalid.")
+                raise ReportShapeError(
+                    "Agent context evidence line coverage is invalid."
+                )
             key = (str(domain), path)
             if key in result:
                 raise ReportShapeError("Agent context evidence source is duplicated.")
@@ -3057,7 +3061,9 @@ def validate_evidence_refs(
     seen: set[str] = set()
     for reference in value:
         if not isinstance(reference, dict):
-            raise ReportShapeError(f"Cross-review {role} evidence reference is invalid.")
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference is invalid."
+            )
         require_report_fields(
             reference,
             {"trust_domain", "path", "start_line", "end_line", "checks"},
@@ -3082,9 +3088,13 @@ def validate_evidence_refs(
             or checks != sorted(set(checks))
             or any(check not in VERIFIER_CHECK_FIELDS for check in checks)
         ):
-            raise ReportShapeError(f"Cross-review {role} evidence reference is invalid.")
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference is invalid."
+            )
         available = sources.get((domain, path))
-        if available is None or any(line not in available for line in range(start, end + 1)):
+        if available is None or any(
+            line not in available for line in range(start, end + 1)
+        ):
             raise ReportShapeError(
                 f"Cross-review {role} evidence reference is outside canonical context."
             )
@@ -3097,7 +3107,9 @@ def validate_evidence_refs(
         }
         identity = canonical_json(item)
         if identity in seen:
-            raise ReportShapeError(f"Cross-review {role} evidence reference is duplicated.")
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference is duplicated."
+            )
         seen.add(identity)
         normalized.append(item)
     return normalized
@@ -3107,7 +3119,9 @@ def derive_verifier_action(
     checks: dict[str, str], evidence_refs: list[dict[str, Any]]
 ) -> str:
     by_check = {
-        field: [reference for reference in evidence_refs if field in reference["checks"]]
+        field: [
+            reference for reference in evidence_refs if field in reference["checks"]
+        ]
         for field in VERIFIER_CHECK_FIELDS
     }
     contradicted = {
@@ -3137,7 +3151,10 @@ def validate_verifier_evidence_domains(
     for reference in evidence_refs:
         domain = reference["trust_domain"]
         for check in reference["checks"]:
-            if check in {"severity", "change_scope"} and domain not in POLICY_EVIDENCE_DOMAINS:
+            if (
+                check in {"severity", "change_scope"}
+                and domain not in POLICY_EVIDENCE_DOMAINS
+            ):
                 raise ReportShapeError(
                     f"Cross-review {role} {check} evidence must be protected policy or a base specification."
                 )
@@ -3465,23 +3482,36 @@ def _validate_cross_report_contract(
         for field in VERIFIER_FACT_FIELDS:
             value = review.get(field)
             if not isinstance(value, str) or value not in VERIFIER_FACT_VALUES:
-                raise ReportShapeError(f"Cross-review {role} returned an invalid {field} check.")
+                raise ReportShapeError(
+                    f"Cross-review {role} returned an invalid {field} check."
+                )
             checks[field] = value
         scope = review.get("change_scope")
         if not isinstance(scope, str) or scope not in VERIFIER_SCOPE_VALUES:
-            raise ReportShapeError(f"Cross-review {role} returned an invalid change_scope check.")
+            raise ReportShapeError(
+                f"Cross-review {role} returned an invalid change_scope check."
+            )
         checks["change_scope"] = scope
-        evidence_refs = validate_evidence_refs(review.get("evidence_refs"), context, role)
+        evidence_refs = validate_evidence_refs(
+            review.get("evidence_refs"), context, role
+        )
         validate_verifier_evidence_domains(checks, evidence_refs, role)
         action = derive_verifier_action(checks, evidence_refs)
-        evidence = "; ".join(
-            f"{item['trust_domain']}:{item['path']}#L{item['start_line']}-L{item['end_line']}"
-            for item in evidence_refs
-        ) or "No resolved evidence reference was supplied."
+        evidence = (
+            "; ".join(
+                f"{item['trust_domain']}:{item['path']}#L{item['start_line']}-L{item['end_line']}"
+                for item in evidence_refs
+            )
+            or "No resolved evidence reference was supplied."
+        )
         if not raw_schema and review.get("action") != action:
-            raise ReportShapeError("Cross-review action contradicts its structured checks.")
+            raise ReportShapeError(
+                "Cross-review action contradicts its structured checks."
+            )
         if not raw_schema and review.get("evidence") != evidence:
-            raise ReportShapeError("Cross-review evidence summary is not deterministic.")
+            raise ReportShapeError(
+                "Cross-review evidence summary is not deterministic."
+            )
         reason = require_string(review.get("reason"), "reason", 8)
         verification = require_string(review.get("verification"), "verification", 8)
         normalized.append(
@@ -3663,8 +3693,7 @@ def chair_group_member_ids(chair: dict[str, Any]) -> set[str]:
             or not SOURCE_FINDING_ID_RE.fullmatch(primary)
             or not isinstance(duplicates, list)
             or any(
-                not isinstance(value, str)
-                or not SOURCE_FINDING_ID_RE.fullmatch(value)
+                not isinstance(value, str) or not SOURCE_FINDING_ID_RE.fullmatch(value)
                 for value in duplicates
             )
             or duplicates != sorted(set(duplicates))
@@ -3772,14 +3801,23 @@ def _validate_chair_contract(
                 "Chair actionable group references an ineligible or duplicate finding."
             )
         findings = [confirmed_items[value] for value in members]
-        kinds = {"confirmed-blocker" if value in confirmed else "follow-up" for value in members}
+        kinds = {
+            "confirmed-blocker" if value in confirmed else "follow-up"
+            for value in members
+        }
         if len(kinds) != 1 or len({item["severity"] for item in findings}) != 1:
-            raise ReportShapeError("Chair actionable group mixes finding kinds or severities.")
+            raise ReportShapeError(
+                "Chair actionable group mixes finding kinds or severities."
+            )
         if len({semantic_finding_identity(item) for item in findings}) != 1:
-            raise ReportShapeError("Chair actionable group is not a deterministic duplicate set.")
+            raise ReportShapeError(
+                "Chair actionable group is not a deterministic duplicate set."
+            )
         seen.update(members)
     if not set(confirmed).issubset(seen):
-        raise ReportShapeError("Chair omitted a confirmed blocker from actionable groups.")
+        raise ReportShapeError(
+            "Chair omitted a confirmed blocker from actionable groups."
+        )
 
 
 def utf8_size(value: str) -> int:
@@ -4408,9 +4446,8 @@ def semantic_finding_identity(finding: dict[str, Any]) -> str:
         "trigger": normalized_finding_identity_text(finding.get("trigger")),
         "impact": normalized_finding_identity_text(finding.get("impact")),
     }
-    if (
-        material["severity"] not in {"P0", "P1", "P2", "P3"}
-        or any(not str(value) for key, value in material.items() if key != "schema_version")
+    if material["severity"] not in {"P0", "P1", "P2", "P3"} or any(
+        not str(value) for key, value in material.items() if key != "schema_version"
     ):
         raise ReviewError("Actionable finding semantic identity is incomplete.")
     return sha256_text(canonical_json(material))
@@ -4422,7 +4459,9 @@ def stable_actionable_group_id(findings: Iterable[dict[str, Any]]) -> str:
         raise ReviewError("Actionable group findings are invalid.")
     members = sorted({semantic_finding_identity(value) for value in values})
     if len(members) != 1:
-        raise ReviewError("Actionable group members have different semantic identities.")
+        raise ReviewError(
+            "Actionable group members have different semantic identities."
+        )
     return "v2-" + sha256_text(
         canonical_json({"schema_version": 2, "semantic_finding_id": members[0]})
     )
@@ -4466,13 +4505,32 @@ def actionable_findings(
             any(not isinstance(value, str) for value in source_ids)
             or len(source_ids) != len(set(source_ids))
             or any(value in selected_ids for value in source_ids)
-            or any(value not in confirmed_ids and value not in eligible_followup_ids for value in source_ids)
+            or any(
+                value not in confirmed_ids and value not in eligible_followup_ids
+                for value in source_ids
+            )
         ):
-            raise ReviewError("Chair actionable group references an ineligible finding.")
+            raise ReviewError(
+                "Chair actionable group references an ineligible finding."
+            )
         findings = [by_source_id.get(source_id) for source_id in source_ids]
         if any(finding is None for finding in findings):
             raise ReviewError("Actionable group references an unknown source finding.")
         typed_findings = [finding for finding in findings if isinstance(finding, dict)]
+        kinds = {
+            "confirmed-blocker" if source_id in confirmed_ids else "follow-up"
+            for source_id in source_ids
+        }
+        if (
+            len(kinds) != 1
+            or len({str(finding.get("severity") or "") for finding in typed_findings})
+            != 1
+            or len({semantic_finding_identity(finding) for finding in typed_findings})
+            != 1
+        ):
+            raise ReviewError(
+                "Actionable group mixes finding kinds, severities, or semantic identities."
+            )
         stable_id = stable_actionable_group_id(typed_findings)
         if stable_id in stable_ids:
             raise ReviewError("Actionable group identity is duplicated.")
@@ -4487,9 +4545,7 @@ def actionable_findings(
                 "source_id": primary,
                 "source_ids": source_ids,
                 "duplicate_source_ids": duplicates,
-                "kind": "confirmed-blocker"
-                if primary in confirmed_ids
-                else "follow-up",
+                "kind": next(iter(kinds)),
                 "finding": typed_findings[0],
                 "duplicate_findings": typed_findings[1:],
             }
@@ -4739,7 +4795,9 @@ def synchronize_finding_issues(
     if len(selected) != len(findings) or any(
         not STABLE_FINDING_ID_RE.fullmatch(stable_id) for stable_id in selected
     ):
-        raise ReviewError("Actionable Issue group identities are invalid or duplicated.")
+        raise ReviewError(
+            "Actionable Issue group identities are invalid or duplicated."
+        )
     existing_binding: dict[str, str | None] = {}
     claimed_existing_ids: set[str] = set()
     for stable_id, actionable in selected.items():
@@ -4755,9 +4813,7 @@ def synchronize_finding_issues(
         ):
             raise ReviewError("Actionable Issue legacy finding aliases are invalid.")
         candidates = [
-            candidate
-            for candidate in [stable_id, *aliases]
-            if candidate in existing
+            candidate for candidate in [stable_id, *aliases] if candidate in existing
         ]
         if len(candidates) > 1:
             raise ReviewError(
