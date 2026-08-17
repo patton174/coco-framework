@@ -136,15 +136,15 @@ finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionab
    写入前预检 `max_actionable_issue_groups`；超限时保持零仓库写副作用并直接失败退出。
 6. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
 
-对账不得根据标题、正文、模型文字或语义相似性认领 Issue，也不得使用 previous head 恢复
-identity 或重试已知操作；跨 head identity continuity 属于独立后续协议，不在本生命周期内。
+不得凭标题/正文/模型文字/语义相似性认领 Issue，或用 previous head 恢复 identity/重试操作；
+cross-head identity continuity 不在本协议。
 
-受信 Issue/comment 写入使用严格 canonical operation marker，绑定 repository/ID、App login/Bot ID、
-run/attempt、PR/head、group 与枚举 action；Issue 的 finding marker 仍为首行、operation marker 为次行。
-2xx 空/null/坏 JSON/结构响应绝不重发；现有有限 backoff 每次在 PR 复核前后读取。仅完整 actor/identity
-正确且与写前快照完全一致可视为 pending，exact resource 才成功；新 run、错误 identity、多个候选、其他冲突或
-head 漂移立即 fail closed，0 直到耗尽亦失败。status 响应须精确匹配 sha/context/state，status/label 均不恢复
-或重发；日志只含 action/attempt/path，且不建立 cross-head continuity。
+受信 Issue/comment 写入使用严格 canonical operation marker，绑定 repository/ID、App login/Bot ID、run/attempt、
+PR/head/group 与枚举 action；Issue finding marker 仍为首行，operation marker 为次行。2xx 空/null/坏 JSON/结构响应
+不重发；有界读取经 PR 前后复核。写前快照仅为 pending；actor/identity/target ID/body/state 全匹配才 exact。新 run、
+错 identity、重复/冲突/head 漂移立即 fail closed，0 匹配耗尽失败。衍生写入须在首写前校验正文预算。
+status 须用正整数 ID 和 client API URL 绑定 endpoint，且匹配 state/context/description/target URL；status/label
+不恢复/重发。日志仅含 action/attempt/path。
 
 Issue 正文必须链接来源 PR、首次发现 head、当前验证 head、finding 来源、严重度、代码位置、触发、
 影响、证据和验证方式。Issue 不能取代 PR 汇总评论；评论仍展示完整评审团结果和 Issue 链接。

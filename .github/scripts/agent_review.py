@@ -4989,18 +4989,21 @@ def verify_finding_issue(
     expected_labels: set[str],
     expected_state: str,
     expected_state_reason: str | None = None,
+    expected_number: int | None = None,
 ) -> dict[str, Any]:
     if not isinstance(issue, dict) or not isinstance(issue.get("user"), dict):
         raise GitHubUncertainWriteResponse(
             "GitHub finding Issue write returned an incomplete resource."
         )
-    if (
-        any(key not in issue for key in ("number", "title", "body", "state", "labels"))
-        or not isinstance(issue.get("number"), int)
-        or issue["number"] < 1
-    ):
+    if any(key not in issue for key in ("number", "title", "body", "state", "labels")):
         raise GitHubUncertainWriteResponse(
             "GitHub finding Issue write returned an incomplete resource."
+        )
+    if type(issue["number"]) is not int or issue["number"] < 1:
+        raise ReviewError("GitHub finding Issue write returned an invalid number.")
+    if expected_number is not None and issue["number"] != expected_number:
+        raise ReviewError(
+            "GitHub finding Issue write returned a different target number."
         )
     if not isinstance(issue.get("title"), str) or not isinstance(
         issue.get("body"), str
@@ -5172,7 +5175,6 @@ def uncertain_write_recovery(
 def finding_issue_recovery_candidate(
     client: GitHubClient,
     repository: str,
-    pr_number: int,
     expected_login: str,
     expected_bot_id: int,
     expected_marker: str,
@@ -5233,7 +5235,6 @@ def finding_issue_recovery_candidate(
 def recover_finding_issue_create(
     client: GitHubClient,
     repository: str,
-    pr_number: int,
     expected_login: str,
     expected_bot_id: int,
     expected_marker: str,
@@ -5248,7 +5249,6 @@ def recover_finding_issue_create(
         lambda: finding_issue_recovery_candidate(
             client,
             repository,
-            pr_number,
             expected_login,
             expected_bot_id,
             expected_marker,
@@ -5354,6 +5354,11 @@ def synchronize_finding_issues(
     for stable_id, actionable in sorted(selected.items()):
         previous_id = existing_binding[stable_id]
         previous = existing.get(previous_id) if previous_id is not None else None
+        target_issue_number = previous.get("number") if previous is not None else None
+        if previous is not None and (
+            type(target_issue_number) is not int or target_issue_number < 1
+        ):
+            raise ReviewError("Managed Issue number is invalid.")
         first_head_sha = head_sha
         if previous is not None:
             marker = parse_finding_issue_marker(previous.get("body"))
@@ -5405,6 +5410,7 @@ def synchronize_finding_issues(
                 payload["body"],
                 set(payload["labels"]),
                 "open",
+                expected_number=target_issue_number,
             )
 
         require_current_pr()
@@ -5414,7 +5420,7 @@ def synchronize_finding_issues(
             else:
                 issue = client.send_json(
                     "PATCH",
-                    f"repos/{repository}/issues/{previous['number']}",
+                    f"repos/{repository}/issues/{target_issue_number}",
                     write_payload,
                 )
             value = verify(issue)
@@ -5423,7 +5429,6 @@ def synchronize_finding_issues(
                 value = recover_finding_issue_create(
                     client,
                     repository,
-                    pr_number,
                     expected_login,
                     expected_bot_id,
                     marker_line,
@@ -5435,7 +5440,7 @@ def synchronize_finding_issues(
                 value = recover_finding_issue_by_number(
                     client,
                     repository,
-                    int(previous["number"]),
+                    target_issue_number,
                     action,
                     require_current_pr,
                     verify,
@@ -5462,6 +5467,31 @@ def synchronize_finding_issues(
         issue_number = issue.get("number")
         if type(issue_number) is not int or issue_number < 1:
             raise ReviewError("Managed Issue number is invalid.")
+        labels = issue_label_names(issue) | {FINDING_ISSUE_LABEL}
+        marker_line = str(issue.get("body") or "").splitlines()[0]
+        close_operation = operation_marker(
+            repository,
+            repository_id,
+            expected_login,
+            expected_bot_id,
+            run_order,
+            pr_number,
+            head_sha,
+            stable_id,
+            "finding-issue-close",
+        )
+        close_body = require_comment_size(
+            insert_operation_marker(str(issue.get("body") or ""), close_operation, 1),
+            MAX_GITHUB_COMMENT_BODY_BYTES,
+            "Agent finding Issue body",
+        )
+        close_payload = {
+            "body": close_body,
+            "state": "closed",
+            "state_reason": "completed",
+            "labels": sorted(labels),
+        }
+        close_pending_snapshot = copy.deepcopy(issue)
         closure_operation = operation_marker(
             repository,
             repository_id,
@@ -5553,29 +5583,6 @@ def synchronize_finding_issues(
                 require_current_pr,
                 closure_comment_candidate,
             )
-        labels = issue_label_names(issue) | {FINDING_ISSUE_LABEL}
-        marker_line = str(issue.get("body") or "").splitlines()[0]
-        close_operation = operation_marker(
-            repository,
-            repository_id,
-            expected_login,
-            expected_bot_id,
-            run_order,
-            pr_number,
-            head_sha,
-            stable_id,
-            "finding-issue-close",
-        )
-        close_body = insert_operation_marker(
-            str(issue.get("body") or ""), close_operation, 1
-        )
-        close_payload = {
-            "body": close_body,
-            "state": "closed",
-            "state_reason": "completed",
-            "labels": sorted(labels),
-        }
-        close_pending_snapshot = copy.deepcopy(issue)
 
         def verify_closed(value: Any) -> dict[str, Any]:
             return verify_finding_issue(
@@ -5589,6 +5596,7 @@ def synchronize_finding_issues(
                 set(close_payload["labels"]),
                 "closed",
                 "completed",
+                expected_number=issue_number,
             )
 
         require_current_pr()
@@ -5702,14 +5710,14 @@ def verify_managed_comment_snapshot(
         raise GitHubUncertainWriteResponse(
             "GitHub managed comment recovery returned an incomplete resource."
         )
-    if (
-        type(value.get("id")) is not int
-        or value["id"] < 1
-        or not isinstance(value.get("body"), str)
-    ):
+    if "id" not in value or "body" not in value:
         raise GitHubUncertainWriteResponse(
             "GitHub managed comment recovery returned an incomplete resource."
         )
+    if type(value["id"]) is not int or value["id"] < 1:
+        raise ReviewError("GitHub managed comment recovery returned an invalid ID.")
+    if not isinstance(value["body"], str):
+        raise ReviewError("GitHub managed comment recovery returned an invalid body.")
     comment = require_resource_actor(
         value, expected_login, expected_bot_id, "Agent jury managed comment"
     )
@@ -5738,6 +5746,11 @@ def upsert_comment(
     )
     previous_snapshot = copy.deepcopy(previous) if previous is not None else None
     require_managed_comment_order(previous, run_order)
+    target_comment_id = previous.get("id") if previous is not None else None
+    if previous is not None and (
+        type(target_comment_id) is not int or target_comment_id < 1
+    ):
+        raise ReviewError("Agent jury managed comment ID is invalid.")
     action = "managed-comment-update" if previous else "managed-comment-create"
     marker = operation_marker(
         repository,
@@ -5765,9 +5778,17 @@ def upsert_comment(
             raise GitHubUncertainWriteResponse(
                 "GitHub managed comment write returned an incomplete resource."
             )
-        if not isinstance(value.get("id"), int) or not isinstance(
-            value.get("body"), str
-        ):
+        if "id" not in value or "body" not in value:
+            raise GitHubUncertainWriteResponse(
+                "GitHub managed comment write returned an incomplete resource."
+            )
+        if type(value["id"]) is not int or value["id"] < 1:
+            raise ReviewError("GitHub managed comment write returned an invalid ID.")
+        if target_comment_id is not None and value["id"] != target_comment_id:
+            raise ReviewError(
+                "GitHub managed comment write returned a different target ID."
+            )
+        if not isinstance(value["body"], str):
             raise GitHubUncertainWriteResponse(
                 "GitHub managed comment write returned an incomplete resource."
             )
@@ -5783,7 +5804,7 @@ def upsert_comment(
         return comment
 
     path = (
-        f"repos/{repository}/issues/comments/{previous['id']}"
+        f"repos/{repository}/issues/comments/{target_comment_id}"
         if previous
         else f"repos/{repository}/issues/{pr_number}/comments"
     )
@@ -5892,22 +5913,32 @@ def publish_status(
     target_url: str,
     context: str = STATUS_CONTEXT,
 ) -> None:
+    payload = {
+        "state": state,
+        "context": context,
+        "description": description[:140],
+        "target_url": target_url,
+    }
     value = client.send_json(
         "POST",
         f"repos/{repository}/statuses/{head_sha}",
-        {
-            "state": state,
-            "context": context,
-            "description": description[:140],
-            "target_url": target_url,
-        },
+        payload,
     )
     if not isinstance(value, dict):
         raise ReviewError("GitHub commit status write returned an invalid resource.")
+    expected_url = (
+        f"{client.api_url.rstrip('/')}/repos/{repository}/statuses/{head_sha}"
+    )
     if (
-        value.get("sha") != head_sha
-        or value.get("context") != context
-        or value.get("state") != state
+        type(value.get("id")) is not int
+        or value["id"] < 1
+        or not isinstance(value.get("url"), str)
+        or value["url"] != expected_url
+        or value.get("context") != payload["context"]
+        or value.get("state") != payload["state"]
+        or value.get("description") != payload["description"]
+        or value.get("target_url") != payload["target_url"]
+        or not isinstance(value.get("creator"), dict)
     ):
         raise ReviewError("GitHub commit status response did not match the request.")
 
