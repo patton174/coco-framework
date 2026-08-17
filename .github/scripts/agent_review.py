@@ -5175,8 +5175,6 @@ def uncertain_write_recovery(
 def finding_issue_recovery_candidate(
     client: GitHubClient,
     repository: str,
-    expected_login: str,
-    expected_bot_id: int,
     expected_marker: str,
     expected_operation: str,
     verify: Callable[[Any], dict[str, Any]],
@@ -5235,8 +5233,6 @@ def finding_issue_recovery_candidate(
 def recover_finding_issue_create(
     client: GitHubClient,
     repository: str,
-    expected_login: str,
-    expected_bot_id: int,
     expected_marker: str,
     expected_operation: str,
     verify: Callable[[Any], dict[str, Any]],
@@ -5249,8 +5245,6 @@ def recover_finding_issue_create(
         lambda: finding_issue_recovery_candidate(
             client,
             repository,
-            expected_login,
-            expected_bot_id,
             expected_marker,
             expected_operation,
             verify,
@@ -5429,8 +5423,6 @@ def synchronize_finding_issues(
                 value = recover_finding_issue_create(
                     client,
                     repository,
-                    expected_login,
-                    expected_bot_id,
                     marker_line,
                     operation,
                     verify,

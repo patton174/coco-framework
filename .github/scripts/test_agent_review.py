@@ -5456,8 +5456,6 @@ class AgentReviewTests(unittest.TestCase):
             review.recover_finding_issue_create(
                 FakeClient(),
                 REPOSITORY,
-                "coco-agent[bot]",
-                APP_BOT_ID,
                 finding_marker,
                 expected_operation,
                 lambda value: value,
@@ -5541,8 +5539,6 @@ class AgentReviewTests(unittest.TestCase):
                 review.recover_finding_issue_create(
                     missing,
                     REPOSITORY,
-                    app_login,
-                    APP_BOT_ID,
                     finding_marker,
                     expected_operation,
                     verify,
@@ -5558,8 +5554,6 @@ class AgentReviewTests(unittest.TestCase):
             review.recover_finding_issue_create(
                 duplicate,
                 REPOSITORY,
-                app_login,
-                APP_BOT_ID,
                 finding_marker,
                 expected_operation,
                 verify,
@@ -5589,8 +5583,6 @@ class AgentReviewTests(unittest.TestCase):
                     review.recover_finding_issue_create(
                         client,
                         REPOSITORY,
-                        app_login,
-                        APP_BOT_ID,
                         finding_marker,
                         expected_operation,
                         verify,
@@ -5610,8 +5602,6 @@ class AgentReviewTests(unittest.TestCase):
                     review.recover_finding_issue_create(
                         client,
                         REPOSITORY,
-                        app_login,
-                        APP_BOT_ID,
                         finding_marker,
                         expected_operation,
                         verify,
