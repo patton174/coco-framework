@@ -140,6 +140,14 @@ jobs:
           PYTHONUTF8: '1'
         run: |
           set -euo pipefail
+          if [[ -n "${INCIDENT_ISSUE_NUMBER}" ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" != 'workflow_dispatch' \
+               || "${GITHUB_ACTOR}" != "${GITHUB_REPOSITORY_OWNER}" \
+               || "${GITHUB_TRIGGERING_ACTOR}" != "${GITHUB_REPOSITORY_OWNER}" ]]; then
+              echo "::error::Incident merge requires a repository-owner workflow_dispatch."
+              exit 1
+            fi
+          fi
           args=(
             --repository "${GITHUB_REPOSITORY}"
             --event-name "${GITHUB_EVENT_NAME}"

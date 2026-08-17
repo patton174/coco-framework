@@ -114,6 +114,26 @@ class IncidentAuthorization:
     missing_context: str
     issued_at: datetime
     expires_at: datetime
+    dispatch_actor: str
+    triggering_actor: str
+    pull_request_author_login: str
+    pull_request_author_bot_id: int
+    owner_approval_review_id: int | None
+
+
+@dataclasses.dataclass(frozen=True)
+class IncidentInvocation:
+    event_name: str
+    actor: str
+    triggering_actor: str
+    repository_owner: str
+
+
+@dataclasses.dataclass(frozen=True)
+class CurrentApproval:
+    login: str
+    user_type: str
+    review_id: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -406,6 +426,20 @@ def parse_incident_marker(body: Any, issue_number: int) -> dict[str, Any]:
     return payload
 
 
+def incident_invocation_from_environment() -> IncidentInvocation:
+    values = {
+        "event_name": os.environ.get("GITHUB_EVENT_NAME", ""),
+        "actor": os.environ.get("GITHUB_ACTOR", ""),
+        "triggering_actor": os.environ.get("GITHUB_TRIGGERING_ACTOR", ""),
+        "repository_owner": os.environ.get("GITHUB_REPOSITORY_OWNER", ""),
+    }
+    if any(not isinstance(value, str) or not value for value in values.values()):
+        raise ContractError(
+            "Incident route requires GitHub-provided event, actor, and repository owner context."
+        )
+    return IncidentInvocation(**values)
+
+
 def read_event(path: Path | None) -> dict[str, Any]:
     if path is None:
         return {}
@@ -656,13 +690,13 @@ def snapshot_reasons(
     return reasons
 
 
-def current_approvers(
+def current_approvals(
     client: GitHubClient,
     repository: str,
     pull_request: int,
     head_sha: str,
     author_login: str,
-) -> tuple[str, ...]:
+) -> tuple[CurrentApproval, ...]:
     reviews = client.paginate(
         f"repos/{repository}/pulls/{pull_request}/reviews", limit=500
     )
@@ -684,8 +718,8 @@ def current_approvers(
         if previous is None or review_id > previous[0]:
             latest[login] = (review_id, review)
 
-    approvers: list[str] = []
-    for login, (_, review) in sorted(latest.items()):
+    approvals: list[CurrentApproval] = []
+    for login, (review_id, review) in sorted(latest.items()):
         if review.get("state") != "APPROVED" or review.get("commit_id") != head_sha:
             continue
         encoded_login = urllib.parse.quote(login, safe="")
@@ -701,8 +735,15 @@ def current_approvers(
             permission_payload, f"collaborator permission for {login}"
         ).get("permission")
         if permission in REVIEWER_PERMISSIONS:
-            approvers.append(login)
-    return tuple(approvers)
+            user = require_mapping(review.get("user"), "review user")
+            approvals.append(
+                CurrentApproval(
+                    login=login,
+                    user_type=str(user.get("type") or ""),
+                    review_id=review_id,
+                )
+            )
+    return tuple(approvals)
 
 
 def _latest_by_id(values: list[dict[str, Any]], label: str) -> dict[str, Any]:
@@ -806,10 +847,42 @@ def required_gate_configuration(
 def validate_incident_authorization(
     client: GitHubClient,
     repository: str,
+    pull_request: dict[str, Any],
     snapshot: PullRequestSnapshot,
     issue_number: int,
     now: datetime,
+    invocation: IncidentInvocation,
+    expected_app_login: str,
+    expected_app_bot_id: int,
+    owner_approval: CurrentApproval | None,
 ) -> IncidentAuthorization:
+    owner = repository.split("/", 1)[0]
+    if invocation.event_name != "workflow_dispatch":
+        raise ContractError(
+            "Controlled incident merge is available only to workflow_dispatch."
+        )
+    if invocation.repository_owner != owner:
+        raise ContractError(
+            "GitHub repository owner context does not match the target repository."
+        )
+    if invocation.actor != owner:
+        raise ContractError(
+            "Controlled incident merge must be dispatched by the repository owner."
+        )
+    if invocation.triggering_actor != owner:
+        raise ContractError(
+            "Controlled incident merge must be run or re-run by the repository owner."
+        )
+    try:
+        require_resource_actor(
+            pull_request,
+            expected_app_login,
+            expected_app_bot_id,
+            "Controlled incident pull request",
+        )
+    except AgentReviewError as exc:
+        raise ContractError(str(exc)) from exc
+
     issue_number = positive_integer(issue_number, "incident Issue number")
     issue = require_mapping(
         client.get_json(f"repos/{repository}/issues/{issue_number}"),
@@ -826,7 +899,6 @@ def validate_incident_authorization(
         raise ContractError(f"Incident authorization #{issue_number} must not be a PR.")
     if issue.get("state") != "open":
         raise ContractError(f"Incident Issue #{issue_number} must remain open.")
-    owner = repository.split("/", 1)[0]
     author = require_mapping(issue.get("user"), f"Incident Issue #{issue_number} user")
     if (
         author.get("login") != owner
@@ -871,6 +943,13 @@ def validate_incident_authorization(
         missing_context=str(marker["missing_context"]),
         issued_at=issued_at,
         expires_at=expires_at,
+        dispatch_actor=invocation.actor,
+        triggering_actor=invocation.triggering_actor,
+        pull_request_author_login=expected_app_login,
+        pull_request_author_bot_id=expected_app_bot_id,
+        owner_approval_review_id=(
+            owner_approval.review_id if owner_approval is not None else None
+        ),
     )
 
 
@@ -1158,42 +1237,60 @@ def evaluate_eligibility(
     expected_app_bot_id: int,
     incident_issue_number: int | None,
     now: datetime,
+    incident_invocation_provider: Callable[[], IncidentInvocation],
 ) -> Eligibility:
-    snapshot = pull_request_snapshot(
+    pull_request = require_mapping(
         client.get_json(f"repos/{repository}/pulls/{candidate.number}"),
-        candidate.number,
+        f"pull request #{candidate.number}",
     )
+    snapshot = pull_request_snapshot(pull_request, candidate.number)
     snapshot_failures = snapshot_reasons(snapshot, expected_head_sha)
     if snapshot_failures:
         return Eligibility(snapshot=snapshot, reasons=tuple(snapshot_failures))
 
     gate_configuration = required_gate_configuration(protection_client, repository)
-    incident_authorization: IncidentAuthorization | None = None
     if gate_configuration.gates == tuple(sorted(STANDARD_REQUIRED_GATES)):
         if incident_issue_number is not None:
             raise ContractError(
                 "Standard three-gate protection rejects an incident Issue parameter."
             )
-    else:
-        if incident_issue_number is None:
-            raise ContractError(
-                "Controlled two-gate protection requires an incident Issue number."
-            )
-        incident_authorization = validate_incident_authorization(
-            client,
-            repository,
-            snapshot,
-            incident_issue_number,
-            now,
-        )
     review_state = pull_request_review_state(client, repository, candidate.number)
-    approvers = current_approvers(
+    approvals = current_approvals(
         client,
         repository,
         candidate.number,
         snapshot.head_sha,
         snapshot.author_login,
     )
+    approvers = tuple(approval.login for approval in approvals)
+    incident_authorization: IncidentAuthorization | None = None
+    incident_owner_approval: CurrentApproval | None = None
+    if gate_configuration.gates == tuple(sorted(INCIDENT_REQUIRED_GATES)):
+        if incident_issue_number is None:
+            raise ContractError(
+                "Controlled two-gate protection requires an incident Issue number."
+            )
+        owner = repository.split("/", 1)[0]
+        incident_owner_approval = next(
+            (
+                approval
+                for approval in approvals
+                if approval.login == owner and approval.user_type == "User"
+            ),
+            None,
+        )
+        incident_authorization = validate_incident_authorization(
+            client,
+            repository,
+            pull_request,
+            snapshot,
+            incident_issue_number,
+            now,
+            incident_invocation_provider(),
+            expected_app_login,
+            expected_app_bot_id,
+            incident_owner_approval,
+        )
     gates, gate_reasons = required_gate_states(
         client, repository, snapshot.head_sha, gate_configuration
     )
@@ -1214,6 +1311,13 @@ def evaluate_eligibility(
     if not approvers:
         reasons.append(
             "no current valid non-bot maintainer approval exists for the current head"
+        )
+    if (
+        gate_configuration.gates == tuple(sorted(INCIDENT_REQUIRED_GATES))
+        and incident_owner_approval is None
+    ):
+        reasons.append(
+            "controlled incident merge requires the repository owner's approval on the exact current head"
         )
     if review_state.unresolved_threads:
         reasons.append(
@@ -1268,6 +1372,9 @@ def evaluate_candidate(
     dry_run: bool,
     incident_issue_number: int | None = None,
     now_provider: Callable[[], datetime] = utc_now,
+    incident_invocation_provider: Callable[
+        [], IncidentInvocation
+    ] = incident_invocation_from_environment,
 ) -> Decision:
     first = evaluate_eligibility(
         read_client,
@@ -1279,6 +1386,7 @@ def evaluate_candidate(
         expected_app_bot_id,
         incident_issue_number,
         now_provider(),
+        incident_invocation_provider,
     )
     if first.reasons:
         return decision_from_eligibility("blocked", candidate, first)
@@ -1293,6 +1401,7 @@ def evaluate_candidate(
         expected_app_bot_id,
         incident_issue_number,
         now_provider(),
+        incident_invocation_provider,
     )
     if second.reasons:
         return decision_from_eligibility("blocked", candidate, second)

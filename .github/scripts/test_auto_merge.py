@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import copy
+import json
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 import auto_merge as merge
 
@@ -16,6 +18,7 @@ BASE_SHA = "a" * 40
 OTHER_BASE_SHA = "f" * 40
 MERGE_SHA = "d" * 40
 REPOSITORY = "patton174/coco-framework"
+REPOSITORY_OWNER = "patton174"
 FINDING_ID = "v1-" + "e" * 64
 APP_LOGIN = "coco-agent[bot]"
 APP_BOT_ID = 123456789
@@ -50,7 +53,7 @@ def marker(
     )
 
 
-def incident_marker(**overrides: object) -> str:
+def incident_payload(**overrides: object) -> dict[str, object]:
     payload = {
         "schema_version": merge.INCIDENT_SCHEMA_VERSION,
         "repository": REPOSITORY,
@@ -62,7 +65,14 @@ def incident_marker(**overrides: object) -> str:
         "expires_at": "2026-08-17T13:00:00Z",
     }
     payload.update(overrides)
-    return f"{merge.INCIDENT_MARKER_PREFIX}{merge.canonical_json(payload)} -->"
+    return payload
+
+
+def incident_marker(**overrides: object) -> str:
+    return (
+        f"{merge.INCIDENT_MARKER_PREFIX}"
+        f"{merge.canonical_json(incident_payload(**overrides))} -->"
+    )
 
 
 def incident_issue(**overrides: object) -> dict:
@@ -81,6 +91,33 @@ def app_actor(
     login: str = APP_LOGIN, bot_id: int = APP_BOT_ID, actor_type: str = "Bot"
 ) -> dict:
     return {"login": login, "id": bot_id, "type": actor_type}
+
+
+def approval(
+    login: str = "maintainer",
+    *,
+    review_id: int = 1,
+    head_sha: str = HEAD_SHA,
+    actor_type: str = "User",
+) -> dict:
+    return {
+        "id": review_id,
+        "state": "APPROVED",
+        "commit_id": head_sha,
+        "user": {"login": login, "type": actor_type},
+    }
+
+
+def incident_invocation(
+    *,
+    event_name: str = "workflow_dispatch",
+    actor: str = REPOSITORY_OWNER,
+    triggering_actor: str = REPOSITORY_OWNER,
+    repository_owner: str = REPOSITORY_OWNER,
+) -> merge.IncidentInvocation:
+    return merge.IncidentInvocation(
+        event_name, actor, triggering_actor, repository_owner
+    )
 
 
 def finding_issue(
@@ -236,14 +273,7 @@ class ProtectionOnlyClient:
 class FakeClient:
     def __init__(self) -> None:
         self.pull_reads = [pull_request(), pull_request()]
-        self.reviews = [
-            {
-                "id": 1,
-                "state": "APPROVED",
-                "commit_id": HEAD_SHA,
-                "user": {"login": "maintainer", "type": "User"},
-            }
-        ]
+        self.reviews = [approval()]
         self.statuses = [
             success_status(10, "Agent jury gate"),
             success_status(11, "Agent issue gate"),
@@ -383,6 +413,12 @@ class AutoMergeTests(unittest.TestCase):
 
     def incident_client(self) -> FakeClient:
         client = FakeClient()
+        client.pull_reads = [
+            pull_request(user=app_actor()),
+            pull_request(user=app_actor()),
+        ]
+        client.reviews = [approval(REPOSITORY_OWNER)]
+        client.permissions = {REPOSITORY_OWNER: "admin"}
         client.protection_client.configuration = required_check_configuration(
             merge.INCIDENT_REQUIRED_GATES
         )
@@ -397,8 +433,14 @@ class AutoMergeTests(unittest.TestCase):
         dry_run: bool = False,
         incident_issue_number: int | None = None,
         now_values: list[datetime] | None = None,
+        invocation_values: list[merge.IncidentInvocation] | None = None,
     ) -> merge.Decision:
         clock_values = iter(now_values or [NOW, NOW])
+        invocations = iter(
+            invocation_values
+            if invocation_values is not None
+            else [incident_invocation(), incident_invocation()]
+        )
         return merge.evaluate_candidate(
             client,
             client.protection_client,
@@ -410,6 +452,7 @@ class AutoMergeTests(unittest.TestCase):
             dry_run=dry_run,
             incident_issue_number=incident_issue_number,
             now_provider=lambda: next(clock_values),
+            incident_invocation_provider=lambda: next(invocations),
         )
 
     def test_agent_issue_marker_requires_exact_canonical_json(self) -> None:
@@ -585,7 +628,7 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_standard_protection_contract_allows_all_three_gates(self) -> None:
         client = FakeClient()
-        decision = self.evaluate(client, dry_run=True)
+        decision = self.evaluate(client, dry_run=True, invocation_values=[])
         self.assertEqual("dry-run", decision.state)
         self.assertEqual(
             tuple(sorted(merge.STANDARD_REQUIRED_GATES)),
@@ -611,9 +654,82 @@ class AutoMergeTests(unittest.TestCase):
                 )
                 self.assertEqual(expected_state, decision.state)
                 self.assertEqual({"CI gate", "Agent issue gate"}, set(decision.gates))
+                self.assertEqual((REPOSITORY_OWNER,), decision.approvers)
                 self.assertEqual(2, client.incident_issue_reads)
                 self.assertEqual(2, client.protection_client.reads)
                 self.assertEqual(0 if dry_run else 1, len(client.sent))
+
+    def test_incident_owner_issue_marker_cannot_replace_owner_dispatch(self) -> None:
+        cases = {
+            "collaborator actor": incident_invocation(actor="maintainer"),
+            "collaborator rerun": incident_invocation(triggering_actor="maintainer"),
+            "non-dispatch event": incident_invocation(event_name="schedule"),
+        }
+        for label, invocation in cases.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request(user=app_actor())]
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                        invocation_values=[invocation],
+                    )
+                self.assertEqual([], client.sent)
+
+    def test_incident_invocation_uses_github_runtime_environment(self) -> None:
+        with mock.patch.dict(
+            merge.os.environ,
+            {
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_ACTOR": REPOSITORY_OWNER,
+                "GITHUB_TRIGGERING_ACTOR": REPOSITORY_OWNER,
+                "GITHUB_REPOSITORY_OWNER": REPOSITORY_OWNER,
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                incident_invocation(), merge.incident_invocation_from_environment()
+            )
+        with mock.patch.dict(merge.os.environ, {}, clear=True):
+            with self.assertRaisesRegex(merge.ContractError, "GitHub-provided"):
+                merge.incident_invocation_from_environment()
+
+    def test_incident_requires_exact_configured_app_pull_request_author(self) -> None:
+        invalid_authors = {
+            "user": {"login": REPOSITORY_OWNER, "id": 1, "type": "User"},
+            "dependabot": app_actor("dependabot[bot]", 49699333),
+            "other app": app_actor("other-app[bot]", APP_BOT_ID + 1),
+        }
+        for label, author in invalid_authors.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request(user=author)]
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                    )
+                self.assertEqual([], client.sent)
+
+    def test_incident_requires_owner_approval_on_exact_current_head(self) -> None:
+        cases = {
+            "missing": [],
+            "maintainer only": [approval()],
+            "owner stale head": [approval(REPOSITORY_OWNER, head_sha=OTHER_SHA)],
+        }
+        for label, reviews in cases.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.reviews = reviews
+                client.permissions["maintainer"] = "write"
+                decision = self.evaluate(
+                    client,
+                    incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                )
+                self.assertEqual("blocked", decision.state)
+                self.assertIn("repository owner's approval", " ".join(decision.reasons))
+                self.assertEqual([], client.sent)
 
     def test_standard_contract_rejects_unused_incident_parameter(self) -> None:
         client = FakeClient()
@@ -639,6 +755,15 @@ class AutoMergeTests(unittest.TestCase):
             "malformed JSON": incident_issue(
                 body=f'{merge.INCIDENT_MARKER_PREFIX}{{"schema_version":}} -->'
             ),
+            "non-canonical marker": incident_issue(
+                body=(
+                    f"{merge.INCIDENT_MARKER_PREFIX}"
+                    f"{json.dumps(incident_payload())} -->"
+                )
+            ),
+            "extra marker field": incident_issue(
+                body=incident_marker(unexpected="value")
+            ),
             "wrong repository": incident_issue(
                 body=incident_marker(repository="patton174/another-repository")
             ),
@@ -654,6 +779,18 @@ class AutoMergeTests(unittest.TestCase):
                     expires_at="2026-08-17T11:59:59Z",
                 )
             ),
+            "future": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T12:00:01Z",
+                    expires_at="2026-08-17T13:00:00Z",
+                )
+            ),
+            "issued equals expires": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T12:30:00Z",
+                    expires_at="2026-08-17T12:30:00Z",
+                )
+            ),
             "overlong": incident_issue(
                 body=incident_marker(
                     issued_at="2026-08-16T12:00:00Z",
@@ -664,7 +801,7 @@ class AutoMergeTests(unittest.TestCase):
         for label, issue in invalid_issues.items():
             with self.subTest(label=label):
                 client = self.incident_client()
-                client.pull_reads = [pull_request()]
+                client.pull_reads = [pull_request(user=app_actor())]
                 client.incident_issue = issue
                 with self.assertRaises(merge.ContractError):
                     self.evaluate(
@@ -675,7 +812,7 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_incident_issue_api_failure_fails_closed(self) -> None:
         client = self.incident_client()
-        client.pull_reads = [pull_request()]
+        client.pull_reads = [pull_request(user=app_actor())]
         client.incident_issue_error = merge.GitHubApiError("incident unavailable", 503)
         with self.assertRaisesRegex(merge.GitHubApiError, "incident unavailable"):
             self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
@@ -746,6 +883,31 @@ class AutoMergeTests(unittest.TestCase):
                 ):
                     self.evaluate(client)
                 self.assertEqual([], client.sent)
+
+    def test_branch_protection_client_exposes_only_exact_required_check_read(
+        self,
+    ) -> None:
+        configuration = required_check_configuration()
+        with mock.patch.object(merge, "GitHubClient") as client_type:
+            raw_client = client_type.return_value
+            raw_client.get_json.return_value = configuration
+            client = merge.BranchProtectionClient(
+                "protection-token", "https://api.example.test"
+            )
+
+            self.assertEqual(configuration, client.required_status_checks(REPOSITORY))
+            client_type.assert_called_once_with(
+                "protection-token", "https://api.example.test"
+            )
+            raw_client.get_json.assert_called_once_with(
+                f"repos/{REPOSITORY}/branches/main/protection/required_status_checks"
+            )
+            public_methods = {
+                name
+                for name in dir(client)
+                if not name.startswith("_") and callable(getattr(client, name))
+            }
+            self.assertEqual({"required_status_checks"}, public_methods)
 
     def test_every_required_gate_must_have_a_successful_latest_signal(self) -> None:
         cases = {
@@ -1098,6 +1260,60 @@ class AutoMergeTests(unittest.TestCase):
         self.assertIn("incident authorization changed", " ".join(decision.reasons))
         self.assertEqual([], client.sent)
 
+    def test_second_incident_eligibility_rejects_identity_and_head_drift(
+        self,
+    ) -> None:
+        actor_drift = self.incident_client()
+        with self.assertRaisesRegex(merge.ContractError, "repository owner"):
+            self.evaluate(
+                actor_drift,
+                incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                invocation_values=[
+                    incident_invocation(),
+                    incident_invocation(actor="maintainer"),
+                ],
+            )
+
+        author_drift = self.incident_client()
+        author_drift.pull_reads = [
+            pull_request(user=app_actor()),
+            pull_request(user=app_actor("other-app[bot]", APP_BOT_ID + 1)),
+        ]
+        with self.assertRaisesRegex(merge.ContractError, "identity mismatch"):
+            self.evaluate(
+                author_drift,
+                incident_issue_number=INCIDENT_ISSUE_NUMBER,
+            )
+
+        approval_drift = self.incident_client()
+        approval_drift.review_pages = [
+            [approval(REPOSITORY_OWNER, review_id=1)],
+            [approval(REPOSITORY_OWNER, review_id=2)],
+        ]
+        approval_decision = self.evaluate(
+            approval_drift,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", approval_decision.state)
+        self.assertIn(
+            "incident authorization changed", " ".join(approval_decision.reasons)
+        )
+
+        head_drift = self.incident_client()
+        head_drift.pull_reads = [
+            pull_request(user=app_actor()),
+            pull_request(head={"sha": OTHER_SHA}, user=app_actor()),
+        ]
+        head_decision = self.evaluate(
+            head_drift,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", head_decision.state)
+        self.assertIn("expected bound head", " ".join(head_decision.reasons))
+
+        for client in (actor_drift, author_drift, approval_drift, head_drift):
+            self.assertEqual([], client.sent)
+
     def test_incident_path_preserves_all_other_merge_guards(self) -> None:
         missing_approval = self.incident_client()
         missing_approval.reviews = []
@@ -1160,6 +1376,10 @@ class AutoMergeTests(unittest.TestCase):
             "AGENT_GH_TOKEN: ${{ steps.merge-token.outputs.token }}",
             "PROTECTION_GH_TOKEN: ${{ steps.protection-token.outputs.token }}",
             "INCIDENT_ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.incident_issue || '' }}",
+            "\"${GITHUB_EVENT_NAME}\" != 'workflow_dispatch'",
+            '"${GITHUB_ACTOR}" != "${GITHUB_REPOSITORY_OWNER}"',
+            '"${GITHUB_TRIGGERING_ACTOR}" != "${GITHUB_REPOSITORY_OWNER}"',
+            "Incident merge requires a repository-owner workflow_dispatch.",
             '--incident-issue-number "${INCIDENT_ISSUE_NUMBER}"',
             '--expected-app-login "${EXPECTED_APP_LOGIN}"',
             '--expected-app-bot-id "${EXPECTED_APP_BOT_ID}"',
@@ -1217,6 +1437,14 @@ class AutoMergeTests(unittest.TestCase):
             merge.STANDARD_REQUIRED_GATES,
         )
         self.assertEqual(("CI gate", "Agent issue gate"), merge.INCIDENT_REQUIRED_GATES)
+
+        specification = (
+            Path(__file__).resolve().parents[2]
+            / "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("| Administration | Read |", specification)
+        self.assertIn("禁止授予 `Administration: write`", specification)
+        self.assertNotIn("不授予 Administration 权限", specification)
 
 
 if __name__ == "__main__":
