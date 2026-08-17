@@ -3014,9 +3014,7 @@ def context_evidence_sources(
             if (
                 domain
                 not in (
-                    POLICY_EVIDENCE_DOMAINS
-                    if policy_source
-                    else CODE_EVIDENCE_DOMAINS
+                    POLICY_EVIDENCE_DOMAINS if policy_source else CODE_EVIDENCE_DOMAINS
                 )
                 or not isinstance(path, str)
                 or not path
@@ -3028,7 +3026,9 @@ def context_evidence_sources(
             ):
                 raise ReportShapeError("Agent context evidence source is incomplete.")
             if path in source_paths:
-                raise ReportShapeError("Agent context evidence source path is duplicated.")
+                raise ReportShapeError(
+                    "Agent context evidence source path is duplicated."
+                )
             source_paths.add(path)
             available: set[int] = set()
             previous_end = 0
@@ -4866,7 +4866,9 @@ def synchronize_finding_issues(
             if type(number) is not int or number < 1:
                 raise ReviewError("Managed Issue number is invalid.")
             if number in claimed_existing_numbers:
-                raise ReviewError("One managed Issue matches multiple actionable groups.")
+                raise ReviewError(
+                    "One managed Issue matches multiple actionable groups."
+                )
         existing_binding[stable_id] = matched
         if matched is not None:
             claimed_existing_numbers.add(number)

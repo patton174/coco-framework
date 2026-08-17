@@ -2668,9 +2668,7 @@ class AgentReviewTests(unittest.TestCase):
         context = bound_context()
         for check in ("severity", "change_scope"):
             with self.subTest(check=check):
-                report = verifier_report(
-                    "evidence-verifier", context, "correctness:f1"
-                )
+                report = verifier_report("evidence-verifier", context, "correctness:f1")
                 report["reviews"][0]["evidence_refs"][0]["checks"] = [check]
                 report["reviews"][0]["evidence_refs"][1]["checks"] = [
                     value
@@ -2678,8 +2676,7 @@ class AgentReviewTests(unittest.TestCase):
                     if value != check
                 ]
                 report["reviews"][0]["evidence"] = (
-                    "head-code:src/Foo.java#L1-L1; "
-                    "protected-policy:AGENTS.md#L1-L1"
+                    "head-code:src/Foo.java#L1-L1; protected-policy:AGENTS.md#L1-L1"
                 )
                 with self.assertRaisesRegex(
                     review.ReportShapeError, "protected policy"
@@ -2688,7 +2685,9 @@ class AgentReviewTests(unittest.TestCase):
                         report, "evidence-verifier", context, {"correctness:f1"}
                     )
 
-    def test_context_evidence_sources_reject_duplicate_or_mixed_domain_paths(self) -> None:
+    def test_context_evidence_sources_reject_duplicate_or_mixed_domain_paths(
+        self,
+    ) -> None:
         for name, mutate in (
             (
                 "duplicate-protected-policy",
@@ -3945,12 +3944,17 @@ class AgentReviewTests(unittest.TestCase):
                 raise AssertionError(f"Unexpected Issue write: {method} {path}")
 
         client = FakeClient()
-        with self.assertRaisesRegex(
-            review.ReviewError, "multiple actionable groups"
-        ):
+        with self.assertRaisesRegex(review.ReviewError, "multiple actionable groups"):
             review.synchronize_finding_issues(
-                client, REPOSITORY, 60, HEAD_SHA, actionables, app_login,
-                APP_BOT_ID, "https://github.example/runs/1", "https://github.example",
+                client,
+                REPOSITORY,
+                60,
+                HEAD_SHA,
+                actionables,
+                app_login,
+                APP_BOT_ID,
+                "https://github.example/runs/1",
+                "https://github.example",
                 lambda: {},
             )
         self.assertEqual(0, client.label_reads)
@@ -3959,7 +3963,9 @@ class AgentReviewTests(unittest.TestCase):
     def test_issue_sync_rejects_cross_pr_legacy_alias_before_writes(self) -> None:
         app_login = "coco-agent[bot]"
         context = bound_context()
-        finding = specialist_report("correctness", context, severity="P1")["findings"][0]
+        finding = specialist_report("correctness", context, severity="P1")["findings"][
+            0
+        ]
         legacy_id = review.stable_finding_id(finding)
         actionable = {
             "stable_id": review.stable_actionable_group_id([finding]),
@@ -3982,13 +3988,15 @@ class AgentReviewTests(unittest.TestCase):
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 if limit != 5000 or "issues?state=all&labels=agent-review" not in path:
                     raise AssertionError(f"Unexpected pagination: {path}")
-                return [{
-                    "number": 11,
-                    "body": review.finding_issue_marker(61, BASE_SHA, legacy_id),
-                    "state": "open",
-                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
-                    "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-                }]
+                return [
+                    {
+                        "number": 11,
+                        "body": review.finding_issue_marker(61, BASE_SHA, legacy_id),
+                        "state": "open",
+                        "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                        "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                    }
+                ]
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.writes.append((method, path, payload))
@@ -3997,8 +4005,15 @@ class AgentReviewTests(unittest.TestCase):
         client = FakeClient()
         with self.assertRaisesRegex(review.ReviewError, "another pull request"):
             review.synchronize_finding_issues(
-                client, REPOSITORY, 60, HEAD_SHA, [actionable], app_login,
-                APP_BOT_ID, "https://github.example/runs/1", "https://github.example",
+                client,
+                REPOSITORY,
+                60,
+                HEAD_SHA,
+                [actionable],
+                app_login,
+                APP_BOT_ID,
+                "https://github.example/runs/1",
+                "https://github.example",
                 lambda: {},
             )
         self.assertEqual(0, client.label_reads)
