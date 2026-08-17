@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 import auto_merge as merge
@@ -11,18 +12,22 @@ import auto_merge as merge
 
 HEAD_SHA = "b" * 40
 OTHER_SHA = "c" * 40
+BASE_SHA = "a" * 40
+OTHER_BASE_SHA = "f" * 40
 MERGE_SHA = "d" * 40
 REPOSITORY = "patton174/coco-framework"
 FINDING_ID = "v1-" + "e" * 64
 APP_LOGIN = "coco-agent[bot]"
 APP_BOT_ID = 123456789
+INCIDENT_ISSUE_NUMBER = 366
+NOW = datetime(2026, 8, 17, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def pull_request(**overrides: object) -> dict:
     value = {
         "number": 17,
         "state": "open",
-        "base": {"ref": "main"},
+        "base": {"ref": "main", "sha": BASE_SHA},
         "head": {"sha": HEAD_SHA},
         "draft": False,
         "mergeable": True,
@@ -43,6 +48,33 @@ def marker(
         f'{pull_request_number},"head_sha":"{head_sha}",'
         f'"finding_id":"{finding_id}"}} -->'
     )
+
+
+def incident_marker(**overrides: object) -> str:
+    payload = {
+        "schema_version": merge.INCIDENT_SCHEMA_VERSION,
+        "repository": REPOSITORY,
+        "base_sha": BASE_SHA,
+        "pull_request": 17,
+        "head_sha": HEAD_SHA,
+        "missing_context": merge.INCIDENT_MISSING_CONTEXT,
+        "issued_at": "2026-08-17T11:00:00Z",
+        "expires_at": "2026-08-17T13:00:00Z",
+    }
+    payload.update(overrides)
+    return f"{merge.INCIDENT_MARKER_PREFIX}{merge.canonical_json(payload)} -->"
+
+
+def incident_issue(**overrides: object) -> dict:
+    value = {
+        "number": INCIDENT_ISSUE_NUMBER,
+        "state": "open",
+        "body": incident_marker(),
+        "author_association": "OWNER",
+        "user": {"login": "patton174", "type": "User"},
+    }
+    value.update(overrides)
+    return value
 
 
 def app_actor(
@@ -177,6 +209,30 @@ class MergeOnlyClient:
         return copy.deepcopy(self.merge_response)
 
 
+class ProtectionOnlyClient:
+    def __init__(self) -> None:
+        self.configuration = required_check_configuration()
+        self.configuration_pages: list[dict] | None = None
+        self.error: Exception | None = None
+        self.reads = 0
+
+    def required_status_checks(self, repository: str) -> object:
+        if repository != REPOSITORY:
+            raise AssertionError("protection client received another repository")
+        self.reads += 1
+        if self.error is not None:
+            raise self.error
+        if self.configuration_pages is not None:
+            if not self.configuration_pages:
+                raise AssertionError(
+                    "unexpected extra required check configuration read"
+                )
+            payload = self.configuration_pages.pop(0)
+        else:
+            payload = self.configuration
+        return copy.deepcopy(payload)
+
+
 class FakeClient:
     def __init__(self) -> None:
         self.pull_reads = [pull_request(), pull_request()]
@@ -201,8 +257,10 @@ class FakeClient:
             "squashMergeAllowed": False,
             "rebaseMergeAllowed": False,
         }
-        self.required_check_configuration = required_check_configuration()
-        self.required_check_configuration_pages: list[dict] | None = None
+        self.incident_issue = incident_issue()
+        self.incident_issue_pages: list[dict] | None = None
+        self.incident_issue_error: Exception | None = None
+        self.incident_issue_reads = 0
         self.review_pages: list[list[dict]] | None = None
         self.status_pages: list[list[dict]] | None = None
         self.check_run_pages: list[list[dict]] | None = None
@@ -211,6 +269,7 @@ class FakeClient:
         self.thread_pages = [graphql_state(), graphql_state()]
         self.graphql_calls = 0
         self.repository_reads = 0
+        self.protection_client = ProtectionOnlyClient()
         self.merge_client = MergeOnlyClient()
         self.sent = self.merge_client.sent
 
@@ -226,17 +285,16 @@ class FakeClient:
             if permission is None:
                 raise merge.GitHubApiError("not found", 404)
             return {"permission": permission}
-        if path == (
-            f"repos/{REPOSITORY}/branches/main/protection/required_status_checks"
-        ):
-            if self.required_check_configuration_pages is not None:
-                if not self.required_check_configuration_pages:
-                    raise AssertionError(
-                        "unexpected extra required check configuration read"
-                    )
-                payload = self.required_check_configuration_pages.pop(0)
+        if path == f"repos/{REPOSITORY}/issues/{INCIDENT_ISSUE_NUMBER}":
+            self.incident_issue_reads += 1
+            if self.incident_issue_error is not None:
+                raise self.incident_issue_error
+            if self.incident_issue_pages is not None:
+                if not self.incident_issue_pages:
+                    raise AssertionError("unexpected extra incident Issue read")
+                payload = self.incident_issue_pages.pop(0)
             else:
-                payload = self.required_check_configuration
+                payload = self.incident_issue
             return copy.deepcopy(payload)
         raise AssertionError(f"unexpected get_json path: {path}")
 
@@ -323,21 +381,35 @@ class AutoMergeTests(unittest.TestCase):
     def candidate(self, head_sha: str | None = HEAD_SHA) -> merge.Candidate:
         return merge.Candidate(17, head_sha, "test")
 
+    def incident_client(self) -> FakeClient:
+        client = FakeClient()
+        client.protection_client.configuration = required_check_configuration(
+            merge.INCIDENT_REQUIRED_GATES
+        )
+        client.statuses = [success_status(11, "Agent issue gate")]
+        return client
+
     def evaluate(
         self,
         client: FakeClient,
         candidate: merge.Candidate | None = None,
         *,
         dry_run: bool = False,
+        incident_issue_number: int | None = None,
+        now_values: list[datetime] | None = None,
     ) -> merge.Decision:
+        clock_values = iter(now_values or [NOW, NOW])
         return merge.evaluate_candidate(
             client,
+            client.protection_client,
             client.merge_client,
             REPOSITORY,
             candidate or self.candidate(),
             APP_LOGIN,
             APP_BOT_ID,
             dry_run=dry_run,
+            incident_issue_number=incident_issue_number,
+            now_provider=lambda: next(clock_values),
         )
 
     def test_agent_issue_marker_requires_exact_canonical_json(self) -> None:
@@ -486,7 +558,7 @@ class AutoMergeTests(unittest.TestCase):
     def test_static_pull_request_conditions_block_before_other_api_calls(self) -> None:
         cases = [
             ("closed", {"state": "closed"}),
-            ("wrong base", {"base": {"ref": "release"}}),
+            ("wrong base", {"base": {"ref": "release", "sha": BASE_SHA}}),
             ("draft", {"draft": True}),
             ("not mergeable", {"mergeable": False}),
             ("unknown mergeable", {"mergeable": None}),
@@ -519,16 +591,95 @@ class AutoMergeTests(unittest.TestCase):
             tuple(sorted(merge.STANDARD_REQUIRED_GATES)),
             tuple(sorted(decision.gates)),
         )
+        self.assertEqual(2, client.protection_client.reads)
+        self.assertEqual(0, client.incident_issue_reads)
 
-    def test_controlled_incident_contract_allows_only_jury_to_be_absent(self) -> None:
+    def test_controlled_incident_contract_requires_exact_issue_authorization(
+        self,
+    ) -> None:
+        client = self.incident_client()
+        with self.assertRaisesRegex(merge.ContractError, "requires an incident Issue"):
+            self.evaluate(client, dry_run=True)
+
+        for dry_run, expected_state in ((True, "dry-run"), (False, "merged")):
+            with self.subTest(dry_run=dry_run):
+                client = self.incident_client()
+                decision = self.evaluate(
+                    client,
+                    dry_run=dry_run,
+                    incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                )
+                self.assertEqual(expected_state, decision.state)
+                self.assertEqual({"CI gate", "Agent issue gate"}, set(decision.gates))
+                self.assertEqual(2, client.incident_issue_reads)
+                self.assertEqual(2, client.protection_client.reads)
+                self.assertEqual(0 if dry_run else 1, len(client.sent))
+
+    def test_standard_contract_rejects_unused_incident_parameter(self) -> None:
         client = FakeClient()
-        client.required_check_configuration = required_check_configuration(
-            merge.INCIDENT_REQUIRED_GATES
-        )
-        client.statuses = [success_status(11, "Agent issue gate")]
-        decision = self.evaluate(client, dry_run=True)
-        self.assertEqual("dry-run", decision.state)
-        self.assertEqual({"CI gate", "Agent issue gate"}, set(decision.gates))
+        client.pull_reads = [pull_request()]
+        with self.assertRaisesRegex(merge.ContractError, "rejects an incident Issue"):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual(0, client.incident_issue_reads)
+
+    def test_incident_issue_contract_rejects_invalid_authorizations(self) -> None:
+        invalid_issues = {
+            "closed": incident_issue(state="closed"),
+            "pull request": incident_issue(
+                pull_request={"url": "https://example.invalid"}
+            ),
+            "wrong author": incident_issue(
+                author_association="MEMBER",
+                user={"login": "maintainer", "type": "User"},
+            ),
+            "missing marker": incident_issue(body="incident details only"),
+            "duplicate marker": incident_issue(
+                body=f"{incident_marker()}\n{incident_marker()}"
+            ),
+            "malformed JSON": incident_issue(
+                body=f'{merge.INCIDENT_MARKER_PREFIX}{{"schema_version":}} -->'
+            ),
+            "wrong repository": incident_issue(
+                body=incident_marker(repository="patton174/another-repository")
+            ),
+            "wrong base": incident_issue(body=incident_marker(base_sha=OTHER_BASE_SHA)),
+            "wrong PR": incident_issue(body=incident_marker(pull_request=18)),
+            "wrong head": incident_issue(body=incident_marker(head_sha=OTHER_SHA)),
+            "wrong missing context": incident_issue(
+                body=incident_marker(missing_context="CI gate")
+            ),
+            "expired": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T09:00:00Z",
+                    expires_at="2026-08-17T11:59:59Z",
+                )
+            ),
+            "overlong": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-16T12:00:00Z",
+                    expires_at="2026-08-17T13:00:00Z",
+                )
+            ),
+        }
+        for label, issue in invalid_issues.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request()]
+                client.incident_issue = issue
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                    )
+                self.assertEqual([], client.sent)
+
+    def test_incident_issue_api_failure_fails_closed(self) -> None:
+        client = self.incident_client()
+        client.pull_reads = [pull_request()]
+        client.incident_issue_error = merge.GitHubApiError("incident unavailable", 503)
+        with self.assertRaisesRegex(merge.GitHubApiError, "incident unavailable"):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual([], client.sent)
 
     def test_invalid_branch_protection_contract_fails_closed(self) -> None:
         invalid_configurations = {
@@ -577,23 +728,24 @@ class AutoMergeTests(unittest.TestCase):
             with self.subTest(label=label):
                 client = FakeClient()
                 client.pull_reads = [pull_request()]
-                client.required_check_configuration = configuration
+                client.protection_client.configuration = configuration
                 with self.assertRaises(merge.ContractError):
                     self.evaluate(client)
                 self.assertEqual([], client.sent)
 
     def test_branch_protection_api_failure_fails_closed(self) -> None:
-        class FailingProtectionClient(FakeClient):
-            def get_json(self, path: str) -> object:
-                if path.endswith("/protection/required_status_checks"):
-                    raise merge.GitHubApiError("protection unavailable", 503)
-                return super().get_json(path)
-
-        client = FailingProtectionClient()
-        client.pull_reads = [pull_request()]
-        with self.assertRaisesRegex(merge.GitHubApiError, "protection unavailable"):
-            self.evaluate(client)
-        self.assertEqual([], client.sent)
+        for status in (401, 403, 404, 503):
+            with self.subTest(status=status):
+                client = FakeClient()
+                client.pull_reads = [pull_request()]
+                client.protection_client.error = merge.GitHubApiError(
+                    "protection unavailable", status
+                )
+                with self.assertRaisesRegex(
+                    merge.GitHubApiError, "protection unavailable"
+                ):
+                    self.evaluate(client)
+                self.assertEqual([], client.sent)
 
     def test_every_required_gate_must_have_a_successful_latest_signal(self) -> None:
         cases = {
@@ -896,7 +1048,7 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_second_protection_read_rejects_gate_or_app_binding_changes(self) -> None:
         changed_gates = FakeClient()
-        changed_gates.required_check_configuration_pages = [
+        changed_gates.protection_client.configuration_pages = [
             required_check_configuration(),
             required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
         ]
@@ -905,15 +1057,12 @@ class AutoMergeTests(unittest.TestCase):
             copy.deepcopy(changed_gates.statuses),
             [success_status(11, "Agent issue gate")],
         ]
-        decision = self.evaluate(changed_gates)
-        self.assertEqual("blocked", decision.state)
-        self.assertIn(
-            "required-check configuration changed", " ".join(decision.reasons)
-        )
+        with self.assertRaisesRegex(merge.ContractError, "requires an incident Issue"):
+            self.evaluate(changed_gates)
         self.assertEqual([], changed_gates.sent)
 
         changed_binding = FakeClient()
-        changed_binding.required_check_configuration_pages = [
+        changed_binding.protection_client.configuration_pages = [
             required_check_configuration(),
             required_check_configuration(
                 checks=[
@@ -929,6 +1078,48 @@ class AutoMergeTests(unittest.TestCase):
         with self.assertRaisesRegex(merge.ContractError, "GitHub Actions App"):
             self.evaluate(changed_binding)
         self.assertEqual([], changed_binding.sent)
+
+    def test_second_incident_read_rejects_binding_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [
+            incident_issue(),
+            incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T11:01:00Z",
+                    expires_at="2026-08-17T13:00:00Z",
+                )
+            ),
+        ]
+        decision = self.evaluate(
+            client,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", decision.state)
+        self.assertIn("incident authorization changed", " ".join(decision.reasons))
+        self.assertEqual([], client.sent)
+
+    def test_incident_path_preserves_all_other_merge_guards(self) -> None:
+        missing_approval = self.incident_client()
+        missing_approval.reviews = []
+
+        unresolved_thread = self.incident_client()
+        unresolved_thread.thread_pages = [graphql_state(resolved=[False])]
+
+        open_finding = self.incident_client()
+        open_finding.issues = [finding_issue()]
+
+        for label, client in {
+            "approval": missing_approval,
+            "thread": unresolved_thread,
+            "issue": open_finding,
+        }.items():
+            with self.subTest(label=label):
+                decision = self.evaluate(
+                    client,
+                    incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                )
+                self.assertEqual("blocked", decision.state)
+                self.assertEqual([], client.sent)
 
     def test_merge_refusal_is_a_fail_closed_error(self) -> None:
         client = FakeClient()
@@ -949,6 +1140,8 @@ class AutoMergeTests(unittest.TestCase):
             "cron: '*/10 * * * *'",
             "issues:",
             "workflow_dispatch:",
+            "incident_issue:",
+            "Optional exact incident authorization Issue number",
             "CI",
             "Agent Review Jury",
             "Agent Issue Gate",
@@ -959,11 +1152,15 @@ class AutoMergeTests(unittest.TestCase):
             "client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}",
             "secrets.COCO_AGENT_APP_PRIVATE_KEY",
             "permission-contents: write",
+            "permission-administration: read",
             "vars.COCO_AGENT_APP_SLUG",
             "vars.COCO_AGENT_APP_LOGIN",
             "vars.COCO_AGENT_APP_BOT_ID",
             "GH_TOKEN: ${{ github.token }}",
-            "AGENT_GH_TOKEN: ${{ steps.app-token.outputs.token }}",
+            "AGENT_GH_TOKEN: ${{ steps.merge-token.outputs.token }}",
+            "PROTECTION_GH_TOKEN: ${{ steps.protection-token.outputs.token }}",
+            "INCIDENT_ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.incident_issue || '' }}",
+            '--incident-issue-number "${INCIDENT_ISSUE_NUMBER}"',
             '--expected-app-login "${EXPECTED_APP_LOGIN}"',
             '--expected-app-bot-id "${EXPECTED_APP_BOT_ID}"',
             "checks: read",
@@ -987,7 +1184,34 @@ class AutoMergeTests(unittest.TestCase):
         self.assertNotIn("permission-metadata:", workflow)
         self.assertNotIn("permission-pull-requests:", workflow)
         self.assertNotIn("permission-statuses:", workflow)
+        self.assertNotIn("PROTECTION_GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertNotIn(
+            "PROTECTION_GH_TOKEN: ${{ steps.merge-token.outputs.token }}", workflow
+        )
+        merge_token_step = workflow.split(
+            "- name: Create merge-only GitHub App token", 1
+        )[1].split("- name:", 1)[0]
+        protection_token_step = workflow.split(
+            "- name: Create branch-protection read token", 1
+        )[1].split("- name:", 1)[0]
+        workflow_permissions = workflow.split("permissions:", 1)[1].split(
+            "concurrency:", 1
+        )[0]
+        self.assertNotIn("administration:", workflow_permissions)
+        self.assertIn("id: merge-token", merge_token_step)
+        self.assertIn("permission-contents: write", merge_token_step)
+        self.assertNotIn("permission-administration:", merge_token_step)
+        self.assertIn("id: protection-token", protection_token_step)
+        self.assertIn("permission-administration: read", protection_token_step)
+        self.assertNotIn("permission-contents:", protection_token_step)
+        self.assertEqual(
+            2,
+            workflow.count(
+                "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"
+            ),
+        )
         self.assertEqual(1, workflow.count("permission-contents: write"))
+        self.assertEqual(1, workflow.count("permission-administration: read"))
         self.assertEqual(
             ("CI gate", "Agent jury gate", "Agent issue gate"),
             merge.STANDARD_REQUIRED_GATES,
