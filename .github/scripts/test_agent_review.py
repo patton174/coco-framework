@@ -43,6 +43,14 @@ MODEL_CONFIG_SHA256 = review.sha256_text(
 NON_MODEL_JOB_FORBIDDEN_ENV = ("COCO_AGENT_MODEL_API_KEY",)
 
 
+def commit_status_response(path: str, payload: dict) -> dict:
+    return {
+        "sha": path.rsplit("/", 1)[-1],
+        "context": payload["context"],
+        "state": payload["state"],
+    }
+
+
 def config(**limit_overrides: int) -> dict:
     limits = {
         "diff_chars": 60000,
@@ -4478,7 +4486,7 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_github_write_success_without_usable_json_is_uncertain(self) -> None:
         client = review.GitHubClient("token")
-        for body in (b"", b"null", b"not-json"):
+        for body in (b"", b"null", b"not-json", b"\xff"):
             with self.subTest(body=body):
                 with patch.object(client, "request", return_value=(body, {})):
                     with self.assertRaises(review.GitHubUncertainWriteResponse):
@@ -4519,6 +4527,154 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(1, client.sent)
         self.assertEqual(1, client.reads)
 
+    def test_publish_status_requires_exact_endpoint_resource_without_retry(
+        self,
+    ) -> None:
+        expected = {
+            "sha": HEAD_SHA,
+            "context": review.STATUS_CONTEXT,
+            "state": "success",
+        }
+        invalid = (
+            None,
+            {},
+            [],
+            True,
+            1,
+            {"sha": HEAD_SHA},
+            {**expected, "sha": 1},
+            {**expected, "context": [review.STATUS_CONTEXT]},
+            {**expected, "state": True},
+            {**expected, "sha": BASE_SHA},
+            {**expected, "context": review.ISSUE_STATUS_CONTEXT},
+            {**expected, "state": "failure"},
+        )
+
+        for response in (*invalid, expected):
+            with self.subTest(response=response):
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.sent = 0
+
+                    def send_json(
+                        self, method: str, path: str, payload: dict
+                    ) -> object:
+                        self.sent += 1
+                        return response
+
+                    def paginate(self, path: str, limit: int = 1000) -> list:
+                        raise AssertionError(
+                            "Commit status writes must not enter operation recovery"
+                        )
+
+                client = FakeClient()
+                if response is expected:
+                    review.publish_status(
+                        client,
+                        REPOSITORY,
+                        HEAD_SHA,
+                        "success",
+                        "complete",
+                        "https://github.example/runs/42",
+                    )
+                else:
+                    with self.assertRaises(review.ReviewError):
+                        review.publish_status(
+                            client,
+                            REPOSITORY,
+                            HEAD_SHA,
+                            "success",
+                            "complete",
+                            "https://github.example/runs/42",
+                        )
+                self.assertEqual(1, client.sent)
+
+    def test_managed_comment_final_utf8_budget_is_checked_before_write(self) -> None:
+        app_login = "coco-agent[bot]"
+        run_order = (42, 1)
+        run_marker = "<!-- agent-jury-run:42:1 -->"
+        base_body = f"{review.COMMENT_MARKER}\n{run_marker}\n\u754c"
+        marker = review.operation_marker(
+            REPOSITORY,
+            REPOSITORY_ID,
+            app_login,
+            APP_BOT_ID,
+            run_order,
+            60,
+            HEAD_SHA,
+            review.MANAGED_COMMENT_GROUP_ID,
+            "managed-comment-create",
+        )
+        base_published = review.insert_operation_marker(base_body, marker, 2)
+        remaining = review.MAX_GITHUB_COMMENT_BODY_BYTES - review.utf8_size(
+            base_published
+        )
+        boundary_body = base_body + "x" * remaining
+        overflow_body = boundary_body + "\u754c"
+        self.assertEqual(
+            review.MAX_GITHUB_COMMENT_BODY_BYTES,
+            review.utf8_size(review.insert_operation_marker(boundary_body, marker, 2)),
+        )
+        self.assertLessEqual(
+            review.utf8_size(overflow_body),
+            review.MAX_GITHUB_COMMENT_BODY_BYTES,
+        )
+        self.assertGreater(
+            review.utf8_size(review.insert_operation_marker(overflow_body, marker, 2)),
+            review.MAX_GITHUB_COMMENT_BODY_BYTES,
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return {
+                    "id": 7,
+                    "body": payload["body"],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                }
+
+        boundary_client = FakeClient()
+        review.upsert_comment(
+            boundary_client,
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            HEAD_SHA,
+            boundary_body,
+            run_order,
+            app_login,
+            APP_BOT_ID,
+            lambda: {},
+        )
+        self.assertEqual(1, len(boundary_client.sent))
+
+        overflow_client = FakeClient()
+        with self.assertRaisesRegex(review.ReviewError, "comment budget"):
+            review.upsert_comment(
+                overflow_client,
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                overflow_body,
+                run_order,
+                app_login,
+                APP_BOT_ID,
+                lambda: {},
+            )
+        self.assertEqual([], overflow_client.sent)
+
     def test_uncertain_managed_comment_create_and_update_read_without_rewrite(
         self,
     ) -> None:
@@ -4548,10 +4704,11 @@ class AgentReviewTests(unittest.TestCase):
                     def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                         self.paginations += 1
                         self.assert_path(path, limit)
-                        if previous is None and self.paginations == 1:
-                            return []
-                        if self.paginations < 3:
-                            return []
+                        if previous is None:
+                            if self.paginations < 3:
+                                return []
+                        elif self.paginations == 1:
+                            return [previous]
                         return list(self.comments)
 
                     @staticmethod
@@ -4600,6 +4757,7 @@ class AgentReviewTests(unittest.TestCase):
                     )
                 self.assertEqual(1, len(client.sent))
                 self.assertEqual("PATCH" if previous else "POST", client.sent[0][0])
+                self.assertEqual(2 if previous else 3, client.paginations)
                 self.assertGreaterEqual(len(checks), 4)
                 operation = review.parse_operation_marker(result["body"])
                 self.assertEqual(action, operation["action"])
@@ -4624,6 +4782,8 @@ class AgentReviewTests(unittest.TestCase):
                     "labels": [{"name": review.FINDING_ISSUE_LABEL}],
                     "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
                 }
+                self.pending_issue: dict | None = None
+                self.issue_reads = 0
                 self.comments: list[dict] = []
                 self.sent: list[tuple[str, str, dict]] = []
 
@@ -4631,6 +4791,11 @@ class AgentReviewTests(unittest.TestCase):
                 if path.endswith("/labels/agent-review"):
                     return {"name": review.FINDING_ISSUE_LABEL}
                 if path.endswith("/issues/9"):
+                    self.issue_reads += 1
+                    if self.pending_issue is not None:
+                        value = self.pending_issue
+                        self.pending_issue = None
+                        return value
                     return self.issue
                 raise AssertionError(f"Unexpected GET: {path}")
 
@@ -4658,6 +4823,7 @@ class AgentReviewTests(unittest.TestCase):
                         }
                     ]
                     return None
+                self.pending_issue = json.loads(json.dumps(self.issue))
                 self.issue.update(payload)
                 self.issue["labels"] = [{"name": name} for name in payload["labels"]]
                 return {}
@@ -4679,6 +4845,7 @@ class AgentReviewTests(unittest.TestCase):
                 lambda: {},
             )
         self.assertEqual(["POST", "PATCH"], [value[0] for value in client.sent])
+        self.assertEqual(2, client.issue_reads)
         self.assertEqual("closed", client.issue["state"])
         self.assertEqual(
             "finding-issue-closure-comment",
@@ -4732,6 +4899,8 @@ class AgentReviewTests(unittest.TestCase):
                         self.issue = (
                             json.loads(json.dumps(previous)) if previous else None
                         )
+                        self.pending_issue: dict | None = None
+                        self.issue_reads = 0
                         self.issue_scans = 0
                         self.sent: list[tuple[str, str, dict]] = []
 
@@ -4739,6 +4908,11 @@ class AgentReviewTests(unittest.TestCase):
                         if path.endswith("/labels/agent-review"):
                             return {"name": review.FINDING_ISSUE_LABEL}
                         if path.endswith("/issues/8") and self.issue is not None:
+                            self.issue_reads += 1
+                            if self.pending_issue is not None:
+                                value = self.pending_issue
+                                self.pending_issue = None
+                                return value
                             return self.issue
                         raise AssertionError(f"Unexpected GET: {path}")
 
@@ -4764,6 +4938,8 @@ class AgentReviewTests(unittest.TestCase):
                                     "type": "Bot",
                                 },
                             }
+                        else:
+                            self.pending_issue = json.loads(json.dumps(self.issue))
                         self.issue.update(payload)
                         self.issue["labels"] = [
                             {"name": name} for name in payload["labels"]
@@ -4791,6 +4967,7 @@ class AgentReviewTests(unittest.TestCase):
                     "POST" if previous is None else "PATCH", client.sent[0][0]
                 )
                 self.assertEqual(1, len(synchronized))
+                self.assertEqual(0 if previous is None else 2, client.issue_reads)
                 self.assertEqual(
                     expected_action,
                     review.parse_operation_marker(client.issue["body"])["action"],
@@ -4864,9 +5041,367 @@ class AgentReviewTests(unittest.TestCase):
 
         with self.assertRaisesRegex(review.ReviewError, "Pull request changed"):
             review.uncertain_write_recovery(
-                "finding-issue-create", "repos/example/issues", drift, lambda: None
+                "finding-issue-create",
+                "repos/example/issues",
+                drift,
+                review.recovery_pending,
             )
         self.assertEqual(1, reads)
+
+    def test_finding_issue_recovery_rejects_zero_duplicate_and_binding_conflicts(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        group_id = "v2-" + "e" * 64
+        finding_marker = review.finding_issue_marker(60, BASE_SHA, group_id)
+        operation_values = {
+            "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
+            "expected_login": app_login,
+            "expected_bot_id": APP_BOT_ID,
+            "run_order": (42, 1),
+            "pr_number": 60,
+            "head_sha": HEAD_SHA,
+            "group_id": group_id,
+            "action": "finding-issue-create",
+        }
+        expected_operation = review.operation_marker(**operation_values)
+        expected_body = f"{finding_marker}\n{expected_operation}\nBody\n"
+
+        def issue(
+            number: int,
+            operation: str = expected_operation,
+            user: dict | None = None,
+        ) -> dict:
+            return {
+                "number": number,
+                "title": "title",
+                "body": f"{finding_marker}\n{operation}\nBody\n",
+                "state": "open",
+                "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                "user": user or {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+            }
+
+        def verify(value: object) -> dict:
+            return review.verify_finding_issue(
+                value,
+                app_login,
+                APP_BOT_ID,
+                finding_marker,
+                expected_operation,
+                "title",
+                expected_body,
+                {review.FINDING_ISSUE_LABEL},
+                "open",
+            )
+
+        class FakeClient:
+            def __init__(self, issues: list[dict]) -> None:
+                self.issues = issues
+                self.scans = 0
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                self.scans += 1
+                return self.issues
+
+        missing = FakeClient([])
+        with patch.object(review.time, "sleep"):
+            with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
+                review.recover_finding_issue_create(
+                    missing,
+                    REPOSITORY,
+                    60,
+                    app_login,
+                    APP_BOT_ID,
+                    finding_marker,
+                    expected_operation,
+                    verify,
+                    lambda: {},
+                )
+        self.assertEqual(
+            len(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1,
+            missing.scans,
+        )
+
+        duplicate = FakeClient([issue(8), issue(9)])
+        with self.assertRaisesRegex(review.ReviewError, "Multiple finding Issues"):
+            review.recover_finding_issue_create(
+                duplicate,
+                REPOSITORY,
+                60,
+                app_login,
+                APP_BOT_ID,
+                finding_marker,
+                expected_operation,
+                verify,
+                lambda: {},
+            )
+        self.assertEqual(1, duplicate.scans)
+
+        mismatches = {
+            "repository": {"repository": "other/repository"},
+            "repository_id": {"repository_id": REPOSITORY_ID + 1},
+            "app_login": {"expected_login": "other-app[bot]"},
+            "app_bot_id": {"expected_bot_id": APP_BOT_ID + 1},
+            "pull_request": {"pr_number": 61},
+            "head_sha": {"head_sha": "c" * 40},
+            "run_id": {"run_order": (43, 1)},
+            "run_attempt": {"run_order": (42, 2)},
+            "group_id": {"group_id": "v2-" + "f" * 64},
+            "action": {"action": "finding-issue-update"},
+        }
+        for name, changed in mismatches.items():
+            with self.subTest(binding=name):
+                candidate_operation = review.operation_marker(
+                    **{**operation_values, **changed}
+                )
+                client = FakeClient([issue(8, candidate_operation)])
+                with self.assertRaisesRegex(review.ReviewError, "Conflicting"):
+                    review.recover_finding_issue_create(
+                        client,
+                        REPOSITORY,
+                        60,
+                        app_login,
+                        APP_BOT_ID,
+                        finding_marker,
+                        expected_operation,
+                        verify,
+                        lambda: {},
+                    )
+                self.assertEqual(1, client.scans)
+
+        wrong_actors = (
+            {"id": APP_BOT_ID, "login": "other-app[bot]", "type": "Bot"},
+            {"id": APP_BOT_ID + 1, "login": app_login, "type": "Bot"},
+            {"id": APP_BOT_ID, "login": app_login, "type": "User"},
+        )
+        for user in wrong_actors:
+            with self.subTest(user=user):
+                client = FakeClient([issue(8, user=user)])
+                with self.assertRaises(review.ReviewError):
+                    review.recover_finding_issue_create(
+                        client,
+                        REPOSITORY,
+                        60,
+                        app_login,
+                        APP_BOT_ID,
+                        finding_marker,
+                        expected_operation,
+                        verify,
+                        lambda: {},
+                    )
+                self.assertEqual(1, client.scans)
+
+    def test_uncertain_closure_comment_rejects_duplicate_exact_markers(self) -> None:
+        app_login = "coco-agent[bot]"
+        finding_id = "v2-" + "9" * 64
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.issue = {
+                    "number": 9,
+                    "title": "Old finding",
+                    "body": review.finding_issue_marker(60, BASE_SHA, finding_id)
+                    + "\nOld body\n",
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                }
+                self.comments: list[dict] = []
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path.endswith("/labels/agent-review"):
+                    return {"name": review.FINDING_ISSUE_LABEL}
+                raise AssertionError(f"Unexpected GET: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if path.endswith("/comments"):
+                    return self.comments
+                return [self.issue]
+
+            def send_json(self, method: str, path: str, payload: dict) -> object:
+                self.sent.append((method, path, payload))
+                self.comments = [
+                    {
+                        "id": number,
+                        "body": payload["body"],
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                    }
+                    for number in (3, 4)
+                ]
+                return None
+
+        client = FakeClient()
+        with self.assertRaisesRegex(review.ReviewError, "Multiple closure comments"):
+            review.synchronize_finding_issues(
+                client,
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                [],
+                (42, 1),
+                app_login,
+                APP_BOT_ID,
+                "https://github.example/runs/42",
+                "https://github.example",
+                lambda: {},
+            )
+        self.assertEqual(["POST"], [method for method, _path, _body in client.sent])
+
+    def test_uncertain_managed_comment_rejects_duplicate_and_hard_conflicts(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        body = review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nResult\n"
+
+        class DuplicateClient:
+            def __init__(self) -> None:
+                self.comments: list[dict] = []
+                self.sent: list[tuple[str, str, dict]] = []
+                self.reads = 0
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                self.reads += 1
+                return [] if self.reads == 1 else self.comments
+
+            def send_json(self, method: str, path: str, payload: dict) -> object:
+                self.sent.append((method, path, payload))
+                self.comments = [
+                    {
+                        "id": number,
+                        "body": payload["body"],
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                    }
+                    for number in (7, 8)
+                ]
+                return None
+
+        duplicate = DuplicateClient()
+        with self.assertRaisesRegex(review.ReviewError, "Multiple"):
+            review.upsert_comment(
+                duplicate,
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                body,
+                (42, 1),
+                app_login,
+                APP_BOT_ID,
+                lambda: {},
+            )
+        self.assertEqual(1, len(duplicate.sent))
+
+        previous = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        class ConflictClient:
+            def __init__(self, candidate: dict | None) -> None:
+                self.candidate = candidate
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if self.candidate is None:
+                    self.candidate = {
+                        "id": 7,
+                        "body": self.sent[0][2]["body"],
+                        "user": {
+                            "id": APP_BOT_ID + 1,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                    }
+                return [self.candidate]
+
+            def send_json(self, method: str, path: str, payload: dict) -> object:
+                self.sent.append((method, path, payload))
+                return None
+
+        newer = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:43:1 -->\nNewer\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+        for name, candidate in (("newer-run", newer), ("wrong-actor", None)):
+            with self.subTest(case=name):
+                client = ConflictClient(candidate)
+                with self.assertRaises(review.ReviewError):
+                    review.upsert_comment(
+                        client,
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        60,
+                        HEAD_SHA,
+                        body,
+                        (42, 1),
+                        app_login,
+                        APP_BOT_ID,
+                        lambda: {},
+                        previous,
+                    )
+                self.assertEqual(1, len(client.sent))
+
+    def test_uncertain_managed_comment_old_snapshot_exhausts_without_rewrite(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        previous = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+                self.reads = 0
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                self.reads += 1
+                return [previous]
+
+            def send_json(self, method: str, path: str, payload: dict) -> object:
+                self.sent.append((method, path, payload))
+                return None
+
+        client = FakeClient()
+        with patch.object(review.time, "sleep"):
+            with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
+                review.upsert_comment(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    60,
+                    HEAD_SHA,
+                    review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                    (42, 1),
+                    app_login,
+                    APP_BOT_ID,
+                    lambda: {},
+                    previous,
+                )
+        self.assertEqual(1, len(client.sent))
+        self.assertEqual(
+            len(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1,
+            client.reads,
+        )
 
     def test_finding_issue_convergence_retry_exhaustion_fails_closed(self) -> None:
         finding_id = "v1-" + "9" * 64
@@ -4969,7 +5504,7 @@ class AgentReviewTests(unittest.TestCase):
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.sent.append((method, path, payload))
-                return {}
+                return commit_status_response(path, payload)
 
         for include_issue, expected_state in ((True, "failure"), (False, "success")):
             with self.subTest(include_issue=include_issue):
@@ -7056,7 +7591,7 @@ class AgentReviewTests(unittest.TestCase):
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.sent.append((method, path, payload))
-                return {}
+                return commit_status_response(path, payload)
 
         metadata = {
             "repository": REPOSITORY,
@@ -7386,7 +7921,7 @@ class AgentReviewTests(unittest.TestCase):
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.sent.append((method, path, payload))
-                return {}
+                return commit_status_response(path, payload)
 
         metadata = {
             "schema_version": 1,
@@ -7458,7 +7993,7 @@ class AgentReviewTests(unittest.TestCase):
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.sent.append((method, path, payload))
-                return {}
+                return commit_status_response(path, payload)
 
         metadata = {
             "schema_version": 1,
@@ -7963,7 +8498,7 @@ class AgentReviewTests(unittest.TestCase):
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.send_pull_reads.append(self.pull_reads)
                 self.sent.append((method, path, payload))
-                return {}
+                return commit_status_response(path, payload)
 
             @staticmethod
             def assert_review_path(path: str, limit: int) -> None:
@@ -8029,7 +8564,7 @@ class AgentReviewTests(unittest.TestCase):
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.sent.append((method, path, payload))
-                return {}
+                return commit_status_response(path, payload)
 
             @staticmethod
             def assert_review_path(path: str, limit: int) -> None:
@@ -8732,9 +9267,9 @@ class AgentReviewTests(unittest.TestCase):
                 self.sent: list[dict] = []
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
-                del method, path
+                del method
                 self.sent.append(payload)
-                return {}
+                return commit_status_response(path, payload)
 
         metadata = trusted_metadata(run_id=42, run_attempt=2)
         with tempfile.TemporaryDirectory() as directory:

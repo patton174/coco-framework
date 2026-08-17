@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 
@@ -172,6 +173,19 @@ class GitHubTransientError(ReviewError):
 
 class GitHubUncertainWriteResponse(ReviewError):
     """A successful write has no usable resource representation to verify."""
+
+
+class RecoveryState(Enum):
+    PENDING = "pending"
+    EXACT = "exact"
+    CONFLICT = "conflict"
+
+
+@dataclass(frozen=True)
+class RecoveryProbe:
+    state: RecoveryState
+    value: Any = None
+    message: str = ""
 
 
 class StaleAgentReviewRun(ReviewError):
@@ -879,7 +893,7 @@ class GitHubClient:
             )
         try:
             value = json.loads(body)
-        except json.JSONDecodeError as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise GitHubUncertainWriteResponse(
                 "GitHub API write returned invalid JSON."
             ) from exc
@@ -5047,11 +5061,87 @@ def verify_finding_issue(
     return value
 
 
+def recovery_pending() -> RecoveryProbe:
+    return RecoveryProbe(RecoveryState.PENDING)
+
+
+def recovery_exact(value: Any) -> RecoveryProbe:
+    return RecoveryProbe(RecoveryState.EXACT, value=value)
+
+
+def recovery_conflict(message: str) -> RecoveryProbe:
+    return RecoveryProbe(RecoveryState.CONFLICT, message=message)
+
+
+def classify_recovery_resource(
+    value: Any,
+    verify_exact: Callable[[Any], Any],
+    verify_pending: Callable[[Any], Any] | None = None,
+) -> RecoveryProbe:
+    try:
+        return recovery_exact(verify_exact(value))
+    except GitHubUncertainWriteResponse:
+        return recovery_pending()
+    except ReviewError as exact_error:
+        if verify_pending is not None:
+            try:
+                verify_pending(value)
+            except GitHubUncertainWriteResponse:
+                return recovery_pending()
+            except ReviewError:
+                pass
+            else:
+                return recovery_pending()
+        return recovery_conflict(str(exact_error))
+
+
+def verify_finding_issue_snapshot(
+    issue: Any,
+    previous: dict[str, Any],
+    expected_login: str,
+    expected_bot_id: int,
+) -> dict[str, Any]:
+    if not isinstance(issue, dict) or not isinstance(issue.get("user"), dict):
+        raise GitHubUncertainWriteResponse(
+            "GitHub finding Issue recovery returned an incomplete resource."
+        )
+    required = ("number", "title", "body", "state", "labels")
+    if any(key not in issue for key in required):
+        raise GitHubUncertainWriteResponse(
+            "GitHub finding Issue recovery returned an incomplete resource."
+        )
+    if (
+        type(issue["number"]) is not int
+        or issue["number"] < 1
+        or not isinstance(issue["title"], str)
+        or not isinstance(issue["body"], str)
+        or not isinstance(issue["state"], str)
+        or not isinstance(issue["labels"], list)
+    ):
+        raise ReviewError(
+            "Agent review finding Issue recovery returned invalid field types."
+        )
+    value = require_resource_actor(
+        issue, expected_login, expected_bot_id, "Agent review finding issue"
+    )
+    if (
+        value["number"] != previous.get("number")
+        or value["title"] != previous.get("title")
+        or value["body"] != previous.get("body")
+        or value["state"] != previous.get("state")
+        or issue_label_names(value) != issue_label_names(previous)
+    ):
+        raise ReviewError(
+            "Agent review finding Issue recovery returned a conflicting resource."
+        )
+    return value
+
+
 def uncertain_write_recovery(
     action: str,
     path: str,
     require_current_pr: Callable[[], dict[str, Any]],
-    lookup: Callable[[], Any | None],
+    lookup: Callable[[], RecoveryProbe],
 ) -> Any:
     for attempt in range(len(FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1):
         if attempt:
@@ -5062,10 +5152,20 @@ def uncertain_write_recovery(
             file=sys.stderr,
         )
         require_current_pr()
-        value = lookup()
+        probe = lookup()
         require_current_pr()
-        if value is not None:
-            return value
+        if not isinstance(probe, RecoveryProbe):
+            raise ReviewError("Uncertain write recovery returned an invalid state.")
+        if probe.state is RecoveryState.EXACT:
+            if probe.value is None:
+                raise ReviewError("Exact write recovery state has no resource.")
+            return probe.value
+        if probe.state is RecoveryState.CONFLICT:
+            raise ReviewError(
+                probe.message or "GitHub write recovery found a conflict."
+            )
+        if probe.state is not RecoveryState.PENDING:
+            raise ReviewError("Uncertain write recovery returned an invalid state.")
     raise ReviewError("GitHub write could not be reconciled after bounded reads.")
 
 
@@ -5078,7 +5178,7 @@ def finding_issue_recovery_candidate(
     expected_marker: str,
     expected_operation: str,
     verify: Callable[[Any], dict[str, Any]],
-) -> dict[str, Any] | None:
+) -> RecoveryProbe:
     label = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
     issues = client.paginate(
         f"repos/{repository}/issues?state=all&labels={label}&sort=created&direction=asc",
@@ -5117,11 +5217,17 @@ def finding_issue_recovery_candidate(
             )
             != expected_operation
         ):
-            raise ReviewError("Conflicting finding Issue operation marker was found.")
-        matches.append(verify(issue))
+            return recovery_conflict(
+                "Conflicting finding Issue operation marker was found."
+            )
+        matches.append(issue)
     if len(matches) > 1:
-        raise ReviewError("Multiple finding Issues match one write operation marker.")
-    return matches[0] if matches else None
+        return recovery_conflict(
+            "Multiple finding Issues match one write operation marker."
+        )
+    if not matches:
+        return recovery_pending()
+    return classify_recovery_resource(matches[0], verify)
 
 
 def recover_finding_issue_create(
@@ -5159,10 +5265,16 @@ def recover_finding_issue_by_number(
     action: str,
     require_current_pr: Callable[[], dict[str, Any]],
     verify: Callable[[Any], dict[str, Any]],
+    verify_pending: Callable[[Any], dict[str, Any]],
 ) -> dict[str, Any]:
     path = f"repos/{repository}/issues/{issue_number}"
     return uncertain_write_recovery(
-        action, path, require_current_pr, lambda: verify(client.get_json(path))
+        action,
+        path,
+        require_current_pr,
+        lambda: classify_recovery_resource(
+            client.get_json(path), verify, verify_pending
+        ),
     )
 
 
@@ -5280,6 +5392,7 @@ def synchronize_finding_issues(
             "labels": sorted(labels),
         }
         write_payload = payload if previous is None else {**payload, "state": "open"}
+        pending_snapshot = copy.deepcopy(previous) if previous is not None else None
 
         def verify(value: Any) -> dict[str, Any]:
             return verify_finding_issue(
@@ -5326,6 +5439,12 @@ def synchronize_finding_issues(
                     action,
                     require_current_pr,
                     verify,
+                    lambda candidate: verify_finding_issue_snapshot(
+                        candidate,
+                        pending_snapshot,
+                        expected_login,
+                        expected_bot_id,
+                    ),
                 )
         synchronized.append({"actionable": actionable, "issue": value})
 
@@ -5396,7 +5515,7 @@ def synchronize_finding_issues(
             )
         except GitHubUncertainWriteResponse:
 
-            def closure_comment_candidate() -> dict[str, Any] | None:
+            def closure_comment_candidate() -> RecoveryProbe:
                 comments = client.paginate(closure_path, limit=500)
                 matches: list[dict[str, Any]] = []
                 for value in comments:
@@ -5419,12 +5538,14 @@ def synchronize_finding_issues(
                     )
                     if canonical != closure_operation:
                         continue
-                    matches.append(verify_closure_comment(value))
+                    matches.append(value)
                 if len(matches) > 1:
-                    raise ReviewError(
+                    return recovery_conflict(
                         "Multiple closure comments match one write operation marker."
                     )
-                return matches[0] if matches else None
+                if not matches:
+                    return recovery_pending()
+                return classify_recovery_resource(matches[0], verify_closure_comment)
 
             uncertain_write_recovery(
                 "finding-issue-closure-comment",
@@ -5454,6 +5575,7 @@ def synchronize_finding_issues(
             "state_reason": "completed",
             "labels": sorted(labels),
         }
+        close_pending_snapshot = copy.deepcopy(issue)
 
         def verify_closed(value: Any) -> dict[str, Any]:
             return verify_finding_issue(
@@ -5484,6 +5606,12 @@ def synchronize_finding_issues(
                 "finding-issue-close",
                 require_current_pr,
                 verify_closed,
+                lambda candidate: verify_finding_issue_snapshot(
+                    candidate,
+                    close_pending_snapshot,
+                    expected_login,
+                    expected_bot_id,
+                ),
             )
 
     wait_for_finding_issue_convergence(
@@ -5564,6 +5692,34 @@ def require_managed_comment_order(
         )
 
 
+def verify_managed_comment_snapshot(
+    value: Any,
+    previous: dict[str, Any],
+    expected_login: str,
+    expected_bot_id: int,
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or not isinstance(value.get("user"), dict):
+        raise GitHubUncertainWriteResponse(
+            "GitHub managed comment recovery returned an incomplete resource."
+        )
+    if (
+        type(value.get("id")) is not int
+        or value["id"] < 1
+        or not isinstance(value.get("body"), str)
+    ):
+        raise GitHubUncertainWriteResponse(
+            "GitHub managed comment recovery returned an incomplete resource."
+        )
+    comment = require_resource_actor(
+        value, expected_login, expected_bot_id, "Agent jury managed comment"
+    )
+    if comment["id"] != previous.get("id") or comment["body"] != previous.get("body"):
+        raise ReviewError(
+            "Agent jury managed comment recovery returned a conflicting resource."
+        )
+    return comment
+
+
 def upsert_comment(
     client: GitHubClient,
     repository: str,
@@ -5580,6 +5736,7 @@ def upsert_comment(
     previous = previous or managed_comment(
         client, repository, pr_number, expected_login, expected_bot_id
     )
+    previous_snapshot = copy.deepcopy(previous) if previous is not None else None
     require_managed_comment_order(previous, run_order)
     action = "managed-comment-update" if previous else "managed-comment-create"
     marker = operation_marker(
@@ -5597,7 +5754,11 @@ def upsert_comment(
     run_marker = f"<!-- agent-jury-run:{run_order[0]}:{run_order[1]} -->"
     if len(lines) < 2 or lines[0] != COMMENT_MARKER or lines[1] != run_marker:
         raise ReviewError("Agent jury comment markers are invalid before publication.")
-    published_body = insert_operation_marker(body, marker, 2)
+    published_body = require_comment_size(
+        insert_operation_marker(body, marker, 2),
+        MAX_GITHUB_COMMENT_BODY_BYTES,
+        "Agent jury comment",
+    )
 
     def verify(value: Any) -> dict[str, Any]:
         if not isinstance(value, dict) or not isinstance(value.get("user"), dict):
@@ -5635,16 +5796,19 @@ def upsert_comment(
         return verify(client.send_json(method, path, {"body": published_body}))
     except GitHubUncertainWriteResponse:
 
-        def comment_candidate() -> dict[str, Any] | None:
+        def comment_candidate() -> RecoveryProbe:
             comments = client.paginate(
                 f"repos/{repository}/issues/{pr_number}/comments", limit=500
             )
             managed: list[dict[str, Any]] = []
             matches: list[dict[str, Any]] = []
+            target: list[dict[str, Any]] = []
             for value in comments:
                 if not isinstance(value, dict):
                     continue
                 comment_body = value.get("body")
+                if previous is not None and value.get("id") == previous.get("id"):
+                    target.append(value)
                 operation = parse_operation_marker(comment_body)
                 if operation is not None:
                     canonical = operation_marker(
@@ -5659,7 +5823,7 @@ def upsert_comment(
                         str(operation["action"]),
                     )
                     if canonical == marker:
-                        matches.append(verify(value))
+                        matches.append(value)
                 login = str((value.get("user") or {}).get("login") or "")
                 if (
                     login == expected_login
@@ -5674,18 +5838,45 @@ def upsert_comment(
                     )
                     managed.append(value)
             if len(managed) > 1:
-                raise ReviewError(
+                return recovery_conflict(
                     "Multiple GitHub App comments claim the Agent jury marker."
                 )
-            if managed:
-                require_managed_comment_order(managed[0], run_order)
-                if managed[0].get("body") != published_body:
-                    raise ReviewError(
-                        "Managed comment conflicts with the write operation marker."
-                    )
             if len(matches) > 1:
-                raise ReviewError("Multiple comments match one write operation marker.")
-            return matches[0] if matches else None
+                return recovery_conflict(
+                    "Multiple comments match one write operation marker."
+                )
+            if len(target) > 1:
+                return recovery_conflict(
+                    "Multiple comments claim the managed comment resource ID."
+                )
+            if managed:
+                try:
+                    require_managed_comment_order(managed[0], run_order)
+                except ReviewError as exc:
+                    return recovery_conflict(str(exc))
+            candidate = (
+                matches[0]
+                if matches
+                else managed[0]
+                if managed
+                else target[0]
+                if target
+                else None
+            )
+            if candidate is None:
+                return recovery_pending()
+            if previous_snapshot is not None:
+                return classify_recovery_resource(
+                    candidate,
+                    verify,
+                    lambda value: verify_managed_comment_snapshot(
+                        value,
+                        previous_snapshot,
+                        expected_login,
+                        expected_bot_id,
+                    ),
+                )
+            return classify_recovery_resource(candidate, verify)
 
         return uncertain_write_recovery(
             action, path, require_current_pr, comment_candidate
@@ -5701,7 +5892,7 @@ def publish_status(
     target_url: str,
     context: str = STATUS_CONTEXT,
 ) -> None:
-    client.send_json(
+    value = client.send_json(
         "POST",
         f"repos/{repository}/statuses/{head_sha}",
         {
@@ -5711,6 +5902,14 @@ def publish_status(
             "target_url": target_url,
         },
     )
+    if not isinstance(value, dict):
+        raise ReviewError("GitHub commit status write returned an invalid resource.")
+    if (
+        value.get("sha") != head_sha
+        or value.get("context") != context
+        or value.get("state") != state
+    ):
+        raise ReviewError("GitHub commit status response did not match the request.")
 
 
 def command_mark_pending(args: argparse.Namespace) -> int:

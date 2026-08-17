@@ -141,9 +141,10 @@ identity 或重试已知操作；跨 head identity continuity 属于独立后续
 
 受信 Issue/comment 写入使用严格 canonical operation marker，绑定 repository/ID、App login/Bot ID、
 run/attempt、PR/head、group 与枚举 action；Issue 的 finding marker 仍为首行、operation marker 为次行。
-2xx 空/null/坏 JSON/结构响应绝不重发，而以现有有限 backoff 在 PR 复核前后读取唯一 exact marker 或 resource
-ID，证明完整 actor/marker/payload/state/label 才继续；0、多个、冲突或 head 漂移 fail closed。仅受管写入可恢复，
-status/label 仍失败关闭，日志只含 action/attempt/path，且不建立 cross-head continuity。
+2xx 空/null/坏 JSON/结构响应绝不重发；现有有限 backoff 每次在 PR 复核前后读取。仅完整 actor/identity
+正确且与写前快照完全一致可视为 pending，exact resource 才成功；新 run、错误 identity、多个候选、其他冲突或
+head 漂移立即 fail closed，0 直到耗尽亦失败。status 响应须精确匹配 sha/context/state，status/label 均不恢复
+或重发；日志只含 action/attempt/path，且不建立 cross-head continuity。
 
 Issue 正文必须链接来源 PR、首次发现 head、当前验证 head、finding 来源、严重度、代码位置、触发、
 影响、证据和验证方式。Issue 不能取代 PR 汇总评论；评论仍展示完整评审团结果和 Issue 链接。
