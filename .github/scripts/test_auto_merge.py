@@ -112,6 +112,24 @@ def success_check(identifier: int, name: str) -> dict:
     return check_signal(identifier, name)
 
 
+def required_check_configuration(
+    gates: tuple[str, ...] = merge.STANDARD_REQUIRED_GATES,
+    *,
+    strict: bool = True,
+    contexts: list[object] | None = None,
+    checks: list[object] | None = None,
+) -> dict:
+    return {
+        "strict": strict,
+        "contexts": list(gates) if contexts is None else contexts,
+        "checks": (
+            [{"context": gate, "app_id": merge.CI_CHECK_APP_ID} for gate in gates]
+            if checks is None
+            else checks
+        ),
+    }
+
+
 def graphql_state(
     decision: str | None = "APPROVED", resolved: list[bool] | None = None
 ) -> dict:
@@ -183,6 +201,8 @@ class FakeClient:
             "squashMergeAllowed": False,
             "rebaseMergeAllowed": False,
         }
+        self.required_check_configuration = required_check_configuration()
+        self.required_check_configuration_pages: list[dict] | None = None
         self.review_pages: list[list[dict]] | None = None
         self.status_pages: list[list[dict]] | None = None
         self.check_run_pages: list[list[dict]] | None = None
@@ -206,6 +226,18 @@ class FakeClient:
             if permission is None:
                 raise merge.GitHubApiError("not found", 404)
             return {"permission": permission}
+        if path == (
+            f"repos/{REPOSITORY}/branches/main/protection/required_status_checks"
+        ):
+            if self.required_check_configuration_pages is not None:
+                if not self.required_check_configuration_pages:
+                    raise AssertionError(
+                        "unexpected extra required check configuration read"
+                    )
+                payload = self.required_check_configuration_pages.pop(0)
+            else:
+                payload = self.required_check_configuration
+            return copy.deepcopy(payload)
         raise AssertionError(f"unexpected get_json path: {path}")
 
     def paginate(
@@ -477,6 +509,90 @@ class AutoMergeTests(unittest.TestCase):
         decision = self.evaluate(client, self.candidate(OTHER_SHA))
         self.assertEqual("blocked", decision.state)
         self.assertIn("expected bound head", " ".join(decision.reasons))
+        self.assertEqual([], client.sent)
+
+    def test_standard_protection_contract_allows_all_three_gates(self) -> None:
+        client = FakeClient()
+        decision = self.evaluate(client, dry_run=True)
+        self.assertEqual("dry-run", decision.state)
+        self.assertEqual(
+            tuple(sorted(merge.STANDARD_REQUIRED_GATES)),
+            tuple(sorted(decision.gates)),
+        )
+
+    def test_controlled_incident_contract_allows_only_jury_to_be_absent(self) -> None:
+        client = FakeClient()
+        client.required_check_configuration = required_check_configuration(
+            merge.INCIDENT_REQUIRED_GATES
+        )
+        client.statuses = [success_status(11, "Agent issue gate")]
+        decision = self.evaluate(client, dry_run=True)
+        self.assertEqual("dry-run", decision.state)
+        self.assertEqual({"CI gate", "Agent issue gate"}, set(decision.gates))
+
+    def test_invalid_branch_protection_contract_fails_closed(self) -> None:
+        invalid_configurations = {
+            "missing CI": required_check_configuration(
+                ("Agent jury gate", "Agent issue gate")
+            ),
+            "missing issue": required_check_configuration(
+                ("CI gate", "Agent jury gate")
+            ),
+            "unknown context": required_check_configuration(
+                ("CI gate", "Agent jury gate", "Agent issue gate", "Other gate")
+            ),
+            "duplicate legacy context": required_check_configuration(
+                contexts=["CI gate", "CI gate", "Agent jury gate", "Agent issue gate"]
+            ),
+            "duplicate app-bound context": required_check_configuration(
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent issue gate", "app_id": merge.CI_CHECK_APP_ID},
+                ]
+            ),
+            "legacy mismatch": required_check_configuration(
+                contexts=["CI gate", "Agent jury gate"],
+            ),
+            "wrong app": required_check_configuration(
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID + 1},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent issue gate", "app_id": merge.CI_CHECK_APP_ID},
+                ]
+            ),
+            "missing app": required_check_configuration(
+                checks=[
+                    {"context": "CI gate"},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent issue gate", "app_id": merge.CI_CHECK_APP_ID},
+                ]
+            ),
+            "strict false": required_check_configuration(strict=False),
+            "malformed checks": {"strict": True, "contexts": [], "checks": {}},
+            "malformed contexts": {"strict": True, "contexts": {}, "checks": []},
+        }
+        for label, configuration in invalid_configurations.items():
+            with self.subTest(label=label):
+                client = FakeClient()
+                client.pull_reads = [pull_request()]
+                client.required_check_configuration = configuration
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(client)
+                self.assertEqual([], client.sent)
+
+    def test_branch_protection_api_failure_fails_closed(self) -> None:
+        class FailingProtectionClient(FakeClient):
+            def get_json(self, path: str) -> object:
+                if path.endswith("/protection/required_status_checks"):
+                    raise merge.GitHubApiError("protection unavailable", 503)
+                return super().get_json(path)
+
+        client = FailingProtectionClient()
+        client.pull_reads = [pull_request()]
+        with self.assertRaisesRegex(merge.GitHubApiError, "protection unavailable"):
+            self.evaluate(client)
         self.assertEqual([], client.sent)
 
     def test_every_required_gate_must_have_a_successful_latest_signal(self) -> None:
@@ -778,6 +894,42 @@ class AutoMergeTests(unittest.TestCase):
                 self.assertEqual(2, client.graphql_calls)
                 self.assertEqual(2, client.repository_reads)
 
+    def test_second_protection_read_rejects_gate_or_app_binding_changes(self) -> None:
+        changed_gates = FakeClient()
+        changed_gates.required_check_configuration_pages = [
+            required_check_configuration(),
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+        ]
+
+        changed_gates.status_pages = [
+            copy.deepcopy(changed_gates.statuses),
+            [success_status(11, "Agent issue gate")],
+        ]
+        decision = self.evaluate(changed_gates)
+        self.assertEqual("blocked", decision.state)
+        self.assertIn(
+            "required-check configuration changed", " ".join(decision.reasons)
+        )
+        self.assertEqual([], changed_gates.sent)
+
+        changed_binding = FakeClient()
+        changed_binding.required_check_configuration_pages = [
+            required_check_configuration(),
+            required_check_configuration(
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {
+                        "context": "Agent issue gate",
+                        "app_id": merge.CI_CHECK_APP_ID + 1,
+                    },
+                ]
+            ),
+        ]
+        with self.assertRaisesRegex(merge.ContractError, "GitHub Actions App"):
+            self.evaluate(changed_binding)
+        self.assertEqual([], changed_binding.sent)
+
     def test_merge_refusal_is_a_fail_closed_error(self) -> None:
         client = FakeClient()
         client.merge_client.merge_response = {
@@ -838,8 +990,9 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(1, workflow.count("permission-contents: write"))
         self.assertEqual(
             ("CI gate", "Agent jury gate", "Agent issue gate"),
-            merge.REQUIRED_GATES,
+            merge.STANDARD_REQUIRED_GATES,
         )
+        self.assertEqual(("CI gate", "Agent issue gate"), merge.INCIDENT_REQUIRED_GATES)
 
 
 if __name__ == "__main__":

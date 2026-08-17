@@ -163,15 +163,22 @@ PR merge ref，不能进入持有 App 私钥的 `coco-agent` environment。
 - head SHA 是 40 位小写十六进制且在整个检查过程中不变；
 - GitHub 报告 mergeable，且分支已与 `main` 同步；
 - 当前 head 至少有一个有效的非 bot 维护者 `APPROVED` review；
-- `CI gate`、`Agent jury gate`、`Agent issue gate` 对当前 head 均为 success，且发布 provider
-  分别是受保护配置允许的 GitHub Actions App/check actor；
+- 自动合并器从 `main` 当前 branch protection 的 `required_status_checks` 读取 required check
+  集合，而不自行用静态常量覆盖保护策略。响应必须为 strict，legacy `contexts` 与 App-bound
+  `checks` 必须同时存在、集合完全一致且 context 唯一；每项必须绑定 GitHub Actions App ID
+  `15368`。唯一允许的集合为标准的 `CI gate`、`Agent jury gate`、`Agent issue gate`，或已记录
+  受保护 base 事故期间仅暂时缺少 `Agent jury gate` 的 `CI gate`、`Agent issue gate`。缺少 CI
+  或 Issue、未知 context、重复 context、缺失或错误 App ID、畸形响应或 API 失败均拒绝合并；
+- 从上述保护配置派生的每个 gate 对当前 head 均为 success，且同名 status/check 仍必须来自受信
+  GitHub Actions provider，不能以动态配置接受伪造的同名信号；
 - 没有未解决 review thread；
 - 没有任何开放的严格绑定 Agent Issue；
 - 仓库仍只允许 merge commit。
 
-执行 merge API 时必须携带期望 head SHA 和 `merge` 方法。调用前必须完整重跑 PR、批准、三个 gate、
-review threads、开放 Issue 和仓库合并设置，而不只是二次读取 head；SHA、状态或任一条件变化则退出，
-不合并。脚本支持 dry-run，并对 API 分页、重复事件和并发执行保持幂等。
+执行 merge API 时必须携带期望 head SHA 和 `merge` 方法。调用前必须完整重跑 PR、批准、从保护配置
+派生的 gate、review threads、开放 Issue、仓库合并设置和 branch protection；而不只是二次读取 head。
+两次 eligibility 读取的 required gate 集合或任一 App binding 不同，或 SHA、状态或任一条件变化，均退出
+且不合并。脚本支持 dry-run，并对 API 分页、重复事件和并发执行保持幂等。
 
 ## 自举顺序
 

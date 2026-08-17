@@ -22,7 +22,8 @@ from agent_review import require_resource_actor
 
 BASE_BRANCH = "main"
 AGENT_ISSUE_LABEL = "agent-review"
-REQUIRED_GATES = ("CI gate", "Agent jury gate", "Agent issue gate")
+STANDARD_REQUIRED_GATES = ("CI gate", "Agent jury gate", "Agent issue gate")
+INCIDENT_REQUIRED_GATES = ("CI gate", "Agent issue gate")
 CI_CHECK_APP_ID = 15368
 GITHUB_ACTIONS_BOT_LOGIN = "github-actions[bot]"
 GITHUB_ACTIONS_BOT_ID = 41898282
@@ -84,6 +85,17 @@ class RepositoryMergeSettings:
 
 
 @dataclasses.dataclass(frozen=True)
+class RequiredGateConfiguration:
+    """Validated App-bound required checks read from main branch protection."""
+
+    gates: tuple[str, ...]
+    app_bindings: tuple[tuple[str, int], ...]
+
+    def as_dict(self) -> dict[str, int]:
+        return dict(self.app_bindings)
+
+
+@dataclasses.dataclass(frozen=True)
 class ReviewState:
     decision: str
     unresolved_threads: int
@@ -99,6 +111,7 @@ class Eligibility:
     unresolved_review_threads: int = 0
     open_agent_issues: tuple[int, ...] = ()
     merge_settings: RepositoryMergeSettings | None = None
+    required_gate_configuration: RequiredGateConfiguration | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -622,8 +635,76 @@ def _status_outcome(status: dict[str, Any], gate: str) -> tuple[str, bool]:
     )
 
 
+def required_gate_configuration(
+    client: GitHubClient, repository: str
+) -> RequiredGateConfiguration:
+    """Read the current strict, App-bound required-check contract for main."""
+
+    payload = require_mapping(
+        client.get_json(
+            f"repos/{repository}/branches/{urllib.parse.quote(BASE_BRANCH, safe='')}/"
+            "protection/required_status_checks"
+        ),
+        "main branch required status checks",
+    )
+    if payload.get("strict") is not True:
+        raise ContractError("main branch required status checks must be strict.")
+    contexts = require_list(
+        payload.get("contexts"), "main branch required status check contexts"
+    )
+    checks = require_list(payload.get("checks"), "main branch required status checks")
+    context_names: list[str] = []
+    for value in contexts:
+        if not isinstance(value, str) or not value:
+            raise ContractError("main branch required status check context is invalid.")
+        context_names.append(value)
+    if len(set(context_names)) != len(context_names):
+        raise ContractError(
+            "main branch required status check contexts are duplicated."
+        )
+
+    bindings: list[tuple[str, int]] = []
+    for value in checks:
+        check = require_mapping(value, "main branch App-bound required status check")
+        context = check.get("context")
+        app_id = check.get("app_id")
+        if not isinstance(context, str) or not context:
+            raise ContractError(
+                "main branch App-bound required check context is invalid."
+            )
+        if type(app_id) is not int:
+            raise ContractError("main branch required check is missing its app_id.")
+        bindings.append((context, app_id))
+    bound_names = [context for context, _ in bindings]
+    if len(set(bound_names)) != len(bound_names):
+        raise ContractError("main branch App-bound required checks are duplicated.")
+    if set(context_names) != set(bound_names):
+        raise ContractError(
+            "main branch legacy contexts and App-bound required checks differ."
+        )
+    if any(app_id != CI_CHECK_APP_ID for _, app_id in bindings):
+        raise ContractError(
+            "main branch required checks must be bound to the GitHub Actions App."
+        )
+    gates = tuple(sorted(context_names))
+    if gates not in {
+        tuple(sorted(STANDARD_REQUIRED_GATES)),
+        tuple(sorted(INCIDENT_REQUIRED_GATES)),
+    }:
+        raise ContractError(
+            "main branch required check set is not the standard or controlled incident contract."
+        )
+    return RequiredGateConfiguration(
+        gates=gates,
+        app_bindings=tuple(sorted(bindings)),
+    )
+
+
 def required_gate_states(
-    client: GitHubClient, repository: str, head_sha: str
+    client: GitHubClient,
+    repository: str,
+    head_sha: str,
+    required_gates: RequiredGateConfiguration,
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     statuses = client.paginate(
         f"repos/{repository}/commits/{head_sha}/statuses", limit=1000
@@ -634,10 +715,10 @@ def required_gate_states(
         key="check_runs",
     )
     status_matches: dict[str, list[dict[str, Any]]] = {
-        gate: [] for gate in REQUIRED_GATES
+        gate: [] for gate in required_gates.gates
     }
     check_matches: dict[str, list[dict[str, Any]]] = {
-        gate: [] for gate in REQUIRED_GATES
+        gate: [] for gate in required_gates.gates
     }
     for value in statuses:
         status = require_mapping(value, "commit status")
@@ -652,31 +733,36 @@ def required_gate_states(
 
     states: dict[str, str] = {}
     reasons: list[str] = []
+    bindings = required_gates.as_dict()
 
-    ci_valid: list[dict[str, Any]] = []
-    ci_untrusted = len(status_matches["CI gate"])
-    for check_run in check_matches["CI gate"]:
-        app = check_run.get("app")
-        if isinstance(app, dict) and app.get("id") == CI_CHECK_APP_ID:
-            ci_valid.append(check_run)
-        else:
-            ci_untrusted += 1
-    if ci_untrusted:
-        reasons.append(
-            "required gate 'CI gate' has same-name signal(s) from an untrusted provider"
-        )
-    if not ci_valid:
-        states["CI gate"] = "missing-trusted-provider"
-        reasons.append("required gate 'CI gate' is missing its trusted check run")
-    else:
-        ci_signal, ci_success = _check_run_outcome(
-            _latest_by_id(ci_valid, "CI gate trusted check run"), "CI gate"
-        )
-        states["CI gate"] = ci_signal
-        if not ci_success:
-            reasons.append("required gate 'CI gate' is not successful")
+    for gate in required_gates.gates:
+        if gate == "CI gate":
+            trusted_checks: list[dict[str, Any]] = []
+            untrusted = len(status_matches[gate])
+            for check_run in check_matches[gate]:
+                app = check_run.get("app")
+                if isinstance(app, dict) and app.get("id") == bindings[gate]:
+                    trusted_checks.append(check_run)
+                else:
+                    untrusted += 1
+            if untrusted:
+                reasons.append(
+                    "required gate 'CI gate' has same-name signal(s) from an untrusted provider"
+                )
+            if not trusted_checks:
+                states[gate] = "missing-trusted-provider"
+                reasons.append(
+                    "required gate 'CI gate' is missing its trusted check run"
+                )
+                continue
+            signal, success = _check_run_outcome(
+                _latest_by_id(trusted_checks, "CI gate trusted check run"), gate
+            )
+            states[gate] = signal
+            if not success:
+                reasons.append("required gate 'CI gate' is not successful")
+            continue
 
-    for gate in ("Agent jury gate", "Agent issue gate"):
         trusted_statuses: list[dict[str, Any]] = []
         untrusted = len(check_matches[gate])
         for status in status_matches[gate]:
@@ -900,6 +986,7 @@ def evaluate_eligibility(
     if snapshot_failures:
         return Eligibility(snapshot=snapshot, reasons=tuple(snapshot_failures))
 
+    gate_configuration = required_gate_configuration(client, repository)
     review_state = pull_request_review_state(client, repository, candidate.number)
     approvers = current_approvers(
         client,
@@ -908,7 +995,9 @@ def evaluate_eligibility(
         snapshot.head_sha,
         snapshot.author_login,
     )
-    gates, gate_reasons = required_gate_states(client, repository, snapshot.head_sha)
+    gates, gate_reasons = required_gate_states(
+        client, repository, snapshot.head_sha, gate_configuration
+    )
     open_issues = open_bound_agent_issues(
         client,
         repository,
@@ -943,6 +1032,7 @@ def evaluate_eligibility(
         unresolved_review_threads=review_state.unresolved_threads,
         open_agent_issues=open_issues,
         merge_settings=merge_settings,
+        required_gate_configuration=gate_configuration,
     )
 
 
@@ -997,6 +1087,24 @@ def evaluate_candidate(
     )
     if second.reasons:
         return decision_from_eligibility("blocked", candidate, second)
+    if first.required_gate_configuration != second.required_gate_configuration:
+        return Decision(
+            state="blocked",
+            pull_request=candidate.number,
+            head_sha=second.snapshot.head_sha,
+            source=candidate.source,
+            reasons=(
+                "main branch required-check configuration changed during eligibility evaluation",
+            ),
+            approvers=second.approvers,
+            gates=second.gates,
+            review_decision=second.review_decision,
+            unresolved_review_threads=second.unresolved_review_threads,
+            open_agent_issues=second.open_agent_issues,
+            merge_settings=(
+                second.merge_settings.as_dict() if second.merge_settings else {}
+            ),
+        )
 
     if dry_run:
         return decision_from_eligibility("dry-run", candidate, second)
