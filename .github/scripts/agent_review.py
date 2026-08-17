@@ -45,6 +45,19 @@ DEFERRED_ROUTE_JOB_NAME = "Route bound pull request"
 DEFERRED_MARKER_JOB_NAME = "Emit protected no-secret marker"
 FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
+OPERATION_MARKER_NAMESPACE = "<!-- coco-agent-operation:v1"
+OPERATION_MARKER_PREFIX = OPERATION_MARKER_NAMESPACE + " "
+MANAGED_COMMENT_GROUP_ID = "managed-pr-summary"
+OPERATION_ACTIONS = frozenset(
+    {
+        "finding-issue-create",
+        "finding-issue-update",
+        "finding-issue-closure-comment",
+        "finding-issue-close",
+        "managed-comment-create",
+        "managed-comment-update",
+    }
+)
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_JITTER_RATIO = 0.25
@@ -155,6 +168,10 @@ class GitHubNotFoundError(ReviewError):
 
 class GitHubTransientError(ReviewError):
     """A GitHub API or transport failure that may succeed on retry."""
+
+
+class GitHubUncertainWriteResponse(ReviewError):
+    """A successful write has no usable resource representation to verify."""
 
 
 class StaleAgentReviewRun(ReviewError):
@@ -279,6 +296,169 @@ def parse_finding_issue_marker(body: Any) -> dict[str, Any] | None:
     if first_line != finding_issue_marker(pr_number, head_sha, finding_id):
         raise ReviewError("Finding issue marker is not canonical JSON.")
     return payload
+
+
+def operation_marker(
+    repository: str,
+    repository_id: int,
+    expected_login: str,
+    expected_bot_id: int,
+    run_order: tuple[int, int],
+    pr_number: int,
+    head_sha: str,
+    group_id: str,
+    action: str,
+) -> str:
+    checked_repository = require_repository(repository)
+    if type(repository_id) is not int or repository_id < 1:
+        raise ReviewError("Operation marker repository ID is invalid.")
+    login = require_app_bot_login(expected_login)
+    bot_id = require_app_bot_id(expected_bot_id)
+    if (
+        not isinstance(run_order, tuple)
+        or len(run_order) != 2
+        or any(type(value) is not int or value < 1 for value in run_order)
+    ):
+        raise ReviewError("Operation marker run identity is invalid.")
+    if type(pr_number) is not int or pr_number < 1:
+        raise ReviewError("Operation marker pull request number is invalid.")
+    if not SHA_RE.fullmatch(head_sha):
+        raise ReviewError("Operation marker head SHA is invalid.")
+    if group_id != MANAGED_COMMENT_GROUP_ID and not STABLE_FINDING_ID_RE.fullmatch(
+        group_id
+    ):
+        raise ReviewError("Operation marker group ID is invalid.")
+    if action not in OPERATION_ACTIONS:
+        raise ReviewError("Operation marker action is invalid.")
+    payload = {
+        "action": action,
+        "app_bot_id": bot_id,
+        "app_login": login,
+        "group_id": group_id,
+        "head_sha": head_sha,
+        "pull_request": pr_number,
+        "repository": checked_repository,
+        "repository_id": repository_id,
+        "run_attempt": run_order[1],
+        "run_id": run_order[0],
+        "schema_version": SCHEMA_VERSION,
+    }
+    return OPERATION_MARKER_PREFIX + canonical_json(payload) + " -->"
+
+
+def parse_operation_marker(body: Any) -> dict[str, Any] | None:
+    text = body if isinstance(body, str) else ""
+    marker_count = text.count(OPERATION_MARKER_NAMESPACE)
+    if marker_count == 0:
+        return None
+    if marker_count != 1:
+        raise ReviewError("Operation marker must appear exactly once.")
+    marker_lines = [
+        line for line in text.splitlines() if line.startswith(OPERATION_MARKER_PREFIX)
+    ]
+    if len(marker_lines) != 1:
+        raise ReviewError("Operation marker must occupy one complete body line.")
+    marker_line = marker_lines[0]
+    if not marker_line.endswith(" -->"):
+        raise ReviewError("Operation marker is malformed.")
+    try:
+        payload = json.loads(marker_line[len(OPERATION_MARKER_PREFIX) : -4])
+    except json.JSONDecodeError as exc:
+        raise ReviewError("Operation marker JSON is invalid.") from exc
+    required_fields = {
+        "action",
+        "app_bot_id",
+        "app_login",
+        "group_id",
+        "head_sha",
+        "pull_request",
+        "repository",
+        "repository_id",
+        "run_attempt",
+        "run_id",
+        "schema_version",
+    }
+    if not isinstance(payload, dict) or set(payload) != required_fields:
+        raise ReviewError("Operation marker schema is invalid.")
+    action = payload.get("action")
+    group_id = payload.get("group_id")
+    repository = payload.get("repository")
+    repository_id = payload.get("repository_id")
+    app_login = payload.get("app_login")
+    app_bot_id = payload.get("app_bot_id")
+    run_id = payload.get("run_id")
+    run_attempt = payload.get("run_attempt")
+    pr_number = payload.get("pull_request")
+    head_sha = payload.get("head_sha")
+    if (
+        not valid_schema_version(payload.get("schema_version"))
+        or not isinstance(repository, str)
+        or require_repository(repository) != repository
+        or type(repository_id) is not int
+        or repository_id < 1
+        or not isinstance(app_login, str)
+        or require_app_bot_login(app_login) != app_login
+        or type(app_bot_id) is not int
+        or require_app_bot_id(app_bot_id) != app_bot_id
+        or type(run_id) is not int
+        or run_id < 1
+        or type(run_attempt) is not int
+        or run_attempt < 1
+        or type(pr_number) is not int
+        or pr_number < 1
+        or not isinstance(head_sha, str)
+        or not SHA_RE.fullmatch(head_sha)
+        or not isinstance(group_id, str)
+        or (
+            group_id != MANAGED_COMMENT_GROUP_ID
+            and not STABLE_FINDING_ID_RE.fullmatch(group_id)
+        )
+        or not isinstance(action, str)
+        or action not in OPERATION_ACTIONS
+    ):
+        raise ReviewError("Operation marker values are invalid.")
+    if marker_line != operation_marker(
+        repository,
+        repository_id,
+        app_login,
+        app_bot_id,
+        (run_id, run_attempt),
+        pr_number,
+        head_sha,
+        group_id,
+        action,
+    ):
+        raise ReviewError("Operation marker is not canonical JSON.")
+    return payload
+
+
+def insert_operation_marker(body: str, marker: str, line_index: int) -> str:
+    if not isinstance(body, str) or not isinstance(marker, str):
+        raise ReviewError("Operation marker body is invalid.")
+    # Parsing first rejects duplicate and malformed prior markers before replacement.
+    existing = parse_operation_marker(body)
+    lines = body.splitlines()
+    if existing is not None:
+        lines = [
+            line
+            for line in lines
+            if line
+            != operation_marker(
+                str(existing["repository"]),
+                int(existing["repository_id"]),
+                str(existing["app_login"]),
+                int(existing["app_bot_id"]),
+                (int(existing["run_id"]), int(existing["run_attempt"])),
+                int(existing["pull_request"]),
+                str(existing["head_sha"]),
+                str(existing["group_id"]),
+                str(existing["action"]),
+            )
+        ]
+    if line_index < 0 or line_index > len(lines):
+        raise ReviewError("Operation marker insertion position is invalid.")
+    lines.insert(line_index, marker)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def sha256_text(value: str) -> str:
@@ -694,11 +874,20 @@ class GitHubClient:
     def send_json(self, method: str, path: str, payload: dict[str, Any]) -> Any:
         body, _ = self.request(method, path, payload=payload)
         if not body:
-            return None
+            raise GitHubUncertainWriteResponse(
+                "GitHub API write returned an empty success response."
+            )
         try:
-            return json.loads(body)
+            value = json.loads(body)
         except json.JSONDecodeError as exc:
-            raise ReviewError("GitHub API write returned invalid JSON.") from exc
+            raise GitHubUncertainWriteResponse(
+                "GitHub API write returned invalid JSON."
+            ) from exc
+        if value is None:
+            raise GitHubUncertainWriteResponse(
+                "GitHub API write returned a null success response."
+            )
+        return value
 
     def file_text(
         self, repository: str, path: str, ref: str, max_bytes: int
@@ -4617,6 +4806,7 @@ def finding_issue_body(
     actionable: dict[str, Any],
     run_url: str,
     server_url: str,
+    operation: str,
 ) -> str:
     finding = actionable["finding"]
     stable_id = str(actionable["stable_id"])
@@ -4630,6 +4820,7 @@ def finding_issue_body(
     )
     lines = [
         finding_issue_marker(pr_number, first_head_sha, stable_id),
+        operation,
         "## Agent review finding",
         "",
         f"- Pull request: [#{pr_number}]({repository_url}/pull/{pr_number})",
@@ -4778,12 +4969,47 @@ def verify_finding_issue(
     expected_login: str,
     expected_bot_id: int,
     expected_marker: str,
+    expected_operation: str,
+    expected_title: str,
+    expected_body: str,
+    expected_labels: set[str],
     expected_state: str,
+    expected_state_reason: str | None = None,
 ) -> dict[str, Any]:
+    if not isinstance(issue, dict) or not isinstance(issue.get("user"), dict):
+        raise GitHubUncertainWriteResponse(
+            "GitHub finding Issue write returned an incomplete resource."
+        )
+    if (
+        any(key not in issue for key in ("number", "title", "body", "state", "labels"))
+        or not isinstance(issue.get("number"), int)
+        or issue["number"] < 1
+    ):
+        raise GitHubUncertainWriteResponse(
+            "GitHub finding Issue write returned an incomplete resource."
+        )
+    if not isinstance(issue.get("title"), str) or not isinstance(
+        issue.get("body"), str
+    ):
+        raise GitHubUncertainWriteResponse(
+            "GitHub finding Issue write returned an incomplete resource."
+        )
+    if not isinstance(issue.get("state"), str) or not isinstance(
+        issue.get("labels"), list
+    ):
+        raise GitHubUncertainWriteResponse(
+            "GitHub finding Issue write returned an incomplete resource."
+        )
+    if expected_state_reason is not None and not isinstance(
+        issue.get("state_reason"), str
+    ):
+        raise GitHubUncertainWriteResponse(
+            "GitHub finding Issue write returned an incomplete resource."
+        )
     value = require_resource_actor(
         issue, expected_login, expected_bot_id, "Agent review finding issue"
     )
-    body = str(value.get("body") or "")
+    body = value["body"]
     marker = parse_finding_issue_marker(body)
     if (
         marker is None
@@ -4797,19 +5023,157 @@ def verify_finding_issue(
         raise ReviewError(
             "Agent review finding issue marker changed during publication."
         )
+    if (
+        parse_operation_marker(body) is None
+        or expected_operation not in body.splitlines()
+    ):
+        raise ReviewError(
+            "Agent review finding Issue operation marker was not persisted."
+        )
+    if body != expected_body or value["title"] != expected_title:
+        raise ReviewError("Agent review finding Issue payload was not persisted.")
     if str(value.get("state") or "") != expected_state:
         raise ReviewError("Agent review finding issue state was not persisted.")
-    if FINDING_ISSUE_LABEL not in issue_label_names(value):
+    if (
+        expected_state_reason is not None
+        and value["state_reason"] != expected_state_reason
+    ):
+        raise ReviewError("Agent review finding issue state reason was not persisted.")
+    persisted_labels = issue_label_names(value)
+    if FINDING_ISSUE_LABEL not in persisted_labels:
         raise ReviewError("Agent review finding issue label was not persisted.")
+    if persisted_labels != expected_labels:
+        raise ReviewError("Agent review finding issue labels were not persisted.")
     return value
+
+
+def uncertain_write_recovery(
+    action: str,
+    path: str,
+    require_current_pr: Callable[[], dict[str, Any]],
+    lookup: Callable[[], Any | None],
+) -> Any:
+    for attempt in range(len(FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1):
+        if attempt:
+            time.sleep(FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[attempt - 1])
+        print(
+            "uncertain-write-recovery "
+            + canonical_json({"action": action, "attempt": attempt + 1, "path": path}),
+            file=sys.stderr,
+        )
+        require_current_pr()
+        value = lookup()
+        require_current_pr()
+        if value is not None:
+            return value
+    raise ReviewError("GitHub write could not be reconciled after bounded reads.")
+
+
+def finding_issue_recovery_candidate(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    expected_login: str,
+    expected_bot_id: int,
+    expected_marker: str,
+    expected_operation: str,
+    verify: Callable[[Any], dict[str, Any]],
+) -> dict[str, Any] | None:
+    label = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
+    issues = client.paginate(
+        f"repos/{repository}/issues?state=all&labels={label}&sort=created&direction=asc",
+        limit=5000,
+    )
+    matches: list[dict[str, Any]] = []
+    for issue in issues:
+        if not isinstance(issue, dict) or issue.get("pull_request"):
+            continue
+        body = issue.get("body")
+        marker = parse_finding_issue_marker(body)
+        if (
+            marker is None
+            or finding_issue_marker(
+                int(marker["pull_request"]),
+                str(marker["head_sha"]),
+                str(marker["finding_id"]),
+            )
+            != expected_marker
+        ):
+            continue
+        operation = parse_operation_marker(body)
+        if operation is None:
+            continue
+        if (
+            operation_marker(
+                str(operation["repository"]),
+                int(operation["repository_id"]),
+                str(operation["app_login"]),
+                int(operation["app_bot_id"]),
+                (int(operation["run_id"]), int(operation["run_attempt"])),
+                int(operation["pull_request"]),
+                str(operation["head_sha"]),
+                str(operation["group_id"]),
+                str(operation["action"]),
+            )
+            != expected_operation
+        ):
+            raise ReviewError("Conflicting finding Issue operation marker was found.")
+        matches.append(verify(issue))
+    if len(matches) > 1:
+        raise ReviewError("Multiple finding Issues match one write operation marker.")
+    return matches[0] if matches else None
+
+
+def recover_finding_issue_create(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    expected_login: str,
+    expected_bot_id: int,
+    expected_marker: str,
+    expected_operation: str,
+    verify: Callable[[Any], dict[str, Any]],
+    require_current_pr: Callable[[], dict[str, Any]],
+) -> dict[str, Any]:
+    return uncertain_write_recovery(
+        "finding-issue-create",
+        f"repos/{repository}/issues",
+        require_current_pr,
+        lambda: finding_issue_recovery_candidate(
+            client,
+            repository,
+            pr_number,
+            expected_login,
+            expected_bot_id,
+            expected_marker,
+            expected_operation,
+            verify,
+        ),
+    )
+
+
+def recover_finding_issue_by_number(
+    client: GitHubClient,
+    repository: str,
+    issue_number: int,
+    action: str,
+    require_current_pr: Callable[[], dict[str, Any]],
+    verify: Callable[[Any], dict[str, Any]],
+) -> dict[str, Any]:
+    path = f"repos/{repository}/issues/{issue_number}"
+    return uncertain_write_recovery(
+        action, path, require_current_pr, lambda: verify(client.get_json(path))
+    )
 
 
 def synchronize_finding_issues(
     client: GitHubClient,
     repository: str,
+    repository_id: int,
     pr_number: int,
     head_sha: str,
     findings: list[dict[str, Any]],
+    run_order: tuple[int, int],
     expected_login: str,
     expected_bot_id: int,
     run_url: str,
@@ -4818,6 +5182,8 @@ def synchronize_finding_issues(
     max_groups: int = 8,
 ) -> list[dict[str, Any]]:
     require_actionable_issue_group_limit(findings, max_groups)
+    if type(repository_id) is not int or repository_id < 1:
+        raise ReviewError("Agent review Issue repository ID is invalid.")
     selected = {str(item["stable_id"]): item for item in findings}
     if len(selected) != len(findings) or any(
         not STABLE_FINDING_ID_RE.fullmatch(stable_id) for stable_id in selected
@@ -4881,8 +5247,23 @@ def synchronize_finding_issues(
             marker = parse_finding_issue_marker(previous.get("body"))
             if marker is None:
                 raise ReviewError("Existing Agent review issue lost its marker.")
+            parse_operation_marker(previous.get("body"))
             first_head_sha = str(marker["head_sha"])
         marker_line = finding_issue_marker(pr_number, first_head_sha, stable_id)
+        action = (
+            "finding-issue-update" if previous is not None else "finding-issue-create"
+        )
+        operation = operation_marker(
+            repository,
+            repository_id,
+            expected_login,
+            expected_bot_id,
+            run_order,
+            pr_number,
+            head_sha,
+            stable_id,
+            action,
+        )
         labels = issue_label_names(previous or {}) | {FINDING_ISSUE_LABEL}
         payload = {
             "title": issue_title(actionable),
@@ -4894,21 +5275,58 @@ def synchronize_finding_issues(
                 actionable,
                 run_url,
                 server_url,
+                operation,
             ),
             "labels": sorted(labels),
         }
-        require_current_pr()
-        if previous is None:
-            issue = client.send_json("POST", f"repos/{repository}/issues", payload)
-        else:
-            issue = client.send_json(
-                "PATCH",
-                f"repos/{repository}/issues/{previous['number']}",
-                {**payload, "state": "open"},
+        write_payload = payload if previous is None else {**payload, "state": "open"}
+
+        def verify(value: Any) -> dict[str, Any]:
+            return verify_finding_issue(
+                value,
+                expected_login,
+                expected_bot_id,
+                marker_line,
+                operation,
+                payload["title"],
+                payload["body"],
+                set(payload["labels"]),
+                "open",
             )
-        value = verify_finding_issue(
-            issue, expected_login, expected_bot_id, marker_line, "open"
-        )
+
+        require_current_pr()
+        try:
+            if previous is None:
+                issue = client.send_json("POST", f"repos/{repository}/issues", payload)
+            else:
+                issue = client.send_json(
+                    "PATCH",
+                    f"repos/{repository}/issues/{previous['number']}",
+                    write_payload,
+                )
+            value = verify(issue)
+        except GitHubUncertainWriteResponse:
+            if previous is None:
+                value = recover_finding_issue_create(
+                    client,
+                    repository,
+                    pr_number,
+                    expected_login,
+                    expected_bot_id,
+                    marker_line,
+                    operation,
+                    verify,
+                    require_current_pr,
+                )
+            else:
+                value = recover_finding_issue_by_number(
+                    client,
+                    repository,
+                    int(previous["number"]),
+                    action,
+                    require_current_pr,
+                    verify,
+                )
         synchronized.append({"actionable": actionable, "issue": value})
 
     repository_url = f"{server_url.rstrip('/')}/{repository}"
@@ -4922,39 +5340,151 @@ def synchronize_finding_issues(
             or issue.get("state") != "open"
         ):
             continue
-        require_current_pr()
-        comment = client.send_json(
-            "POST",
-            f"repos/{repository}/issues/{issue['number']}/comments",
-            {
-                "body": (
-                    "This finding no longer appears in the bound Agent review for "
-                    f"[PR #{pr_number}]({repository_url}/pull/{pr_number}) at "
-                    f"[`{head_sha}`]({repository_url}/commit/{head_sha}). Closing it automatically."
-                )
-            },
-        )
-        require_resource_actor(
-            comment,
+        issue_number = issue.get("number")
+        if type(issue_number) is not int or issue_number < 1:
+            raise ReviewError("Managed Issue number is invalid.")
+        closure_operation = operation_marker(
+            repository,
+            repository_id,
             expected_login,
             expected_bot_id,
-            "Agent review issue closure comment",
+            run_order,
+            pr_number,
+            head_sha,
+            stable_id,
+            "finding-issue-closure-comment",
         )
-        labels = issue_label_names(issue) | {FINDING_ISSUE_LABEL}
+        closure_body = (
+            "This finding no longer appears in the bound Agent review for "
+            f"[PR #{pr_number}]({repository_url}/pull/{pr_number}) at "
+            f"[`{head_sha}`]({repository_url}/commit/{head_sha}). Closing it automatically.\n\n"
+            f"{closure_operation}\n"
+        )
         require_current_pr()
-        closed = client.send_json(
-            "PATCH",
-            f"repos/{repository}/issues/{issue['number']}",
-            {
-                "state": "closed",
-                "state_reason": "completed",
-                "labels": sorted(labels),
-            },
-        )
+        closure_path = f"repos/{repository}/issues/{issue_number}/comments"
+
+        def verify_closure_comment(value: Any) -> dict[str, Any]:
+            if not isinstance(value, dict) or not isinstance(value.get("user"), dict):
+                raise GitHubUncertainWriteResponse(
+                    "GitHub closure comment write returned an incomplete resource."
+                )
+            if not isinstance(value.get("id"), int) or not isinstance(
+                value.get("body"), str
+            ):
+                raise GitHubUncertainWriteResponse(
+                    "GitHub closure comment write returned an incomplete resource."
+                )
+            comment = require_resource_actor(
+                value,
+                expected_login,
+                expected_bot_id,
+                "Agent review issue closure comment",
+            )
+            if comment["body"] != closure_body:
+                raise ReviewError(
+                    "Agent review issue closure comment was not persisted."
+                )
+            if parse_operation_marker(comment["body"]) is None:
+                raise ReviewError(
+                    "Agent review issue closure operation marker was not persisted."
+                )
+            return comment
+
+        try:
+            verify_closure_comment(
+                client.send_json("POST", closure_path, {"body": closure_body})
+            )
+        except GitHubUncertainWriteResponse:
+
+            def closure_comment_candidate() -> dict[str, Any] | None:
+                comments = client.paginate(closure_path, limit=500)
+                matches: list[dict[str, Any]] = []
+                for value in comments:
+                    if not isinstance(value, dict):
+                        continue
+                    body = value.get("body")
+                    operation = parse_operation_marker(body)
+                    if operation is None:
+                        continue
+                    canonical = operation_marker(
+                        str(operation["repository"]),
+                        int(operation["repository_id"]),
+                        str(operation["app_login"]),
+                        int(operation["app_bot_id"]),
+                        (int(operation["run_id"]), int(operation["run_attempt"])),
+                        int(operation["pull_request"]),
+                        str(operation["head_sha"]),
+                        str(operation["group_id"]),
+                        str(operation["action"]),
+                    )
+                    if canonical != closure_operation:
+                        continue
+                    matches.append(verify_closure_comment(value))
+                if len(matches) > 1:
+                    raise ReviewError(
+                        "Multiple closure comments match one write operation marker."
+                    )
+                return matches[0] if matches else None
+
+            uncertain_write_recovery(
+                "finding-issue-closure-comment",
+                closure_path,
+                require_current_pr,
+                closure_comment_candidate,
+            )
+        labels = issue_label_names(issue) | {FINDING_ISSUE_LABEL}
         marker_line = str(issue.get("body") or "").splitlines()[0]
-        verify_finding_issue(
-            closed, expected_login, expected_bot_id, marker_line, "closed"
+        close_operation = operation_marker(
+            repository,
+            repository_id,
+            expected_login,
+            expected_bot_id,
+            run_order,
+            pr_number,
+            head_sha,
+            stable_id,
+            "finding-issue-close",
         )
+        close_body = insert_operation_marker(
+            str(issue.get("body") or ""), close_operation, 1
+        )
+        close_payload = {
+            "body": close_body,
+            "state": "closed",
+            "state_reason": "completed",
+            "labels": sorted(labels),
+        }
+
+        def verify_closed(value: Any) -> dict[str, Any]:
+            return verify_finding_issue(
+                value,
+                expected_login,
+                expected_bot_id,
+                marker_line,
+                close_operation,
+                str(issue.get("title") or ""),
+                close_body,
+                set(close_payload["labels"]),
+                "closed",
+                "completed",
+            )
+
+        require_current_pr()
+        try:
+            verify_closed(
+                client.send_json(
+                    "PATCH", f"repos/{repository}/issues/{issue_number}", close_payload
+                )
+            )
+        except GitHubUncertainWriteResponse:
+            recover_finding_issue_by_number(
+                client,
+                repository,
+                issue_number,
+                "finding-issue-close",
+                require_current_pr,
+                verify_closed,
+            )
 
     wait_for_finding_issue_convergence(
         client,
@@ -5037,33 +5567,129 @@ def require_managed_comment_order(
 def upsert_comment(
     client: GitHubClient,
     repository: str,
+    repository_id: int,
     pr_number: int,
+    head_sha: str,
     body: str,
     run_order: tuple[int, int],
     expected_login: str,
     expected_bot_id: int,
+    require_current_pr: Callable[[], dict[str, Any]],
     previous: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     previous = previous or managed_comment(
         client, repository, pr_number, expected_login, expected_bot_id
     )
     require_managed_comment_order(previous, run_order)
-    if previous:
-        value = client.send_json(
-            "PATCH",
-            f"repos/{repository}/issues/comments/{previous['id']}",
-            {"body": body},
-        )
-    else:
-        value = client.send_json(
-            "POST", f"repos/{repository}/issues/{pr_number}/comments", {"body": body}
-        )
-    comment = require_resource_actor(
-        value, expected_login, expected_bot_id, "Agent jury managed comment"
+    action = "managed-comment-update" if previous else "managed-comment-create"
+    marker = operation_marker(
+        repository,
+        repository_id,
+        expected_login,
+        expected_bot_id,
+        run_order,
+        pr_number,
+        head_sha,
+        MANAGED_COMMENT_GROUP_ID,
+        action,
     )
-    if comment.get("body") != body:
-        raise ReviewError("Agent jury managed comment body was not persisted.")
-    return comment
+    lines = body.splitlines()
+    run_marker = f"<!-- agent-jury-run:{run_order[0]}:{run_order[1]} -->"
+    if len(lines) < 2 or lines[0] != COMMENT_MARKER or lines[1] != run_marker:
+        raise ReviewError("Agent jury comment markers are invalid before publication.")
+    published_body = insert_operation_marker(body, marker, 2)
+
+    def verify(value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict) or not isinstance(value.get("user"), dict):
+            raise GitHubUncertainWriteResponse(
+                "GitHub managed comment write returned an incomplete resource."
+            )
+        if not isinstance(value.get("id"), int) or not isinstance(
+            value.get("body"), str
+        ):
+            raise GitHubUncertainWriteResponse(
+                "GitHub managed comment write returned an incomplete resource."
+            )
+        comment = require_resource_actor(
+            value, expected_login, expected_bot_id, "Agent jury managed comment"
+        )
+        if comment["body"] != published_body:
+            raise ReviewError("Agent jury managed comment body was not persisted.")
+        if parse_operation_marker(comment["body"]) is None:
+            raise ReviewError(
+                "Agent jury managed comment operation marker was not persisted."
+            )
+        return comment
+
+    path = (
+        f"repos/{repository}/issues/comments/{previous['id']}"
+        if previous
+        else f"repos/{repository}/issues/{pr_number}/comments"
+    )
+    require_current_pr()
+    if previous:
+        method = "PATCH"
+    else:
+        method = "POST"
+    try:
+        return verify(client.send_json(method, path, {"body": published_body}))
+    except GitHubUncertainWriteResponse:
+
+        def comment_candidate() -> dict[str, Any] | None:
+            comments = client.paginate(
+                f"repos/{repository}/issues/{pr_number}/comments", limit=500
+            )
+            managed: list[dict[str, Any]] = []
+            matches: list[dict[str, Any]] = []
+            for value in comments:
+                if not isinstance(value, dict):
+                    continue
+                comment_body = value.get("body")
+                operation = parse_operation_marker(comment_body)
+                if operation is not None:
+                    canonical = operation_marker(
+                        str(operation["repository"]),
+                        int(operation["repository_id"]),
+                        str(operation["app_login"]),
+                        int(operation["app_bot_id"]),
+                        (int(operation["run_id"]), int(operation["run_attempt"])),
+                        int(operation["pull_request"]),
+                        str(operation["head_sha"]),
+                        str(operation["group_id"]),
+                        str(operation["action"]),
+                    )
+                    if canonical == marker:
+                        matches.append(verify(value))
+                login = str((value.get("user") or {}).get("login") or "")
+                if (
+                    login == expected_login
+                    and isinstance(comment_body, str)
+                    and comment_body.startswith((COMMENT_MARKER, LEGACY_COMMENT_MARKER))
+                ):
+                    require_resource_actor(
+                        value,
+                        expected_login,
+                        expected_bot_id,
+                        "Agent jury managed comment",
+                    )
+                    managed.append(value)
+            if len(managed) > 1:
+                raise ReviewError(
+                    "Multiple GitHub App comments claim the Agent jury marker."
+                )
+            if managed:
+                require_managed_comment_order(managed[0], run_order)
+                if managed[0].get("body") != published_body:
+                    raise ReviewError(
+                        "Managed comment conflicts with the write operation marker."
+                    )
+            if len(matches) > 1:
+                raise ReviewError("Multiple comments match one write operation marker.")
+            return matches[0] if matches else None
+
+        return uncertain_write_recovery(
+            action, path, require_current_pr, comment_candidate
+        )
 
 
 def publish_status(
@@ -5234,7 +5860,13 @@ def command_publish(args: argparse.Namespace) -> int:
     repository_id = metadata.get("repository_id", 0)
     deferred_config: dict[str, Any] | None = None
     if route == PR_ROUTE_DIRECT:
-        if not trusted or deferred or source_run_id not in {0, "0", None}:
+        if (
+            not trusted
+            or deferred
+            or source_run_id not in {0, "0", None}
+            or type(repository_id) is not int
+            or repository_id < 1
+        ):
             raise ReviewError("Direct Agent jury publication metadata is invalid.")
     elif route == PR_ROUTE_DEFERRED:
         if (
@@ -5507,9 +6139,11 @@ def command_publish(args: argparse.Namespace) -> int:
             synchronized = synchronize_finding_issues(
                 agent_client,
                 repository,
+                repository_id,
                 pr_number,
                 head_sha,
                 selected_findings,
+                run_order,
                 expected_app_login,
                 expected_app_bot_id,
                 args.run_url,
@@ -5568,11 +6202,14 @@ def command_publish(args: argparse.Namespace) -> int:
         upsert_comment(
             agent_client,
             repository,
+            repository_id,
             pr_number,
+            head_sha,
             body,
             run_order,
             expected_app_login,
             expected_app_bot_id,
+            require_publishable_binding,
             previous_comment,
         )
     except StaleAgentReviewRun:
