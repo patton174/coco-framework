@@ -2995,6 +2995,7 @@ def context_evidence_sources(
     context: dict[str, Any],
 ) -> dict[tuple[str, str], set[int]]:
     result: dict[tuple[str, str], set[int]] = {}
+    source_paths: set[str] = set()
     collections = (
         (context.get("trusted", {}).get("policy", []), True),
         (context.get("untrusted", {}).get("code_contexts", []), False),
@@ -3011,7 +3012,12 @@ def context_evidence_sources(
             declared_ranges = item.get("available_line_ranges")
             content = item.get("content")
             if (
-                domain not in POLICY_EVIDENCE_DOMAINS | CODE_EVIDENCE_DOMAINS
+                domain
+                not in (
+                    POLICY_EVIDENCE_DOMAINS
+                    if policy_source
+                    else CODE_EVIDENCE_DOMAINS
+                )
                 or not isinstance(path, str)
                 or not path
                 or type(line_count) is not int
@@ -3021,6 +3027,9 @@ def context_evidence_sources(
                 or not isinstance(declared_ranges, list)
             ):
                 raise ReportShapeError("Agent context evidence source is incomplete.")
+            if path in source_paths:
+                raise ReportShapeError("Agent context evidence source path is duplicated.")
+            source_paths.add(path)
             available: set[int] = set()
             previous_end = 0
             for line_range in declared_ranges:
@@ -4684,6 +4693,7 @@ def app_finding_issues(
     pr_number: int,
     expected_login: str,
     expected_bot_id: int,
+    reserved_finding_ids: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     label = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
     issues = client.paginate(
@@ -4712,6 +4722,13 @@ def app_finding_issues(
         if marker is None:
             continue
         if marker["pull_request"] != pr_number:
+            if (
+                reserved_finding_ids is not None
+                and marker["finding_id"] in reserved_finding_ids
+            ):
+                raise ReviewError(
+                    "Managed Issue candidate is already bound to another pull request."
+                )
             continue
         number = issue.get("number")
         if type(number) is not int or number < 1:
@@ -4801,9 +4818,6 @@ def synchronize_finding_issues(
             f"Agent review produced {len(findings)} actionable Issue groups; "
             f"the protected limit is {max_groups}."
         )
-    existing = app_finding_issues(
-        client, repository, pr_number, expected_login, expected_bot_id
-    )
     selected = {str(item["stable_id"]): item for item in findings}
     if len(selected) != len(findings) or any(
         not STABLE_FINDING_ID_RE.fullmatch(stable_id) for stable_id in selected
@@ -4811,9 +4825,9 @@ def synchronize_finding_issues(
         raise ReviewError(
             "Actionable Issue group identities are invalid or duplicated."
         )
-    existing_binding: dict[str, str | None] = {}
-    claimed_existing_ids: set[str] = set()
-    for stable_id, actionable in selected.items():
+    candidate_ids: set[str] = set(selected)
+    actionable_aliases: dict[str, list[str]] = {}
+    for actionable in selected.values():
         aliases = actionable.get("legacy_finding_ids", [])
         if (
             not isinstance(aliases, list)
@@ -4825,6 +4839,20 @@ def synchronize_finding_issues(
             or aliases != sorted(set(aliases))
         ):
             raise ReviewError("Actionable Issue legacy finding aliases are invalid.")
+        actionable_aliases[str(actionable["stable_id"])] = aliases
+        candidate_ids.update(aliases)
+    existing = app_finding_issues(
+        client,
+        repository,
+        pr_number,
+        expected_login,
+        expected_bot_id,
+        candidate_ids,
+    )
+    existing_binding: dict[str, str | None] = {}
+    claimed_existing_numbers: set[int] = set()
+    for stable_id, actionable in selected.items():
+        aliases = actionable_aliases[stable_id]
         candidates = [
             candidate for candidate in [stable_id, *aliases] if candidate in existing
         ]
@@ -4833,11 +4861,15 @@ def synchronize_finding_issues(
                 "Multiple managed Issues match one actionable Issue group."
             )
         matched = candidates[0] if candidates else None
-        if matched is not None and matched in claimed_existing_ids:
-            raise ReviewError("One managed Issue matches multiple actionable groups.")
+        if matched is not None:
+            number = existing[matched].get("number")
+            if type(number) is not int or number < 1:
+                raise ReviewError("Managed Issue number is invalid.")
+            if number in claimed_existing_numbers:
+                raise ReviewError("One managed Issue matches multiple actionable groups.")
         existing_binding[stable_id] = matched
         if matched is not None:
-            claimed_existing_ids.add(matched)
+            claimed_existing_numbers.add(number)
     if findings or existing:
         ensure_finding_issue_label(client, repository)
     synchronized: list[dict[str, Any]] = []
@@ -4884,7 +4916,10 @@ def synchronize_finding_issues(
     for stable_id, issue in sorted(existing.items()):
         if (
             stable_id in selected
-            or stable_id in claimed_existing_ids
+            or (
+                type(issue.get("number")) is int
+                and issue["number"] in claimed_existing_numbers
+            )
             or issue.get("state") != "open"
         ):
             continue

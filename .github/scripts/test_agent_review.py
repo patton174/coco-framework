@@ -2664,6 +2664,61 @@ class AgentReviewTests(unittest.TestCase):
                 report, "policy-skeptic", context, {"correctness:f1"}
             )
 
+    def test_evidence_verifier_rejects_head_code_for_policy_checks(self) -> None:
+        context = bound_context()
+        for check in ("severity", "change_scope"):
+            with self.subTest(check=check):
+                report = verifier_report(
+                    "evidence-verifier", context, "correctness:f1"
+                )
+                report["reviews"][0]["evidence_refs"][0]["checks"] = [check]
+                report["reviews"][0]["evidence_refs"][1]["checks"] = [
+                    value
+                    for value in report["reviews"][0]["evidence_refs"][1]["checks"]
+                    if value != check
+                ]
+                report["reviews"][0]["evidence"] = (
+                    "head-code:src/Foo.java#L1-L1; "
+                    "protected-policy:AGENTS.md#L1-L1"
+                )
+                with self.assertRaisesRegex(
+                    review.ReportShapeError, "protected policy"
+                ):
+                    review.validate_cross_report(
+                        report, "evidence-verifier", context, {"correctness:f1"}
+                    )
+
+    def test_context_evidence_sources_reject_duplicate_or_mixed_domain_paths(self) -> None:
+        for name, mutate in (
+            (
+                "duplicate-protected-policy",
+                lambda context: context["trusted"]["policy"].append(
+                    json.loads(json.dumps(context["trusted"]["policy"][0]))
+                ),
+            ),
+            (
+                "mixed-domain-path",
+                lambda context: context["untrusted"]["code_contexts"].__setitem__(
+                    0,
+                    {
+                        **context["untrusted"]["code_contexts"][0],
+                        "source": "AGENTS.md",
+                    },
+                ),
+            ),
+            (
+                "head-code-in-protected-policy",
+                lambda context: context["trusted"]["policy"][0].update(
+                    trust_domain="head-code"
+                ),
+            ),
+        ):
+            with self.subTest(name=name):
+                context = bound_context()
+                mutate(context)
+                with self.assertRaises(review.ReportShapeError):
+                    review.context_evidence_sources(context)
+
     def test_context_evidence_ranges_allow_gaps_but_reject_gap_references(self) -> None:
         context = bound_context()
         source = context["untrusted"]["code_contexts"][0]
@@ -3829,6 +3884,121 @@ class AgentReviewTests(unittest.TestCase):
                 APP_BOT_ID,
                 "https://github.example/runs/1",
                 "https://github.example",
+                lambda: {},
+            )
+        self.assertEqual(0, client.label_reads)
+        self.assertEqual([], client.writes)
+
+    def test_issue_sync_rejects_two_v2_groups_claiming_one_legacy_issue_before_writes(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        context = bound_context()
+        first = specialist_report("correctness", context, severity="P1")["findings"][0]
+        second = json.loads(json.dumps(first))
+        second["id"] = "architecture-api:f1"
+        second["claim"] = "A separate defect has a distinct trigger."
+        second["trigger"] = "Call the method after a configuration reload."
+        legacy_id = review.stable_finding_id(first)
+        actionables = [
+            {
+                "stable_id": review.stable_actionable_group_id([first]),
+                "legacy_finding_ids": [legacy_id],
+                "source_id": first["id"],
+                "duplicate_source_ids": [],
+                "kind": "confirmed-blocker",
+                "finding": first,
+            },
+            {
+                "stable_id": review.stable_actionable_group_id([second]),
+                "legacy_finding_ids": [legacy_id],
+                "source_id": second["id"],
+                "duplicate_source_ids": [],
+                "kind": "confirmed-blocker",
+                "finding": second,
+            },
+        ]
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.label_reads = 0
+                self.writes: list[tuple[str, str, dict]] = []
+                self.issue = {
+                    "number": 11,
+                    "body": review.finding_issue_marker(60, BASE_SHA, legacy_id),
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                }
+
+            def get_json(self, path: str) -> dict:
+                self.label_reads += 1
+                raise AssertionError(f"Unexpected label lookup: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if limit != 5000 or "issues?state=all&labels=agent-review" not in path:
+                    raise AssertionError(f"Unexpected pagination: {path}")
+                return [self.issue]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.writes.append((method, path, payload))
+                raise AssertionError(f"Unexpected Issue write: {method} {path}")
+
+        client = FakeClient()
+        with self.assertRaisesRegex(
+            review.ReviewError, "multiple actionable groups"
+        ):
+            review.synchronize_finding_issues(
+                client, REPOSITORY, 60, HEAD_SHA, actionables, app_login,
+                APP_BOT_ID, "https://github.example/runs/1", "https://github.example",
+                lambda: {},
+            )
+        self.assertEqual(0, client.label_reads)
+        self.assertEqual([], client.writes)
+
+    def test_issue_sync_rejects_cross_pr_legacy_alias_before_writes(self) -> None:
+        app_login = "coco-agent[bot]"
+        context = bound_context()
+        finding = specialist_report("correctness", context, severity="P1")["findings"][0]
+        legacy_id = review.stable_finding_id(finding)
+        actionable = {
+            "stable_id": review.stable_actionable_group_id([finding]),
+            "legacy_finding_ids": [legacy_id],
+            "source_id": finding["id"],
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.label_reads = 0
+                self.writes: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                self.label_reads += 1
+                raise AssertionError(f"Unexpected label lookup: {path}")
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if limit != 5000 or "issues?state=all&labels=agent-review" not in path:
+                    raise AssertionError(f"Unexpected pagination: {path}")
+                return [{
+                    "number": 11,
+                    "body": review.finding_issue_marker(61, BASE_SHA, legacy_id),
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                }]
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.writes.append((method, path, payload))
+                raise AssertionError(f"Unexpected Issue write: {method} {path}")
+
+        client = FakeClient()
+        with self.assertRaisesRegex(review.ReviewError, "another pull request"):
+            review.synchronize_finding_issues(
+                client, REPOSITORY, 60, HEAD_SHA, [actionable], app_login,
+                APP_BOT_ID, "https://github.example/runs/1", "https://github.example",
                 lambda: {},
             )
         self.assertEqual(0, client.label_reads)
