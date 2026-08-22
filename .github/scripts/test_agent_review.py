@@ -5926,7 +5926,18 @@ class AgentReviewTests(unittest.TestCase):
         closing_issue = {
             **previous,
             "number": 9,
-            "body": review.finding_issue_marker(60, BASE_SHA, group_id)
+            "body": review.finding_issue_marker_v2(
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                BASE_SHA,
+                HEAD_SHA,
+                group_id,
+                review.continuity_anchor(finding),
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            )
             + "\nOld body\n",
         }
         for name, uncertain in (("normal", False), ("recovery", True)):
@@ -7301,11 +7312,14 @@ class AgentReviewTests(unittest.TestCase):
             "\n  chair:\n", 1
         )[0]
         chair = review_workflow.split("\n  chair:\n", 1)[1].split(
+            "\n  continuity-verifiers:\n", 1
+        )[0]
+        continuity = review_workflow.split("\n  continuity-verifiers:\n", 1)[1].split(
             "\n  publisher-admission:\n", 1
         )[0]
         model_environment = "    environment: coco-agent-model\n"
-        self.assertEqual(3, review_workflow.count(model_environment))
-        for model_job in (specialists, verifiers, chair):
+        self.assertEqual(4, review_workflow.count(model_environment))
+        for model_job in (specialists, verifiers, chair, continuity):
             self.assertEqual(1, model_job.count(model_environment))
         model_variables = (
             "COCO_AGENT_MODEL_PROTOCOL",
@@ -7326,30 +7340,46 @@ class AgentReviewTests(unittest.TestCase):
             workflow_verifiers = workflow.split("\n  verifiers:\n", 1)[1].split(
                 "\n  chair:\n", 1
             )[0]
-            workflow_chair = workflow.split("\n  chair:\n", 1)[1].split(
-                "\n  publisher-admission:\n", 1
-            )[0]
+            chair_end = (
+                "\n  continuity-verifiers:\n"
+                if workflow_name == "reusable"
+                else "\n  publisher-admission:\n"
+            )
+            workflow_chair = workflow.split("\n  chair:\n", 1)[1].split(chair_end, 1)[0]
+            workflow_continuity = (
+                workflow.split("\n  continuity-verifiers:\n", 1)[1].split(
+                    "\n  publisher-admission:\n", 1
+                )[0]
+                if workflow_name == "reusable"
+                else ""
+            )
             workflow_admission = workflow.split("\n  publisher-admission:\n", 1)[
                 1
             ].split("\n  trusted-publisher:\n", 1)[0]
-            for section_name, section in (
+            model_sections = [
                 ("prepare", workflow_prepare),
                 ("specialists", workflow_specialists),
                 ("verifiers", workflow_verifiers),
                 ("chair", workflow_chair),
                 ("publisher admission", workflow_admission),
-            ):
+            ]
+            if workflow_continuity:
+                model_sections.append(("continuity", workflow_continuity))
+            for section_name, section in model_sections:
                 for variable in model_variables:
                     self.assertEqual(
                         1,
                         section.count(f"{variable}: ${{{{ vars.{variable} }}}}"),
                         f"{workflow_name} {section_name}: {variable}",
                     )
-            for section_name, section in (
+            api_key_sections = [
                 ("specialists", workflow_specialists),
                 ("verifiers", workflow_verifiers),
                 ("chair", workflow_chair),
-            ):
+            ]
+            if workflow_continuity:
+                api_key_sections.append(("continuity", workflow_continuity))
+            for section_name, section in api_key_sections:
                 self.assertEqual(
                     1,
                     section.count(
@@ -12703,9 +12733,9 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(55_632, largest_size)
-        self.assertEqual(8_368, limit - largest_size)
-        self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 15)
+        self.assertEqual(56_512, largest_size)
+        self.assertEqual(7_488, limit - largest_size)
+        self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
@@ -12719,6 +12749,326 @@ class AgentReviewTests(unittest.TestCase):
                 review.ReviewError, "exceeds the context budget"
             ):
                 review.collect_policy(root, bounded, ["probe"], [])
+
+
+class CrossHeadContinuityTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.finding = {
+            "file": ".github/scripts/agent_review.py",
+            "category": "governance",
+            "severity": "P1",
+            "start_line": 100,
+            "end_line": 110,
+        }
+        self.anchor = review.continuity_anchor(self.finding)
+        material = {
+            "anchor": self.anchor,
+            "context_sha256": "a" * 64,
+            "current_head_sha": HEAD_SHA,
+            "first_head_sha": BASE_SHA,
+            "previous_group_id": "v2-" + "1" * 64,
+            "previous_head_sha": BASE_SHA,
+            "previous_issue_number": 7,
+            "protocol_sha256": "b" * 64,
+            "pull_request": 60,
+            "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
+            "schema_version": 2,
+            "verification_proof_sha256": "c" * 64,
+            "verifier_roles": ["evidence-verifier", "policy-skeptic"],
+        }
+        self.candidate = {
+            **material,
+            "candidate_sha256": review.sha256_text(review.canonical_json(material)),
+        }
+        self.context = {
+            "binding": {
+                "context_sha256": "a" * 64,
+                "head_sha": HEAD_SHA,
+                "protocol_sha256": "b" * 64,
+            },
+            "trusted": {"continuity_candidates": [self.candidate]},
+        }
+        self.groups = [
+            {
+                "current_group_id": "v2-" + "2" * 64,
+                "anchor": self.anchor,
+            }
+        ]
+
+    def relationship(self, action: str = "ADOPT", **changes: object) -> dict:
+        values: dict[str, object] = {
+            "schema_version": 2,
+            "action": action,
+            "current_group_id": self.groups[0]["current_group_id"],
+            "current_anchor": self.anchor,
+            "candidate_sha256": self.candidate["candidate_sha256"]
+            if action == "ADOPT"
+            else None,
+            "previous_group_id": self.candidate["previous_group_id"]
+            if action == "ADOPT"
+            else None,
+            "previous_issue_number": self.candidate["previous_issue_number"]
+            if action == "ADOPT"
+            else None,
+            "previous_anchor": self.candidate["anchor"] if action == "ADOPT" else None,
+        }
+        return {**values, **changes}
+
+    def report(self, role: str, relationship: dict | None = None) -> dict:
+        return {
+            "schema_version": 2,
+            "role": role,
+            "binding": self.context["binding"],
+            "relationships": [relationship or self.relationship()],
+        }
+
+    def test_v2_marker_is_canonical_and_v1_remains_legacy(self) -> None:
+        marker = review.finding_issue_marker_v2(
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            BASE_SHA,
+            HEAD_SHA,
+            self.groups[0]["current_group_id"],
+            self.anchor,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+        )
+        parsed = review.parse_finding_issue_marker(marker + "\nDetails\n")
+        self.assertEqual(2, parsed["schema_version"])
+        self.assertEqual(HEAD_SHA, review.finding_marker_current_head(parsed))
+        malformed = marker.replace(
+            '"schema_version":2', '"schema_version":2,"extra":true'
+        )
+        with self.assertRaises(review.ReviewError):
+            review.parse_finding_issue_marker(malformed)
+        legacy = review.parse_finding_issue_marker(
+            review.finding_issue_marker(60, BASE_SHA, "v1-" + "d" * 64)
+        )
+        self.assertEqual(1, legacy["schema_version"])
+        relationship = review.continuity_relationship_marker(
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            BASE_SHA,
+            BASE_SHA,
+            self.candidate["previous_group_id"],
+            7,
+            self.candidate["candidate_sha256"],
+            self.anchor,
+            self.groups[0]["current_group_id"],
+            self.anchor,
+            HEAD_SHA,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+        )
+        self.assertEqual(
+            [relationship], review.continuity_relationship_markers(relationship)
+        )
+        with self.assertRaises(review.ReviewError):
+            review.continuity_relationship_markers(
+                relationship.replace('"schema_version":2', '"schema_version":2,"x":1')
+            )
+
+    def test_candidate_collection_rejects_non_ancestor_cross_binding_legacy_and_actor(
+        self,
+    ) -> None:
+        marker = review.finding_issue_marker_v2(
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            BASE_SHA,
+            BASE_SHA,
+            self.candidate["previous_group_id"],
+            self.anchor,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+        )
+        trusted_issue = {
+            "number": 7,
+            "body": marker,
+            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+            "user": app_actor(),
+        }
+
+        class Client:
+            def __init__(self, issue: dict, ancestor: bool = True) -> None:
+                self.issue = issue
+                self.ancestor = ancestor
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return [self.issue]
+
+            def get_json(self, path: str) -> dict:
+                return {
+                    "status": "ahead" if self.ancestor else "diverged",
+                    "ahead_by": 1 if self.ancestor else 0,
+                    "behind_by": 0 if self.ancestor else 1,
+                }
+
+        self.assertEqual(
+            1,
+            len(
+                review.collect_continuity_candidates(
+                    Client(trusted_issue),
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    60,
+                    HEAD_SHA,
+                    APP_LOGIN,
+                    APP_BOT_ID,
+                )
+            ),
+        )
+        cases = {
+            "cross-pr": review.finding_issue_marker_v2(
+                REPOSITORY,
+                REPOSITORY_ID,
+                61,
+                BASE_SHA,
+                BASE_SHA,
+                self.candidate["previous_group_id"],
+                self.anchor,
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            ),
+            "cross-repo": review.finding_issue_marker_v2(
+                "other/repository",
+                REPOSITORY_ID,
+                60,
+                BASE_SHA,
+                BASE_SHA,
+                self.candidate["previous_group_id"],
+                self.anchor,
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            ),
+            "legacy": review.finding_issue_marker(60, BASE_SHA, "v1-" + "e" * 64),
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                issue = {**trusted_issue, "body": body}
+                self.assertEqual(
+                    [],
+                    review.collect_continuity_candidates(
+                        Client(issue),
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        60,
+                        HEAD_SHA,
+                        APP_LOGIN,
+                        APP_BOT_ID,
+                    ),
+                )
+        self.assertEqual(
+            [],
+            review.collect_continuity_candidates(
+                Client(trusted_issue, ancestor=False),
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                APP_LOGIN,
+                APP_BOT_ID,
+            ),
+        )
+        untrusted = {**trusted_issue, "user": app_actor(APP_BOT_ID + 1, "other[bot]")}
+        self.assertEqual(
+            [],
+            review.collect_continuity_candidates(
+                Client(untrusted),
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                APP_LOGIN,
+                APP_BOT_ID,
+            ),
+        )
+
+    def test_two_verifier_adoption_is_one_to_one_and_fail_closed(self) -> None:
+        left = self.report("evidence-verifier")
+        right = self.report("policy-skeptic")
+        adopted = review.continuity_adoptions([left, right], self.context, self.groups)
+        self.assertEqual(
+            self.candidate["candidate_sha256"],
+            adopted[self.groups[0]["current_group_id"]]["candidate_sha256"],
+        )
+
+        cases = {
+            "single-verifier": [left],
+            "disagreement": [
+                left,
+                self.report("policy-skeptic", self.relationship("INSUFFICIENT")),
+            ],
+            "anchor-drift": [
+                left,
+                self.report(
+                    "policy-skeptic",
+                    self.relationship(
+                        previous_anchor={**self.anchor, "start_line": 99}
+                    ),
+                ),
+            ],
+            "stale-head-binding": [
+                {**left, "binding": {**self.context["binding"], "head_sha": BASE_SHA}},
+                right,
+            ],
+        }
+        for name, reports in cases.items():
+            with self.subTest(case=name):
+                if name == "disagreement":
+                    self.assertEqual(
+                        {},
+                        review.continuity_adoptions(reports, self.context, self.groups),
+                    )
+                else:
+                    with self.assertRaises(review.ReviewError):
+                        review.continuity_adoptions(reports, self.context, self.groups)
+
+        extra_group = {"current_group_id": "v2-" + "3" * 64, "anchor": self.anchor}
+        duplicate_reports = []
+        for role in ("evidence-verifier", "policy-skeptic"):
+            report = self.report(role)
+            relation = self.relationship(
+                current_group_id=extra_group["current_group_id"]
+            )
+            report["relationships"].append(relation)
+            duplicate_reports.append(report)
+        with self.assertRaisesRegex(review.ReviewError, "Multiple current groups"):
+            review.continuity_adoptions(
+                duplicate_reports, self.context, [*self.groups, extra_group]
+            )
+
+    def test_chair_data_cannot_create_continuity_and_summary_records_lineage(
+        self,
+    ) -> None:
+        self.assertEqual(
+            {},
+            review.continuity_adoptions(
+                [
+                    self.report("evidence-verifier", self.relationship("INSUFFICIENT")),
+                    self.report("policy-skeptic", self.relationship("INSUFFICIENT")),
+                ],
+                self.context,
+                self.groups,
+            ),
+        )
+        body = review.append_continuity_summary(
+            review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nBody\n",
+            self.context,
+            {self.groups[0]["current_group_id"]: self.relationship()},
+            "f" * 64,
+        )
+        self.assertIn(review.CONTINUITY_SUMMARY_MARKER_PREFIX, body)
+        self.assertIn(BASE_SHA, body)
+        self.assertIn(HEAD_SHA, body)
 
 
 if __name__ == "__main__":

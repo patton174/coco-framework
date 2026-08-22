@@ -138,8 +138,18 @@ finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionab
    写入前预检 `max_actionable_issue_groups`；超限时保持零仓库写副作用并直接失败退出。
 6. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
 
-不得凭标题/正文/模型文字/语义相似性认领 Issue，或用 previous head 恢复 identity/重试操作；
-cross-head identity continuity 不在本协议。
+不得凭标题/正文/模型文字/语义相似性认领 Issue。跨 head 继承只能使用 v2 canonical candidate：它必须由精确
+Coco App 身份创建、带 `agent-review` label、绑定同一 repository/repository ID/PR，且其 previous head 是 current
+head 的严格 Git ancestor。candidate 必须携带 file/category/severity/行范围/locator hash、context/protocol hash 和两个
+verifier 身份。v1/legacy marker 永远不自动迁移、复用或关闭，保留开放状态供人工处理。
+
+chair 先给出已有 deterministic finding 的 actionable group，之后 `evidence-verifier` 与 `policy-skeptic` 分别输出
+schema-v2 relationship。每个 current group 恰有一条关系；只有两者对同一 current group、previous group、Issue、candidate
+hash 和两端 canonical anchor 均为 `ADOPT` 才可更新该精确旧 Issue。单 verifier、`REJECT`、`INSUFFICIENT`、anchor drift、
+跨 PR/repo、非 ancestor、重复 candidate、一对多或多对一均 fail closed：不复用、不自动关闭旧 Issue。chair 只能展示既有
+deterministic 结果，不能创造、改变或降级 relationship。Issue marker、operation marker 和受管评论必须记录 first/previous/current
+heads、proof/context/protocol hashes 和两个 verifier 身份；关系记录必须是 canonical JSON 且拒绝未知或缺失字段。任意仍开放的
+protected Agent Issue 继续阻断 `Agent issue gate`，连续性不得通过关闭旧 Issue 绕过门禁。
 
 受信 Issue/comment 写入使用严格 canonical operation marker，绑定 repository/ID、App login/Bot ID、run/attempt、
 PR/head/group 与枚举 action；Issue finding marker 仍为首行，operation marker 为次行。2xx 空/null/坏 JSON/结构响应
