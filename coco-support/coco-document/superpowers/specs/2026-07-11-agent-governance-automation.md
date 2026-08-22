@@ -118,7 +118,7 @@ README 维护 workflow 仅支持低频 schedule 和 `workflow_dispatch`。它从
 
 解析器必须严格验证字段集合、JSON 整数版本、PR 正整数、40 位小写十六进制 SHA 和受限 finding ID。
 finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionable group 写入 `v2-`，
-历史受管 Issue 可以保留其 `v1-` marker 直到受信 publisher 明确对账。普通用户文本中的相似内容、非首行 marker、非法 JSON、
+历史受管 Issue 保留其 `v1-` marker 并只可由人工处理。普通用户文本中的相似内容、非首行 marker、非法 JSON、
 额外字段、重复 marker 或错误 label 均不能参与门禁。
 
 ### 生命周期
@@ -128,11 +128,10 @@ finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionab
 1. 从确定性确认的 blocker 和主席接受的 `actionable_groups` 中构建可执行集合。
 2. group 只能包含同一确定性 finding identity 的同 kind、同严重级别成员；所有 confirmed
    blocker 必须恰好属于一个 group。
-3. 对同一 PR/group identity 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
-   当前 `v2-` group 也可以精确匹配其成员携带的一个历史 `v1-` alias。该匹配仅限同一 PR、
-   仅接受唯一候选；采用后把 marker 更新为 `v2-`，保留首次 head 和历史审计关系。多个候选、
-   一个 Issue 被多个 group 认领、或 alias 非法时在任何 Issue 写入前失败关闭。其他 PR marker
-   下的同 ID/alias 无论 Issue 开放或关闭均不参与当前 PR 的 identity 或歧义判断。
+3. 对同一 PR/group identity 的开放 Issue 更新标题、正文、当前 head 和证据；在 continuity context 中，
+   只有 exact current-head `v2-` marker 可直接匹配。`v1-` 和未被两名 verifier 共同采用的 prior-head
+   `v2-` 都不能由 alias 或相同 stable ID 自动复用、PATCH 或关闭；若会冲突，保留其开放状态且不创建重复
+   Issue。其他 PR marker 下的同 ID/alias 无论 Issue 开放或关闭均不参与当前 PR 的 identity 或歧义判断。
 4. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
 5. 在任何 route binding failure status、gate status、label、Issue、comment、close 或 reopen
    写入前预检 `max_actionable_issue_groups`；超限时保持零仓库写副作用并直接失败退出。

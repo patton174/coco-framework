@@ -16,7 +16,7 @@ from agent_review import (
     SHA_RE,
     GitHubClient,
     ReviewError,
-    app_finding_issues,
+    app_finding_issue_resources,
     canonical_json,
     issue_label_names,
     parse_finding_issue_marker,
@@ -242,12 +242,12 @@ def open_bound_issues(
     pr_number: int,
     expected_login: str,
     expected_bot_id: int,
-) -> dict[str, dict[str, Any]]:
-    result: dict[str, dict[str, Any]] = {}
-    issues = app_finding_issues(
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    issues = app_finding_issue_resources(
         client, repository, pr_number, expected_login, expected_bot_id
     )
-    for finding_id, issue in issues.items():
+    for issue in issues:
         state = str(issue.get("state") or "")
         if state == "closed":
             continue
@@ -255,9 +255,7 @@ def open_bound_issues(
             raise ReviewError("Agent review finding issue state is invalid.")
         if FINDING_ISSUE_LABEL not in issue_label_names(issue):
             raise ReviewError("Open Agent review issue is missing the required label.")
-        if finding_id in result:
-            raise ReviewError("Duplicate open Agent review issues bind one finding ID.")
-        result[finding_id] = issue
+        result.append(issue)
     return result
 
 
