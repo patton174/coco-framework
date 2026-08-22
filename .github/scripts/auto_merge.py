@@ -38,7 +38,9 @@ GITHUB_ACTIONS_BOT_ID = 41898282
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 RFC3339_UTC_TIMESTAMP_RE = re.compile(
-    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)"
+    r"(?P<whole_seconds>[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+    r"[0-9]{2}:[0-9]{2}:[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]+))?(?:Z|\+00:00)"
 )
 REVIEWER_PERMISSIONS = {"write", "maintain", "admin"}
 MAX_EVENT_BYTES = 2 * 1024 * 1024
@@ -361,10 +363,22 @@ def parse_agent_issue_marker(body: Any) -> dict[str, Any] | None:
 
 
 def parse_utc_timestamp(value: Any, label: str) -> datetime:
-    if not isinstance(value, str) or not RFC3339_UTC_TIMESTAMP_RE.fullmatch(value):
+    match = (
+        RFC3339_UTC_TIMESTAMP_RE.fullmatch(value) if isinstance(value, str) else None
+    )
+    if match is None:
         raise ContractError(f"{label} must be an RFC 3339 UTC timestamp.")
+    fraction = match.group("fraction") or ""
+    if len(fraction) > 6 and any(digit != "0" for digit in fraction[6:]):
+        raise ContractError(
+            f"{label} has sub-microsecond precision that cannot be represented without loss."
+        )
+    normalized = match.group("whole_seconds")
+    if fraction:
+        normalized += f".{fraction[:6]}"
+    normalized += "+00:00"
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise ContractError(f"{label} is not a valid UTC timestamp.") from exc
     if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):

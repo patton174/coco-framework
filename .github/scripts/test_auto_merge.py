@@ -819,15 +819,45 @@ class AutoMergeTests(unittest.TestCase):
 
     def test_incident_marker_accepts_rfc3339_utc_equivalents(self) -> None:
         cases = {
-            "Z": "2026-08-17T11:00:00Z",
-            "fractional Z": "2026-08-17T11:00:00.123456Z",
-            "numeric UTC offset": "2026-08-17T11:00:00+00:00",
-            "fractional numeric UTC offset": "2026-08-17T11:00:00.123456+00:00",
+            "Z": ("2026-08-17T11:00:00Z", 0),
+            "one-digit fractional Z": ("2026-08-17T11:00:00.1Z", 100000),
+            "numeric UTC offset": ("2026-08-17T11:00:00+00:00", 0),
+            "six-digit fractional UTC offset": (
+                "2026-08-17T11:00:00.123456+00:00",
+                123456,
+            ),
+            "seven-digit lossless fractional Z": (
+                "2026-08-17T11:00:00.1234560Z",
+                123456,
+            ),
+            "nine-digit lossless fractional UTC offset": (
+                "2026-08-17T11:00:00.123456000+00:00",
+                123456,
+            ),
         }
-        for label, timestamp in cases.items():
+        for label, (timestamp, expected_microsecond) in cases.items():
             with self.subTest(label=label):
                 parsed = merge.parse_utc_timestamp(timestamp, "incident timestamp")
                 self.assertEqual(timezone.utc, parsed.tzinfo)
+                self.assertEqual(expected_microsecond, parsed.microsecond)
+
+    def test_incident_marker_rejects_lossy_sub_microsecond_precision(self) -> None:
+        for timestamp in (
+            "2026-08-17T11:00:00.1234567Z",
+            "2026-08-17T11:00:00.123456001+00:00",
+        ):
+            with self.subTest(timestamp=timestamp):
+                with self.assertRaisesRegex(merge.ContractError, "without loss"):
+                    merge.parse_utc_timestamp(timestamp, "incident timestamp")
+
+        client = self.incident_client()
+        client.pull_reads = [pull_request(user=app_actor())]
+        client.incident_issue = incident_issue(
+            body=incident_marker(issued_at="2026-08-17T11:00:00.0000001Z")
+        )
+        with self.assertRaisesRegex(merge.ContractError, "without loss"):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual([], client.sent)
 
     def test_incident_marker_rejects_non_utc_naive_and_malformed_timestamps(
         self,
@@ -836,8 +866,8 @@ class AutoMergeTests(unittest.TestCase):
             "2026-08-17T11:00:00",
             "2026-08-17T11:00:00-00:00",
             "2026-08-17T11:00:00+08:00",
-            "2026-08-17T11:00:00.1234567Z",
             "2026-08-17 11:00:00Z",
+            "2026-08-17T11:00:00.\uff11\uff12\uff13Z",
             "not-a-timestamp",
         )
         for timestamp in invalid_timestamps:
