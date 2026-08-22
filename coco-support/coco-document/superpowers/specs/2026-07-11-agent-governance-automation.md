@@ -145,10 +145,12 @@ cross-head identity continuity 不在本协议。
 PR/head/group 与枚举 action；Issue finding marker 仍为首行，operation marker 为次行。2xx 空/null/坏 JSON/结构响应
 或写调用的暂态传输、HTTP 408/429/5xx 失败均不重发，而进入有界只读对账；对账读取暂态失败消耗同一重试窗口，
 每轮仍经 PR 前后复核。写前快照、缺失或结构不完整 actor 仅为 pending；完整 actor 明确错配以及 identity/target
-ID/body/state 冲突才 hard conflict。comment 对账必须先验证精确 App 身份再解析 operation marker，忽略未受信评论，
+ID/body/state 冲突才 hard conflict。Issue/comment 对账先验证精确 App 身份再解析 finding/operation marker，忽略未受信资源，
 但受信 malformed marker 立即 fail closed。新 run、重复/冲突/head 漂移立即 fail closed，0 匹配耗尽失败。
-响应读取的 timeout/reset/abort、明确 TLS EOF 和 incomplete read 属于暂态；可信 Content-Length 短体同样暂态，
-但声明超限仍走正文上限失败，非法/冲突 framing hard fail，无 Content-Length 或 chunked 不推断短体。衍生写入须在首写前
+请求建立、状态行/头和正文读取的 timeout/reset/abort、remote disconnect、TLS EOF、incomplete read 属于暂态；
+错误体读取失败不得覆盖 HTTP 408/429/5xx。可信 Content-Length 短体暂态，超限失败；Transfer-Encoding 仅接受忽略
+大小写/OWS 后的单一 chunked，空/未知/重复、非末尾 chunked、TE+CL 均 hard fail；无 TE/CL 允许 EOF delimitation 且
+不判短体。衍生写入须在首写前
 校验正文预算。
 status 须用正整数 ID 和 client API URL 绑定 endpoint，且匹配 state/context/description/target URL；status/label
 不恢复/重发。日志仅含 action/attempt/path。

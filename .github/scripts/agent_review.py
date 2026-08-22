@@ -63,6 +63,15 @@ OPERATION_ACTIONS = frozenset(
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_JITTER_RATIO = 0.25
+GITHUB_TRANSIENT_TRANSPORT_ERRORS = (
+    TimeoutError,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    http.client.RemoteDisconnected,
+    http.client.IncompleteRead,
+    ssl.SSLEOFError,
+    ssl.SSLZeroReturnError,
+)
 MODEL_COMPLETION_MAX_ATTEMPTS = 3
 MAX_MODEL_CONTINUATION_CHARS = 96_000
 MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
@@ -269,10 +278,26 @@ def response_header_values(headers: Any, name: str) -> list[str]:
     return values
 
 
+def trusted_response_has_chunked_transfer_encoding(headers: Any) -> bool:
+    transfer_encodings = response_header_values(headers, "transfer-encoding")
+    if not transfer_encodings:
+        return False
+    tokens = [
+        token.strip().lower()
+        for header in transfer_encodings
+        for token in header.split(",")
+    ]
+    if tokens != ["chunked"]:
+        raise ReviewError("GitHub API Transfer-Encoding is invalid or ambiguous.")
+    return True
+
+
 def trusted_response_content_length(headers: Any) -> int | None:
     content_lengths = response_header_values(headers, "content-length")
-    transfer_encodings = response_header_values(headers, "transfer-encoding")
-    if content_lengths and transfer_encodings:
+    has_chunked_transfer_encoding = trusted_response_has_chunked_transfer_encoding(
+        headers
+    )
+    if content_lengths and has_chunked_transfer_encoding:
         raise ReviewError("GitHub API response framing headers conflict.")
     if not content_lengths:
         return None
@@ -289,6 +314,14 @@ def trusted_response_content_length(headers: Any) -> int | None:
     if not parsed or len(set(parsed)) != 1:
         raise ReviewError("GitHub API Content-Length values conflict.")
     return parsed[0]
+
+
+def github_transient_transport_error(
+    error: BaseException, method: str, path: str, stage: str
+) -> GitHubTransientError:
+    if not isinstance(error, GITHUB_TRANSIENT_TRANSPORT_ERRORS):
+        raise ReviewError("GitHub transport error classification is invalid.")
+    return GitHubTransientError(f"GitHub API {stage} failed for {method} {path}.")
 
 
 def finding_issue_marker(pr_number: int, first_head_sha: str, finding_id: str) -> str:
@@ -872,16 +905,9 @@ class GitHubClient:
                     raise ReviewError("GitHub API response exceeded the bounded size.")
                 try:
                     body = response.read(max_bytes + 1)
-                except (
-                    TimeoutError,
-                    ConnectionResetError,
-                    ConnectionAbortedError,
-                    http.client.IncompleteRead,
-                    ssl.SSLEOFError,
-                    ssl.SSLZeroReturnError,
-                ) as exc:
-                    raise GitHubTransientError(
-                        f"GitHub API response read failed for {method} {path}."
+                except GITHUB_TRANSIENT_TRANSPORT_ERRORS as exc:
+                    raise github_transient_transport_error(
+                        exc, method, path, "response read"
                     ) from exc
                 if len(body) > max_bytes:
                     raise ReviewError("GitHub API response exceeded the bounded size.")
@@ -900,15 +926,22 @@ class GitHubClient:
         except urllib.error.HTTPError as exc:
             detail = ""
             try:
-                error_body = exc.read(4097)
-                if len(error_body) <= 4096:
-                    error_payload = json.loads(error_body)
-                    if isinstance(error_payload, dict) and isinstance(
-                        error_payload.get("message"), str
-                    ):
-                        detail = " " + error_payload["message"].replace("\n", " ")[:300]
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                pass
+                try:
+                    error_body = exc.read(4097)
+                    if len(error_body) <= 4096:
+                        error_payload = json.loads(error_body)
+                        if isinstance(error_payload, dict) and isinstance(
+                            error_payload.get("message"), str
+                        ):
+                            detail = (
+                                " " + error_payload["message"].replace("\n", " ")[:300]
+                            )
+                except GITHUB_TRANSIENT_TRANSPORT_ERRORS:
+                    pass
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    pass
+            finally:
+                exc.close()
             if exc.code == 404:
                 raise GitHubNotFoundError(
                     f"GitHub API returned HTTP 404 for {method} {path}.{detail}"
@@ -919,6 +952,10 @@ class GitHubClient:
                 ) from exc
             raise ReviewError(
                 f"GitHub API returned HTTP {exc.code} for {method} {path}.{detail}"
+            ) from exc
+        except GITHUB_TRANSIENT_TRANSPORT_ERRORS as exc:
+            raise github_transient_transport_error(
+                exc, method, path, "connection"
             ) from exc
         except urllib.error.URLError as exc:
             message = f"GitHub API request failed for {method} {path}."
@@ -5277,6 +5314,8 @@ def uncertain_write_recovery(
 def finding_issue_recovery_candidate(
     client: GitHubClient,
     repository: str,
+    expected_login: str,
+    expected_bot_id: int,
     expected_marker: str,
     expected_operation: str,
     verify: Callable[[Any], dict[str, Any]],
@@ -5289,6 +5328,13 @@ def finding_issue_recovery_candidate(
     matches: list[dict[str, Any]] = []
     for issue in issues:
         if not isinstance(issue, dict) or issue.get("pull_request"):
+            continue
+        if not resource_has_expected_actor(
+            issue,
+            expected_login,
+            expected_bot_id,
+            "Agent review finding issue",
+        ):
             continue
         body = issue.get("body")
         marker = parse_finding_issue_marker(body)
@@ -5335,6 +5381,8 @@ def finding_issue_recovery_candidate(
 def recover_finding_issue_create(
     client: GitHubClient,
     repository: str,
+    expected_login: str,
+    expected_bot_id: int,
     expected_marker: str,
     expected_operation: str,
     verify: Callable[[Any], dict[str, Any]],
@@ -5347,6 +5395,8 @@ def recover_finding_issue_create(
         lambda: finding_issue_recovery_candidate(
             client,
             repository,
+            expected_login,
+            expected_bot_id,
             expected_marker,
             expected_operation,
             verify,
@@ -5525,6 +5575,8 @@ def synchronize_finding_issues(
                 value = recover_finding_issue_create(
                     client,
                     repository,
+                    expected_login,
+                    expected_bot_id,
                     marker_line,
                     operation,
                     verify,

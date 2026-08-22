@@ -1371,6 +1371,202 @@ class AgentReviewTests(unittest.TestCase):
                 finally:
                     error.close()
 
+    def test_github_client_status_and_header_failures_use_narrow_transport_errors(
+        self,
+    ) -> None:
+        client = review.GitHubClient("token")
+        transient_errors = (
+            TimeoutError("response timeout"),
+            ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
+            ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
+            review.http.client.RemoteDisconnected("remote disconnected"),
+            review.http.client.IncompleteRead(b"partial", 10),
+            review.ssl.SSLEOFError("TLS EOF"),
+            review.ssl.SSLZeroReturnError("TLS connection closed"),
+        )
+        for error in transient_errors:
+            with self.subTest(error=type(error).__name__):
+                with patch.object(review.urllib.request, "urlopen", side_effect=error):
+                    with self.assertRaises(review.GitHubTransientError):
+                        client.get_json(f"repos/{REPOSITORY}")
+
+        permanent_errors = (
+            OSError(review.errno.EMFILE, "too many open files"),
+            review.ssl.SSLCertVerificationError("certificate rejected"),
+            review.ssl.SSLError("TLS protocol error"),
+        )
+        for error in permanent_errors:
+            with self.subTest(error=type(error).__name__):
+                with patch.object(review.urllib.request, "urlopen", side_effect=error):
+                    with self.assertRaises(type(error)) as raised:
+                        client.get_json(f"repos/{REPOSITORY}")
+                self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+
+    def test_truncated_retryable_http_error_reconciles_without_write_replay(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        previous = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        class FailingErrorBody:
+            def __init__(self, error: BaseException) -> None:
+                self.error = error
+
+            def read(self, limit: int) -> bytes:
+                if limit != 4097:
+                    raise AssertionError(f"Unexpected error read limit: {limit}")
+                raise self.error
+
+            def close(self) -> None:
+                return None
+
+        class FakeResponse:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+                self.headers: dict[str, str] = {}
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                if limit != 4 * 1024 * 1024 + 1:
+                    raise AssertionError(f"Unexpected read limit: {limit}")
+                return self.body
+
+        error_factories = (
+            lambda: review.http.client.IncompleteRead(b"partial", 10),
+            lambda: review.http.client.RemoteDisconnected("remote disconnected"),
+        )
+        for prior, method in ((None, "POST"), (previous, "PATCH")):
+            for error_factory in error_factories:
+                body_error = error_factory()
+                with self.subTest(method=method, error=type(body_error).__name__):
+                    persisted: dict | None = None
+                    recovery_reads = 0
+                    reads = 0
+                    writes = 0
+
+                    def urlopen(request: object, timeout: int) -> FakeResponse:
+                        nonlocal persisted, reads, recovery_reads, writes
+                        if timeout != 60 or not isinstance(
+                            request, review.urllib.request.Request
+                        ):
+                            raise AssertionError("Unexpected GitHub request")
+                        request_method = request.get_method()
+                        if request_method == "GET":
+                            reads += 1
+                            if persisted is None:
+                                return FakeResponse(b"[]")
+                            recovery_reads += 1
+                            if recovery_reads == 1:
+                                raise review.http.client.RemoteDisconnected(
+                                    "recovery connection closed"
+                                )
+                            return FakeResponse(
+                                review.canonical_json([persisted]).encode("utf-8")
+                            )
+                        if request_method != method:
+                            raise AssertionError(f"Unexpected write: {request_method}")
+                        writes += 1
+                        payload = json.loads(bytes(request.data or b"{}"))
+                        persisted = {
+                            "id": 7,
+                            "body": payload["body"],
+                            "user": {
+                                "id": APP_BOT_ID,
+                                "login": app_login,
+                                "type": "Bot",
+                            },
+                        }
+                        raise review.urllib.error.HTTPError(
+                            request.full_url,
+                            503,
+                            "temporary",
+                            {"Transfer-Encoding": "chunked"},
+                            FailingErrorBody(body_error),
+                        )
+
+                    checks: list[int] = []
+                    with (
+                        patch.object(review.urllib.request, "urlopen", urlopen),
+                        patch.object(review.time, "sleep") as sleep,
+                    ):
+                        result = review.upsert_comment(
+                            review.GitHubClient("token"),
+                            REPOSITORY,
+                            REPOSITORY_ID,
+                            60,
+                            HEAD_SHA,
+                            review.COMMENT_MARKER
+                            + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                            (42, 1),
+                            app_login,
+                            APP_BOT_ID,
+                            lambda: checks.append(1) or {},
+                            prior,
+                        )
+                    self.assertEqual(7, result["id"])
+                    self.assertEqual(1, writes)
+                    self.assertEqual(2, recovery_reads)
+                    self.assertEqual(3 if prior is None else 2, reads)
+                    self.assertEqual(5, len(checks))
+                    sleep.assert_called_once_with(
+                        review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[0]
+                    )
+
+    def test_truncated_nonretryable_http_error_has_no_fabricated_detail(
+        self,
+    ) -> None:
+        class FailingErrorBody:
+            def __init__(self, error: BaseException) -> None:
+                self.error = error
+
+            def read(self, limit: int) -> bytes:
+                if limit != 4097:
+                    raise AssertionError(f"Unexpected error read limit: {limit}")
+                raise self.error
+
+            def close(self) -> None:
+                return None
+
+        client = review.GitHubClient("token")
+        path = f"repos/{REPOSITORY}/issues"
+        truncated = review.urllib.error.HTTPError(
+            path,
+            422,
+            "unprocessable",
+            {"Transfer-Encoding": "chunked"},
+            FailingErrorBody(review.http.client.IncompleteRead(b"partial", 10)),
+        )
+        with patch.object(review.urllib.request, "urlopen", side_effect=truncated):
+            with self.assertRaises(review.ReviewError) as raised:
+                client.send_json("POST", path, {})
+        self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+        self.assertEqual(
+            f"GitHub API returned HTTP 422 for POST {path}.", str(raised.exception)
+        )
+        self.assertNotIn("partial", str(raised.exception))
+
+        permanent = OSError(review.errno.EMFILE, "too many open files")
+        error = review.urllib.error.HTTPError(
+            path,
+            422,
+            "unprocessable",
+            None,
+            FailingErrorBody(permanent),
+        )
+        with patch.object(review.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(OSError) as permanent_raised:
+                client.send_json("POST", path, {})
+        self.assertEqual(review.errno.EMFILE, permanent_raised.exception.errno)
+
     def test_github_client_read_failures_reconcile_post_and_patch_without_replay(
         self,
     ) -> None:
@@ -1384,6 +1580,7 @@ class AgentReviewTests(unittest.TestCase):
             TimeoutError("response timeout"),
             ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
             ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
+            review.http.client.RemoteDisconnected("remote disconnected"),
             review.http.client.IncompleteRead(b"partial", 10),
             review.ssl.SSLEOFError("TLS EOF"),
             review.ssl.SSLZeroReturnError("TLS connection closed"),
@@ -1479,6 +1676,7 @@ class AgentReviewTests(unittest.TestCase):
             TimeoutError("response timeout"),
             ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
             ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
+            review.http.client.RemoteDisconnected("remote disconnected"),
             review.http.client.IncompleteRead(b"partial", 10),
             review.ssl.SSLEOFError("TLS EOF"),
             review.ssl.SSLZeroReturnError("TLS connection closed"),
@@ -1806,6 +2004,12 @@ class AgentReviewTests(unittest.TestCase):
             Headers(["1", "2"]),
             Headers(["1,2"]),
             Headers(["2"], ["chunked"]),
+            Headers(transfer_encodings=[""]),
+            Headers(transfer_encodings=["gzip"]),
+            Headers(transfer_encodings=["chunked", "chunked"]),
+            Headers(transfer_encodings=["chunked, chunked"]),
+            Headers(transfer_encodings=["chunked, gzip"]),
+            Headers(transfer_encodings=["gzip, chunked"]),
         )
         for headers in invalid_headers:
             with self.subTest(headers=headers.items()):
@@ -1827,6 +2031,7 @@ class AgentReviewTests(unittest.TestCase):
         accepted_headers = (
             Headers(),
             Headers(transfer_encodings=["chunked"]),
+            Headers(transfer_encodings=[" Chunked "]),
             Headers(["2", "2"]),
             Headers(["2, 2"]),
         )
@@ -6245,6 +6450,8 @@ class AgentReviewTests(unittest.TestCase):
             review.recover_finding_issue_create(
                 FakeClient(),
                 REPOSITORY,
+                "coco-agent[bot]",
+                APP_BOT_ID,
                 finding_marker,
                 expected_operation,
                 lambda value: value,
@@ -6265,6 +6472,92 @@ class AgentReviewTests(unittest.TestCase):
                 review.recovery_pending,
             )
         self.assertEqual(1, reads)
+
+    def test_finding_issue_recovery_scans_actor_before_markers(self) -> None:
+        app_login = "coco-agent[bot]"
+        group_id = "v2-" + "7" * 64
+        finding_marker = review.finding_issue_marker(60, BASE_SHA, group_id)
+        expected_operation = review.operation_marker(
+            REPOSITORY,
+            REPOSITORY_ID,
+            app_login,
+            APP_BOT_ID,
+            (42, 1),
+            60,
+            HEAD_SHA,
+            group_id,
+            "finding-issue-create",
+        )
+        matching_body = f"{finding_marker}\n{expected_operation}\nBody\n"
+        wrong_actor = {
+            "id": APP_BOT_ID + 1,
+            "login": "other-app[bot]",
+            "type": "Bot",
+        }
+        expected_actor = {
+            "id": APP_BOT_ID,
+            "login": app_login,
+            "type": "Bot",
+        }
+
+        def issue(number: int, body: str, user: dict) -> dict:
+            return {
+                "number": number,
+                "title": "title",
+                "body": body,
+                "state": "open",
+                "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                "user": user,
+            }
+
+        class FakeClient:
+            def __init__(self, issues: list[dict]) -> None:
+                self.issues = issues
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return self.issues
+
+        malformed_operation = (
+            f'{finding_marker}\n{review.OPERATION_MARKER_PREFIX}{{"bad":true}} -->\n'
+        )
+        untrusted_cases = {
+            "malformed": [
+                issue(
+                    7,
+                    f'{review.FINDING_ISSUE_MARKER_PREFIX}{{"bad":true}} -->\n',
+                    wrong_actor,
+                ),
+                issue(8, malformed_operation, wrong_actor),
+            ],
+            "matching": [issue(8, matching_body, wrong_actor)],
+            "duplicate": [
+                issue(8, matching_body, wrong_actor),
+                issue(9, matching_body, wrong_actor),
+            ],
+        }
+        for name, issues in untrusted_cases.items():
+            with self.subTest(case=name):
+                probe = review.finding_issue_recovery_candidate(
+                    FakeClient(issues),
+                    REPOSITORY,
+                    app_login,
+                    APP_BOT_ID,
+                    finding_marker,
+                    expected_operation,
+                    lambda value: value,
+                )
+                self.assertIs(review.RecoveryState.PENDING, probe.state)
+
+        with self.assertRaises(review.ReviewError):
+            review.finding_issue_recovery_candidate(
+                FakeClient([issue(8, malformed_operation, expected_actor)]),
+                REPOSITORY,
+                app_login,
+                APP_BOT_ID,
+                finding_marker,
+                expected_operation,
+                lambda value: value,
+            )
 
     def test_finding_issue_recovery_rejects_zero_duplicate_and_binding_conflicts(
         self,
@@ -6328,6 +6621,8 @@ class AgentReviewTests(unittest.TestCase):
                 review.recover_finding_issue_create(
                     missing,
                     REPOSITORY,
+                    app_login,
+                    APP_BOT_ID,
                     finding_marker,
                     expected_operation,
                     verify,
@@ -6343,6 +6638,8 @@ class AgentReviewTests(unittest.TestCase):
             review.recover_finding_issue_create(
                 duplicate,
                 REPOSITORY,
+                app_login,
+                APP_BOT_ID,
                 finding_marker,
                 expected_operation,
                 verify,
@@ -6372,6 +6669,8 @@ class AgentReviewTests(unittest.TestCase):
                     review.recover_finding_issue_create(
                         client,
                         REPOSITORY,
+                        app_login,
+                        APP_BOT_ID,
                         finding_marker,
                         expected_operation,
                         verify,
@@ -6387,16 +6686,22 @@ class AgentReviewTests(unittest.TestCase):
         for user in wrong_actors:
             with self.subTest(user=user):
                 client = FakeClient([issue(8, user=user)])
-                with self.assertRaises(review.ReviewError):
-                    review.recover_finding_issue_create(
-                        client,
-                        REPOSITORY,
-                        finding_marker,
-                        expected_operation,
-                        verify,
-                        lambda: {},
-                    )
-                self.assertEqual(1, client.scans)
+                with patch.object(review.time, "sleep"):
+                    with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
+                        review.recover_finding_issue_create(
+                            client,
+                            REPOSITORY,
+                            app_login,
+                            APP_BOT_ID,
+                            finding_marker,
+                            expected_operation,
+                            verify,
+                            lambda: {},
+                        )
+                self.assertEqual(
+                    len(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1,
+                    client.scans,
+                )
 
     def test_uncertain_closure_comment_rejects_duplicate_exact_markers(self) -> None:
         app_login = "coco-agent[bot]"
@@ -12742,8 +13047,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(55_517, largest_size)
-        self.assertEqual(8_483, limit - largest_size)
+        self.assertEqual(55_632, largest_size)
+        self.assertEqual(8_368, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 15)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
