@@ -47,6 +47,11 @@ result and `context_gaps`.
 
 ## Output Contract
 
+When protected task metadata is headed `Protected continuity task metadata`, its
+continuity output contract replaces this section. Compare only the supplied
+canonical group and candidate anchors, IDs, Issue numbers, and hashes; title,
+claim, trigger, impact, body, and other prose similarity are forbidden.
+
 Return exactly one compact valid JSON object with this shape:
 
 {

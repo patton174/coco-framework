@@ -118,7 +118,7 @@ README 维护 workflow 仅支持低频 schedule 和 `workflow_dispatch`。它从
 
 解析器必须严格验证字段集合、JSON 整数版本、PR 正整数、40 位小写十六进制 SHA 和受限 finding ID。
 finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionable group 写入 `v2-`，
-历史受管 Issue 可以保留其 `v1-` marker 直到受信 publisher 明确对账。普通用户文本中的相似内容、非首行 marker、非法 JSON、
+历史受管 Issue 保留其 `v1-` marker 并只可由人工处理。普通用户文本中的相似内容、非首行 marker、非法 JSON、
 额外字段、重复 marker 或错误 label 均不能参与门禁。
 
 ### 生命周期
@@ -128,18 +128,27 @@ finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionab
 1. 从确定性确认的 blocker 和主席接受的 `actionable_groups` 中构建可执行集合。
 2. group 只能包含同一确定性 finding identity 的同 kind、同严重级别成员；所有 confirmed
    blocker 必须恰好属于一个 group。
-3. 对同一 PR/group identity 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
-   当前 `v2-` group 也可以精确匹配其成员携带的一个历史 `v1-` alias。该匹配仅限同一 PR、
-   仅接受唯一候选；采用后把 marker 更新为 `v2-`，保留首次 head 和历史审计关系。多个候选、
-   一个 Issue 被多个 group 认领、或 alias 非法时在任何 Issue 写入前失败关闭。其他 PR marker
-   下的同 ID/alias 无论 Issue 开放或关闭均不参与当前 PR 的 identity 或歧义判断。
+3. 对同一 PR/group identity 的开放 Issue 更新标题、正文、当前 head 和证据；在 continuity context 中，
+   只有 exact current-head `v2-` marker 可直接匹配。`v1-` 和未被两名 verifier 共同采用的 prior-head
+   `v2-` 都不能由 alias 或相同 stable ID 自动复用、PATCH 或关闭；若会冲突，保留其开放状态且不创建重复
+   Issue。其他 PR marker 下的同 ID/alias 无论 Issue 开放或关闭均不参与当前 PR 的 identity 或歧义判断。
 4. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
 5. 在任何 route binding failure status、gate status、label、Issue、comment、close 或 reopen
    写入前预检 `max_actionable_issue_groups`；超限时保持零仓库写副作用并直接失败退出。
 6. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
 
-不得凭标题/正文/模型文字/语义相似性认领 Issue，或用 previous head 恢复 identity/重试操作；
-cross-head identity continuity 不在本协议。
+不得凭标题/正文/模型文字/语义相似性认领 Issue。跨 head 继承只能使用 v2 canonical candidate：它必须由精确
+Coco App 身份创建、带 `agent-review` label、绑定同一 repository/repository ID/PR，且其 previous head 是 current
+head 的严格 Git ancestor。candidate 必须携带 file/category/severity/行范围/locator hash、context/protocol hash 和两个
+verifier 身份。v1/legacy marker 永远不自动迁移、复用或关闭，保留开放状态供人工处理。
+
+chair 先给出已有 deterministic finding 的 actionable group，之后 `evidence-verifier` 与 `policy-skeptic` 分别输出
+schema-v2 relationship。每个 current group 恰有一条关系；只有两者对同一 current group、previous group、Issue、candidate
+hash 和两端 canonical anchor 均为 `ADOPT` 才可更新该精确旧 Issue。单 verifier、`REJECT`、`INSUFFICIENT`、anchor drift、
+跨 PR/repo、非 ancestor、重复 candidate、一对多或多对一均 fail closed：不复用、不自动关闭旧 Issue。chair 只能展示既有
+deterministic 结果，不能创造、改变或降级 relationship。Issue marker、operation marker 和受管评论必须记录 first/previous/current
+heads、proof/context/protocol hashes 和两个 verifier 身份；关系记录必须是 canonical JSON 且拒绝未知或缺失字段。任意仍开放的
+protected Agent Issue 继续阻断 `Agent issue gate`，连续性不得通过关闭旧 Issue 绕过门禁。
 
 受信 Issue/comment 写入使用严格 canonical operation marker，绑定 repository/ID、App login/Bot ID、run/attempt、
 PR/head/group 与枚举 action；Issue finding marker 仍为首行，operation marker 为次行。2xx 空/null/坏 JSON/结构响应

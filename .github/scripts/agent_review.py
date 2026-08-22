@@ -29,6 +29,9 @@ from typing import Any, Callable, Iterable
 
 
 SCHEMA_VERSION = 1
+FINDING_ISSUE_SCHEMA_V1 = 1
+FINDING_ISSUE_SCHEMA_V2 = 2
+CONTINUITY_SCHEMA_VERSION = 2
 COMMENT_MARKER = "<!-- agent-jury:v1 -->"
 LEGACY_COMMENT_MARKER = "<!-- claude-review-marker: managed by workflow -->"
 STATUS_CONTEXT = "Agent jury gate"
@@ -47,6 +50,8 @@ DEFERRED_ROUTE_JOB_NAME = "Route bound pull request"
 DEFERRED_MARKER_JOB_NAME = "Emit protected no-secret marker"
 FINDING_ISSUE_LABEL = "agent-review"
 FINDING_ISSUE_MARKER_PREFIX = "<!-- coco-agent-review: "
+CONTINUITY_RELATIONSHIP_MARKER_PREFIX = "<!-- coco-agent-continuity:v2 "
+CONTINUITY_SUMMARY_MARKER_PREFIX = "<!-- coco-agent-continuity-summary:v2 "
 OPERATION_MARKER_NAMESPACE = "<!-- coco-agent-operation:v1"
 OPERATION_MARKER_PREFIX = OPERATION_MARKER_NAMESPACE + " "
 MANAGED_COMMENT_GROUP_ID = "managed-pr-summary"
@@ -60,6 +65,8 @@ OPERATION_ACTIONS = frozenset(
         "managed-comment-update",
     }
 )
+CONTINUITY_ACTIONS = frozenset({"ADOPT", "REJECT", "INSUFFICIENT"})
+CONTINUITY_VERIFIER_ROLES = ("evidence-verifier", "policy-skeptic")
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_JITTER_RATIO = 0.25
@@ -344,6 +351,112 @@ def finding_issue_marker(pr_number: int, first_head_sha: str, finding_id: str) -
     )
 
 
+def continuity_anchor(finding: dict[str, Any]) -> dict[str, Any]:
+    """Return the exact, non-prose locator used by cross-head continuity."""
+
+    file_name = str(finding.get("file") or "")
+    category = str(finding.get("category") or "")
+    severity = str(finding.get("severity") or "")
+    start_line = finding.get("start_line")
+    end_line = finding.get("end_line")
+    if (
+        not file_name
+        or file_name.startswith("/")
+        or "\\" in file_name
+        or any(part in {"", ".", ".."} for part in file_name.split("/"))
+        or not category
+        or severity not in {"P0", "P1", "P2", "P3"}
+        or type(start_line) is not int
+        or type(end_line) is not int
+        or start_line < 1
+        or end_line < start_line
+    ):
+        raise ReviewError("Continuity finding anchor is invalid.")
+    material = {
+        "category": category,
+        "end_line": end_line,
+        "file": file_name,
+        "severity": severity,
+        "start_line": start_line,
+    }
+    return {
+        **material,
+        "locator_sha256": sha256_text(canonical_json(material)),
+    }
+
+
+def require_continuity_anchor(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "category",
+        "end_line",
+        "file",
+        "locator_sha256",
+        "severity",
+        "start_line",
+    }:
+        raise ReviewError("Continuity finding anchor schema is invalid.")
+    anchor = continuity_anchor(value)
+    if canonical_json(anchor) != canonical_json(value):
+        raise ReviewError("Continuity finding anchor is not canonical.")
+    return anchor
+
+
+def require_sha256(value: Any, label: str) -> str:
+    digest = str(value or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ReviewError(f"{label} is invalid.")
+    return digest
+
+
+def require_continuity_verifier_roles(value: Any) -> list[str]:
+    if value != list(CONTINUITY_VERIFIER_ROLES):
+        raise ReviewError("Continuity verifier roles are invalid.")
+    return list(CONTINUITY_VERIFIER_ROLES)
+
+
+def finding_issue_marker_v2(
+    repository: str,
+    repository_id: int,
+    pr_number: int,
+    first_head_sha: str,
+    current_head_sha: str,
+    finding_id: str,
+    anchor: dict[str, Any],
+    context_sha256: str,
+    protocol_sha256: str,
+    verification_proof_sha256: str,
+) -> str:
+    if type(repository_id) is not int or repository_id < 1:
+        raise ReviewError("Finding issue repository ID is invalid.")
+    if type(pr_number) is not int or pr_number < 1:
+        raise ReviewError("Finding issue pull request number is invalid.")
+    if any(not SHA_RE.fullmatch(value) for value in (first_head_sha, current_head_sha)):
+        raise ReviewError("Finding issue head SHA is invalid.")
+    if not STABLE_FINDING_ID_RE.fullmatch(finding_id):
+        raise ReviewError("Finding issue stable ID is invalid.")
+    payload = {
+        "anchor": require_continuity_anchor(anchor),
+        "context_sha256": require_sha256(
+            context_sha256, "Finding issue context SHA-256"
+        ),
+        "current_head_sha": current_head_sha,
+        "finding_id": finding_id,
+        "first_head_sha": first_head_sha,
+        "protocol_sha256": require_sha256(
+            protocol_sha256, "Finding issue protocol SHA-256"
+        ),
+        "pull_request": pr_number,
+        "repository": require_repository(repository),
+        "repository_id": repository_id,
+        "schema_version": FINDING_ISSUE_SCHEMA_V2,
+        "verification_proof_sha256": require_sha256(
+            verification_proof_sha256, "Finding issue verification proof SHA-256"
+        ),
+        "verifier_roles": list(CONTINUITY_VERIFIER_ROLES),
+    }
+    return FINDING_ISSUE_MARKER_PREFIX + canonical_json(payload) + " -->"
+
+
 def parse_finding_issue_marker(body: Any) -> dict[str, Any] | None:
     text = body if isinstance(body, str) else ""
     marker_count = text.count(FINDING_ISSUE_MARKER_PREFIX)
@@ -364,14 +477,66 @@ def parse_finding_issue_marker(body: Any) -> dict[str, Any] | None:
         payload = json.loads(encoded)
     except json.JSONDecodeError as exc:
         raise ReviewError("Finding issue marker JSON is invalid.") from exc
-    if not isinstance(payload, dict) or set(payload) != {
-        "schema_version",
-        "pull_request",
-        "head_sha",
-        "finding_id",
-    }:
+    if not isinstance(payload, dict):
         raise ReviewError("Finding issue marker schema is invalid.")
-    if not valid_schema_version(payload.get("schema_version")):
+    if payload.get("schema_version") == FINDING_ISSUE_SCHEMA_V2:
+        required = {
+            "anchor",
+            "context_sha256",
+            "current_head_sha",
+            "finding_id",
+            "first_head_sha",
+            "protocol_sha256",
+            "pull_request",
+            "repository",
+            "repository_id",
+            "schema_version",
+            "verification_proof_sha256",
+            "verifier_roles",
+        }
+        if set(payload) != required:
+            raise ReviewError("Finding issue v2 marker schema is invalid.")
+        if (
+            type(payload.get("repository_id")) is not int
+            or payload["repository_id"] < 1
+            or type(payload.get("pull_request")) is not int
+            or payload["pull_request"] < 1
+            or not isinstance(payload.get("repository"), str)
+            or require_repository(payload["repository"]) != payload["repository"]
+            or any(
+                not isinstance(payload.get(key), str)
+                or not SHA_RE.fullmatch(payload[key])
+                for key in ("first_head_sha", "current_head_sha")
+            )
+            or not isinstance(payload.get("finding_id"), str)
+            or not STABLE_FINDING_ID_RE.fullmatch(payload["finding_id"])
+        ):
+            raise ReviewError("Finding issue v2 marker values are invalid.")
+        require_continuity_anchor(payload["anchor"])
+        require_sha256(payload["context_sha256"], "Finding issue context SHA-256")
+        require_sha256(payload["protocol_sha256"], "Finding issue protocol SHA-256")
+        require_sha256(
+            payload["verification_proof_sha256"],
+            "Finding issue verification proof SHA-256",
+        )
+        require_continuity_verifier_roles(payload["verifier_roles"])
+        if first_line != finding_issue_marker_v2(
+            payload["repository"],
+            payload["repository_id"],
+            payload["pull_request"],
+            payload["first_head_sha"],
+            payload["current_head_sha"],
+            payload["finding_id"],
+            payload["anchor"],
+            payload["context_sha256"],
+            payload["protocol_sha256"],
+            payload["verification_proof_sha256"],
+        ):
+            raise ReviewError("Finding issue v2 marker is not canonical JSON.")
+        return payload
+    if set(payload) != {"schema_version", "pull_request", "head_sha", "finding_id"}:
+        raise ReviewError("Finding issue marker schema is invalid.")
+    if payload.get("schema_version") != FINDING_ISSUE_SCHEMA_V1:
         raise ReviewError("Finding issue marker schema_version is invalid.")
     pr_number = payload.get("pull_request")
     head_sha = payload.get("head_sha")
@@ -387,6 +552,31 @@ def parse_finding_issue_marker(body: Any) -> dict[str, Any] | None:
     if first_line != finding_issue_marker(pr_number, head_sha, finding_id):
         raise ReviewError("Finding issue marker is not canonical JSON.")
     return payload
+
+
+def canonical_finding_issue_marker(marker: dict[str, Any]) -> str:
+    """Rebuild a parsed finding marker without assuming its schema version."""
+
+    if marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V2:
+        return finding_issue_marker_v2(
+            str(marker["repository"]),
+            int(marker["repository_id"]),
+            int(marker["pull_request"]),
+            str(marker["first_head_sha"]),
+            str(marker["current_head_sha"]),
+            str(marker["finding_id"]),
+            marker["anchor"],
+            str(marker["context_sha256"]),
+            str(marker["protocol_sha256"]),
+            str(marker["verification_proof_sha256"]),
+        )
+    if marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V1:
+        return finding_issue_marker(
+            int(marker["pull_request"]),
+            finding_marker_current_head(marker),
+            str(marker["finding_id"]),
+        )
+    raise ReviewError("Finding issue marker schema_version is invalid.")
 
 
 def operation_marker(
@@ -2560,6 +2750,23 @@ def command_prepare(args: argparse.Namespace) -> int:
             config,
             model_config_sha,
         )
+        # This inventory is trusted API metadata, never PR-head prose. It is bound
+        # into the context consumed by both independent continuity verifiers.
+        context["trusted"]["continuity_candidates"] = (
+            collect_continuity_candidates(
+                client,
+                repository,
+                repository_id,
+                args.pr_number,
+                head_sha,
+                trusted_app_login,
+                trusted_app_bot_id,
+            )
+            if bool(getattr(args, "continuity_candidates", False))
+            else []
+        )
+        bind_context(context)
+        validate_context(context)
         latest = github_get_json_with_retry(
             client,
             f"repos/{args.repository}/pulls/{args.pr_number}",
@@ -4609,6 +4816,72 @@ def command_chair(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_continuity(args: argparse.Namespace) -> int:
+    """Ask one verifier for structured cross-head identity relations only."""
+
+    config = load_config(args.config)
+    context = read_json(args.context)
+    validate_context(context)
+    require_model_configuration_binding(context["binding"])
+    specialist_reports = load_reports(args.specialists)
+    verifier_reports = load_reports(args.verifiers)
+    final = read_json(args.final_json)
+    validate_final_artifact(
+        final, context, specialist_reports, verifier_reports, config
+    )
+    verifiers = role_map(config, "verifiers")
+    if args.role not in CONTINUITY_VERIFIER_ROLES or args.role not in verifiers:
+        raise ReviewError("Unknown continuity verifier role.")
+    groups = continuity_groups(final, specialist_reports)
+    candidates = context.get("trusted", {}).get("continuity_candidates")
+    if not isinstance(candidates, list):
+        raise ReviewError("Continuity candidate inventory is missing.")
+    user = canonical_json(
+        {"continuity_candidates": candidates, "current_groups": groups}
+    )
+    protected_task = {
+        "binding": {
+            "context_sha256": context["binding"]["context_sha256"],
+            "head_sha": context["binding"]["head_sha"],
+            "protocol_sha256": context["binding"]["protocol_sha256"],
+        },
+        "input_sha256": sha256_text(user),
+        "role": args.role,
+    }
+    system = "\n\n".join(
+        [
+            prompt_text(
+                args.prompt_root,
+                "cross-review",
+                verifiers[args.role].get("prompt_path"),
+            ),
+            f"## Protected continuity task metadata\n{canonical_json(protected_task)}",
+            "## Protected continuity contract\n"
+            "Return only schema-v2 JSON with exactly `schema_version`, `role`, `binding`, and `relationships`. "
+            "Emit exactly one relationship per supplied current group in its supplied order. "
+            "ADOPT is permitted only when the exact candidate SHA, previous group/Issue, and both canonical anchors match the supplied records. "
+            "Do not use titles, claims, body prose, semantic similarity, or any text similarity. "
+            "For REJECT or INSUFFICIENT, set every previous/candidate field to null. "
+            "The chair has no authority over this decision.",
+        ]
+    )
+    report = complete_with_shape_repair(
+        AgentModelClient(config),
+        system,
+        user,
+        int(
+            verifiers[args.role].get(
+                "max_tokens", normalized_limits(config)["verifier_tokens"]
+            )
+        ),
+        lambda candidate: validate_continuity_report(
+            candidate, args.role, context, groups
+        ),
+    )
+    write_json(args.output, report)
+    return 0
+
+
 def validate_final_artifact(
     final: dict[str, Any],
     context: dict[str, Any],
@@ -4956,6 +5229,8 @@ def finding_issue_body(
     run_url: str,
     server_url: str,
     operation: str,
+    marker_line: str | None = None,
+    relationship_markers: list[str] | None = None,
 ) -> str:
     finding = actionable["finding"]
     stable_id = str(actionable["stable_id"])
@@ -4968,8 +5243,9 @@ def finding_issue_body(
         else "Chair-selected follow-up"
     )
     lines = [
-        finding_issue_marker(pr_number, first_head_sha, stable_id),
+        marker_line or finding_issue_marker(pr_number, first_head_sha, stable_id),
         operation,
+        *(relationship_markers or []),
         "## Agent review finding",
         "",
         f"- Pull request: [#{pr_number}]({repository_url}/pull/{pr_number})",
@@ -5041,19 +5317,24 @@ def ensure_finding_issue_label(client: GitHubClient, repository: str) -> None:
         raise ReviewError("Agent review issue label could not be verified.")
 
 
-def app_finding_issues(
+def app_finding_issue_resources(
     client: GitHubClient,
     repository: str,
     pr_number: int,
     expected_login: str,
     expected_bot_id: int,
-) -> dict[str, dict[str, Any]]:
+) -> list[dict[str, Any]]:
+    """Return every exact-App, labelled finding Issue for one PR.
+
+    This deliberately keeps historical v1 and prior-head v2 resources visible so
+    the issue gate cannot be weakened by a failed continuity reconciliation.
+    """
     label = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
     issues = client.paginate(
         f"repos/{repository}/issues?state=all&labels={label}&sort=created&direction=asc",
         limit=5000,
     )
-    result: dict[str, dict[str, Any]] = {}
+    result: list[dict[str, Any]] = []
     for issue in issues:
         if not isinstance(issue, dict) or issue.get("pull_request"):
             continue
@@ -5079,11 +5360,568 @@ def app_finding_issues(
         number = issue.get("number")
         if type(number) is not int or number < 1:
             raise ReviewError("Agent review finding issue number is invalid.")
+        result.append(issue)
+    return result
+
+
+def app_finding_issues(
+    client: GitHubClient,
+    repository: str,
+    pr_number: int,
+    expected_login: str,
+    expected_bot_id: int,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for issue in app_finding_issue_resources(
+        client, repository, pr_number, expected_login, expected_bot_id
+    ):
+        marker = parse_finding_issue_marker(issue.get("body"))
+        if marker is None:
+            raise ReviewError("Agent review finding issue lost its marker.")
         finding_id = str(marker["finding_id"])
         if finding_id in result:
             raise ReviewError("Duplicate Agent review issues bind the same finding ID.")
         result[finding_id] = issue
     return result
+
+
+def finding_marker_current_head(marker: dict[str, Any]) -> str:
+    if marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V2:
+        return str(marker["current_head_sha"])
+    return str(marker["head_sha"])
+
+
+def finding_marker_first_head(marker: dict[str, Any]) -> str:
+    if marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V2:
+        return str(marker["first_head_sha"])
+    return str(marker["head_sha"])
+
+
+def canonical_continuity_candidate(candidate: Any) -> dict[str, Any]:
+    required = {
+        "anchor",
+        "candidate_sha256",
+        "context_sha256",
+        "current_head_sha",
+        "first_head_sha",
+        "previous_group_id",
+        "previous_head_sha",
+        "previous_issue_number",
+        "protocol_sha256",
+        "pull_request",
+        "repository",
+        "repository_id",
+        "schema_version",
+        "verification_proof_sha256",
+        "verifier_roles",
+    }
+    if not isinstance(candidate, dict) or set(candidate) != required:
+        raise ReviewError("Continuity candidate schema is invalid.")
+    if (
+        candidate.get("schema_version") != CONTINUITY_SCHEMA_VERSION
+        or type(candidate.get("repository_id")) is not int
+        or candidate["repository_id"] < 1
+        or type(candidate.get("pull_request")) is not int
+        or candidate["pull_request"] < 1
+        or type(candidate.get("previous_issue_number")) is not int
+        or candidate["previous_issue_number"] < 1
+        or not isinstance(candidate.get("repository"), str)
+        or require_repository(candidate["repository"]) != candidate["repository"]
+        or any(
+            not isinstance(candidate.get(key), str)
+            or not SHA_RE.fullmatch(candidate[key])
+            for key in ("first_head_sha", "previous_head_sha", "current_head_sha")
+        )
+        or not isinstance(candidate.get("previous_group_id"), str)
+        or not STABLE_FINDING_ID_RE.fullmatch(candidate["previous_group_id"])
+    ):
+        raise ReviewError("Continuity candidate values are invalid.")
+    value = {
+        key: value for key, value in candidate.items() if key != "candidate_sha256"
+    }
+    value["anchor"] = require_continuity_anchor(value["anchor"])
+    value["context_sha256"] = require_sha256(
+        value["context_sha256"], "Continuity candidate context SHA-256"
+    )
+    value["protocol_sha256"] = require_sha256(
+        value["protocol_sha256"], "Continuity candidate protocol SHA-256"
+    )
+    value["verification_proof_sha256"] = require_sha256(
+        value["verification_proof_sha256"], "Continuity candidate proof SHA-256"
+    )
+    value["verifier_roles"] = require_continuity_verifier_roles(value["verifier_roles"])
+    candidate_sha256 = require_sha256(
+        candidate["candidate_sha256"], "Continuity candidate SHA-256"
+    )
+    if candidate_sha256 != sha256_text(canonical_json(value)):
+        raise ReviewError("Continuity candidate SHA-256 does not match its binding.")
+    return {**value, "candidate_sha256": candidate_sha256}
+
+
+def git_ancestor(
+    client: GitHubClient, repository: str, previous_head_sha: str, current_head_sha: str
+) -> bool:
+    if previous_head_sha == current_head_sha:
+        return False
+    comparison = client.get_json(
+        f"repos/{repository}/compare/{previous_head_sha}...{current_head_sha}"
+    )
+    if not isinstance(comparison, dict):
+        raise ReviewError("GitHub continuity ancestry response is invalid.")
+    return (
+        comparison.get("status") == "ahead"
+        and type(comparison.get("ahead_by")) is int
+        and comparison["ahead_by"] > 0
+        and type(comparison.get("behind_by")) is int
+        and comparison["behind_by"] == 0
+    )
+
+
+def continuity_candidate(
+    issue: dict[str, Any],
+    marker: dict[str, Any],
+    repository: str,
+    repository_id: int,
+    pr_number: int,
+    current_head_sha: str,
+) -> dict[str, Any] | None:
+    """Build a protected v2 candidate without reading mutable prose fields."""
+
+    if marker.get("schema_version") != FINDING_ISSUE_SCHEMA_V2:
+        return None
+    if (
+        marker["repository"] != repository
+        or marker["repository_id"] != repository_id
+        or marker["pull_request"] != pr_number
+    ):
+        return None
+    previous_head_sha = finding_marker_current_head(marker)
+    if previous_head_sha == current_head_sha:
+        return None
+    number = issue.get("number")
+    if type(number) is not int or number < 1:
+        raise ReviewError("Continuity candidate Issue number is invalid.")
+    value = {
+        "anchor": require_continuity_anchor(marker["anchor"]),
+        "context_sha256": marker["context_sha256"],
+        "current_head_sha": current_head_sha,
+        "first_head_sha": finding_marker_first_head(marker),
+        "previous_group_id": marker["finding_id"],
+        "previous_head_sha": previous_head_sha,
+        "previous_issue_number": number,
+        "protocol_sha256": marker["protocol_sha256"],
+        "pull_request": pr_number,
+        "repository": repository,
+        "repository_id": repository_id,
+        "schema_version": CONTINUITY_SCHEMA_VERSION,
+        "verification_proof_sha256": marker["verification_proof_sha256"],
+        "verifier_roles": list(CONTINUITY_VERIFIER_ROLES),
+    }
+    return canonical_continuity_candidate(
+        {**value, "candidate_sha256": sha256_text(canonical_json(value))}
+    )
+
+
+def collect_continuity_candidates(
+    client: GitHubClient,
+    repository: str,
+    repository_id: int,
+    pr_number: int,
+    current_head_sha: str,
+    expected_login: str,
+    expected_bot_id: int,
+) -> list[dict[str, Any]]:
+    """Collect only exact-App, same-PR v2 ancestors for verifier input."""
+
+    candidates: list[dict[str, Any]] = []
+    seen_issue_numbers: set[int] = set()
+    for issue in app_finding_issues(
+        client, repository, pr_number, expected_login, expected_bot_id
+    ).values():
+        marker = parse_finding_issue_marker(issue.get("body"))
+        if marker is None:
+            continue
+        candidate = continuity_candidate(
+            issue,
+            marker,
+            repository,
+            repository_id,
+            pr_number,
+            current_head_sha,
+        )
+        if candidate is None:
+            continue
+        if not git_ancestor(
+            client,
+            repository,
+            str(candidate["previous_head_sha"]),
+            current_head_sha,
+        ):
+            continue
+        issue_number = int(candidate["previous_issue_number"])
+        if issue_number in seen_issue_numbers:
+            raise ReviewError("Duplicate continuity candidate Issue number.")
+        seen_issue_numbers.add(issue_number)
+        candidates.append(candidate)
+    candidates.sort(key=lambda value: int(value["previous_issue_number"]))
+    if len({str(value["candidate_sha256"]) for value in candidates}) != len(candidates):
+        raise ReviewError("Duplicate continuity candidate binding.")
+    if len({canonical_json(value["anchor"]) for value in candidates}) != len(
+        candidates
+    ):
+        raise ReviewError("Multiple continuity candidates share one canonical anchor.")
+    return [canonical_continuity_candidate(value) for value in candidates]
+
+
+def continuity_groups(
+    final: dict[str, Any], specialist_reports: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    groups = actionable_findings(final, specialist_reports)
+    values = [
+        {
+            "anchor": continuity_anchor(group["finding"]),
+            "current_group_id": str(group["stable_id"]),
+        }
+        for group in groups
+    ]
+    if len({item["current_group_id"] for item in values}) != len(values):
+        raise ReviewError("Continuity current group identities are duplicated.")
+    return sorted(values, key=lambda item: str(item["current_group_id"]))
+
+
+def continuity_relationship_contract(
+    relationship: Any,
+    group: dict[str, Any],
+    candidates: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    required = {
+        "action",
+        "candidate_sha256",
+        "current_anchor",
+        "current_group_id",
+        "previous_anchor",
+        "previous_group_id",
+        "previous_issue_number",
+        "schema_version",
+    }
+    if not isinstance(relationship, dict) or set(relationship) != required:
+        raise ReviewError("Continuity relationship schema is invalid.")
+    if relationship.get("schema_version") != CONTINUITY_SCHEMA_VERSION:
+        raise ReviewError("Continuity relationship schema_version is invalid.")
+    if relationship.get("current_group_id") != group["current_group_id"]:
+        raise ReviewError("Continuity relationship current group is invalid.")
+    if canonical_json(
+        require_continuity_anchor(relationship.get("current_anchor"))
+    ) != canonical_json(group["anchor"]):
+        raise ReviewError("Continuity relationship current anchor drifted.")
+    action = relationship.get("action")
+    if action not in CONTINUITY_ACTIONS:
+        raise ReviewError("Continuity relationship action is invalid.")
+    if action != "ADOPT":
+        if any(
+            relationship.get(name) is not None
+            for name in (
+                "candidate_sha256",
+                "previous_anchor",
+                "previous_group_id",
+                "previous_issue_number",
+            )
+        ):
+            raise ReviewError("Non-adopt continuity relationship claims a candidate.")
+        return {
+            "action": action,
+            "current_anchor": group["anchor"],
+            "current_group_id": group["current_group_id"],
+        }
+    candidate_hash = require_sha256(
+        relationship.get("candidate_sha256"), "Continuity candidate SHA-256"
+    )
+    candidate = candidates.get(candidate_hash)
+    if candidate is None:
+        raise ReviewError("Continuity relationship references an unknown candidate.")
+    if (
+        relationship.get("previous_group_id") != candidate["previous_group_id"]
+        or relationship.get("previous_issue_number")
+        != candidate["previous_issue_number"]
+        or canonical_json(
+            require_continuity_anchor(relationship.get("previous_anchor"))
+        )
+        != canonical_json(candidate["anchor"])
+    ):
+        raise ReviewError("Continuity relationship candidate binding drifted.")
+    return {
+        "action": "ADOPT",
+        "candidate_sha256": candidate_hash,
+        "current_anchor": group["anchor"],
+        "current_group_id": group["current_group_id"],
+        "previous_anchor": candidate["anchor"],
+        "previous_group_id": candidate["previous_group_id"],
+        "previous_issue_number": candidate["previous_issue_number"],
+    }
+
+
+def validate_continuity_report(
+    report: Any,
+    role: str,
+    context: dict[str, Any],
+    groups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    candidates = {
+        str(candidate["candidate_sha256"]): candidate
+        for candidate in context.get("trusted", {}).get("continuity_candidates", [])
+    }
+    required = {"binding", "relationships", "role", "schema_version"}
+    if not isinstance(report, dict) or set(report) != required:
+        raise ReviewError("Continuity verifier report schema is invalid.")
+    if (
+        report.get("schema_version") != CONTINUITY_SCHEMA_VERSION
+        or report.get("role") != role
+    ):
+        raise ReviewError("Continuity verifier report identity is invalid.")
+    expected_binding = {
+        "context_sha256": context["binding"]["context_sha256"],
+        "head_sha": context["binding"]["head_sha"],
+        "protocol_sha256": context["binding"]["protocol_sha256"],
+    }
+    if report.get("binding") != expected_binding:
+        raise ReviewError("Continuity verifier report binding is invalid.")
+    relationships = report.get("relationships")
+    if not isinstance(relationships, list) or len(relationships) != len(groups):
+        raise ReviewError("Continuity verifier relationship set is incomplete.")
+    normalized = [
+        continuity_relationship_contract(value, group, candidates)
+        for value, group in zip(relationships, groups, strict=True)
+    ]
+    if [item["current_group_id"] for item in normalized] != [
+        item["current_group_id"] for item in groups
+    ]:
+        raise ReviewError("Continuity verifier relationship order is invalid.")
+    report = copy.deepcopy(report)
+    report["relationships"] = normalized
+    return report
+
+
+def continuity_adoptions(
+    reports: list[dict[str, Any]],
+    context: dict[str, Any],
+    groups: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    if len(reports) != len(CONTINUITY_VERIFIER_ROLES):
+        raise ReviewError("Continuity verifier report set is incomplete.")
+    normalized = {
+        role: validate_continuity_report(
+            next((report for report in reports if report.get("role") == role), None),
+            role,
+            context,
+            groups,
+        )
+        for role in CONTINUITY_VERIFIER_ROLES
+    }
+    if len({str(report["role"]) for report in reports}) != len(
+        CONTINUITY_VERIFIER_ROLES
+    ):
+        raise ReviewError("Continuity verifier roles are duplicated or unknown.")
+    adopted: dict[str, dict[str, Any]] = {}
+    claimed_candidates: set[str] = set()
+    for index, group in enumerate(groups):
+        left = normalized["evidence-verifier"]["relationships"][index]
+        right = normalized["policy-skeptic"]["relationships"][index]
+        if left.get("action") != "ADOPT" or canonical_json(left) != canonical_json(
+            right
+        ):
+            continue
+        candidate_hash = str(left["candidate_sha256"])
+        if candidate_hash in claimed_candidates:
+            raise ReviewError("Multiple current groups adopt one continuity candidate.")
+        claimed_candidates.add(candidate_hash)
+        adopted[str(group["current_group_id"])] = left
+    return adopted
+
+
+def continuity_relationship_marker(
+    repository: str,
+    repository_id: int,
+    pr_number: int,
+    first_head_sha: str,
+    previous_head_sha: str,
+    previous_group_id: str,
+    previous_issue_number: int,
+    candidate_sha256: str,
+    candidate_binding: dict[str, Any],
+    previous_anchor: dict[str, Any],
+    current_group_id: str,
+    current_anchor: dict[str, Any],
+    current_head_sha: str,
+    context_sha256: str,
+    protocol_sha256: str,
+    verification_proof_sha256: str,
+) -> str:
+    if (
+        type(repository_id) is not int
+        or repository_id < 1
+        or type(pr_number) is not int
+        or pr_number < 1
+        or type(previous_issue_number) is not int
+        or previous_issue_number < 1
+        or any(
+            not SHA_RE.fullmatch(value)
+            for value in (first_head_sha, previous_head_sha, current_head_sha)
+        )
+        or not STABLE_FINDING_ID_RE.fullmatch(previous_group_id)
+        or not STABLE_FINDING_ID_RE.fullmatch(current_group_id)
+    ):
+        raise ReviewError("Continuity relationship marker values are invalid.")
+    candidate = canonical_continuity_candidate(candidate_binding)
+    if (
+        candidate["candidate_sha256"] != candidate_sha256
+        or candidate["repository"] != repository
+        or candidate["repository_id"] != repository_id
+        or candidate["pull_request"] != pr_number
+        or candidate["previous_head_sha"] != previous_head_sha
+        or candidate["previous_group_id"] != previous_group_id
+        or candidate["previous_issue_number"] != previous_issue_number
+        or canonical_json(candidate["anchor"]) != canonical_json(previous_anchor)
+    ):
+        raise ReviewError("Continuity relationship candidate binding drifted.")
+    payload = {
+        "candidate_binding": candidate,
+        "candidate_sha256": require_sha256(
+            candidate_sha256, "Continuity candidate SHA-256"
+        ),
+        "context_sha256": require_sha256(context_sha256, "Continuity context SHA-256"),
+        "current_anchor": require_continuity_anchor(current_anchor),
+        "current_group_id": current_group_id,
+        "current_head_sha": current_head_sha,
+        "first_head_sha": first_head_sha,
+        "previous_anchor": require_continuity_anchor(previous_anchor),
+        "previous_group_id": previous_group_id,
+        "previous_head_sha": previous_head_sha,
+        "previous_issue_number": previous_issue_number,
+        "protocol_sha256": require_sha256(
+            protocol_sha256, "Continuity protocol SHA-256"
+        ),
+        "pull_request": pr_number,
+        "repository": require_repository(repository),
+        "repository_id": repository_id,
+        "schema_version": CONTINUITY_SCHEMA_VERSION,
+        "verification_proof_sha256": require_sha256(
+            verification_proof_sha256, "Continuity verification proof SHA-256"
+        ),
+        "verifier_roles": list(CONTINUITY_VERIFIER_ROLES),
+    }
+    # The caller supplies the previous marker through its candidate. Keeping the
+    # value in the audit record prevents an Issue title/body rewrite from acting
+    # as a substitute for ancestry proof.
+    return CONTINUITY_RELATIONSHIP_MARKER_PREFIX + canonical_json(payload) + " -->"
+
+
+def continuity_relationship_markers(body: Any) -> list[str]:
+    text = body if isinstance(body, str) else ""
+    markers: list[str] = []
+    required = {
+        "candidate_binding",
+        "candidate_sha256",
+        "context_sha256",
+        "current_anchor",
+        "current_group_id",
+        "current_head_sha",
+        "first_head_sha",
+        "previous_anchor",
+        "previous_group_id",
+        "previous_head_sha",
+        "previous_issue_number",
+        "protocol_sha256",
+        "pull_request",
+        "repository",
+        "repository_id",
+        "schema_version",
+        "verification_proof_sha256",
+        "verifier_roles",
+    }
+    for line in text.splitlines():
+        if not line.startswith(CONTINUITY_RELATIONSHIP_MARKER_PREFIX):
+            continue
+        if not line.endswith(" -->"):
+            raise ReviewError("Continuity relationship marker is malformed.")
+        try:
+            payload = json.loads(line[len(CONTINUITY_RELATIONSHIP_MARKER_PREFIX) : -4])
+        except json.JSONDecodeError as exc:
+            raise ReviewError(
+                "Continuity relationship marker JSON is invalid."
+            ) from exc
+        if not isinstance(payload, dict) or set(payload) != required:
+            raise ReviewError("Continuity relationship marker schema is invalid.")
+        if (
+            payload.get("schema_version") != CONTINUITY_SCHEMA_VERSION
+            or type(payload.get("repository_id")) is not int
+            or payload["repository_id"] < 1
+            or type(payload.get("pull_request")) is not int
+            or payload["pull_request"] < 1
+            or type(payload.get("previous_issue_number")) is not int
+            or payload["previous_issue_number"] < 1
+            or not isinstance(payload.get("repository"), str)
+            or require_repository(payload["repository"]) != payload["repository"]
+            or any(
+                not isinstance(payload.get(key), str)
+                or not SHA_RE.fullmatch(payload[key])
+                for key in ("first_head_sha", "previous_head_sha", "current_head_sha")
+            )
+            or any(
+                not isinstance(payload.get(key), str)
+                or not STABLE_FINDING_ID_RE.fullmatch(payload[key])
+                for key in ("previous_group_id", "current_group_id")
+            )
+        ):
+            raise ReviewError("Continuity relationship marker values are invalid.")
+        for key, label in (
+            ("candidate_sha256", "Continuity candidate SHA-256"),
+            ("context_sha256", "Continuity context SHA-256"),
+            ("protocol_sha256", "Continuity protocol SHA-256"),
+            ("verification_proof_sha256", "Continuity verification proof SHA-256"),
+        ):
+            require_sha256(payload[key], label)
+        candidate = canonical_continuity_candidate(payload["candidate_binding"])
+        if (
+            candidate["candidate_sha256"] != payload["candidate_sha256"]
+            or candidate["repository"] != payload["repository"]
+            or candidate["repository_id"] != payload["repository_id"]
+            or candidate["pull_request"] != payload["pull_request"]
+            or candidate["previous_head_sha"] != payload["previous_head_sha"]
+            or candidate["previous_group_id"] != payload["previous_group_id"]
+            or candidate["previous_issue_number"] != payload["previous_issue_number"]
+            or canonical_json(candidate["anchor"])
+            != canonical_json(payload["previous_anchor"])
+        ):
+            raise ReviewError(
+                "Continuity relationship marker candidate binding drifted."
+            )
+        require_continuity_anchor(payload["previous_anchor"])
+        require_continuity_anchor(payload["current_anchor"])
+        require_continuity_verifier_roles(payload["verifier_roles"])
+        canonical = continuity_relationship_marker(
+            payload["repository"],
+            payload["repository_id"],
+            payload["pull_request"],
+            payload["first_head_sha"],
+            payload["previous_head_sha"],
+            payload["previous_group_id"],
+            payload["previous_issue_number"],
+            payload["candidate_sha256"],
+            candidate,
+            payload["previous_anchor"],
+            payload["current_group_id"],
+            payload["current_anchor"],
+            payload["current_head_sha"],
+            payload["context_sha256"],
+            payload["protocol_sha256"],
+            payload["verification_proof_sha256"],
+        )
+        if line != canonical:
+            raise ReviewError("Continuity relationship marker is not canonical JSON.")
+        markers.append(line)
+    if len(set(markers)) != len(markers):
+        raise ReviewError("Continuity relationship marker is duplicated.")
+    return markers
 
 
 def wait_for_finding_issue_convergence(
@@ -5163,15 +6001,7 @@ def verify_finding_issue(
     )
     body = value["body"]
     marker = parse_finding_issue_marker(body)
-    if (
-        marker is None
-        or finding_issue_marker(
-            int(marker["pull_request"]),
-            str(marker["head_sha"]),
-            str(marker["finding_id"]),
-        )
-        != expected_marker
-    ):
+    if marker is None or canonical_finding_issue_marker(marker) != expected_marker:
         raise ReviewError(
             "Agent review finding issue marker changed during publication."
         )
@@ -5338,15 +6168,7 @@ def finding_issue_recovery_candidate(
             continue
         body = issue.get("body")
         marker = parse_finding_issue_marker(body)
-        if (
-            marker is None
-            or finding_issue_marker(
-                int(marker["pull_request"]),
-                str(marker["head_sha"]),
-                str(marker["finding_id"]),
-            )
-            != expected_marker
-        ):
+        if marker is None or canonical_finding_issue_marker(marker) != expected_marker:
             continue
         operation = parse_operation_marker(body)
         if operation is None:
@@ -5438,6 +6260,9 @@ def synchronize_finding_issues(
     server_url: str,
     require_current_pr: Callable[[], dict[str, Any]],
     max_groups: int = 8,
+    continuity_context: dict[str, Any] | None = None,
+    continuity_adopted: dict[str, dict[str, Any]] | None = None,
+    continuity_proof_sha256: str | None = None,
 ) -> list[dict[str, Any]]:
     require_actionable_issue_group_limit(findings, max_groups)
     if type(repository_id) is not int or repository_id < 1:
@@ -5470,18 +6295,75 @@ def synchronize_finding_issues(
         expected_login,
         expected_bot_id,
     )
+    existing_by_number = {
+        int(issue["number"]): issue
+        for issue in existing.values()
+        if type(issue.get("number")) is int and issue["number"] > 0
+    }
+    continuity_candidates: dict[str, dict[str, Any]] = {}
+    if continuity_context is not None:
+        candidates = continuity_context.get("trusted", {}).get("continuity_candidates")
+        if not isinstance(candidates, list):
+            raise ReviewError("Continuity candidate inventory is missing.")
+        normalized_candidates = [
+            canonical_continuity_candidate(candidate) for candidate in candidates
+        ]
+        continuity_candidates = {
+            str(candidate["candidate_sha256"]): candidate
+            for candidate in normalized_candidates
+        }
+        if len(continuity_candidates) != len(candidates):
+            raise ReviewError("Continuity candidate inventory is ambiguous.")
+        if len(
+            {canonical_json(candidate["anchor"]) for candidate in normalized_candidates}
+        ) != len(normalized_candidates):
+            raise ReviewError("Continuity candidate inventory has duplicate anchors.")
+        if continuity_adopted is None or continuity_proof_sha256 is None:
+            raise ReviewError("Continuity verifier consensus is missing.")
+        require_sha256(continuity_proof_sha256, "Continuity proof SHA-256")
+    elif continuity_adopted:
+        raise ReviewError("Continuity adoption requires a bound context.")
     existing_binding: dict[str, str | None] = {}
+    retained_conflicts: dict[str, list[dict[str, Any]]] = {}
     claimed_existing_numbers: set[int] = set()
     for stable_id, actionable in selected.items():
         aliases = actionable_aliases[stable_id]
-        candidates = [
-            candidate for candidate in [stable_id, *aliases] if candidate in existing
-        ]
-        if len(candidates) > 1:
-            raise ReviewError(
-                "Multiple managed Issues match one actionable Issue group."
-            )
-        matched = candidates[0] if candidates else None
+        candidate_ids = [stable_id, *aliases]
+        candidates = [candidate for candidate in candidate_ids if candidate in existing]
+        if continuity_context is not None:
+            direct: list[str] = []
+            retained: list[dict[str, Any]] = []
+            for candidate_id in candidates:
+                issue = existing[candidate_id]
+                marker = parse_finding_issue_marker(issue.get("body"))
+                if marker is None:
+                    raise ReviewError("Existing Agent review issue lost its marker.")
+                # Aliases and all legacy/prior-head markers are audit records, not
+                # a migration key. Only an exact current-head v2 ID may bind here.
+                if (
+                    candidate_id == stable_id
+                    and marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V2
+                    and marker["repository"] == repository
+                    and marker["repository_id"] == repository_id
+                    and marker["pull_request"] == pr_number
+                    and finding_marker_current_head(marker) == head_sha
+                    and marker["finding_id"] == stable_id
+                    and canonical_json(marker["anchor"])
+                    == canonical_json(continuity_anchor(actionable["finding"]))
+                ):
+                    direct.append(candidate_id)
+                else:
+                    retained.append(issue)
+            if len(direct) > 1:
+                raise ReviewError("Multiple current-head Issues match one group.")
+            matched = direct[0] if direct else None
+            retained_conflicts[stable_id] = retained
+        else:
+            if len(candidates) > 1:
+                raise ReviewError(
+                    "Multiple managed Issues match one actionable Issue group."
+                )
+            matched = candidates[0] if candidates else None
         if matched is not None:
             number = existing[matched].get("number")
             if type(number) is not int or number < 1:
@@ -5500,19 +6382,101 @@ def synchronize_finding_issues(
     for stable_id, actionable in sorted(selected.items()):
         previous_id = existing_binding[stable_id]
         previous = existing.get(previous_id) if previous_id is not None else None
+        adoption = (continuity_adopted or {}).get(stable_id)
+        if adoption is not None:
+            candidate = continuity_candidates.get(str(adoption.get("candidate_sha256")))
+            if candidate is None:
+                raise ReviewError("Continuity adoption candidate is missing.")
+            candidate = canonical_continuity_candidate(candidate)
+            target_issue_number = candidate.get("previous_issue_number")
+            if type(target_issue_number) is not int or target_issue_number < 1:
+                raise ReviewError("Continuity adoption Issue number is invalid.")
+            previous = existing_by_number.get(target_issue_number)
+            if previous is None:
+                raise ReviewError("Continuity adoption Issue is no longer managed.")
+            previous_marker = parse_finding_issue_marker(previous.get("body"))
+            if (
+                previous_marker is None
+                or previous_marker.get("schema_version") != FINDING_ISSUE_SCHEMA_V2
+                or previous_marker["repository"] != repository
+                or previous_marker["repository_id"] != repository_id
+                or previous_marker["pull_request"] != pr_number
+                or previous_marker["finding_id"] != candidate["previous_group_id"]
+                or finding_marker_current_head(previous_marker)
+                != candidate["previous_head_sha"]
+                or canonical_json(previous_marker["anchor"])
+                != canonical_json(candidate["anchor"])
+            ):
+                raise ReviewError("Continuity adoption no longer binds its v2 Issue.")
+            if previous_id is not None and previous is not existing[previous_id]:
+                raise ReviewError(
+                    "Continuity adoption conflicts with current Issue identity."
+                )
+            conflicts = retained_conflicts.get(stable_id, [])
+            if any(conflict is not previous for conflict in conflicts):
+                raise ReviewError(
+                    "Continuity adoption conflicts with a retained Issue."
+                )
+            previous_id = str(candidate["previous_group_id"])
+        elif continuity_context is not None and previous is None:
+            conflicts = retained_conflicts.get(stable_id, [])
+            if conflicts:
+                # Do not create a duplicate or mutate legacy/unadopted history.
+                synchronized.append(
+                    {"actionable": actionable, "issue": conflicts[0], "retained": True}
+                )
+                continue
         target_issue_number = previous.get("number") if previous is not None else None
         if previous is not None and (
             type(target_issue_number) is not int or target_issue_number < 1
         ):
             raise ReviewError("Managed Issue number is invalid.")
         first_head_sha = head_sha
+        marker_line: str | None = None
+        relationship_markers: list[str] = []
         if previous is not None:
             marker = parse_finding_issue_marker(previous.get("body"))
             if marker is None:
                 raise ReviewError("Existing Agent review issue lost its marker.")
             parse_operation_marker(previous.get("body"))
-            first_head_sha = str(marker["head_sha"])
-        marker_line = finding_issue_marker(pr_number, first_head_sha, stable_id)
+            relationship_markers = continuity_relationship_markers(previous.get("body"))
+            first_head_sha = finding_marker_first_head(marker)
+        if continuity_context is not None:
+            marker_line = finding_issue_marker_v2(
+                repository,
+                repository_id,
+                pr_number,
+                first_head_sha,
+                head_sha,
+                stable_id,
+                continuity_anchor(actionable["finding"]),
+                str(continuity_context["binding"]["context_sha256"]),
+                str(continuity_context["binding"]["protocol_sha256"]),
+                str(continuity_proof_sha256),
+            )
+            if adoption is not None:
+                relationship_markers.append(
+                    continuity_relationship_marker(
+                        repository,
+                        repository_id,
+                        pr_number,
+                        first_head_sha,
+                        str(candidate["previous_head_sha"]),
+                        str(adoption["previous_group_id"]),
+                        int(adoption["previous_issue_number"]),
+                        str(adoption["candidate_sha256"]),
+                        candidate,
+                        adoption["previous_anchor"],
+                        stable_id,
+                        continuity_anchor(actionable["finding"]),
+                        str(continuity_context["binding"]["head_sha"]),
+                        str(continuity_context["binding"]["context_sha256"]),
+                        str(continuity_context["binding"]["protocol_sha256"]),
+                        str(continuity_proof_sha256),
+                    )
+                )
+        else:
+            marker_line = finding_issue_marker(pr_number, first_head_sha, stable_id)
         action = (
             "finding-issue-update" if previous is not None else "finding-issue-create"
         )
@@ -5539,6 +6503,8 @@ def synchronize_finding_issues(
                 run_url,
                 server_url,
                 operation,
+                marker_line,
+                relationship_markers,
             ),
             "labels": sorted(labels),
         }
@@ -5608,6 +6574,19 @@ def synchronize_finding_issues(
                 and issue["number"] in claimed_existing_numbers
             )
             or issue.get("state") != "open"
+        ):
+            continue
+        prior_marker = parse_finding_issue_marker(issue.get("body"))
+        if prior_marker is None:
+            raise ReviewError("Existing Agent review issue lost its marker.")
+        # Legacy and non-adopted prior-head Issues remain visible and blocking until
+        # a human resolves them; continuity must never close them to weaken the gate.
+        if continuity_context is not None and (
+            prior_marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V1
+            or (
+                prior_marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V2
+                and finding_marker_current_head(prior_marker) != head_sha
+            )
         ):
             continue
         issue_number = issue.get("number")
@@ -5775,13 +6754,41 @@ def synchronize_finding_issues(
                 ),
             )
 
+    expected_open_ids = set(selected)
+    if continuity_context is not None:
+        for stable_id, conflicts in retained_conflicts.items():
+            if (
+                existing_binding.get(stable_id) is None
+                and ((continuity_adopted or {}).get(stable_id) is None)
+                and conflicts
+            ):
+                expected_open_ids.discard(stable_id)
+                for issue in conflicts:
+                    marker = parse_finding_issue_marker(issue.get("body"))
+                    if marker is not None and issue.get("state") == "open":
+                        expected_open_ids.add(str(marker["finding_id"]))
+    for finding_id, issue in existing.items():
+        marker = parse_finding_issue_marker(issue.get("body"))
+        if (
+            continuity_context is not None
+            and marker is not None
+            and issue.get("state") == "open"
+            and (
+                marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V1
+                or (
+                    marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V2
+                    and finding_marker_current_head(marker) != head_sha
+                )
+            )
+        ):
+            expected_open_ids.add(finding_id)
     wait_for_finding_issue_convergence(
         client,
         repository,
         pr_number,
         expected_login,
         expected_bot_id,
-        set(selected),
+        expected_open_ids,
         require_current_pr,
     )
     return synchronized
@@ -5813,6 +6820,48 @@ def append_finding_issue_summary(
                 f"(`{markdown_code(actionable['stable_id'], 80)}`)"
             )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def append_continuity_summary(
+    review_body: str,
+    context: dict[str, Any],
+    adopted: dict[str, dict[str, Any]],
+    proof_sha256: str,
+) -> str:
+    candidates = {
+        str(candidate["candidate_sha256"]): candidate
+        for candidate in context.get("trusted", {}).get("continuity_candidates", [])
+    }
+    lineage: list[dict[str, Any]] = []
+    for current_group_id, relationship in sorted(adopted.items()):
+        candidate = candidates.get(str(relationship.get("candidate_sha256")))
+        if candidate is None:
+            raise ReviewError("Continuity summary candidate is missing.")
+        candidate = canonical_continuity_candidate(candidate)
+        lineage.append(
+            {
+                "candidate_binding": candidate,
+                "candidate_sha256": candidate["candidate_sha256"],
+                "current_group_id": current_group_id,
+                "first_head_sha": candidate["first_head_sha"],
+                "previous_group_id": candidate["previous_group_id"],
+                "previous_head_sha": candidate["previous_head_sha"],
+                "previous_issue_number": candidate["previous_issue_number"],
+            }
+        )
+    payload = {
+        "context_sha256": context["binding"]["context_sha256"],
+        "current_head_sha": context["binding"]["head_sha"],
+        "lineage": lineage,
+        "protocol_sha256": context["binding"]["protocol_sha256"],
+        "schema_version": CONTINUITY_SCHEMA_VERSION,
+        "verification_proof_sha256": require_sha256(
+            proof_sha256, "Continuity summary proof SHA-256"
+        ),
+        "verifier_roles": list(CONTINUITY_VERIFIER_ROLES),
+    }
+    marker = CONTINUITY_SUMMARY_MARKER_PREFIX + canonical_json(payload) + " -->"
+    return review_body.rstrip() + "\n\n" + marker + "\n"
 
 
 def managed_comment(
@@ -6365,6 +7414,11 @@ def command_publish(args: argparse.Namespace) -> int:
         )
         artifact_valid = False
         selected_findings: list[dict[str, Any]] = []
+        continuity_report_set: list[dict[str, Any]] = []
+        continuity_adopted: dict[str, dict[str, Any]] = {}
+        continuity_proof_sha256 = ""
+        continuity_path = getattr(args, "continuity", None)
+        continuity_required = route == PR_ROUTE_DEFERRED
         actionable_group_limit = 8
         required_paths = tuple(
             getattr(args, name, None)
@@ -6379,6 +7433,13 @@ def command_publish(args: argparse.Namespace) -> int:
         )
         if all(path is not None and path.exists() for path in required_paths):
             try:
+                if continuity_required and (
+                    not isinstance(continuity_path, Path)
+                    or not continuity_path.is_dir()
+                ):
+                    raise ReviewError(
+                        "Deferred Agent jury continuity reports are missing."
+                    )
                 config = deferred_config or load_config(args.config)
                 actionable_group_limit = max_actionable_issue_groups(config)
                 context = read_json(args.context)
@@ -6423,6 +7484,24 @@ def command_publish(args: argparse.Namespace) -> int:
                     else "Agent jury confirmed blockers"
                 )
                 selected_findings = actionable_findings(final, specialist_reports)
+                if continuity_required:
+                    continuity_report_set = load_reports(continuity_path)
+                    continuity_adopted = continuity_adoptions(
+                        continuity_report_set,
+                        context,
+                        continuity_groups(final, specialist_reports),
+                    )
+                    continuity_proof_sha256 = sha256_text(
+                        canonical_json(
+                            {
+                                "reports": sorted(
+                                    continuity_report_set,
+                                    key=lambda report: str(report.get("role")),
+                                ),
+                                "verifier_roles": list(CONTINUITY_VERIFIER_ROLES),
+                            }
+                        )
+                    )
                 artifact_valid = True
             except ReviewError as exc:
                 state = "failure"
@@ -6531,13 +7610,32 @@ def command_publish(args: argparse.Namespace) -> int:
                 server_url,
                 require_publishable_binding,
                 actionable_group_limit,
+                continuity_context=context if continuity_required else None,
+                continuity_adopted=continuity_adopted if continuity_required else None,
+                continuity_proof_sha256=(
+                    continuity_proof_sha256 if continuity_required else None
+                ),
             )
             review_body = append_finding_issue_summary(
                 review_body, synchronized, repository, server_url
             )
-            open_issue_count = len(synchronized)
+            if continuity_required:
+                review_body = append_continuity_summary(
+                    review_body, context, continuity_adopted, continuity_proof_sha256
+                )
+            open_issue_count = sum(
+                1
+                for issue in app_finding_issue_resources(
+                    agent_client,
+                    repository,
+                    pr_number,
+                    expected_app_login,
+                    expected_app_bot_id,
+                )
+                if issue.get("state") == "open"
+            )
         else:
-            existing_issues = app_finding_issues(
+            existing_issues = app_finding_issue_resources(
                 agent_client,
                 repository,
                 pr_number,
@@ -6545,7 +7643,7 @@ def command_publish(args: argparse.Namespace) -> int:
                 expected_app_bot_id,
             )
             open_issue_count = sum(
-                1 for issue in existing_issues.values() if issue.get("state") == "open"
+                1 for issue in existing_issues if issue.get("state") == "open"
             )
     except StaleAgentReviewRun:
         return stale_run_result()
@@ -6577,6 +7675,18 @@ def command_publish(args: argparse.Namespace) -> int:
         review_body.rstrip()
         + f"\n\n<sub>Updated {timestamp} - [workflow run]({args.run_url})</sub>\n"
     )
+    issue_gate_state = (
+        "failure" if not artifact_valid or open_issue_count else "success"
+    )
+    issue_gate_description = (
+        "Agent issue artifact validation failed"
+        if not artifact_valid
+        else (
+            f"{open_issue_count} open Agent review issue(s)"
+            if open_issue_count
+            else "No open Agent review issues"
+        )
+    )
     try:
         require_publishable_binding()
         require_comment_size(body, MAX_GITHUB_COMMENT_BODY_BYTES, "Agent jury comment")
@@ -6604,12 +7714,8 @@ def command_publish(args: argparse.Namespace) -> int:
             status_client,
             repository,
             head_sha,
-            "failure" if open_issue_count else "success",
-            (
-                f"{open_issue_count} open Agent review issue(s)"
-                if open_issue_count
-                else "No open Agent review issues"
-            ),
+            issue_gate_state,
+            issue_gate_description,
             args.run_url,
             ISSUE_STATUS_CONTEXT,
         )
@@ -6628,12 +7734,8 @@ def command_publish(args: argparse.Namespace) -> int:
             status_client,
             repository,
             head_sha,
-            "failure" if open_issue_count else "success",
-            (
-                f"{open_issue_count} open Agent review issue(s)"
-                if open_issue_count
-                else "No open Agent review issues"
-            ),
+            issue_gate_state,
+            issue_gate_description,
             args.run_url,
             ISSUE_STATUS_CONTEXT,
         )
@@ -6703,6 +7805,7 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--expected-head-sha", default="")
     prepare.add_argument("--allow-deferred", action="store_true")
     prepare.add_argument("--source-run-id", type=int, default=0)
+    prepare.add_argument("--continuity-candidates", action="store_true")
     prepare.add_argument("--base-root", required=True, type=Path)
     prepare.add_argument("--config", required=True, type=Path)
     prepare.add_argument("--context-output", required=True, type=Path)
@@ -6736,6 +7839,17 @@ def parser() -> argparse.ArgumentParser:
     chair.add_argument("--output-markdown", required=True, type=Path)
     chair.set_defaults(handler=command_chair)
 
+    continuity = commands.add_parser("continuity-review")
+    continuity.add_argument("--role", required=True)
+    continuity.add_argument("--config", required=True, type=Path)
+    continuity.add_argument("--prompt-root", required=True, type=Path)
+    continuity.add_argument("--context", required=True, type=Path)
+    continuity.add_argument("--specialists", required=True, type=Path)
+    continuity.add_argument("--verifiers", required=True, type=Path)
+    continuity.add_argument("--final-json", required=True, type=Path)
+    continuity.add_argument("--output", required=True, type=Path)
+    continuity.set_defaults(handler=command_continuity)
+
     roles = commands.add_parser("roles")
     roles.add_argument("--config", required=True, type=Path)
     roles.add_argument("--kind", required=True, choices=("specialist", "verifier"))
@@ -6765,6 +7879,7 @@ def parser() -> argparse.ArgumentParser:
     publish.add_argument("--verifiers", required=True, type=Path)
     publish.add_argument("--final-json", required=True, type=Path)
     publish.add_argument("--final-markdown", required=True, type=Path)
+    publish.add_argument("--continuity", type=Path)
     publish.add_argument("--run-url", required=True)
     publish.set_defaults(handler=command_publish)
     return result

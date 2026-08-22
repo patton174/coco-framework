@@ -3712,6 +3712,7 @@ class AgentReviewTests(unittest.TestCase):
                 context_path = root / "context.json"
                 specialists_path = root / "specialists"
                 verifiers_path = root / "verifiers"
+                continuity_path = root / "continuity"
                 final_json_path = root / "final.json"
                 final_markdown_path = root / "final.md"
                 review.write_json(metadata_path, metadata)
@@ -3730,6 +3731,7 @@ class AgentReviewTests(unittest.TestCase):
                 )
                 specialists_path.mkdir()
                 verifiers_path.mkdir()
+                continuity_path.mkdir()
                 review.write_json(final_json_path, {"verdict": "PASS"})
                 final_markdown_path.write_text("validated report\n", encoding="utf-8")
                 status_client = FakeStatusClient()
@@ -3747,6 +3749,8 @@ class AgentReviewTests(unittest.TestCase):
                     ),
                     patch.object(review, "validate_context"),
                     patch.object(review, "load_reports", return_value=[]),
+                    patch.object(review, "continuity_adoptions", return_value={}),
+                    patch.object(review, "continuity_groups", return_value=[]),
                     patch.object(
                         review,
                         "validate_final_artifact",
@@ -3793,6 +3797,7 @@ class AgentReviewTests(unittest.TestCase):
                                 verifiers=verifiers_path,
                                 final_json=final_json_path,
                                 final_markdown=final_markdown_path,
+                                continuity=continuity_path,
                                 run_url="https://github.example/runs/42",
                             )
                         )
@@ -4617,7 +4622,7 @@ class AgentReviewTests(unittest.TestCase):
         created_marker = review.parse_finding_issue_marker(created["body"])
         self.assertEqual(HEAD_SHA, created_marker["head_sha"])
 
-    def test_v1_bound_issue_reconciles_to_current_v2_group_without_duplication(
+    def test_v1_bound_issue_is_retained_without_automatic_migration(
         self,
     ) -> None:
         app_login = "coco-agent[bot]"
@@ -4682,14 +4687,20 @@ class AgentReviewTests(unittest.TestCase):
             "https://github.example/runs/1",
             "https://github.example",
             lambda: {},
+            continuity_context={
+                "binding": context["binding"],
+                "trusted": {"continuity_candidates": []},
+            },
+            continuity_adopted={},
+            continuity_proof_sha256="c" * 64,
         )
         self.assertEqual(1, len(synchronized))
-        self.assertEqual(1, len(client.writes))
+        self.assertTrue(synchronized[0]["retained"])
+        self.assertEqual([], client.writes)
         self.assertEqual("open", client.issue["state"])
         marker = review.parse_finding_issue_marker(client.issue["body"])
-        self.assertEqual(group_id, marker["finding_id"])
+        self.assertEqual(legacy_id, marker["finding_id"])
         self.assertEqual(BASE_SHA, marker["head_sha"])
-        self.assertIn(legacy_id, client.issue["body"])
 
     def test_issue_sync_rejects_v1_v2_candidate_ambiguity_before_writes(self) -> None:
         app_login = "coco-agent[bot]"
@@ -4872,7 +4883,7 @@ class AgentReviewTests(unittest.TestCase):
             ),
         )
 
-    def test_v1_alias_migrations_preserve_each_legacy_first_head(self) -> None:
+    def test_v1_aliases_are_retained_without_automatic_migration(self) -> None:
         app_login = "coco-agent[bot]"
         context = bound_context()
         first = specialist_report("correctness", context, severity="P1")["findings"][0]
@@ -4957,24 +4968,22 @@ class AgentReviewTests(unittest.TestCase):
             "https://github.example/runs/1",
             "https://github.example",
             lambda: {},
+            continuity_context={
+                "binding": context["binding"],
+                "trusted": {"continuity_candidates": []},
+            },
+            continuity_adopted={},
+            continuity_proof_sha256="c" * 64,
         )
         self.assertEqual(2, len(synchronized))
-        self.assertEqual(
-            {
-                "repos/patton174/coco-framework/issues/11",
-                "repos/patton174/coco-framework/issues/12",
-            },
-            {path for _, path, _ in client.writes},
-        )
-        self.assertTrue(all(method == "PATCH" for method, _, _ in client.writes))
+        self.assertTrue(all(value["retained"] for value in synchronized))
+        self.assertEqual([], client.writes)
         first_marker = review.parse_finding_issue_marker(client.issues[11]["body"])
         second_marker = review.parse_finding_issue_marker(client.issues[12]["body"])
-        self.assertEqual(first_group_id, first_marker["finding_id"])
+        self.assertEqual(first_legacy_id, first_marker["finding_id"])
         self.assertEqual(first_head, first_marker["head_sha"])
-        self.assertEqual(second_group_id, second_marker["finding_id"])
+        self.assertEqual(second_legacy_id, second_marker["finding_id"])
         self.assertEqual(second_head, second_marker["head_sha"])
-        self.assertIn(first_legacy_id, client.issues[11]["body"])
-        self.assertIn(second_legacy_id, client.issues[12]["body"])
 
     def test_operation_marker_is_canonical_and_rejects_confusable_values(self) -> None:
         marker = review.operation_marker(
@@ -5926,7 +5935,18 @@ class AgentReviewTests(unittest.TestCase):
         closing_issue = {
             **previous,
             "number": 9,
-            "body": review.finding_issue_marker(60, BASE_SHA, group_id)
+            "body": review.finding_issue_marker_v2(
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                BASE_SHA,
+                HEAD_SHA,
+                group_id,
+                review.continuity_anchor(finding),
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            )
             + "\nOld body\n",
         }
         for name, uncertain in (("normal", False), ("recovery", True)):
@@ -7326,30 +7346,46 @@ class AgentReviewTests(unittest.TestCase):
             workflow_verifiers = workflow.split("\n  verifiers:\n", 1)[1].split(
                 "\n  chair:\n", 1
             )[0]
-            workflow_chair = workflow.split("\n  chair:\n", 1)[1].split(
-                "\n  publisher-admission:\n", 1
-            )[0]
+            chair_end = (
+                "\n  continuity-verifiers:\n"
+                if workflow_name == "deferred"
+                else "\n  publisher-admission:\n"
+            )
+            workflow_chair = workflow.split("\n  chair:\n", 1)[1].split(chair_end, 1)[0]
+            workflow_continuity = (
+                workflow.split("\n  continuity-verifiers:\n", 1)[1].split(
+                    "\n  publisher-admission:\n", 1
+                )[0]
+                if workflow_name == "deferred"
+                else ""
+            )
             workflow_admission = workflow.split("\n  publisher-admission:\n", 1)[
                 1
             ].split("\n  trusted-publisher:\n", 1)[0]
-            for section_name, section in (
+            model_sections = [
                 ("prepare", workflow_prepare),
                 ("specialists", workflow_specialists),
                 ("verifiers", workflow_verifiers),
                 ("chair", workflow_chair),
                 ("publisher admission", workflow_admission),
-            ):
+            ]
+            if workflow_continuity:
+                model_sections.append(("continuity", workflow_continuity))
+            for section_name, section in model_sections:
                 for variable in model_variables:
                     self.assertEqual(
                         1,
                         section.count(f"{variable}: ${{{{ vars.{variable} }}}}"),
                         f"{workflow_name} {section_name}: {variable}",
                     )
-            for section_name, section in (
+            api_key_sections = [
                 ("specialists", workflow_specialists),
                 ("verifiers", workflow_verifiers),
                 ("chair", workflow_chair),
-            ):
+            ]
+            if workflow_continuity:
+                api_key_sections.append(("continuity", workflow_continuity))
+            for section_name, section in api_key_sections:
                 self.assertEqual(
                     1,
                     section.count(
@@ -7419,6 +7455,12 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("workflow_dispatch", review_workflow)
 
         self.assertIn("name: Deferred Agent Review Jury", deferred_workflow)
+        self.assertNotIn("continuity-verifiers", review_workflow)
+        self.assertIn("--continuity-candidates", deferred_workflow)
+        self.assertIn("continuity-verifiers", deferred_workflow)
+        self.assertIn(
+            '--continuity "${RUNNER_TEMP}/agent-review-continuity"', deferred_workflow
+        )
         self.assertIn(
             'run-name: "Deferred Agent Review Jury / source run #${{ github.event.workflow_run.id }}"',
             deferred_workflow,
@@ -7457,7 +7499,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("refs/pull/", deferred_workflow)
         self.assertNotIn("/merge", deferred_workflow)
         self.assertNotIn(model_environment, direct_workflow)
-        self.assertEqual(4, deferred_workflow.count(model_environment))
+        self.assertEqual(5, deferred_workflow.count(model_environment))
         self.assertIn("environment: coco-agent", deferred_workflow)
         deferred_pre_model = deferred_workflow.split("\n  prepare:\n", 1)[0]
         deferred_admission = deferred_workflow.split("\n  publisher-admission:\n", 1)[
@@ -12703,9 +12745,9 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(55_632, largest_size)
-        self.assertEqual(8_368, limit - largest_size)
-        self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 15)
+        self.assertEqual(56_500, largest_size)
+        self.assertEqual(7_500, limit - largest_size)
+        self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
@@ -12719,6 +12761,693 @@ class AgentReviewTests(unittest.TestCase):
                 review.ReviewError, "exceeds the context budget"
             ):
                 review.collect_policy(root, bounded, ["probe"], [])
+
+    def test_invalid_trusted_artifacts_publish_both_failure_gates(
+        self,
+    ) -> None:
+        class StatusClient:
+            api_url = "https://api.github.com"
+
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                if path == f"repos/{REPOSITORY}/commits/{HEAD_SHA}/status":
+                    return combined_ownership_status(42)
+                raise AssertionError(f"Unexpected status read: {path}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return commit_status_response(path, payload)
+
+        class AgentClient:
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                if method != "POST" or not path.endswith("/comments"):
+                    raise AssertionError(f"Unexpected Agent write: {method} {path}")
+                return {
+                    "id": 7,
+                    "body": payload["body"],
+                    "user": app_actor(),
+                }
+
+        for mode in ("missing", "malformed", "stale"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                metadata_path = root / "metadata.json"
+                metadata = {
+                    **trusted_metadata(),
+                    "review_route": review.PR_ROUTE_DEFERRED,
+                    "deferred": True,
+                    "source_run_id": 7,
+                    "context_sha256": "a" * 64,
+                    "protocol_sha256": "b" * 64,
+                }
+                review.write_json(metadata_path, metadata)
+                required = {
+                    "config": root / "config.json",
+                    "context": root / "context.json",
+                    "specialists": root / "specialists",
+                    "verifiers": root / "verifiers",
+                    "final_json": root / "final.json",
+                    "final_markdown": root / "final.md",
+                }
+                for name, path in required.items():
+                    if name.endswith("s"):
+                        path.mkdir()
+                    else:
+                        path.write_text("{}", encoding="utf-8")
+                review.write_json(
+                    required["context"],
+                    {
+                        "binding": {
+                            "head_sha": HEAD_SHA,
+                            "base_sha": BASE_SHA,
+                            "context_sha256": metadata["context_sha256"],
+                            "protocol_sha256": metadata["protocol_sha256"],
+                            "model_config_sha256": MODEL_CONFIG_SHA256,
+                        }
+                    },
+                )
+                review.write_json(required["final_json"], {"verdict": "PASS"})
+                required["final_markdown"].write_text(
+                    "validated report\n", encoding="utf-8"
+                )
+                continuity = root / "continuity"
+                if mode != "missing":
+                    continuity.mkdir()
+                status_client = StatusClient()
+                with (
+                    patch.object(
+                        review,
+                        "GitHubClient",
+                        side_effect=[status_client, AgentClient()],
+                    ),
+                    patch.object(review, "revalidate_model_configuration_if_available"),
+                    patch.object(review, "validate_context"),
+                    patch.object(
+                        review,
+                        "load_config",
+                        return_value={"max_actionable_issue_groups": 8},
+                    ),
+                    patch.object(
+                        review,
+                        "load_reports",
+                        side_effect=lambda path: (
+                            (_ for _ in ()).throw(
+                                review.ReviewError("malformed continuity")
+                            )
+                            if mode == "malformed" and path == continuity
+                            else []
+                        ),
+                    ),
+                    patch.object(
+                        review,
+                        "validate_final_artifact",
+                        return_value="validated report\n",
+                    ),
+                    patch.object(review, "continuity_adoptions") as adoptions,
+                    patch.object(
+                        review,
+                        "deferred_review_binding",
+                        return_value={"base_sha": BASE_SHA},
+                    ),
+                    patch("builtins.print"),
+                    patch.dict(
+                        "os.environ",
+                        {
+                            "GH_TOKEN": "token",
+                            "AGENT_GH_TOKEN": "agent-token",
+                            "COCO_AGENT_APP_LOGIN": APP_LOGIN,
+                            "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                        },
+                        clear=True,
+                    ),
+                ):
+                    if mode == "stale":
+                        adoptions.side_effect = review.ReviewError("stale continuity")
+                    result = review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            **required,
+                            continuity=continuity,
+                            run_url="https://github.example/runs/42",
+                        )
+                    )
+
+                self.assertEqual(1, result)
+                self.assertEqual(2, len(status_client.sent))
+                self.assertEqual(
+                    {review.ISSUE_STATUS_CONTEXT, review.STATUS_CONTEXT},
+                    {payload["context"] for _, _, payload in status_client.sent},
+                )
+                self.assertTrue(
+                    all(
+                        payload["state"] == "failure"
+                        for _, _, payload in status_client.sent
+                    )
+                )
+
+
+class CrossHeadContinuityTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.finding = {
+            "file": ".github/scripts/agent_review.py",
+            "category": "governance",
+            "severity": "P1",
+            "start_line": 100,
+            "end_line": 110,
+        }
+        self.anchor = review.continuity_anchor(self.finding)
+        material = {
+            "anchor": self.anchor,
+            "context_sha256": "a" * 64,
+            "current_head_sha": HEAD_SHA,
+            "first_head_sha": BASE_SHA,
+            "previous_group_id": "v2-" + "1" * 64,
+            "previous_head_sha": BASE_SHA,
+            "previous_issue_number": 7,
+            "protocol_sha256": "b" * 64,
+            "pull_request": 60,
+            "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
+            "schema_version": 2,
+            "verification_proof_sha256": "c" * 64,
+            "verifier_roles": ["evidence-verifier", "policy-skeptic"],
+        }
+        self.candidate = {
+            **material,
+            "candidate_sha256": review.sha256_text(review.canonical_json(material)),
+        }
+        self.context = {
+            "binding": {
+                "context_sha256": "a" * 64,
+                "head_sha": HEAD_SHA,
+                "protocol_sha256": "b" * 64,
+            },
+            "trusted": {"continuity_candidates": [self.candidate]},
+        }
+        self.groups = [
+            {
+                "current_group_id": "v2-" + "2" * 64,
+                "anchor": self.anchor,
+            }
+        ]
+
+    def relationship(self, action: str = "ADOPT", **changes: object) -> dict:
+        values: dict[str, object] = {
+            "schema_version": 2,
+            "action": action,
+            "current_group_id": self.groups[0]["current_group_id"],
+            "current_anchor": self.anchor,
+            "candidate_sha256": self.candidate["candidate_sha256"]
+            if action == "ADOPT"
+            else None,
+            "previous_group_id": self.candidate["previous_group_id"]
+            if action == "ADOPT"
+            else None,
+            "previous_issue_number": self.candidate["previous_issue_number"]
+            if action == "ADOPT"
+            else None,
+            "previous_anchor": self.candidate["anchor"] if action == "ADOPT" else None,
+        }
+        return {**values, **changes}
+
+    def report(self, role: str, relationship: dict | None = None) -> dict:
+        return {
+            "schema_version": 2,
+            "role": role,
+            "binding": self.context["binding"],
+            "relationships": [relationship or self.relationship()],
+        }
+
+    def test_v2_marker_is_canonical_and_v1_remains_legacy(self) -> None:
+        marker = review.finding_issue_marker_v2(
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            BASE_SHA,
+            HEAD_SHA,
+            self.groups[0]["current_group_id"],
+            self.anchor,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+        )
+        parsed = review.parse_finding_issue_marker(marker + "\nDetails\n")
+        self.assertEqual(2, parsed["schema_version"])
+        self.assertEqual(HEAD_SHA, review.finding_marker_current_head(parsed))
+        malformed = marker.replace(
+            '"schema_version":2', '"schema_version":2,"extra":true'
+        )
+        with self.assertRaises(review.ReviewError):
+            review.parse_finding_issue_marker(malformed)
+        legacy = review.parse_finding_issue_marker(
+            review.finding_issue_marker(60, BASE_SHA, "v1-" + "d" * 64)
+        )
+        self.assertEqual(1, legacy["schema_version"])
+        relationship = review.continuity_relationship_marker(
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            BASE_SHA,
+            BASE_SHA,
+            self.candidate["previous_group_id"],
+            7,
+            self.candidate["candidate_sha256"],
+            self.candidate,
+            self.anchor,
+            self.groups[0]["current_group_id"],
+            self.anchor,
+            HEAD_SHA,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+        )
+        self.assertEqual(
+            [relationship], review.continuity_relationship_markers(relationship)
+        )
+        with self.assertRaises(review.ReviewError):
+            review.continuity_relationship_markers(
+                relationship.replace('"schema_version":2', '"schema_version":2,"x":1')
+            )
+        with self.assertRaisesRegex(review.ReviewError, "does not match"):
+            review.continuity_relationship_markers(
+                relationship.replace(self.candidate["candidate_sha256"], "d" * 64, 1)
+            )
+
+    def test_candidate_inventory_rejects_duplicate_canonical_anchor(self) -> None:
+        duplicate_material = {
+            **{
+                key: value
+                for key, value in self.candidate.items()
+                if key
+                not in {
+                    "candidate_sha256",
+                    "previous_group_id",
+                    "previous_issue_number",
+                }
+            },
+            "previous_group_id": "v2-" + "3" * 64,
+            "previous_issue_number": 8,
+        }
+        duplicate = {
+            **duplicate_material,
+            "candidate_sha256": review.sha256_text(
+                review.canonical_json(duplicate_material)
+            ),
+        }
+        context = {
+            **self.context,
+            "trusted": {"continuity_candidates": [self.candidate, duplicate]},
+        }
+
+        class Client:
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return []
+
+        with self.assertRaisesRegex(review.ReviewError, "duplicate anchors"):
+            review.synchronize_finding_issues(
+                Client(),
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                [],
+                (1, 1),
+                APP_LOGIN,
+                APP_BOT_ID,
+                "https://github.example/runs/1",
+                "https://github.example",
+                lambda: {},
+                continuity_context=context,
+                continuity_adopted={},
+                continuity_proof_sha256="f" * 64,
+            )
+
+    def test_v2_finding_recovery_revalidates_without_legacy_head_access(self) -> None:
+        stable_id = self.groups[0]["current_group_id"]
+        marker = review.finding_issue_marker_v2(
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            BASE_SHA,
+            HEAD_SHA,
+            stable_id,
+            self.anchor,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+        )
+        operation = review.operation_marker(
+            REPOSITORY,
+            REPOSITORY_ID,
+            APP_LOGIN,
+            APP_BOT_ID,
+            (42, 1),
+            60,
+            HEAD_SHA,
+            stable_id,
+            "finding-issue-create",
+        )
+        issue = finding_issue_resource(7, marker, operation)
+
+        class Client:
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return [issue]
+
+        def verify(value: object) -> dict:
+            return review.verify_finding_issue(
+                value,
+                APP_LOGIN,
+                APP_BOT_ID,
+                marker,
+                operation,
+                "title",
+                issue["body"],
+                {review.FINDING_ISSUE_LABEL},
+                "open",
+                expected_number=7,
+            )
+
+        recovered = review.finding_issue_recovery_candidate(
+            Client(), REPOSITORY, APP_LOGIN, APP_BOT_ID, marker, operation, verify
+        )
+        self.assertEqual(review.RecoveryState.EXACT, recovered.state)
+
+    def test_current_head_v2_direct_reuse_requires_complete_marker_binding(
+        self,
+    ) -> None:
+        stable_id = self.groups[0]["current_group_id"]
+        finding = {
+            **self.finding,
+            "title": "Bound current-head finding",
+            "claim": "The protected marker must bind the current group.",
+            "trigger": "Run the trusted publisher.",
+            "impact": "An unrelated Issue could otherwise be rewritten.",
+            "evidence": "The canonical anchor differs.",
+            "verification": "Check exact marker fields before PATCH.",
+        }
+        actionable = {
+            "stable_id": stable_id,
+            "legacy_finding_ids": [],
+            "source_id": "source",
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+        }
+
+        def marker(
+            repository: str = REPOSITORY,
+            repository_id: int = REPOSITORY_ID,
+            anchor: dict | None = None,
+        ) -> str:
+            return review.finding_issue_marker_v2(
+                repository,
+                repository_id,
+                60,
+                BASE_SHA,
+                HEAD_SHA,
+                stable_id,
+                anchor or self.anchor,
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            )
+
+        class Client:
+            def __init__(self, issue: dict) -> None:
+                self.issue = issue
+                self.writes: list[tuple[str, str, dict]] = []
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return [self.issue]
+
+            def get_json(self, path: str) -> dict:
+                return {"name": review.FINDING_ISSUE_LABEL}
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.writes.append((method, path, payload))
+                self.issue.update(payload)
+                self.issue["labels"] = [{"name": name} for name in payload["labels"]]
+                return self.issue
+
+        drifted_anchor = {**self.anchor, "start_line": 99}
+        drifted_anchor["locator_sha256"] = review.sha256_text(
+            review.canonical_json(
+                {
+                    key: value
+                    for key, value in drifted_anchor.items()
+                    if key != "locator_sha256"
+                }
+            )
+        )
+        cases = {
+            "exact": marker(),
+            "cross-repository": marker(repository="other/repository"),
+            "repository-id": marker(repository_id=REPOSITORY_ID + 1),
+            "anchor-drift": marker(anchor=drifted_anchor),
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                client = Client(
+                    {
+                        "number": 7,
+                        "title": "old",
+                        "body": body,
+                        "state": "open",
+                        "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                        "user": app_actor(),
+                    }
+                )
+                synchronized = review.synchronize_finding_issues(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    60,
+                    HEAD_SHA,
+                    [actionable],
+                    (1, 1),
+                    APP_LOGIN,
+                    APP_BOT_ID,
+                    "https://github.example/runs/1",
+                    "https://github.example",
+                    lambda: {},
+                    continuity_context=self.context,
+                    continuity_adopted={},
+                    continuity_proof_sha256="f" * 64,
+                )
+                if name == "exact":
+                    self.assertEqual(1, len(client.writes))
+                    self.assertNotIn("retained", synchronized[0])
+                else:
+                    self.assertEqual([], client.writes)
+                    self.assertTrue(synchronized[0]["retained"])
+
+    def test_candidate_collection_rejects_non_ancestor_cross_binding_legacy_and_actor(
+        self,
+    ) -> None:
+        marker = review.finding_issue_marker_v2(
+            REPOSITORY,
+            REPOSITORY_ID,
+            60,
+            BASE_SHA,
+            BASE_SHA,
+            self.candidate["previous_group_id"],
+            self.anchor,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+        )
+        trusted_issue = {
+            "number": 7,
+            "body": marker,
+            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+            "user": app_actor(),
+        }
+
+        class Client:
+            def __init__(self, issue: dict, ancestor: bool = True) -> None:
+                self.issue = issue
+                self.ancestor = ancestor
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return [self.issue]
+
+            def get_json(self, path: str) -> dict:
+                return {
+                    "status": "ahead" if self.ancestor else "diverged",
+                    "ahead_by": 1 if self.ancestor else 0,
+                    "behind_by": 0 if self.ancestor else 1,
+                }
+
+        self.assertEqual(
+            1,
+            len(
+                review.collect_continuity_candidates(
+                    Client(trusted_issue),
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    60,
+                    HEAD_SHA,
+                    APP_LOGIN,
+                    APP_BOT_ID,
+                )
+            ),
+        )
+        cases = {
+            "cross-pr": review.finding_issue_marker_v2(
+                REPOSITORY,
+                REPOSITORY_ID,
+                61,
+                BASE_SHA,
+                BASE_SHA,
+                self.candidate["previous_group_id"],
+                self.anchor,
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            ),
+            "cross-repo": review.finding_issue_marker_v2(
+                "other/repository",
+                REPOSITORY_ID,
+                60,
+                BASE_SHA,
+                BASE_SHA,
+                self.candidate["previous_group_id"],
+                self.anchor,
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            ),
+            "legacy": review.finding_issue_marker(60, BASE_SHA, "v1-" + "e" * 64),
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                issue = {**trusted_issue, "body": body}
+                self.assertEqual(
+                    [],
+                    review.collect_continuity_candidates(
+                        Client(issue),
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        60,
+                        HEAD_SHA,
+                        APP_LOGIN,
+                        APP_BOT_ID,
+                    ),
+                )
+        self.assertEqual(
+            [],
+            review.collect_continuity_candidates(
+                Client(trusted_issue, ancestor=False),
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                APP_LOGIN,
+                APP_BOT_ID,
+            ),
+        )
+        untrusted = {**trusted_issue, "user": app_actor(APP_BOT_ID + 1, "other[bot]")}
+        self.assertEqual(
+            [],
+            review.collect_continuity_candidates(
+                Client(untrusted),
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                APP_LOGIN,
+                APP_BOT_ID,
+            ),
+        )
+
+    def test_two_verifier_adoption_is_one_to_one_and_fail_closed(self) -> None:
+        left = self.report("evidence-verifier")
+        right = self.report("policy-skeptic")
+        adopted = review.continuity_adoptions([left, right], self.context, self.groups)
+        self.assertEqual(
+            self.candidate["candidate_sha256"],
+            adopted[self.groups[0]["current_group_id"]]["candidate_sha256"],
+        )
+
+        cases = {
+            "single-verifier": [left],
+            "disagreement": [
+                left,
+                self.report("policy-skeptic", self.relationship("INSUFFICIENT")),
+            ],
+            "anchor-drift": [
+                left,
+                self.report(
+                    "policy-skeptic",
+                    self.relationship(
+                        previous_anchor={**self.anchor, "start_line": 99}
+                    ),
+                ),
+            ],
+            "stale-head-binding": [
+                {**left, "binding": {**self.context["binding"], "head_sha": BASE_SHA}},
+                right,
+            ],
+        }
+        for name, reports in cases.items():
+            with self.subTest(case=name):
+                if name == "disagreement":
+                    self.assertEqual(
+                        {},
+                        review.continuity_adoptions(reports, self.context, self.groups),
+                    )
+                else:
+                    with self.assertRaises(review.ReviewError):
+                        review.continuity_adoptions(reports, self.context, self.groups)
+
+        extra_group = {"current_group_id": "v2-" + "3" * 64, "anchor": self.anchor}
+        duplicate_reports = []
+        for role in ("evidence-verifier", "policy-skeptic"):
+            report = self.report(role)
+            relation = self.relationship(
+                current_group_id=extra_group["current_group_id"]
+            )
+            report["relationships"].append(relation)
+            duplicate_reports.append(report)
+        with self.assertRaisesRegex(review.ReviewError, "Multiple current groups"):
+            review.continuity_adoptions(
+                duplicate_reports, self.context, [*self.groups, extra_group]
+            )
+
+    def test_chair_data_cannot_create_continuity_and_summary_records_lineage(
+        self,
+    ) -> None:
+        self.assertEqual(
+            {},
+            review.continuity_adoptions(
+                [
+                    self.report("evidence-verifier", self.relationship("INSUFFICIENT")),
+                    self.report("policy-skeptic", self.relationship("INSUFFICIENT")),
+                ],
+                self.context,
+                self.groups,
+            ),
+        )
+        body = review.append_continuity_summary(
+            review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nBody\n",
+            self.context,
+            {self.groups[0]["current_group_id"]: self.relationship()},
+            "f" * 64,
+        )
+        self.assertIn(review.CONTINUITY_SUMMARY_MARKER_PREFIX, body)
+        self.assertIn(BASE_SHA, body)
+        self.assertIn(HEAD_SHA, body)
 
 
 if __name__ == "__main__":
