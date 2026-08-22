@@ -4524,6 +4524,136 @@ class AgentReviewTests(unittest.TestCase):
                 "open",
             )
 
+    def test_write_actor_incomplete_is_uncertain_but_mismatch_is_conflict(self) -> None:
+        app_login = "coco-agent[bot]"
+        finding_id = "v2-" + "a" * 64
+        finding_marker = review.finding_issue_marker(60, BASE_SHA, finding_id)
+        operation = review.operation_marker(
+            REPOSITORY,
+            REPOSITORY_ID,
+            app_login,
+            APP_BOT_ID,
+            (42, 1),
+            60,
+            HEAD_SHA,
+            finding_id,
+            "finding-issue-update",
+        )
+        body = f"{finding_marker}\n{operation}\nBody\n"
+        issue = {
+            "number": 8,
+            "title": "Finding",
+            "body": body,
+            "state": "open",
+            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+        comment = {
+            "id": 7,
+            "body": "Old body",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        for user in ({}, {"id": APP_BOT_ID}, {"login": app_login, "type": "Bot"}):
+            with self.subTest(incomplete=user):
+                with self.assertRaises(review.GitHubUncertainWriteResponse):
+                    review.verify_finding_issue(
+                        {**issue, "user": user},
+                        app_login,
+                        APP_BOT_ID,
+                        finding_marker,
+                        operation,
+                        issue["title"],
+                        body,
+                        {review.FINDING_ISSUE_LABEL},
+                        "open",
+                        expected_number=8,
+                    )
+                with self.assertRaises(review.GitHubUncertainWriteResponse):
+                    review.verify_finding_issue_snapshot(
+                        {**issue, "user": user}, issue, app_login, APP_BOT_ID
+                    )
+                with self.assertRaises(review.GitHubUncertainWriteResponse):
+                    review.verify_managed_comment_snapshot(
+                        {**comment, "user": user}, comment, app_login, APP_BOT_ID
+                    )
+
+        wrong_user = {
+            "id": APP_BOT_ID + 1,
+            "login": "other-app[bot]",
+            "type": "Bot",
+        }
+        for verifier in (
+            lambda: review.verify_finding_issue(
+                {**issue, "user": wrong_user},
+                app_login,
+                APP_BOT_ID,
+                finding_marker,
+                operation,
+                issue["title"],
+                body,
+                {review.FINDING_ISSUE_LABEL},
+                "open",
+                expected_number=8,
+            ),
+            lambda: review.verify_finding_issue_snapshot(
+                {**issue, "user": wrong_user}, issue, app_login, APP_BOT_ID
+            ),
+            lambda: review.verify_managed_comment_snapshot(
+                {**comment, "user": wrong_user}, comment, app_login, APP_BOT_ID
+            ),
+        ):
+            with self.subTest(verifier=verifier):
+                with self.assertRaises(review.ReviewError) as raised:
+                    verifier()
+                self.assertNotIsInstance(
+                    raised.exception, review.GitHubUncertainWriteResponse
+                )
+
+    def test_uncertain_write_recovery_bounds_transient_lookup_failures(self) -> None:
+        checks: list[int] = []
+        lookups = 0
+
+        def lookup() -> review.RecoveryProbe:
+            nonlocal lookups
+            lookups += 1
+            if lookups < 3:
+                raise review.GitHubTransientError("temporary recovery read failure")
+            return review.recovery_exact({"id": 7})
+
+        with patch.object(review.time, "sleep") as sleep:
+            value = review.uncertain_write_recovery(
+                "managed-comment-update",
+                f"repos/{REPOSITORY}/issues/comments/7",
+                lambda: checks.append(1) or {},
+                lookup,
+            )
+        self.assertEqual({"id": 7}, value)
+        self.assertEqual(3, lookups)
+        self.assertEqual(6, len(checks))
+        self.assertEqual(
+            list(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[:2]),
+            [call.args[0] for call in sleep.call_args_list],
+        )
+
+        checks.clear()
+        attempts = len(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS) + 1
+        with patch.object(review.time, "sleep") as sleep:
+            with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
+                review.uncertain_write_recovery(
+                    "managed-comment-update",
+                    f"repos/{REPOSITORY}/issues/comments/7",
+                    lambda: checks.append(1) or {},
+                    lambda: (_ for _ in ()).throw(
+                        review.GitHubTransientError("temporary recovery read failure")
+                    ),
+                )
+        self.assertEqual(attempts * 2, len(checks))
+        self.assertEqual(
+            list(review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS),
+            [call.args[0] for call in sleep.call_args_list],
+        )
+
     def test_non_managed_label_write_does_not_enter_operation_recovery(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
@@ -4792,8 +4922,8 @@ class AgentReviewTests(unittest.TestCase):
     ) -> None:
         app_login = "coco-agent[bot]"
 
-        for previous, response, action in (
-            (None, None, "managed-comment-create"),
+        for previous, response_mode, action in (
+            (None, "empty", "managed-comment-create"),
             (
                 {
                     "id": 7,
@@ -4801,11 +4931,33 @@ class AgentReviewTests(unittest.TestCase):
                     + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
                     "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
                 },
-                {},
+                "empty",
+                "managed-comment-update",
+            ),
+            (None, "transient", "managed-comment-create"),
+            (
+                {
+                    "id": 7,
+                    "body": review.COMMENT_MARKER
+                    + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+                    "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                },
+                "transient",
+                "managed-comment-update",
+            ),
+            (None, "incomplete-actor", "managed-comment-create"),
+            (
+                {
+                    "id": 7,
+                    "body": review.COMMENT_MARKER
+                    + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+                    "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                },
+                "incomplete-actor",
                 "managed-comment-update",
             ),
         ):
-            with self.subTest(action=action):
+            with self.subTest(action=action, response=response_mode):
 
                 class FakeClient:
                     def __init__(self) -> None:
@@ -4846,7 +4998,11 @@ class AgentReviewTests(unittest.TestCase):
                                 },
                             }
                         ]
-                        return response
+                        if response_mode == "transient":
+                            raise review.GitHubTransientError("write outcome unknown")
+                        if response_mode == "incomplete-actor":
+                            return {**self.comments[0], "user": {}}
+                        return None
 
                 client = FakeClient()
                 checks: list[int] = []
@@ -4876,6 +5032,118 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertEqual(
                     (42, 1), (operation["run_id"], operation["run_attempt"])
                 )
+
+    def test_comment_recovery_ignores_untrusted_operation_markers(self) -> None:
+        app_login = "coco-agent[bot]"
+        body = review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nResult\n"
+        wrong_user = {
+            "id": APP_BOT_ID + 1,
+            "login": "other-app[bot]",
+            "type": "Bot",
+        }
+        trusted_user = {"id": APP_BOT_ID, "login": app_login, "type": "Bot"}
+
+        for marker_case in ("malformed", "matching"):
+            with self.subTest(marker=marker_case):
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.reads = 0
+                        self.sent: list[tuple[str, str, dict]] = []
+
+                    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                        if (
+                            path != f"repos/{REPOSITORY}/issues/60/comments"
+                            or limit != 500
+                        ):
+                            raise AssertionError(f"Unexpected comments read: {path}")
+                        self.reads += 1
+                        if self.reads == 1:
+                            return []
+                        published = self.sent[0][2]["body"]
+                        untrusted_body = (
+                            review.OPERATION_MARKER_PREFIX + "not-json -->"
+                            if marker_case == "malformed"
+                            else published
+                        )
+                        return [
+                            {"id": 6, "body": untrusted_body, "user": wrong_user},
+                            {"id": 7, "body": published, "user": trusted_user},
+                        ]
+
+                    def send_json(
+                        self, method: str, path: str, payload: dict
+                    ) -> object:
+                        self.sent.append((method, path, payload))
+                        raise review.GitHubTransientError("write outcome unknown")
+
+                client = FakeClient()
+                result = review.upsert_comment(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    60,
+                    HEAD_SHA,
+                    body,
+                    (42, 1),
+                    app_login,
+                    APP_BOT_ID,
+                    lambda: {},
+                )
+                self.assertEqual(7, result["id"])
+                self.assertEqual(1, len(client.sent))
+
+    def test_comment_recovery_trusted_malformed_marker_fails_closed(self) -> None:
+        app_login = "coco-agent[bot]"
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.reads = 0
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                if (
+                    path != f"repos/{REPOSITORY}/issues/60/comments"
+                    or limit != 500
+                ):
+                    raise AssertionError(f"Unexpected comments read: {path}")
+                self.reads += 1
+                if self.reads == 1:
+                    return []
+                return [
+                    {
+                        "id": 7,
+                        "body": review.OPERATION_MARKER_PREFIX + "not-json -->",
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                    }
+                ]
+
+            def send_json(self, method: str, path: str, payload: dict) -> object:
+                if (
+                    method != "POST"
+                    or path != f"repos/{REPOSITORY}/issues/60/comments"
+                    or not isinstance(payload.get("body"), str)
+                ):
+                    raise AssertionError(f"Unexpected comment write: {method} {path}")
+                raise review.GitHubTransientError("write outcome unknown")
+
+        with self.assertRaisesRegex(review.ReviewError, "marker JSON"):
+            review.upsert_comment(
+                FakeClient(),
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                review.COMMENT_MARKER
+                + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                (42, 1),
+                app_login,
+                APP_BOT_ID,
+                lambda: {},
+            )
 
     def test_uncertain_issue_closure_comment_and_close_recover_without_rewrite(
         self,
@@ -4934,11 +5202,11 @@ class AgentReviewTests(unittest.TestCase):
                             },
                         }
                     ]
-                    return None
+                    raise review.GitHubTransientError("write outcome unknown")
                 self.pending_issue = json.loads(json.dumps(self.issue))
                 self.issue.update(payload)
                 self.issue["labels"] = [{"name": name} for name in payload["labels"]]
-                return {}
+                raise review.GitHubTransientError("write outcome unknown")
 
         client = FakeClient()
         with patch.object(review.time, "sleep"):
@@ -4984,8 +5252,8 @@ class AgentReviewTests(unittest.TestCase):
             "finding": finding,
         }
 
-        for previous, response, expected_action in (
-            (None, None, "finding-issue-create"),
+        for previous, response_mode, expected_action in (
+            (None, "empty", "finding-issue-create"),
             (
                 {
                     "number": 8,
@@ -5000,11 +5268,47 @@ class AgentReviewTests(unittest.TestCase):
                         "type": "Bot",
                     },
                 },
-                {},
+                "empty",
+                "finding-issue-update",
+            ),
+            (None, "transient", "finding-issue-create"),
+            (
+                {
+                    "number": 8,
+                    "title": "Old finding",
+                    "body": review.finding_issue_marker(60, BASE_SHA, group_id)
+                    + "\nOld body\n",
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                },
+                "transient",
+                "finding-issue-update",
+            ),
+            (None, "incomplete-actor", "finding-issue-create"),
+            (
+                {
+                    "number": 8,
+                    "title": "Old finding",
+                    "body": review.finding_issue_marker(60, BASE_SHA, group_id)
+                    + "\nOld body\n",
+                    "state": "open",
+                    "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                },
+                "incomplete-actor",
                 "finding-issue-update",
             ),
         ):
-            with self.subTest(action=expected_action):
+            with self.subTest(action=expected_action, response=response_mode):
 
                 class FakeClient:
                     def __init__(self) -> None:
@@ -5056,7 +5360,11 @@ class AgentReviewTests(unittest.TestCase):
                         self.issue["labels"] = [
                             {"name": name} for name in payload["labels"]
                         ]
-                        return response
+                        if response_mode == "transient":
+                            raise review.GitHubTransientError("write outcome unknown")
+                        if response_mode == "incomplete-actor":
+                            return {**self.issue, "user": {}}
+                        return None
 
                 client = FakeClient()
                 with patch.object(review.time, "sleep"):
@@ -11967,8 +12275,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(55_190, largest_size)
-        self.assertEqual(8_810, limit - largest_size)
+        self.assertEqual(55_359, largest_size)
+        self.assertEqual(8_641, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 15)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:

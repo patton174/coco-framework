@@ -4643,6 +4643,37 @@ def require_resource_actor(
     return resource
 
 
+def require_write_resource_actor(
+    resource: Any, expected_login: str, expected_bot_id: int, label: str
+) -> dict[str, Any]:
+    if not isinstance(resource, dict):
+        raise GitHubUncertainWriteResponse(f"{label} GitHub response is invalid.")
+    user = resource.get("user")
+    if (
+        not isinstance(user, dict)
+        or not isinstance(user.get("login"), str)
+        or not user["login"]
+        or type(user.get("id")) is not int
+        or user["id"] < 1
+        or not isinstance(user.get("type"), str)
+        or not user["type"]
+    ):
+        raise GitHubUncertainWriteResponse(
+            f"{label} GitHub response has an incomplete actor identity."
+        )
+    return require_resource_actor(resource, expected_login, expected_bot_id, label)
+
+
+def resource_has_expected_actor(
+    resource: Any, expected_login: str, expected_bot_id: int, label: str
+) -> bool:
+    try:
+        require_resource_actor(resource, expected_login, expected_bot_id, label)
+    except ReviewError:
+        return False
+    return True
+
+
 def normalized_finding_identity_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
 
@@ -4991,7 +5022,7 @@ def verify_finding_issue(
     expected_state_reason: str | None = None,
     expected_number: int | None = None,
 ) -> dict[str, Any]:
-    if not isinstance(issue, dict) or not isinstance(issue.get("user"), dict):
+    if not isinstance(issue, dict):
         raise GitHubUncertainWriteResponse(
             "GitHub finding Issue write returned an incomplete resource."
         )
@@ -5023,7 +5054,7 @@ def verify_finding_issue(
         raise GitHubUncertainWriteResponse(
             "GitHub finding Issue write returned an incomplete resource."
         )
-    value = require_resource_actor(
+    value = require_write_resource_actor(
         issue, expected_login, expected_bot_id, "Agent review finding issue"
     )
     body = value["body"]
@@ -5104,7 +5135,7 @@ def verify_finding_issue_snapshot(
     expected_login: str,
     expected_bot_id: int,
 ) -> dict[str, Any]:
-    if not isinstance(issue, dict) or not isinstance(issue.get("user"), dict):
+    if not isinstance(issue, dict):
         raise GitHubUncertainWriteResponse(
             "GitHub finding Issue recovery returned an incomplete resource."
         )
@@ -5124,7 +5155,7 @@ def verify_finding_issue_snapshot(
         raise ReviewError(
             "Agent review finding Issue recovery returned invalid field types."
         )
-    value = require_resource_actor(
+    value = require_write_resource_actor(
         issue, expected_login, expected_bot_id, "Agent review finding issue"
     )
     if (
@@ -5155,7 +5186,11 @@ def uncertain_write_recovery(
             file=sys.stderr,
         )
         require_current_pr()
-        probe = lookup()
+        try:
+            probe = lookup()
+        except GitHubTransientError:
+            require_current_pr()
+            continue
         require_current_pr()
         if not isinstance(probe, RecoveryProbe):
             raise ReviewError("Uncertain write recovery returned an invalid state.")
@@ -5418,7 +5453,7 @@ def synchronize_finding_issues(
                     write_payload,
                 )
             value = verify(issue)
-        except GitHubUncertainWriteResponse:
+        except (GitHubUncertainWriteResponse, GitHubTransientError):
             if previous is None:
                 value = recover_finding_issue_create(
                     client,
@@ -5515,7 +5550,7 @@ def synchronize_finding_issues(
                 raise GitHubUncertainWriteResponse(
                     "GitHub closure comment write returned an incomplete resource."
                 )
-            comment = require_resource_actor(
+            comment = require_write_resource_actor(
                 value,
                 expected_login,
                 expected_bot_id,
@@ -5535,13 +5570,20 @@ def synchronize_finding_issues(
             verify_closure_comment(
                 client.send_json("POST", closure_path, {"body": closure_body})
             )
-        except GitHubUncertainWriteResponse:
+        except (GitHubUncertainWriteResponse, GitHubTransientError):
 
             def closure_comment_candidate() -> RecoveryProbe:
                 comments = client.paginate(closure_path, limit=500)
                 matches: list[dict[str, Any]] = []
                 for value in comments:
                     if not isinstance(value, dict):
+                        continue
+                    if not resource_has_expected_actor(
+                        value,
+                        expected_login,
+                        expected_bot_id,
+                        "Agent review issue closure comment",
+                    ):
                         continue
                     body = value.get("body")
                     operation = parse_operation_marker(body)
@@ -5598,7 +5640,7 @@ def synchronize_finding_issues(
                     "PATCH", f"repos/{repository}/issues/{issue_number}", close_payload
                 )
             )
-        except GitHubUncertainWriteResponse:
+        except (GitHubUncertainWriteResponse, GitHubTransientError):
             recover_finding_issue_by_number(
                 client,
                 repository,
@@ -5698,7 +5740,7 @@ def verify_managed_comment_snapshot(
     expected_login: str,
     expected_bot_id: int,
 ) -> dict[str, Any]:
-    if not isinstance(value, dict) or not isinstance(value.get("user"), dict):
+    if not isinstance(value, dict):
         raise GitHubUncertainWriteResponse(
             "GitHub managed comment recovery returned an incomplete resource."
         )
@@ -5710,7 +5752,7 @@ def verify_managed_comment_snapshot(
         raise ReviewError("GitHub managed comment recovery returned an invalid ID.")
     if not isinstance(value["body"], str):
         raise ReviewError("GitHub managed comment recovery returned an invalid body.")
-    comment = require_resource_actor(
+    comment = require_write_resource_actor(
         value, expected_login, expected_bot_id, "Agent jury managed comment"
     )
     if comment["id"] != previous.get("id") or comment["body"] != previous.get("body"):
@@ -5766,7 +5808,7 @@ def upsert_comment(
     )
 
     def verify(value: Any) -> dict[str, Any]:
-        if not isinstance(value, dict) or not isinstance(value.get("user"), dict):
+        if not isinstance(value, dict):
             raise GitHubUncertainWriteResponse(
                 "GitHub managed comment write returned an incomplete resource."
             )
@@ -5784,7 +5826,7 @@ def upsert_comment(
             raise GitHubUncertainWriteResponse(
                 "GitHub managed comment write returned an incomplete resource."
             )
-        comment = require_resource_actor(
+        comment = require_write_resource_actor(
             value, expected_login, expected_bot_id, "Agent jury managed comment"
         )
         if comment["body"] != published_body:
@@ -5807,7 +5849,7 @@ def upsert_comment(
         method = "POST"
     try:
         return verify(client.send_json(method, path, {"body": published_body}))
-    except GitHubUncertainWriteResponse:
+    except (GitHubUncertainWriteResponse, GitHubTransientError):
 
         def comment_candidate() -> RecoveryProbe:
             comments = client.paginate(
@@ -5818,6 +5860,13 @@ def upsert_comment(
             target: list[dict[str, Any]] = []
             for value in comments:
                 if not isinstance(value, dict):
+                    continue
+                if not resource_has_expected_actor(
+                    value,
+                    expected_login,
+                    expected_bot_id,
+                    "Agent jury managed comment",
+                ):
                     continue
                 comment_body = value.get("body")
                 if previous is not None and value.get("id") == previous.get("id"):
@@ -5837,18 +5886,10 @@ def upsert_comment(
                     )
                     if canonical == marker:
                         matches.append(value)
-                login = str((value.get("user") or {}).get("login") or "")
                 if (
-                    login == expected_login
-                    and isinstance(comment_body, str)
+                    isinstance(comment_body, str)
                     and comment_body.startswith((COMMENT_MARKER, LEGACY_COMMENT_MARKER))
                 ):
-                    require_resource_actor(
-                        value,
-                        expected_login,
-                        expected_bot_id,
-                        "Agent jury managed comment",
-                    )
                     managed.append(value)
             if len(managed) > 1:
                 return recovery_conflict(

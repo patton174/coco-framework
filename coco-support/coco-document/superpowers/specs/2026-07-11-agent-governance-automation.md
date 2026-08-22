@@ -143,8 +143,11 @@ cross-head identity continuity 不在本协议。
 
 受信 Issue/comment 写入使用严格 canonical operation marker，绑定 repository/ID、App login/Bot ID、run/attempt、
 PR/head/group 与枚举 action；Issue finding marker 仍为首行，operation marker 为次行。2xx 空/null/坏 JSON/结构响应
-不重发；有界读取经 PR 前后复核。写前快照仅为 pending；actor/identity/target ID/body/state 全匹配才 exact。新 run、
-错 identity、重复/冲突/head 漂移立即 fail closed，0 匹配耗尽失败。衍生写入须在首写前校验正文预算。
+或写调用的暂态传输、HTTP 408/429/5xx 失败均不重发，而进入有界只读对账；对账读取暂态失败消耗同一重试窗口，
+每轮仍经 PR 前后复核。写前快照、缺失或结构不完整 actor 仅为 pending；完整 actor 明确错配以及 identity/target
+ID/body/state 冲突才 hard conflict。comment 对账必须先验证精确 App 身份再解析 operation marker，忽略未受信评论，
+但受信 malformed marker 立即 fail closed。新 run、重复/冲突/head 漂移立即 fail closed，0 匹配耗尽失败。
+衍生写入须在首写前校验正文预算。
 status 须用正整数 ID 和 client API URL 绑定 endpoint，且匹配 state/context/description/target URL；status/label
 不恢复/重发。日志仅含 action/attempt/path。
 
