@@ -533,7 +533,7 @@ class AgentReviewTests(unittest.TestCase):
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
-        self.assertEqual(52_000, limits["policy_chars"])
+        self.assertEqual(52_400, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
