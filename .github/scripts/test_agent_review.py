@@ -41,6 +41,8 @@ MODEL_CONFIG_SHA256 = review.sha256_text(
     )
 )
 NON_MODEL_JOB_FORBIDDEN_ENV = ("COCO_AGENT_MODEL_API_KEY",)
+APP_LOGIN = "coco-agent[bot]"
+GITHUB_RESPONSE_READ_LIMIT = 4 * 1024 * 1024 + 1
 
 
 def commit_status_response(
@@ -124,6 +126,207 @@ class FakeModelResponse:
     def read(self, limit: int) -> bytes:
         self.read_limit = limit
         return self.body[:limit]
+
+
+class FakeGitHubHeaders:
+    def __init__(
+        self,
+        content_lengths: list[str] | None = None,
+        transfer_encodings: list[str] | None = None,
+    ) -> None:
+        self.content_lengths = content_lengths or []
+        self.transfer_encodings = transfer_encodings or []
+
+    def get_all(self, name: str) -> list[str] | None:
+        values = {
+            "content-length": self.content_lengths,
+            "transfer-encoding": self.transfer_encodings,
+        }.get(name.lower(), [])
+        return values or None
+
+    def items(self) -> list[tuple[str, str]]:
+        return [
+            *[("Content-Length", value) for value in self.content_lengths],
+            *[("Transfer-Encoding", value) for value in self.transfer_encodings],
+        ]
+
+
+class FakeGitHubResponse:
+    def __init__(
+        self,
+        body: bytes = b"",
+        *,
+        error: BaseException | None = None,
+        headers: object | None = None,
+        content_length: int | None = None,
+    ) -> None:
+        self.body = body
+        self.error = error
+        self.headers = (
+            headers
+            if headers is not None
+            else (
+                {"Content-Length": str(content_length)}
+                if content_length is not None
+                else {}
+            )
+        )
+        self.reads = 0
+
+    def __enter__(self) -> "FakeGitHubResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self, limit: int) -> bytes:
+        self.reads += 1
+        if limit != GITHUB_RESPONSE_READ_LIMIT:
+            raise AssertionError(f"Unexpected read limit: {limit}")
+        if self.error is not None:
+            raise self.error
+        return self.body
+
+
+class FailingReadBody:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    def read(self, limit: int) -> bytes:
+        if limit != 4097:
+            raise AssertionError(f"Unexpected error read limit: {limit}")
+        raise self.error
+
+    def close(self) -> None:
+        return None
+
+
+def transient_transport_errors() -> tuple[BaseException, ...]:
+    return (
+        TimeoutError("response timeout"),
+        ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
+        ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
+        review.http.client.RemoteDisconnected("remote disconnected"),
+        review.http.client.IncompleteRead(b"partial", 10),
+        review.ssl.SSLEOFError("TLS EOF"),
+        review.ssl.SSLZeroReturnError("TLS connection closed"),
+    )
+
+
+def permanent_transport_errors() -> tuple[BaseException, ...]:
+    return (
+        OSError(review.errno.EMFILE, "too many open files"),
+        review.ssl.SSLCertVerificationError("certificate rejected"),
+        review.ssl.SSLError("TLS protocol error"),
+    )
+
+
+def managed_comment(body: str) -> dict:
+    return {
+        "id": 7,
+        "body": body,
+        "user": {"id": APP_BOT_ID, "login": APP_LOGIN, "type": "Bot"},
+    }
+
+
+def app_actor(
+    bot_id: int = APP_BOT_ID, login: str = APP_LOGIN, actor_type: str = "Bot"
+) -> dict:
+    return {"id": bot_id, "login": login, "type": actor_type}
+
+
+def test_operation_marker(
+    default_group_id: str, default_action: str, **changes: object
+) -> str:
+    values = {
+        "repository": REPOSITORY,
+        "repository_id": REPOSITORY_ID,
+        "expected_login": APP_LOGIN,
+        "expected_bot_id": APP_BOT_ID,
+        "run_order": (42, 1),
+        "pr_number": 60,
+        "head_sha": HEAD_SHA,
+        "group_id": default_group_id,
+        "action": default_action,
+    }
+    return review.operation_marker(**{**values, **changes})
+
+
+def finding_issue_resource(
+    number: int,
+    marker: str,
+    operation: str,
+    user: dict | None = None,
+) -> dict:
+    return {
+        "number": number,
+        "title": "title",
+        "body": f"{marker}\n{operation}\nBody\n",
+        "state": "open",
+        "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+        "user": user or app_actor(),
+    }
+
+
+class FindingIssueScanClient:
+    def __init__(self, issues: list[dict]) -> None:
+        self.issues = issues
+        self.scans = 0
+
+    def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+        self.scans += 1
+        return self.issues
+
+
+def old_managed_comment() -> dict:
+    return managed_comment(
+        review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n"
+    )
+
+
+def test_managed_comment_body() -> str:
+    return review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nResult\n"
+
+
+def upsert_test_comment(
+    prior: dict | None, require_current_pr: object
+) -> dict[str, object]:
+    return review.upsert_comment(
+        review.GitHubClient("token"),
+        REPOSITORY,
+        REPOSITORY_ID,
+        60,
+        HEAD_SHA,
+        test_managed_comment_body(),
+        (42, 1),
+        APP_LOGIN,
+        APP_BOT_ID,
+        require_current_pr,
+        prior,
+    )
+
+
+def synchronize_test_findings(client: object, findings: list[dict]) -> list[dict]:
+    return review.synchronize_finding_issues(
+        client,
+        REPOSITORY,
+        REPOSITORY_ID,
+        60,
+        HEAD_SHA,
+        findings,
+        (42, 1),
+        APP_LOGIN,
+        APP_BOT_ID,
+        "https://github.example/runs/42",
+        "https://github.example",
+        lambda: {},
+    )
+
+
+def github_request_method(request: object, timeout: int) -> str:
+    if timeout != 60 or not isinstance(request, review.urllib.request.Request):
+        raise AssertionError("Unexpected GitHub request")
+    return request.get_method()
 
 
 def anthropic_envelope(
@@ -1375,27 +1578,13 @@ class AgentReviewTests(unittest.TestCase):
         self,
     ) -> None:
         client = review.GitHubClient("token")
-        transient_errors = (
-            TimeoutError("response timeout"),
-            ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
-            ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
-            review.http.client.RemoteDisconnected("remote disconnected"),
-            review.http.client.IncompleteRead(b"partial", 10),
-            review.ssl.SSLEOFError("TLS EOF"),
-            review.ssl.SSLZeroReturnError("TLS connection closed"),
-        )
-        for error in transient_errors:
+        for error in transient_transport_errors():
             with self.subTest(error=type(error).__name__):
                 with patch.object(review.urllib.request, "urlopen", side_effect=error):
                     with self.assertRaises(review.GitHubTransientError):
                         client.get_json(f"repos/{REPOSITORY}")
 
-        permanent_errors = (
-            OSError(review.errno.EMFILE, "too many open files"),
-            review.ssl.SSLCertVerificationError("certificate rejected"),
-            review.ssl.SSLError("TLS protocol error"),
-        )
-        for error in permanent_errors:
+        for error in permanent_transport_errors():
             with self.subTest(error=type(error).__name__):
                 with patch.object(review.urllib.request, "urlopen", side_effect=error):
                     with self.assertRaises(type(error)) as raised:
@@ -1405,46 +1594,11 @@ class AgentReviewTests(unittest.TestCase):
     def test_truncated_retryable_http_error_reconciles_without_write_replay(
         self,
     ) -> None:
-        app_login = "coco-agent[bot]"
-        previous = {
-            "id": 7,
-            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
-            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-        }
-
-        class FailingErrorBody:
-            def __init__(self, error: BaseException) -> None:
-                self.error = error
-
-            def read(self, limit: int) -> bytes:
-                if limit != 4097:
-                    raise AssertionError(f"Unexpected error read limit: {limit}")
-                raise self.error
-
-            def close(self) -> None:
-                return None
-
-        class FakeResponse:
-            def __init__(self, body: bytes) -> None:
-                self.body = body
-                self.headers: dict[str, str] = {}
-
-            def __enter__(self) -> "FakeResponse":
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def read(self, limit: int) -> bytes:
-                if limit != 4 * 1024 * 1024 + 1:
-                    raise AssertionError(f"Unexpected read limit: {limit}")
-                return self.body
-
         error_factories = (
             lambda: review.http.client.IncompleteRead(b"partial", 10),
             lambda: review.http.client.RemoteDisconnected("remote disconnected"),
         )
-        for prior, method in ((None, "POST"), (previous, "PATCH")):
+        for prior, method in ((None, "POST"), (old_managed_comment(), "PATCH")):
             for error_factory in error_factories:
                 body_error = error_factory()
                 with self.subTest(method=method, error=type(body_error).__name__):
@@ -1453,44 +1607,32 @@ class AgentReviewTests(unittest.TestCase):
                     reads = 0
                     writes = 0
 
-                    def urlopen(request: object, timeout: int) -> FakeResponse:
+                    def urlopen(request: object, timeout: int) -> FakeGitHubResponse:
                         nonlocal persisted, reads, recovery_reads, writes
-                        if timeout != 60 or not isinstance(
-                            request, review.urllib.request.Request
-                        ):
-                            raise AssertionError("Unexpected GitHub request")
-                        request_method = request.get_method()
+                        request_method = github_request_method(request, timeout)
                         if request_method == "GET":
                             reads += 1
                             if persisted is None:
-                                return FakeResponse(b"[]")
+                                return FakeGitHubResponse(b"[]")
                             recovery_reads += 1
                             if recovery_reads == 1:
                                 raise review.http.client.RemoteDisconnected(
                                     "recovery connection closed"
                                 )
-                            return FakeResponse(
+                            return FakeGitHubResponse(
                                 review.canonical_json([persisted]).encode("utf-8")
                             )
                         if request_method != method:
                             raise AssertionError(f"Unexpected write: {request_method}")
                         writes += 1
                         payload = json.loads(bytes(request.data or b"{}"))
-                        persisted = {
-                            "id": 7,
-                            "body": payload["body"],
-                            "user": {
-                                "id": APP_BOT_ID,
-                                "login": app_login,
-                                "type": "Bot",
-                            },
-                        }
+                        persisted = managed_comment(payload["body"])
                         raise review.urllib.error.HTTPError(
                             request.full_url,
                             503,
                             "temporary",
                             {"Transfer-Encoding": "chunked"},
-                            FailingErrorBody(body_error),
+                            FailingReadBody(body_error),
                         )
 
                     checks: list[int] = []
@@ -1498,19 +1640,8 @@ class AgentReviewTests(unittest.TestCase):
                         patch.object(review.urllib.request, "urlopen", urlopen),
                         patch.object(review.time, "sleep") as sleep,
                     ):
-                        result = review.upsert_comment(
-                            review.GitHubClient("token"),
-                            REPOSITORY,
-                            REPOSITORY_ID,
-                            60,
-                            HEAD_SHA,
-                            review.COMMENT_MARKER
-                            + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
-                            (42, 1),
-                            app_login,
-                            APP_BOT_ID,
-                            lambda: checks.append(1) or {},
-                            prior,
+                        result = upsert_test_comment(
+                            prior, lambda: checks.append(1) or {}
                         )
                     self.assertEqual(7, result["id"])
                     self.assertEqual(1, writes)
@@ -1524,18 +1655,6 @@ class AgentReviewTests(unittest.TestCase):
     def test_truncated_nonretryable_http_error_has_no_fabricated_detail(
         self,
     ) -> None:
-        class FailingErrorBody:
-            def __init__(self, error: BaseException) -> None:
-                self.error = error
-
-            def read(self, limit: int) -> bytes:
-                if limit != 4097:
-                    raise AssertionError(f"Unexpected error read limit: {limit}")
-                raise self.error
-
-            def close(self) -> None:
-                return None
-
         client = review.GitHubClient("token")
         path = f"repos/{REPOSITORY}/issues"
         truncated = review.urllib.error.HTTPError(
@@ -1543,7 +1662,7 @@ class AgentReviewTests(unittest.TestCase):
             422,
             "unprocessable",
             {"Transfer-Encoding": "chunked"},
-            FailingErrorBody(review.http.client.IncompleteRead(b"partial", 10)),
+            FailingReadBody(review.http.client.IncompleteRead(b"partial", 10)),
         )
         with patch.object(review.urllib.request, "urlopen", side_effect=truncated):
             with self.assertRaises(review.ReviewError) as raised:
@@ -1560,7 +1679,7 @@ class AgentReviewTests(unittest.TestCase):
             422,
             "unprocessable",
             None,
-            FailingErrorBody(permanent),
+            FailingReadBody(permanent),
         )
         with patch.object(review.urllib.request, "urlopen", side_effect=error):
             with self.assertRaises(OSError) as permanent_raised:
@@ -1570,95 +1689,33 @@ class AgentReviewTests(unittest.TestCase):
     def test_github_client_read_failures_reconcile_post_and_patch_without_replay(
         self,
     ) -> None:
-        app_login = "coco-agent[bot]"
-        previous = {
-            "id": 7,
-            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
-            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-        }
-        response_errors = (
-            TimeoutError("response timeout"),
-            ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
-            ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
-            review.http.client.RemoteDisconnected("remote disconnected"),
-            review.http.client.IncompleteRead(b"partial", 10),
-            review.ssl.SSLEOFError("TLS EOF"),
-            review.ssl.SSLZeroReturnError("TLS connection closed"),
-        )
-
-        for prior, method in ((None, "POST"), (previous, "PATCH")):
-            for response_error in response_errors:
+        for prior, method in ((None, "POST"), (old_managed_comment(), "PATCH")):
+            for response_error in transient_transport_errors():
                 with self.subTest(method=method, error=type(response_error).__name__):
                     persisted: dict | None = None
                     writes = 0
                     reads = 0
 
-                    class FakeResponse:
-                        def __init__(
-                            self, body: bytes = b"", error: BaseException | None = None
-                        ) -> None:
-                            self.body = body
-                            self.error = error
-                            self.headers: dict[str, str] = {}
-
-                        def __enter__(self) -> "FakeResponse":
-                            return self
-
-                        def __exit__(self, *args: object) -> None:
-                            return None
-
-                        def read(self, limit: int) -> bytes:
-                            self.assert_limit(limit)
-                            if self.error is not None:
-                                raise self.error
-                            return self.body
-
-                        @staticmethod
-                        def assert_limit(limit: int) -> None:
-                            if limit != 4 * 1024 * 1024 + 1:
-                                raise AssertionError(f"Unexpected read limit: {limit}")
-
-                    def urlopen(request: object, timeout: int) -> FakeResponse:
+                    def urlopen(request: object, timeout: int) -> FakeGitHubResponse:
                         nonlocal persisted, reads, writes
-                        if timeout != 60 or not isinstance(
-                            request, review.urllib.request.Request
-                        ):
-                            raise AssertionError("Unexpected GitHub request")
-                        request_method = request.get_method()
+                        request_method = github_request_method(request, timeout)
                         if request_method == "GET":
                             reads += 1
                             values = [] if persisted is None else [persisted]
-                            return FakeResponse(review.canonical_json(values).encode())
+                            return FakeGitHubResponse(
+                                review.canonical_json(values).encode()
+                            )
                         if request_method != method:
                             raise AssertionError(f"Unexpected write: {request_method}")
                         writes += 1
                         payload = json.loads(bytes(request.data or b"{}"))
-                        persisted = {
-                            "id": 7,
-                            "body": payload["body"],
-                            "user": {
-                                "id": APP_BOT_ID,
-                                "login": app_login,
-                                "type": "Bot",
-                            },
-                        }
-                        return FakeResponse(error=response_error)
+                        persisted = managed_comment(payload["body"])
+                        return FakeGitHubResponse(error=response_error)
 
                     checks: list[int] = []
                     with patch.object(review.urllib.request, "urlopen", urlopen):
-                        result = review.upsert_comment(
-                            review.GitHubClient("token"),
-                            REPOSITORY,
-                            REPOSITORY_ID,
-                            60,
-                            HEAD_SHA,
-                            review.COMMENT_MARKER
-                            + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
-                            (42, 1),
-                            app_login,
-                            APP_BOT_ID,
-                            lambda: checks.append(1) or {},
-                            prior,
+                        result = upsert_test_comment(
+                            prior, lambda: checks.append(1) or {}
                         )
                     self.assertEqual(7, result["id"])
                     self.assertEqual(1, writes)
@@ -1666,74 +1723,27 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertEqual(3, len(checks))
 
     def test_github_client_read_failures_use_bounded_recovery_gets(self) -> None:
-        app_login = "coco-agent[bot]"
-        previous = {
-            "id": 7,
-            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
-            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-        }
-        recovery_errors = (
-            TimeoutError("response timeout"),
-            ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
-            ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
-            review.http.client.RemoteDisconnected("remote disconnected"),
-            review.http.client.IncompleteRead(b"partial", 10),
-            review.ssl.SSLEOFError("TLS EOF"),
-            review.ssl.SSLZeroReturnError("TLS connection closed"),
-        )
-
-        for recovery_error in recovery_errors:
+        previous = old_managed_comment()
+        for recovery_error in transient_transport_errors():
             with self.subTest(error=type(recovery_error).__name__):
                 persisted: dict | None = None
                 reads = 0
                 writes = 0
 
-                class FakeResponse:
-                    def __init__(
-                        self, body: bytes = b"", error: BaseException | None = None
-                    ) -> None:
-                        self.body = body
-                        self.error = error
-                        self.headers: dict[str, str] = {}
-
-                    def __enter__(self) -> "FakeResponse":
-                        return self
-
-                    def __exit__(self, *args: object) -> None:
-                        return None
-
-                    def read(self, limit: int) -> bytes:
-                        if limit != 4 * 1024 * 1024 + 1:
-                            raise AssertionError(f"Unexpected read limit: {limit}")
-                        if self.error is not None:
-                            raise self.error
-                        return self.body
-
-                def urlopen(request: object, timeout: int) -> FakeResponse:
+                def urlopen(request: object, timeout: int) -> FakeGitHubResponse:
                     nonlocal persisted, reads, writes
-                    if timeout != 60 or not isinstance(
-                        request, review.urllib.request.Request
-                    ):
-                        raise AssertionError("Unexpected GitHub request")
-                    if request.get_method() == "PATCH":
+                    method = github_request_method(request, timeout)
+                    if method == "PATCH":
                         writes += 1
                         payload = json.loads(bytes(request.data or b"{}"))
-                        persisted = {
-                            "id": 7,
-                            "body": payload["body"],
-                            "user": {
-                                "id": APP_BOT_ID,
-                                "login": app_login,
-                                "type": "Bot",
-                            },
-                        }
-                        return FakeResponse(error=TimeoutError("write timeout"))
-                    if request.get_method() != "GET" or persisted is None:
+                        persisted = managed_comment(payload["body"])
+                        return FakeGitHubResponse(error=TimeoutError("write timeout"))
+                    if method != "GET" or persisted is None:
                         raise AssertionError(f"Unexpected request: {request.full_url}")
                     reads += 1
                     if reads == 1:
-                        return FakeResponse(error=recovery_error)
-                    return FakeResponse(
+                        return FakeGitHubResponse(error=recovery_error)
+                    return FakeGitHubResponse(
                         review.canonical_json([persisted]).encode("utf-8")
                     )
 
@@ -1742,19 +1752,8 @@ class AgentReviewTests(unittest.TestCase):
                     patch.object(review.urllib.request, "urlopen", urlopen),
                     patch.object(review.time, "sleep") as sleep,
                 ):
-                    result = review.upsert_comment(
-                        review.GitHubClient("token"),
-                        REPOSITORY,
-                        REPOSITORY_ID,
-                        60,
-                        HEAD_SHA,
-                        review.COMMENT_MARKER
-                        + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
-                        (42, 1),
-                        app_login,
-                        APP_BOT_ID,
-                        lambda: checks.append(1) or {},
-                        previous,
+                    result = upsert_test_comment(
+                        previous, lambda: checks.append(1) or {}
                     )
                 self.assertEqual(7, result["id"])
                 self.assertEqual(1, writes)
@@ -1765,186 +1764,82 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
     def test_github_client_read_failure_does_not_generalize_oserror(self) -> None:
-        class FakeResponse:
-            headers: dict[str, str] = {}
-
-            def __enter__(self) -> "FakeResponse":
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def read(self, limit: int) -> bytes:
-                if limit != 4 * 1024 * 1024 + 1:
-                    raise AssertionError(f"Unexpected read limit: {limit}")
-                raise OSError(review.errno.EMFILE, "too many open files")
-
         client = review.GitHubClient("token")
-        for error in (
-            OSError(review.errno.EMFILE, "too many open files"),
-            review.ssl.SSLCertVerificationError("certificate rejected"),
-            review.ssl.SSLError("TLS protocol error"),
-        ):
+        for error in permanent_transport_errors():
             with self.subTest(error=type(error).__name__):
-                with (
-                    patch.object(FakeResponse, "read", side_effect=error),
-                    patch.object(
-                        review.urllib.request, "urlopen", return_value=FakeResponse()
-                    ),
+                response = FakeGitHubResponse(error=error)
+                with patch.object(
+                    review.urllib.request, "urlopen", return_value=response
                 ):
                     with self.assertRaises(type(error)) as raised:
                         client.send_json("POST", f"repos/{REPOSITORY}/issues", {})
                 self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
 
     def test_short_content_length_write_reconciles_without_replay(self) -> None:
-        app_login = "coco-agent[bot]"
-        previous = {
-            "id": 7,
-            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
-            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-        }
-
-        for prior, method in ((None, "POST"), (previous, "PATCH")):
+        for prior, method in ((None, "POST"), (old_managed_comment(), "PATCH")):
             with self.subTest(method=method):
                 persisted: dict | None = None
                 reads = 0
                 writes = 0
 
-                class FakeResponse:
-                    def __init__(self, body: bytes, declared: int) -> None:
-                        self.body = body
-                        self.headers = {"Content-Length": str(declared)}
-
-                    def __enter__(self) -> "FakeResponse":
-                        return self
-
-                    def __exit__(self, *args: object) -> None:
-                        return None
-
-                    def read(self, limit: int) -> bytes:
-                        if limit != 4 * 1024 * 1024 + 1:
-                            raise AssertionError(f"Unexpected read limit: {limit}")
-                        return self.body
-
-                def urlopen(request: object, timeout: int) -> FakeResponse:
+                def urlopen(request: object, timeout: int) -> FakeGitHubResponse:
                     nonlocal persisted, reads, writes
-                    if timeout != 60 or not isinstance(
-                        request, review.urllib.request.Request
-                    ):
-                        raise AssertionError("Unexpected GitHub request")
-                    request_method = request.get_method()
+                    request_method = github_request_method(request, timeout)
                     if request_method == "GET":
                         reads += 1
                         body = review.canonical_json(
                             [] if persisted is None else [persisted]
                         ).encode("utf-8")
-                        return FakeResponse(body, len(body))
+                        return FakeGitHubResponse(body, content_length=len(body))
                     if request_method != method:
                         raise AssertionError(f"Unexpected write: {request_method}")
                     writes += 1
                     payload = json.loads(bytes(request.data or b"{}"))
-                    persisted = {
-                        "id": 7,
-                        "body": payload["body"],
-                        "user": {
-                            "id": APP_BOT_ID,
-                            "login": app_login,
-                            "type": "Bot",
-                        },
-                    }
+                    persisted = managed_comment(payload["body"])
                     response_body = b'{"incomplete":true}'
-                    return FakeResponse(response_body, len(response_body) + 1)
+                    return FakeGitHubResponse(
+                        response_body, content_length=len(response_body) + 1
+                    )
 
                 checks: list[int] = []
                 with patch.object(review.urllib.request, "urlopen", urlopen):
-                    result = review.upsert_comment(
-                        review.GitHubClient("token"),
-                        REPOSITORY,
-                        REPOSITORY_ID,
-                        60,
-                        HEAD_SHA,
-                        review.COMMENT_MARKER
-                        + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
-                        (42, 1),
-                        app_login,
-                        APP_BOT_ID,
-                        lambda: checks.append(1) or {},
-                        prior,
-                    )
+                    result = upsert_test_comment(prior, lambda: checks.append(1) or {})
                 self.assertEqual(7, result["id"])
                 self.assertEqual(1, writes)
                 self.assertEqual(1 if prior is not None else 2, reads)
                 self.assertEqual(3, len(checks))
 
     def test_short_content_length_recovery_get_uses_bounded_retry(self) -> None:
-        app_login = "coco-agent[bot]"
-        previous = {
-            "id": 7,
-            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
-            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-        }
+        previous = old_managed_comment()
         persisted: dict | None = None
         reads = 0
         writes = 0
 
-        class FakeResponse:
-            def __init__(self, body: bytes, declared: int) -> None:
-                self.body = body
-                self.headers = {"Content-Length": str(declared)}
-
-            def __enter__(self) -> "FakeResponse":
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def read(self, limit: int) -> bytes:
-                if limit != 4 * 1024 * 1024 + 1:
-                    raise AssertionError(f"Unexpected read limit: {limit}")
-                return self.body
-
-        def urlopen(request: object, timeout: int) -> FakeResponse:
+        def urlopen(request: object, timeout: int) -> FakeGitHubResponse:
             nonlocal persisted, reads, writes
-            if timeout != 60 or not isinstance(request, review.urllib.request.Request):
-                raise AssertionError("Unexpected GitHub request")
-            if request.get_method() == "PATCH":
+            method = github_request_method(request, timeout)
+            if method == "PATCH":
                 writes += 1
                 payload = json.loads(bytes(request.data or b"{}"))
-                persisted = {
-                    "id": 7,
-                    "body": payload["body"],
-                    "user": {
-                        "id": APP_BOT_ID,
-                        "login": app_login,
-                        "type": "Bot",
-                    },
-                }
+                persisted = managed_comment(payload["body"])
                 response_body = b'{"incomplete":true}'
-                return FakeResponse(response_body, len(response_body) + 1)
-            if request.get_method() != "GET" or persisted is None:
+                return FakeGitHubResponse(
+                    response_body, content_length=len(response_body) + 1
+                )
+            if method != "GET" or persisted is None:
                 raise AssertionError(f"Unexpected request: {request.full_url}")
             reads += 1
             body = review.canonical_json([persisted]).encode("utf-8")
-            return FakeResponse(body, len(body) + (1 if reads == 1 else 0))
+            return FakeGitHubResponse(
+                body, content_length=len(body) + (1 if reads == 1 else 0)
+            )
 
         checks: list[int] = []
         with (
             patch.object(review.urllib.request, "urlopen", urlopen),
             patch.object(review.time, "sleep") as sleep,
         ):
-            result = review.upsert_comment(
-                review.GitHubClient("token"),
-                REPOSITORY,
-                REPOSITORY_ID,
-                60,
-                HEAD_SHA,
-                review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
-                (42, 1),
-                app_login,
-                APP_BOT_ID,
-                lambda: checks.append(1) or {},
-                previous,
-            )
+            result = upsert_test_comment(previous, lambda: checks.append(1) or {})
         self.assertEqual(7, result["id"])
         self.assertEqual(1, writes)
         self.assertEqual(2, reads)
@@ -1954,66 +1849,23 @@ class AgentReviewTests(unittest.TestCase):
         )
 
     def test_content_length_contract_is_strict_without_chunked_inference(self) -> None:
-        class Headers:
-            def __init__(
-                self,
-                content_lengths: list[str] | None = None,
-                transfer_encodings: list[str] | None = None,
-            ) -> None:
-                self.content_lengths = content_lengths or []
-                self.transfer_encodings = transfer_encodings or []
-
-            def get_all(self, name: str) -> list[str] | None:
-                if name.lower() == "content-length":
-                    return self.content_lengths or None
-                if name.lower() == "transfer-encoding":
-                    return self.transfer_encodings or None
-                return None
-
-            def items(self) -> list[tuple[str, str]]:
-                return [
-                    *[("Content-Length", value) for value in self.content_lengths],
-                    *[
-                        ("Transfer-Encoding", value)
-                        for value in self.transfer_encodings
-                    ],
-                ]
-
-        class FakeResponse:
-            def __init__(self, body: bytes, headers: Headers) -> None:
-                self.body = body
-                self.headers = headers
-                self.reads = 0
-
-            def __enter__(self) -> "FakeResponse":
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def read(self, limit: int) -> bytes:
-                self.reads += 1
-                if limit != 4 * 1024 * 1024 + 1:
-                    raise AssertionError(f"Unexpected read limit: {limit}")
-                return self.body
-
         client = review.GitHubClient("token")
         invalid_headers = (
-            Headers(["invalid"]),
-            Headers(["-1"]),
-            Headers(["1", "2"]),
-            Headers(["1,2"]),
-            Headers(["2"], ["chunked"]),
-            Headers(transfer_encodings=[""]),
-            Headers(transfer_encodings=["gzip"]),
-            Headers(transfer_encodings=["chunked", "chunked"]),
-            Headers(transfer_encodings=["chunked, chunked"]),
-            Headers(transfer_encodings=["chunked, gzip"]),
-            Headers(transfer_encodings=["gzip, chunked"]),
+            FakeGitHubHeaders(["invalid"]),
+            FakeGitHubHeaders(["-1"]),
+            FakeGitHubHeaders(["1", "2"]),
+            FakeGitHubHeaders(["1,2"]),
+            FakeGitHubHeaders(["2"], ["chunked"]),
+            FakeGitHubHeaders(transfer_encodings=[""]),
+            FakeGitHubHeaders(transfer_encodings=["gzip"]),
+            FakeGitHubHeaders(transfer_encodings=["chunked", "chunked"]),
+            FakeGitHubHeaders(transfer_encodings=["chunked, chunked"]),
+            FakeGitHubHeaders(transfer_encodings=["chunked, gzip"]),
+            FakeGitHubHeaders(transfer_encodings=["gzip, chunked"]),
         )
         for headers in invalid_headers:
             with self.subTest(headers=headers.items()):
-                response = FakeResponse(b"{}", headers)
+                response = FakeGitHubResponse(b"{}", headers=headers)
                 with patch.object(
                     review.urllib.request, "urlopen", return_value=response
                 ):
@@ -2022,22 +1874,24 @@ class AgentReviewTests(unittest.TestCase):
                 self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
                 self.assertEqual(0, response.reads)
 
-        oversized = FakeResponse(b"", Headers([str(4 * 1024 * 1024 + 1)]))
+        oversized = FakeGitHubResponse(
+            headers=FakeGitHubHeaders([str(4 * 1024 * 1024 + 1)])
+        )
         with patch.object(review.urllib.request, "urlopen", return_value=oversized):
             with self.assertRaisesRegex(review.ReviewError, "bounded size"):
                 client.send_json("POST", f"repos/{REPOSITORY}/issues", {})
         self.assertEqual(0, oversized.reads)
 
         accepted_headers = (
-            Headers(),
-            Headers(transfer_encodings=["chunked"]),
-            Headers(transfer_encodings=[" Chunked "]),
-            Headers(["2", "2"]),
-            Headers(["2, 2"]),
+            FakeGitHubHeaders(),
+            FakeGitHubHeaders(transfer_encodings=["chunked"]),
+            FakeGitHubHeaders(transfer_encodings=[" Chunked "]),
+            FakeGitHubHeaders(["2", "2"]),
+            FakeGitHubHeaders(["2, 2"]),
         )
         for headers in accepted_headers:
             with self.subTest(headers=headers.items()):
-                response = FakeResponse(b"{}", headers)
+                response = FakeGitHubResponse(b"{}", headers=headers)
                 with patch.object(
                     review.urllib.request, "urlopen", return_value=response
                 ):
@@ -5201,68 +5055,20 @@ class AgentReviewTests(unittest.TestCase):
             )
 
     def test_write_actor_incomplete_is_uncertain_but_mismatch_is_conflict(self) -> None:
-        app_login = "coco-agent[bot]"
         finding_id = "v2-" + "a" * 64
         finding_marker = review.finding_issue_marker(60, BASE_SHA, finding_id)
-        operation = review.operation_marker(
-            REPOSITORY,
-            REPOSITORY_ID,
-            app_login,
-            APP_BOT_ID,
-            (42, 1),
-            60,
-            HEAD_SHA,
-            finding_id,
-            "finding-issue-update",
-        )
+        operation = test_operation_marker(finding_id, "finding-issue-update")
         body = f"{finding_marker}\n{operation}\nBody\n"
         issue = {
-            "number": 8,
+            **finding_issue_resource(8, finding_marker, operation),
             "title": "Finding",
-            "body": body,
-            "state": "open",
-            "labels": [{"name": review.FINDING_ISSUE_LABEL}],
-            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
         }
-        comment = {
-            "id": 7,
-            "body": "Old body",
-            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-        }
+        comment = managed_comment("Old body")
 
-        for user in ({}, {"id": APP_BOT_ID}, {"login": app_login, "type": "Bot"}):
-            with self.subTest(incomplete=user):
-                with self.assertRaises(review.GitHubUncertainWriteResponse):
-                    review.verify_finding_issue(
-                        {**issue, "user": user},
-                        app_login,
-                        APP_BOT_ID,
-                        finding_marker,
-                        operation,
-                        issue["title"],
-                        body,
-                        {review.FINDING_ISSUE_LABEL},
-                        "open",
-                        expected_number=8,
-                    )
-                with self.assertRaises(review.GitHubUncertainWriteResponse):
-                    review.verify_finding_issue_snapshot(
-                        {**issue, "user": user}, issue, app_login, APP_BOT_ID
-                    )
-                with self.assertRaises(review.GitHubUncertainWriteResponse):
-                    review.verify_managed_comment_snapshot(
-                        {**comment, "user": user}, comment, app_login, APP_BOT_ID
-                    )
-
-        wrong_user = {
-            "id": APP_BOT_ID + 1,
-            "login": "other-app[bot]",
-            "type": "Bot",
-        }
-        for verifier in (
-            lambda: review.verify_finding_issue(
-                {**issue, "user": wrong_user},
-                app_login,
+        def verify_issue(candidate: dict) -> dict:
+            return review.verify_finding_issue(
+                candidate,
+                APP_LOGIN,
                 APP_BOT_ID,
                 finding_marker,
                 operation,
@@ -5271,17 +5077,40 @@ class AgentReviewTests(unittest.TestCase):
                 {review.FINDING_ISSUE_LABEL},
                 "open",
                 expected_number=8,
+            )
+
+        for verifier, resource in (
+            (verify_issue, issue),
+            (
+                lambda candidate: review.verify_finding_issue_snapshot(
+                    candidate, issue, APP_LOGIN, APP_BOT_ID
+                ),
+                issue,
             ),
-            lambda: review.verify_finding_issue_snapshot(
-                {**issue, "user": wrong_user}, issue, app_login, APP_BOT_ID
-            ),
-            lambda: review.verify_managed_comment_snapshot(
-                {**comment, "user": wrong_user}, comment, app_login, APP_BOT_ID
+            (
+                lambda candidate: review.verify_managed_comment_snapshot(
+                    candidate, comment, APP_LOGIN, APP_BOT_ID
+                ),
+                comment,
             ),
         ):
-            with self.subTest(verifier=verifier):
+            for user in (
+                {},
+                {"id": APP_BOT_ID},
+                {"login": APP_LOGIN, "type": "Bot"},
+            ):
+                with self.subTest(verifier=verifier, incomplete=user):
+                    with self.assertRaises(review.GitHubUncertainWriteResponse):
+                        verifier({**resource, "user": user})
+
+            with self.subTest(verifier=verifier, mismatch=True):
                 with self.assertRaises(review.ReviewError) as raised:
-                    verifier()
+                    verifier(
+                        {
+                            **resource,
+                            "user": app_actor(APP_BOT_ID + 1, "other-app[bot]"),
+                        }
+                    )
                 self.assertNotIsInstance(
                     raised.exception, review.GitHubUncertainWriteResponse
                 )
@@ -5577,20 +5406,7 @@ class AgentReviewTests(unittest.TestCase):
 
         client = FakeClient()
         with self.assertRaisesRegex(review.ReviewError, "comment budget"):
-            review.synchronize_finding_issues(
-                client,
-                REPOSITORY,
-                REPOSITORY_ID,
-                60,
-                HEAD_SHA,
-                [],
-                (42, 1),
-                app_login,
-                APP_BOT_ID,
-                "https://github.example/runs/42",
-                "https://github.example",
-                lambda: {},
-            )
+            synchronize_test_findings(client, [])
         self.assertEqual([], client.sent)
 
     def test_uncertain_managed_comment_create_and_update_read_without_rewrite(
@@ -5882,20 +5698,7 @@ class AgentReviewTests(unittest.TestCase):
 
         client = FakeClient()
         with patch.object(review.time, "sleep"):
-            review.synchronize_finding_issues(
-                client,
-                REPOSITORY,
-                REPOSITORY_ID,
-                60,
-                HEAD_SHA,
-                [],
-                (42, 1),
-                app_login,
-                APP_BOT_ID,
-                "https://github.example/runs/42",
-                "https://github.example",
-                lambda: {},
-            )
+            synchronize_test_findings(client, [])
         self.assertEqual(["POST", "PATCH"], [value[0] for value in client.sent])
         self.assertEqual(2, client.issue_reads)
         self.assertEqual("closed", client.issue["state"])
@@ -6040,20 +5843,7 @@ class AgentReviewTests(unittest.TestCase):
 
                 client = FakeClient()
                 with patch.object(review.time, "sleep"):
-                    synchronized = review.synchronize_finding_issues(
-                        client,
-                        REPOSITORY,
-                        REPOSITORY_ID,
-                        60,
-                        HEAD_SHA,
-                        [actionable],
-                        (42, 1),
-                        app_login,
-                        APP_BOT_ID,
-                        "https://github.example/runs/42",
-                        "https://github.example",
-                        lambda: {},
-                    )
+                    synchronized = synchronize_test_findings(client, [actionable])
                 self.assertEqual(1, len(client.sent))
                 self.assertEqual(
                     "POST" if previous is None else "PATCH", client.sent[0][0]
@@ -6129,20 +5919,7 @@ class AgentReviewTests(unittest.TestCase):
 
                 client = UpdateClient()
                 with self.assertRaisesRegex(review.ReviewError, "number"):
-                    review.synchronize_finding_issues(
-                        client,
-                        REPOSITORY,
-                        REPOSITORY_ID,
-                        60,
-                        HEAD_SHA,
-                        [actionable],
-                        (42, 1),
-                        app_login,
-                        APP_BOT_ID,
-                        "https://github.example/runs/42",
-                        "https://github.example",
-                        lambda: {},
-                    )
+                    synchronize_test_findings(client, [actionable])
                 self.assertEqual(["PATCH"], [value[0] for value in client.sent])
                 self.assertEqual(1 if uncertain else 0, client.issue_reads)
 
@@ -6200,20 +5977,7 @@ class AgentReviewTests(unittest.TestCase):
 
                 client = CloseClient()
                 with self.assertRaisesRegex(review.ReviewError, "number"):
-                    review.synchronize_finding_issues(
-                        client,
-                        REPOSITORY,
-                        REPOSITORY_ID,
-                        60,
-                        HEAD_SHA,
-                        [],
-                        (42, 1),
-                        app_login,
-                        APP_BOT_ID,
-                        "https://github.example/runs/42",
-                        "https://github.example",
-                        lambda: {},
-                    )
+                    synchronize_test_findings(client, [])
                 self.assertEqual(["POST", "PATCH"], [value[0] for value in client.sent])
                 self.assertEqual(1 if uncertain else 0, client.issue_reads)
 
@@ -6328,20 +6092,7 @@ class AgentReviewTests(unittest.TestCase):
         update = UpdateClient()
         with patch.object(review.time, "sleep"):
             with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
-                review.synchronize_finding_issues(
-                    update,
-                    REPOSITORY,
-                    REPOSITORY_ID,
-                    60,
-                    HEAD_SHA,
-                    [actionable],
-                    (42, 1),
-                    app_login,
-                    APP_BOT_ID,
-                    "https://github.example/runs/42",
-                    "https://github.example",
-                    lambda: {},
-                )
+                synchronize_test_findings(update, [actionable])
         self.assertEqual(["PATCH"], [value[0] for value in update.sent])
         self.assertEqual(attempts, update.issue_reads)
 
@@ -6382,20 +6133,7 @@ class AgentReviewTests(unittest.TestCase):
         close = CloseClient()
         with patch.object(review.time, "sleep"):
             with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
-                review.synchronize_finding_issues(
-                    close,
-                    REPOSITORY,
-                    REPOSITORY_ID,
-                    60,
-                    HEAD_SHA,
-                    [],
-                    (42, 1),
-                    app_login,
-                    APP_BOT_ID,
-                    "https://github.example/runs/42",
-                    "https://github.example",
-                    lambda: {},
-                )
+                synchronize_test_findings(close, [])
         self.assertEqual(["POST", "PATCH"], [value[0] for value in close.sent])
         self.assertEqual(attempts, close.issue_reads)
 
@@ -6474,73 +6212,41 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(1, reads)
 
     def test_finding_issue_recovery_scans_actor_before_markers(self) -> None:
-        app_login = "coco-agent[bot]"
         group_id = "v2-" + "7" * 64
         finding_marker = review.finding_issue_marker(60, BASE_SHA, group_id)
-        expected_operation = review.operation_marker(
-            REPOSITORY,
-            REPOSITORY_ID,
-            app_login,
-            APP_BOT_ID,
-            (42, 1),
-            60,
-            HEAD_SHA,
-            group_id,
-            "finding-issue-create",
-        )
-        matching_body = f"{finding_marker}\n{expected_operation}\nBody\n"
-        wrong_actor = {
-            "id": APP_BOT_ID + 1,
-            "login": "other-app[bot]",
-            "type": "Bot",
-        }
-        expected_actor = {
-            "id": APP_BOT_ID,
-            "login": app_login,
-            "type": "Bot",
-        }
-
-        def issue(number: int, body: str, user: dict) -> dict:
-            return {
-                "number": number,
-                "title": "title",
-                "body": body,
-                "state": "open",
-                "labels": [{"name": review.FINDING_ISSUE_LABEL}],
-                "user": user,
-            }
-
-        class FakeClient:
-            def __init__(self, issues: list[dict]) -> None:
-                self.issues = issues
-
-            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
-                return self.issues
-
-        malformed_operation = (
-            f'{finding_marker}\n{review.OPERATION_MARKER_PREFIX}{{"bad":true}} -->\n'
-        )
+        expected_operation = test_operation_marker(group_id, "finding-issue-create")
+        malformed_operation = review.OPERATION_MARKER_PREFIX + '{"bad":true} -->'
+        wrong_actor = app_actor(APP_BOT_ID + 1, "other-app[bot]")
         untrusted_cases = {
             "malformed": [
-                issue(
+                finding_issue_resource(
                     7,
-                    f'{review.FINDING_ISSUE_MARKER_PREFIX}{{"bad":true}} -->\n',
+                    review.FINDING_ISSUE_MARKER_PREFIX + '{"bad":true} -->',
+                    "",
                     wrong_actor,
                 ),
-                issue(8, malformed_operation, wrong_actor),
+                finding_issue_resource(
+                    8, finding_marker, malformed_operation, wrong_actor
+                ),
             ],
-            "matching": [issue(8, matching_body, wrong_actor)],
+            "matching": [
+                finding_issue_resource(
+                    8, finding_marker, expected_operation, wrong_actor
+                )
+            ],
             "duplicate": [
-                issue(8, matching_body, wrong_actor),
-                issue(9, matching_body, wrong_actor),
+                finding_issue_resource(
+                    number, finding_marker, expected_operation, wrong_actor
+                )
+                for number in (8, 9)
             ],
         }
         for name, issues in untrusted_cases.items():
             with self.subTest(case=name):
                 probe = review.finding_issue_recovery_candidate(
-                    FakeClient(issues),
+                    FindingIssueScanClient(issues),
                     REPOSITORY,
-                    app_login,
+                    APP_LOGIN,
                     APP_BOT_ID,
                     finding_marker,
                     expected_operation,
@@ -6550,9 +6256,11 @@ class AgentReviewTests(unittest.TestCase):
 
         with self.assertRaises(review.ReviewError):
             review.finding_issue_recovery_candidate(
-                FakeClient([issue(8, malformed_operation, expected_actor)]),
+                FindingIssueScanClient(
+                    [finding_issue_resource(8, finding_marker, malformed_operation)]
+                ),
                 REPOSITORY,
-                app_login,
+                APP_LOGIN,
                 APP_BOT_ID,
                 finding_marker,
                 expected_operation,
@@ -6562,41 +6270,18 @@ class AgentReviewTests(unittest.TestCase):
     def test_finding_issue_recovery_rejects_zero_duplicate_and_binding_conflicts(
         self,
     ) -> None:
-        app_login = "coco-agent[bot]"
         group_id = "v2-" + "e" * 64
         finding_marker = review.finding_issue_marker(60, BASE_SHA, group_id)
-        operation_values = {
-            "repository": REPOSITORY,
-            "repository_id": REPOSITORY_ID,
-            "expected_login": app_login,
-            "expected_bot_id": APP_BOT_ID,
-            "run_order": (42, 1),
-            "pr_number": 60,
-            "head_sha": HEAD_SHA,
-            "group_id": group_id,
-            "action": "finding-issue-create",
-        }
-        expected_operation = review.operation_marker(**operation_values)
+        expected_operation = test_operation_marker(group_id, "finding-issue-create")
         expected_body = f"{finding_marker}\n{expected_operation}\nBody\n"
 
-        def issue(
-            number: int,
-            operation: str = expected_operation,
-            user: dict | None = None,
-        ) -> dict:
-            return {
-                "number": number,
-                "title": "title",
-                "body": f"{finding_marker}\n{operation}\nBody\n",
-                "state": "open",
-                "labels": [{"name": review.FINDING_ISSUE_LABEL}],
-                "user": user or {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-            }
+        def issue(number: int, operation: str = expected_operation) -> dict:
+            return finding_issue_resource(number, finding_marker, operation)
 
         def verify(value: object) -> dict:
             return review.verify_finding_issue(
                 value,
-                app_login,
+                APP_LOGIN,
                 APP_BOT_ID,
                 finding_marker,
                 expected_operation,
@@ -6606,22 +6291,13 @@ class AgentReviewTests(unittest.TestCase):
                 "open",
             )
 
-        class FakeClient:
-            def __init__(self, issues: list[dict]) -> None:
-                self.issues = issues
-                self.scans = 0
-
-            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
-                self.scans += 1
-                return self.issues
-
-        missing = FakeClient([])
+        missing = FindingIssueScanClient([])
         with patch.object(review.time, "sleep"):
             with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
                 review.recover_finding_issue_create(
                     missing,
                     REPOSITORY,
-                    app_login,
+                    APP_LOGIN,
                     APP_BOT_ID,
                     finding_marker,
                     expected_operation,
@@ -6633,12 +6309,12 @@ class AgentReviewTests(unittest.TestCase):
             missing.scans,
         )
 
-        duplicate = FakeClient([issue(8), issue(9)])
+        duplicate = FindingIssueScanClient([issue(8), issue(9)])
         with self.assertRaisesRegex(review.ReviewError, "Multiple finding Issues"):
             review.recover_finding_issue_create(
                 duplicate,
                 REPOSITORY,
-                app_login,
+                APP_LOGIN,
                 APP_BOT_ID,
                 finding_marker,
                 expected_operation,
@@ -6661,15 +6337,15 @@ class AgentReviewTests(unittest.TestCase):
         }
         for name, changed in mismatches.items():
             with self.subTest(binding=name):
-                candidate_operation = review.operation_marker(
-                    **{**operation_values, **changed}
+                candidate_operation = test_operation_marker(
+                    group_id, "finding-issue-create", **changed
                 )
-                client = FakeClient([issue(8, candidate_operation)])
+                client = FindingIssueScanClient([issue(8, candidate_operation)])
                 with self.assertRaisesRegex(review.ReviewError, "Conflicting"):
                     review.recover_finding_issue_create(
                         client,
                         REPOSITORY,
-                        app_login,
+                        APP_LOGIN,
                         APP_BOT_ID,
                         finding_marker,
                         expected_operation,
@@ -6680,18 +6356,24 @@ class AgentReviewTests(unittest.TestCase):
 
         wrong_actors = (
             {"id": APP_BOT_ID, "login": "other-app[bot]", "type": "Bot"},
-            {"id": APP_BOT_ID + 1, "login": app_login, "type": "Bot"},
-            {"id": APP_BOT_ID, "login": app_login, "type": "User"},
+            app_actor(APP_BOT_ID + 1),
+            app_actor(actor_type="User"),
         )
         for user in wrong_actors:
             with self.subTest(user=user):
-                client = FakeClient([issue(8, user=user)])
+                client = FindingIssueScanClient(
+                    [
+                        finding_issue_resource(
+                            8, finding_marker, expected_operation, user
+                        )
+                    ]
+                )
                 with patch.object(review.time, "sleep"):
                     with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
                         review.recover_finding_issue_create(
                             client,
                             REPOSITORY,
-                            app_login,
+                            APP_LOGIN,
                             APP_BOT_ID,
                             finding_marker,
                             expected_operation,
@@ -6753,20 +6435,7 @@ class AgentReviewTests(unittest.TestCase):
 
         client = FakeClient()
         with self.assertRaisesRegex(review.ReviewError, "Multiple closure comments"):
-            review.synchronize_finding_issues(
-                client,
-                REPOSITORY,
-                REPOSITORY_ID,
-                60,
-                HEAD_SHA,
-                [],
-                (42, 1),
-                app_login,
-                APP_BOT_ID,
-                "https://github.example/runs/42",
-                "https://github.example",
-                lambda: {},
-            )
+            synchronize_test_findings(client, [])
         self.assertEqual(["POST"], [method for method, _path, _body in client.sent])
 
     def test_uncertain_closure_comment_zero_and_binding_mismatches_exhaust(
@@ -6865,20 +6534,7 @@ class AgentReviewTests(unittest.TestCase):
                 client = FakeClient()
                 with patch.object(review.time, "sleep"):
                     with self.assertRaisesRegex(review.ReviewError, "bounded reads"):
-                        review.synchronize_finding_issues(
-                            client,
-                            REPOSITORY,
-                            REPOSITORY_ID,
-                            60,
-                            HEAD_SHA,
-                            [],
-                            (42, 1),
-                            app_login,
-                            APP_BOT_ID,
-                            "https://github.example/runs/42",
-                            "https://github.example",
-                            lambda: {},
-                        )
+                        synchronize_test_findings(client, [])
                 self.assertEqual(["POST"], [value[0] for value in client.sent])
                 self.assertEqual(attempts, client.comment_reads)
 
