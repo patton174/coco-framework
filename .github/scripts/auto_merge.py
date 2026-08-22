@@ -37,6 +37,9 @@ GITHUB_ACTIONS_BOT_LOGIN = "github-actions[bot]"
 GITHUB_ACTIONS_BOT_ID = 41898282
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+RFC3339_UTC_TIMESTAMP_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)"
+)
 REVIEWER_PERMISSIONS = {"write", "maintain", "admin"}
 MAX_EVENT_BYTES = 2 * 1024 * 1024
 MAX_OPEN_PULL_REQUESTS = 200
@@ -358,16 +361,15 @@ def parse_agent_issue_marker(body: Any) -> dict[str, Any] | None:
 
 
 def parse_utc_timestamp(value: Any, label: str) -> datetime:
-    if not isinstance(value, str) or not re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value
-    ):
+    if not isinstance(value, str) or not RFC3339_UTC_TIMESTAMP_RE.fullmatch(value):
         raise ContractError(f"{label} must be an RFC 3339 UTC timestamp.")
     try:
-        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
-            tzinfo=timezone.utc
-        )
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ContractError(f"{label} is not a valid UTC timestamp.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ContractError(f"{label} must be an RFC 3339 UTC timestamp.")
+    return parsed.astimezone(timezone.utc)
 
 
 def parse_incident_marker(body: Any, issue_number: int) -> dict[str, Any]:

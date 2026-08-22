@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -647,6 +649,10 @@ class AutoMergeTests(unittest.TestCase):
         for dry_run, expected_state in ((True, "dry-run"), (False, "merged")):
             with self.subTest(dry_run=dry_run):
                 client = self.incident_client()
+                client.protection_client.configuration_pages = [
+                    required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+                    required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+                ]
                 decision = self.evaluate(
                     client,
                     dry_run=dry_run,
@@ -657,6 +663,7 @@ class AutoMergeTests(unittest.TestCase):
                 self.assertEqual((REPOSITORY_OWNER,), decision.approvers)
                 self.assertEqual(2, client.incident_issue_reads)
                 self.assertEqual(2, client.protection_client.reads)
+                self.assertEqual([], client.protection_client.configuration_pages)
                 self.assertEqual(0 if dry_run else 1, len(client.sent))
 
     def test_incident_owner_issue_marker_cannot_replace_owner_dispatch(self) -> None:
@@ -809,6 +816,34 @@ class AutoMergeTests(unittest.TestCase):
                         incident_issue_number=INCIDENT_ISSUE_NUMBER,
                     )
                 self.assertEqual([], client.sent)
+
+    def test_incident_marker_accepts_rfc3339_utc_equivalents(self) -> None:
+        cases = {
+            "Z": "2026-08-17T11:00:00Z",
+            "fractional Z": "2026-08-17T11:00:00.123456Z",
+            "numeric UTC offset": "2026-08-17T11:00:00+00:00",
+            "fractional numeric UTC offset": "2026-08-17T11:00:00.123456+00:00",
+        }
+        for label, timestamp in cases.items():
+            with self.subTest(label=label):
+                parsed = merge.parse_utc_timestamp(timestamp, "incident timestamp")
+                self.assertEqual(timezone.utc, parsed.tzinfo)
+
+    def test_incident_marker_rejects_non_utc_naive_and_malformed_timestamps(
+        self,
+    ) -> None:
+        invalid_timestamps = (
+            "2026-08-17T11:00:00",
+            "2026-08-17T11:00:00-00:00",
+            "2026-08-17T11:00:00+08:00",
+            "2026-08-17T11:00:00.1234567Z",
+            "2026-08-17 11:00:00Z",
+            "not-a-timestamp",
+        )
+        for timestamp in invalid_timestamps:
+            with self.subTest(timestamp=timestamp):
+                with self.assertRaisesRegex(merge.ContractError, "RFC 3339 UTC"):
+                    merge.parse_utc_timestamp(timestamp, "incident timestamp")
 
     def test_incident_issue_api_failure_fails_closed(self) -> None:
         client = self.incident_client()
@@ -1445,6 +1480,48 @@ class AutoMergeTests(unittest.TestCase):
         self.assertIn("| Administration | Read |", specification)
         self.assertIn("禁止授予 `Administration: write`", specification)
         self.assertNotIn("不授予 Administration 权限", specification)
+
+    def test_incident_shell_guard_allows_only_owner_workflow_dispatch(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/auto-merge.yml"
+        ).read_text(encoding="utf-8")
+        start = workflow.index('          if [[ -n "${INCIDENT_ISSUE_NUMBER}" ]]; then')
+        end = workflow.index("          args=(", start)
+        guard = "set -euo pipefail\n" + workflow[start:end]
+        allowed_environment = {
+            "INCIDENT_ISSUE_NUMBER": str(INCIDENT_ISSUE_NUMBER),
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_ACTOR": REPOSITORY_OWNER,
+            "GITHUB_TRIGGERING_ACTOR": REPOSITORY_OWNER,
+            "GITHUB_REPOSITORY_OWNER": REPOSITORY_OWNER,
+        }
+
+        def execute(environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["bash", "-c", guard],
+                check=False,
+                capture_output=True,
+                env={**os.environ, **environment},
+                text=True,
+            )
+
+        allowed = execute(allowed_environment)
+        self.assertEqual(0, allowed.returncode, allowed.stdout + allowed.stderr)
+        self.assertNotIn("Incident merge requires", allowed.stdout)
+
+        rejected_environments = {
+            "non-dispatch event": {"GITHUB_EVENT_NAME": "schedule"},
+            "non-owner dispatch actor": {"GITHUB_ACTOR": "maintainer"},
+            "non-owner re-run actor": {"GITHUB_TRIGGERING_ACTOR": "maintainer"},
+        }
+        for label, overrides in rejected_environments.items():
+            with self.subTest(label=label):
+                rejected = execute({**allowed_environment, **overrides})
+                self.assertEqual(1, rejected.returncode)
+                self.assertIn(
+                    "::error::Incident merge requires a repository-owner workflow_dispatch.",
+                    rejected.stdout,
+                )
 
 
 if __name__ == "__main__":

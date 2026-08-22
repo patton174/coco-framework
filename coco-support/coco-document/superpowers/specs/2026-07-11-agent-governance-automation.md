@@ -187,8 +187,9 @@ required-status-checks 读取；另一个 App token 只含 `Contents: write` 并
   owner 的 `User` 身份创建，并且正文中恰有一个
   canonical `coco-auto-merge-incident` JSON marker。marker schema 精确包含 `schema_version`、`repository`、
   `base_sha`、`pull_request`、`head_sha`、`missing_context`、`issued_at` 和 `expires_at`；只能绑定当前仓库、
-  当前受保护 base SHA、一个 exact PR/head，并且 `missing_context` 只能为 `Agent jury gate`。授权时间使用
-  UTC，当前时间必须位于 issued/expires 区间内，且总有效期不得超过 24 小时。Issue、作者、marker、时间或
+  当前受保护 base SHA、一个 exact PR/head，并且 `missing_context` 只能为 `Agent jury gate`。授权时间必须使用
+  RFC3339 UTC 表示；接受 `Z`、小数秒 `Z` 和 `+00:00` 的等价 UTC 形式，拒绝非 UTC、naive 或畸形值。当前时间必须位于
+  issued/expires 区间内，且总有效期不得超过 24 小时。Issue、作者、marker、时间或
   API 任一异常均 fail closed；标题、可编辑正文自身、自然语言、评论、label 和通配字段都不构成身份授权。
   即使协作者向 owner 创建的 Issue 注入合法 marker，没有 owner dispatch、指定 App PR 作者和 owner exact-head
   approval 也必须拒绝；
