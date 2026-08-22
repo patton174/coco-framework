@@ -3,26 +3,36 @@
 from __future__ import annotations
 
 import copy
+import json
+import os
+import subprocess
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 import auto_merge as merge
 
 
 HEAD_SHA = "b" * 40
 OTHER_SHA = "c" * 40
+BASE_SHA = "a" * 40
+OTHER_BASE_SHA = "f" * 40
 MERGE_SHA = "d" * 40
 REPOSITORY = "patton174/coco-framework"
+REPOSITORY_OWNER = "patton174"
 FINDING_ID = "v1-" + "e" * 64
 APP_LOGIN = "coco-agent[bot]"
 APP_BOT_ID = 123456789
+INCIDENT_ISSUE_NUMBER = 366
+NOW = datetime(2026, 8, 17, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def pull_request(**overrides: object) -> dict:
     value = {
         "number": 17,
         "state": "open",
-        "base": {"ref": "main"},
+        "base": {"ref": "main", "sha": BASE_SHA},
         "head": {"sha": HEAD_SHA},
         "draft": False,
         "mergeable": True,
@@ -45,10 +55,71 @@ def marker(
     )
 
 
+def incident_payload(**overrides: object) -> dict[str, object]:
+    payload = {
+        "schema_version": merge.INCIDENT_SCHEMA_VERSION,
+        "repository": REPOSITORY,
+        "base_sha": BASE_SHA,
+        "pull_request": 17,
+        "head_sha": HEAD_SHA,
+        "missing_context": merge.INCIDENT_MISSING_CONTEXT,
+        "issued_at": "2026-08-17T11:00:00Z",
+        "expires_at": "2026-08-17T13:00:00Z",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def incident_marker(**overrides: object) -> str:
+    return (
+        f"{merge.INCIDENT_MARKER_PREFIX}"
+        f"{merge.canonical_json(incident_payload(**overrides))} -->"
+    )
+
+
+def incident_issue(**overrides: object) -> dict:
+    value = {
+        "number": INCIDENT_ISSUE_NUMBER,
+        "state": "open",
+        "body": incident_marker(),
+        "author_association": "OWNER",
+        "user": {"login": "patton174", "type": "User"},
+    }
+    value.update(overrides)
+    return value
+
+
 def app_actor(
     login: str = APP_LOGIN, bot_id: int = APP_BOT_ID, actor_type: str = "Bot"
 ) -> dict:
     return {"login": login, "id": bot_id, "type": actor_type}
+
+
+def approval(
+    login: str = "maintainer",
+    *,
+    review_id: int = 1,
+    head_sha: str = HEAD_SHA,
+    actor_type: str = "User",
+) -> dict:
+    return {
+        "id": review_id,
+        "state": "APPROVED",
+        "commit_id": head_sha,
+        "user": {"login": login, "type": actor_type},
+    }
+
+
+def incident_invocation(
+    *,
+    event_name: str = "workflow_dispatch",
+    actor: str = REPOSITORY_OWNER,
+    triggering_actor: str = REPOSITORY_OWNER,
+    repository_owner: str = REPOSITORY_OWNER,
+) -> merge.IncidentInvocation:
+    return merge.IncidentInvocation(
+        event_name, actor, triggering_actor, repository_owner
+    )
 
 
 def finding_issue(
@@ -112,6 +183,24 @@ def success_check(identifier: int, name: str) -> dict:
     return check_signal(identifier, name)
 
 
+def required_check_configuration(
+    gates: tuple[str, ...] = merge.STANDARD_REQUIRED_GATES,
+    *,
+    strict: bool = True,
+    contexts: list[object] | None = None,
+    checks: list[object] | None = None,
+) -> dict:
+    return {
+        "strict": strict,
+        "contexts": list(gates) if contexts is None else contexts,
+        "checks": (
+            [{"context": gate, "app_id": merge.CI_CHECK_APP_ID} for gate in gates]
+            if checks is None
+            else checks
+        ),
+    }
+
+
 def graphql_state(
     decision: str | None = "APPROVED", resolved: list[bool] | None = None
 ) -> dict:
@@ -159,17 +248,34 @@ class MergeOnlyClient:
         return copy.deepcopy(self.merge_response)
 
 
+class ProtectionOnlyClient:
+    def __init__(self) -> None:
+        self.configuration = required_check_configuration()
+        self.configuration_pages: list[dict] | None = None
+        self.error: Exception | None = None
+        self.reads = 0
+
+    def required_status_checks(self, repository: str) -> object:
+        if repository != REPOSITORY:
+            raise AssertionError("protection client received another repository")
+        self.reads += 1
+        if self.error is not None:
+            raise self.error
+        if self.configuration_pages is not None:
+            if not self.configuration_pages:
+                raise AssertionError(
+                    "unexpected extra required check configuration read"
+                )
+            payload = self.configuration_pages.pop(0)
+        else:
+            payload = self.configuration
+        return copy.deepcopy(payload)
+
+
 class FakeClient:
     def __init__(self) -> None:
         self.pull_reads = [pull_request(), pull_request()]
-        self.reviews = [
-            {
-                "id": 1,
-                "state": "APPROVED",
-                "commit_id": HEAD_SHA,
-                "user": {"login": "maintainer", "type": "User"},
-            }
-        ]
+        self.reviews = [approval()]
         self.statuses = [
             success_status(10, "Agent jury gate"),
             success_status(11, "Agent issue gate"),
@@ -183,6 +289,10 @@ class FakeClient:
             "squashMergeAllowed": False,
             "rebaseMergeAllowed": False,
         }
+        self.incident_issue = incident_issue()
+        self.incident_issue_pages: list[dict] | None = None
+        self.incident_issue_error: Exception | None = None
+        self.incident_issue_reads = 0
         self.review_pages: list[list[dict]] | None = None
         self.status_pages: list[list[dict]] | None = None
         self.check_run_pages: list[list[dict]] | None = None
@@ -191,6 +301,7 @@ class FakeClient:
         self.thread_pages = [graphql_state(), graphql_state()]
         self.graphql_calls = 0
         self.repository_reads = 0
+        self.protection_client = ProtectionOnlyClient()
         self.merge_client = MergeOnlyClient()
         self.sent = self.merge_client.sent
 
@@ -206,6 +317,17 @@ class FakeClient:
             if permission is None:
                 raise merge.GitHubApiError("not found", 404)
             return {"permission": permission}
+        if path == f"repos/{REPOSITORY}/issues/{INCIDENT_ISSUE_NUMBER}":
+            self.incident_issue_reads += 1
+            if self.incident_issue_error is not None:
+                raise self.incident_issue_error
+            if self.incident_issue_pages is not None:
+                if not self.incident_issue_pages:
+                    raise AssertionError("unexpected extra incident Issue read")
+                payload = self.incident_issue_pages.pop(0)
+            else:
+                payload = self.incident_issue
+            return copy.deepcopy(payload)
         raise AssertionError(f"unexpected get_json path: {path}")
 
     def paginate(
@@ -291,21 +413,48 @@ class AutoMergeTests(unittest.TestCase):
     def candidate(self, head_sha: str | None = HEAD_SHA) -> merge.Candidate:
         return merge.Candidate(17, head_sha, "test")
 
+    def incident_client(self) -> FakeClient:
+        client = FakeClient()
+        client.pull_reads = [
+            pull_request(user=app_actor()),
+            pull_request(user=app_actor()),
+        ]
+        client.reviews = [approval(REPOSITORY_OWNER)]
+        client.permissions = {REPOSITORY_OWNER: "admin"}
+        client.protection_client.configuration = required_check_configuration(
+            merge.INCIDENT_REQUIRED_GATES
+        )
+        client.statuses = [success_status(11, "Agent issue gate")]
+        return client
+
     def evaluate(
         self,
         client: FakeClient,
         candidate: merge.Candidate | None = None,
         *,
         dry_run: bool = False,
+        incident_issue_number: int | None = None,
+        now_values: list[datetime] | None = None,
+        invocation_values: list[merge.IncidentInvocation] | None = None,
     ) -> merge.Decision:
+        clock_values = iter(now_values or [NOW, NOW])
+        invocations = iter(
+            invocation_values
+            if invocation_values is not None
+            else [incident_invocation(), incident_invocation()]
+        )
         return merge.evaluate_candidate(
             client,
+            client.protection_client,
             client.merge_client,
             REPOSITORY,
             candidate or self.candidate(),
             APP_LOGIN,
             APP_BOT_ID,
             dry_run=dry_run,
+            incident_issue_number=incident_issue_number,
+            now_provider=lambda: next(clock_values),
+            incident_invocation_provider=lambda: next(invocations),
         )
 
     def test_agent_issue_marker_requires_exact_canonical_json(self) -> None:
@@ -454,7 +603,7 @@ class AutoMergeTests(unittest.TestCase):
     def test_static_pull_request_conditions_block_before_other_api_calls(self) -> None:
         cases = [
             ("closed", {"state": "closed"}),
-            ("wrong base", {"base": {"ref": "release"}}),
+            ("wrong base", {"base": {"ref": "release", "sha": BASE_SHA}}),
             ("draft", {"draft": True}),
             ("not mergeable", {"mergeable": False}),
             ("unknown mergeable", {"mergeable": None}),
@@ -478,6 +627,410 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual("blocked", decision.state)
         self.assertIn("expected bound head", " ".join(decision.reasons))
         self.assertEqual([], client.sent)
+
+    def test_standard_protection_contract_allows_all_three_gates(self) -> None:
+        client = FakeClient()
+        decision = self.evaluate(client, dry_run=True, invocation_values=[])
+        self.assertEqual("dry-run", decision.state)
+        self.assertEqual(
+            tuple(sorted(merge.STANDARD_REQUIRED_GATES)),
+            tuple(sorted(decision.gates)),
+        )
+        self.assertEqual(2, client.protection_client.reads)
+        self.assertEqual(0, client.incident_issue_reads)
+
+    def test_controlled_incident_contract_requires_exact_issue_authorization(
+        self,
+    ) -> None:
+        client = self.incident_client()
+        with self.assertRaisesRegex(merge.ContractError, "requires an incident Issue"):
+            self.evaluate(client, dry_run=True)
+
+        for dry_run, expected_state in ((True, "dry-run"), (False, "merged")):
+            with self.subTest(dry_run=dry_run):
+                client = self.incident_client()
+                client.protection_client.configuration_pages = [
+                    required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+                    required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+                ]
+                decision = self.evaluate(
+                    client,
+                    dry_run=dry_run,
+                    incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                )
+                self.assertEqual(expected_state, decision.state)
+                self.assertEqual({"CI gate", "Agent issue gate"}, set(decision.gates))
+                self.assertEqual((REPOSITORY_OWNER,), decision.approvers)
+                self.assertEqual(2, client.incident_issue_reads)
+                self.assertEqual(2, client.protection_client.reads)
+                self.assertEqual([], client.protection_client.configuration_pages)
+                self.assertEqual(0 if dry_run else 1, len(client.sent))
+
+    def test_incident_consumes_exactly_two_protection_snapshots(self) -> None:
+        three_pages = self.incident_client()
+        three_pages.protection_client.configuration_pages = [
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+        ]
+        decision = self.evaluate(
+            three_pages,
+            dry_run=True,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("dry-run", decision.state)
+        self.assertEqual(2, three_pages.protection_client.reads)
+        self.assertEqual(1, len(three_pages.protection_client.configuration_pages))
+
+        one_page = self.incident_client()
+        one_page.protection_client.configuration_pages = [
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES)
+        ]
+        with self.assertRaisesRegex(
+            AssertionError, "unexpected extra required check configuration read"
+        ):
+            self.evaluate(
+                one_page,
+                dry_run=True,
+                incident_issue_number=INCIDENT_ISSUE_NUMBER,
+            )
+        self.assertEqual(2, one_page.protection_client.reads)
+        self.assertEqual([], one_page.sent)
+
+    def test_incident_owner_issue_marker_cannot_replace_owner_dispatch(self) -> None:
+        cases = {
+            "collaborator actor": incident_invocation(actor="maintainer"),
+            "collaborator rerun": incident_invocation(triggering_actor="maintainer"),
+            "non-dispatch event": incident_invocation(event_name="schedule"),
+        }
+        for label, invocation in cases.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request(user=app_actor())]
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                        invocation_values=[invocation],
+                    )
+                self.assertEqual([], client.sent)
+
+    def test_incident_invocation_uses_github_runtime_environment(self) -> None:
+        with mock.patch.dict(
+            merge.os.environ,
+            {
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_ACTOR": REPOSITORY_OWNER,
+                "GITHUB_TRIGGERING_ACTOR": REPOSITORY_OWNER,
+                "GITHUB_REPOSITORY_OWNER": REPOSITORY_OWNER,
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                incident_invocation(), merge.incident_invocation_from_environment()
+            )
+        with mock.patch.dict(merge.os.environ, {}, clear=True):
+            with self.assertRaisesRegex(merge.ContractError, "GitHub-provided"):
+                merge.incident_invocation_from_environment()
+
+    def test_incident_requires_exact_configured_app_pull_request_author(self) -> None:
+        invalid_authors = {
+            "user": {"login": REPOSITORY_OWNER, "id": 1, "type": "User"},
+            "dependabot": app_actor("dependabot[bot]", 49699333),
+            "other app": app_actor("other-app[bot]", APP_BOT_ID + 1),
+        }
+        for label, author in invalid_authors.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request(user=author)]
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                    )
+                self.assertEqual([], client.sent)
+
+    def test_incident_requires_owner_approval_on_exact_current_head(self) -> None:
+        cases = {
+            "missing": [],
+            "maintainer only": [approval()],
+            "owner stale head": [approval(REPOSITORY_OWNER, head_sha=OTHER_SHA)],
+        }
+        for label, reviews in cases.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.reviews = reviews
+                client.permissions["maintainer"] = "write"
+                decision = self.evaluate(
+                    client,
+                    incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                )
+                self.assertEqual("blocked", decision.state)
+                self.assertIn("repository owner's approval", " ".join(decision.reasons))
+                self.assertEqual([], client.sent)
+
+    def test_standard_contract_rejects_unused_incident_parameter(self) -> None:
+        client = FakeClient()
+        client.pull_reads = [pull_request()]
+        with self.assertRaisesRegex(merge.ContractError, "rejects an incident Issue"):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual(0, client.incident_issue_reads)
+
+    def test_incident_issue_contract_rejects_invalid_authorizations(self) -> None:
+        invalid_issues = {
+            "closed": incident_issue(state="closed"),
+            "pull request": incident_issue(
+                pull_request={"url": "https://example.invalid"}
+            ),
+            "wrong author": incident_issue(
+                author_association="MEMBER",
+                user={"login": "maintainer", "type": "User"},
+            ),
+            "missing marker": incident_issue(body="incident details only"),
+            "duplicate marker": incident_issue(
+                body=f"{incident_marker()}\n{incident_marker()}"
+            ),
+            "malformed JSON": incident_issue(
+                body=f'{merge.INCIDENT_MARKER_PREFIX}{{"schema_version":}} -->'
+            ),
+            "non-canonical marker": incident_issue(
+                body=(
+                    f"{merge.INCIDENT_MARKER_PREFIX}"
+                    f"{json.dumps(incident_payload())} -->"
+                )
+            ),
+            "extra marker field": incident_issue(
+                body=incident_marker(unexpected="value")
+            ),
+            "wrong repository": incident_issue(
+                body=incident_marker(repository="patton174/another-repository")
+            ),
+            "wrong base": incident_issue(body=incident_marker(base_sha=OTHER_BASE_SHA)),
+            "wrong PR": incident_issue(body=incident_marker(pull_request=18)),
+            "wrong head": incident_issue(body=incident_marker(head_sha=OTHER_SHA)),
+            "wrong missing context": incident_issue(
+                body=incident_marker(missing_context="CI gate")
+            ),
+            "expired": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T09:00:00Z",
+                    expires_at="2026-08-17T11:59:59Z",
+                )
+            ),
+            "future": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T12:00:01Z",
+                    expires_at="2026-08-17T13:00:00Z",
+                )
+            ),
+            "issued equals expires": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T12:30:00Z",
+                    expires_at="2026-08-17T12:30:00Z",
+                )
+            ),
+            "overlong": incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-16T12:00:00Z",
+                    expires_at="2026-08-17T13:00:00Z",
+                )
+            ),
+        }
+        for label, issue in invalid_issues.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request(user=app_actor())]
+                client.incident_issue = issue
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                    )
+                self.assertEqual([], client.sent)
+
+    def test_incident_marker_accepts_rfc3339_utc_equivalents(self) -> None:
+        cases = {
+            "Z": ("2026-08-17T11:00:00Z", 0),
+            "one-digit fractional Z": ("2026-08-17T11:00:00.1Z", 100000),
+            "numeric UTC offset": ("2026-08-17T11:00:00+00:00", 0),
+            "six-digit fractional UTC offset": (
+                "2026-08-17T11:00:00.123456+00:00",
+                123456,
+            ),
+            "seven-digit lossless fractional Z": (
+                "2026-08-17T11:00:00.1234560Z",
+                123456,
+            ),
+            "nine-digit lossless fractional UTC offset": (
+                "2026-08-17T11:00:00.123456000+00:00",
+                123456,
+            ),
+        }
+        for label, (timestamp, expected_microsecond) in cases.items():
+            with self.subTest(label=label):
+                parsed = merge.parse_utc_timestamp(timestamp, "incident timestamp")
+                self.assertEqual(timezone.utc, parsed.tzinfo)
+                self.assertEqual(expected_microsecond, parsed.microsecond)
+
+    def test_incident_marker_rejects_lossy_sub_microsecond_precision(self) -> None:
+        for timestamp in (
+            "2026-08-17T11:00:00.1234567Z",
+            "2026-08-17T11:00:00.123456001+00:00",
+        ):
+            with self.subTest(timestamp=timestamp):
+                with self.assertRaisesRegex(merge.ContractError, "without loss"):
+                    merge.parse_utc_timestamp(timestamp, "incident timestamp")
+
+        lossless_window = self.incident_client()
+        lossless_window.incident_issue = incident_issue(
+            body=incident_marker(
+                issued_at="2026-08-17T11:00:00.000000000Z",
+                expires_at="2026-08-17T13:00:00.000000000+00:00",
+            )
+        )
+        decision = self.evaluate(
+            lossless_window,
+            dry_run=True,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("dry-run", decision.state)
+
+        unsafe_windows = {
+            "issued_at would be moved earlier by truncation": {
+                "issued_at": "2026-08-17T12:00:00.0000001Z"
+            },
+            "expires_at carries unrepresentable precision": {
+                "expires_at": "2026-08-17T12:00:00.0000001Z"
+            },
+        }
+        for label, marker_overrides in unsafe_windows.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request(user=app_actor())]
+                client.incident_issue = incident_issue(
+                    body=incident_marker(**marker_overrides)
+                )
+                with self.assertRaisesRegex(merge.ContractError, "without loss"):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                    )
+                self.assertEqual([], client.sent)
+
+    def test_incident_marker_rejects_non_utc_naive_and_malformed_timestamps(
+        self,
+    ) -> None:
+        invalid_timestamps = (
+            "2026-08-17T11:00:00",
+            "2026-08-17T11:00:00-00:00",
+            "2026-08-17T11:00:00+08:00",
+            "2026-08-17 11:00:00Z",
+            "2026-08-17T11:00:00.\uff11\uff12\uff13Z",
+            "not-a-timestamp",
+        )
+        for timestamp in invalid_timestamps:
+            with self.subTest(timestamp=timestamp):
+                with self.assertRaisesRegex(merge.ContractError, "RFC 3339 UTC"):
+                    merge.parse_utc_timestamp(timestamp, "incident timestamp")
+
+    def test_incident_issue_api_failure_fails_closed(self) -> None:
+        client = self.incident_client()
+        client.pull_reads = [pull_request(user=app_actor())]
+        client.incident_issue_error = merge.GitHubApiError("incident unavailable", 503)
+        with self.assertRaisesRegex(merge.GitHubApiError, "incident unavailable"):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual([], client.sent)
+
+    def test_invalid_branch_protection_contract_fails_closed(self) -> None:
+        invalid_configurations = {
+            "missing CI": required_check_configuration(
+                ("Agent jury gate", "Agent issue gate")
+            ),
+            "missing issue": required_check_configuration(
+                ("CI gate", "Agent jury gate")
+            ),
+            "unknown context": required_check_configuration(
+                ("CI gate", "Agent jury gate", "Agent issue gate", "Other gate")
+            ),
+            "duplicate legacy context": required_check_configuration(
+                contexts=["CI gate", "CI gate", "Agent jury gate", "Agent issue gate"]
+            ),
+            "duplicate app-bound context": required_check_configuration(
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent issue gate", "app_id": merge.CI_CHECK_APP_ID},
+                ]
+            ),
+            "legacy mismatch": required_check_configuration(
+                contexts=["CI gate", "Agent jury gate"],
+            ),
+            "wrong app": required_check_configuration(
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID + 1},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent issue gate", "app_id": merge.CI_CHECK_APP_ID},
+                ]
+            ),
+            "missing app": required_check_configuration(
+                checks=[
+                    {"context": "CI gate"},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent issue gate", "app_id": merge.CI_CHECK_APP_ID},
+                ]
+            ),
+            "strict false": required_check_configuration(strict=False),
+            "malformed checks": {"strict": True, "contexts": [], "checks": {}},
+            "malformed contexts": {"strict": True, "contexts": {}, "checks": []},
+        }
+        for label, configuration in invalid_configurations.items():
+            with self.subTest(label=label):
+                client = FakeClient()
+                client.pull_reads = [pull_request()]
+                client.protection_client.configuration = configuration
+                with self.assertRaises(merge.ContractError):
+                    self.evaluate(client)
+                self.assertEqual([], client.sent)
+
+    def test_branch_protection_api_failure_fails_closed(self) -> None:
+        for status in (401, 403, 404, 503):
+            with self.subTest(status=status):
+                client = FakeClient()
+                client.pull_reads = [pull_request()]
+                client.protection_client.error = merge.GitHubApiError(
+                    "protection unavailable", status
+                )
+                with self.assertRaisesRegex(
+                    merge.GitHubApiError, "protection unavailable"
+                ):
+                    self.evaluate(client)
+                self.assertEqual([], client.sent)
+
+    def test_branch_protection_client_exposes_only_exact_required_check_read(
+        self,
+    ) -> None:
+        configuration = required_check_configuration()
+        with mock.patch.object(merge, "GitHubClient") as client_type:
+            raw_client = client_type.return_value
+            raw_client.get_json.return_value = configuration
+            client = merge.BranchProtectionClient(
+                "protection-token", "https://api.example.test"
+            )
+
+            self.assertEqual(configuration, client.required_status_checks(REPOSITORY))
+            client_type.assert_called_once_with(
+                "protection-token", "https://api.example.test"
+            )
+            raw_client.get_json.assert_called_once_with(
+                f"repos/{REPOSITORY}/branches/main/protection/required_status_checks"
+            )
+            public_methods = {
+                name
+                for name in dir(client)
+                if not name.startswith("_") and callable(getattr(client, name))
+            }
+            self.assertEqual({"required_status_checks"}, public_methods)
 
     def test_every_required_gate_must_have_a_successful_latest_signal(self) -> None:
         cases = {
@@ -778,6 +1331,210 @@ class AutoMergeTests(unittest.TestCase):
                 self.assertEqual(2, client.graphql_calls)
                 self.assertEqual(2, client.repository_reads)
 
+    def test_second_protection_read_rejects_gate_or_app_binding_changes(self) -> None:
+        changed_gates = FakeClient()
+        changed_gates.protection_client.configuration_pages = [
+            required_check_configuration(),
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+        ]
+
+        changed_gates.status_pages = [
+            copy.deepcopy(changed_gates.statuses),
+            [success_status(11, "Agent issue gate")],
+        ]
+        with self.assertRaisesRegex(merge.ContractError, "requires an incident Issue"):
+            self.evaluate(changed_gates)
+        self.assertEqual([], changed_gates.sent)
+
+        changed_binding = FakeClient()
+        changed_binding.protection_client.configuration_pages = [
+            required_check_configuration(),
+            required_check_configuration(
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {"context": "Agent jury gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {
+                        "context": "Agent issue gate",
+                        "app_id": merge.CI_CHECK_APP_ID + 1,
+                    },
+                ]
+            ),
+        ]
+        with self.assertRaisesRegex(merge.ContractError, "GitHub Actions App"):
+            self.evaluate(changed_binding)
+        self.assertEqual([], changed_binding.sent)
+
+    def test_protection_failure_precedes_simultaneous_incident_drift(self) -> None:
+        client = self.incident_client()
+        client.protection_client.configuration_pages = [
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+            required_check_configuration(
+                merge.INCIDENT_REQUIRED_GATES,
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {
+                        "context": "Agent issue gate",
+                        "app_id": merge.CI_CHECK_APP_ID + 1,
+                    },
+                ],
+            ),
+        ]
+        client.incident_issue_pages = [
+            incident_issue(),
+            incident_issue(body=incident_marker(issued_at="2026-08-17T11:01:00Z")),
+        ]
+
+        with self.assertRaisesRegex(
+            merge.ContractError,
+            "required checks must be bound to the GitHub Actions App",
+        ):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual(2, client.protection_client.reads)
+        self.assertEqual(1, client.incident_issue_reads)
+        self.assertEqual(1, len(client.incident_issue_pages))
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_read_rejects_binding_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [
+            incident_issue(),
+            incident_issue(
+                body=incident_marker(
+                    issued_at="2026-08-17T11:01:00Z",
+                    expires_at="2026-08-17T13:00:00Z",
+                )
+            ),
+        ]
+        decision = self.evaluate(
+            client,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", decision.state)
+        self.assertIn("incident authorization changed", " ".join(decision.reasons))
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_read_rejects_canonical_marker_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [
+            incident_issue(),
+            incident_issue(
+                body=incident_marker(issued_at="2026-08-17T11:00:00.000000000Z")
+            ),
+        ]
+        decision = self.evaluate(
+            client,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", decision.state)
+        self.assertIn("incident authorization changed", " ".join(decision.reasons))
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_read_rejects_issue_body_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [
+            incident_issue(body=f"initial details\n{incident_marker()}"),
+            incident_issue(body=f"edited details\n{incident_marker()}"),
+        ]
+        decision = self.evaluate(
+            client,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", decision.state)
+        self.assertIn("incident authorization changed", " ".join(decision.reasons))
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_read_rejects_issue_state_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [incident_issue(), incident_issue(state="closed")]
+        with self.assertRaisesRegex(merge.ContractError, "must remain open"):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_eligibility_rejects_identity_and_head_drift(
+        self,
+    ) -> None:
+        actor_drift = self.incident_client()
+        with self.assertRaisesRegex(merge.ContractError, "repository owner"):
+            self.evaluate(
+                actor_drift,
+                incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                invocation_values=[
+                    incident_invocation(),
+                    incident_invocation(actor="maintainer"),
+                ],
+            )
+
+        author_drift = self.incident_client()
+        author_drift.pull_reads = [
+            pull_request(user=app_actor()),
+            pull_request(user=app_actor("other-app[bot]", APP_BOT_ID + 1)),
+        ]
+        with self.assertRaisesRegex(merge.ContractError, "identity mismatch"):
+            self.evaluate(
+                author_drift,
+                incident_issue_number=INCIDENT_ISSUE_NUMBER,
+            )
+
+        approval_drift = self.incident_client()
+        approval_drift.review_pages = [
+            [approval(REPOSITORY_OWNER, review_id=1)],
+            [approval(REPOSITORY_OWNER, review_id=2)],
+        ]
+        approval_decision = self.evaluate(
+            approval_drift,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", approval_decision.state)
+        self.assertIn(
+            "incident authorization changed", " ".join(approval_decision.reasons)
+        )
+
+        head_drift = self.incident_client()
+        head_drift.pull_reads = [
+            pull_request(user=app_actor()),
+            pull_request(head={"sha": OTHER_SHA}, user=app_actor()),
+        ]
+        head_decision = self.evaluate(
+            head_drift,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", head_decision.state)
+        self.assertIn("expected bound head", " ".join(head_decision.reasons))
+
+        for client in (actor_drift, author_drift, approval_drift, head_drift):
+            self.assertEqual([], client.sent)
+
+    def test_incident_path_preserves_all_other_merge_guards(self) -> None:
+        missing_approval = self.incident_client()
+        missing_approval.reviews = []
+
+        unresolved_thread = self.incident_client()
+        unresolved_thread.thread_pages = [graphql_state(resolved=[False])]
+
+        open_finding = self.incident_client()
+        open_finding.issues = [finding_issue()]
+
+        for label, client in {
+            "approval": missing_approval,
+            "thread": unresolved_thread,
+            "issue": open_finding,
+        }.items():
+            with self.subTest(label=label):
+                decision = self.evaluate(
+                    client,
+                    incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                )
+                self.assertEqual("blocked", decision.state)
+                self.assertEqual([], client.sent)
+
     def test_merge_refusal_is_a_fail_closed_error(self) -> None:
         client = FakeClient()
         client.merge_client.merge_response = {
@@ -797,6 +1554,8 @@ class AutoMergeTests(unittest.TestCase):
             "cron: '*/10 * * * *'",
             "issues:",
             "workflow_dispatch:",
+            "incident_issue:",
+            "Optional exact incident authorization Issue number",
             "CI",
             "Agent Review Jury",
             "Agent Issue Gate",
@@ -807,11 +1566,19 @@ class AutoMergeTests(unittest.TestCase):
             "client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}",
             "secrets.COCO_AGENT_APP_PRIVATE_KEY",
             "permission-contents: write",
+            "permission-administration: read",
             "vars.COCO_AGENT_APP_SLUG",
             "vars.COCO_AGENT_APP_LOGIN",
             "vars.COCO_AGENT_APP_BOT_ID",
             "GH_TOKEN: ${{ github.token }}",
-            "AGENT_GH_TOKEN: ${{ steps.app-token.outputs.token }}",
+            "AGENT_GH_TOKEN: ${{ steps.merge-token.outputs.token }}",
+            "PROTECTION_GH_TOKEN: ${{ steps.protection-token.outputs.token }}",
+            "INCIDENT_ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.incident_issue || '' }}",
+            "\"${GITHUB_EVENT_NAME}\" != 'workflow_dispatch'",
+            '"${GITHUB_ACTOR}" != "${GITHUB_REPOSITORY_OWNER}"',
+            '"${GITHUB_TRIGGERING_ACTOR}" != "${GITHUB_REPOSITORY_OWNER}"',
+            "Incident merge requires a repository-owner workflow_dispatch.",
+            '--incident-issue-number "${INCIDENT_ISSUE_NUMBER}"',
             '--expected-app-login "${EXPECTED_APP_LOGIN}"',
             '--expected-app-bot-id "${EXPECTED_APP_BOT_ID}"',
             "checks: read",
@@ -835,11 +1602,89 @@ class AutoMergeTests(unittest.TestCase):
         self.assertNotIn("permission-metadata:", workflow)
         self.assertNotIn("permission-pull-requests:", workflow)
         self.assertNotIn("permission-statuses:", workflow)
+        self.assertNotIn("PROTECTION_GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertNotIn(
+            "PROTECTION_GH_TOKEN: ${{ steps.merge-token.outputs.token }}", workflow
+        )
+        merge_token_step = workflow.split(
+            "- name: Create merge-only GitHub App token", 1
+        )[1].split("- name:", 1)[0]
+        protection_token_step = workflow.split(
+            "- name: Create branch-protection read token", 1
+        )[1].split("- name:", 1)[0]
+        workflow_permissions = workflow.split("permissions:", 1)[1].split(
+            "concurrency:", 1
+        )[0]
+        self.assertNotIn("administration:", workflow_permissions)
+        self.assertIn("id: merge-token", merge_token_step)
+        self.assertIn("permission-contents: write", merge_token_step)
+        self.assertNotIn("permission-administration:", merge_token_step)
+        self.assertIn("id: protection-token", protection_token_step)
+        self.assertIn("permission-administration: read", protection_token_step)
+        self.assertNotIn("permission-contents:", protection_token_step)
+        self.assertEqual(
+            2,
+            workflow.count(
+                "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"
+            ),
+        )
         self.assertEqual(1, workflow.count("permission-contents: write"))
+        self.assertEqual(1, workflow.count("permission-administration: read"))
         self.assertEqual(
             ("CI gate", "Agent jury gate", "Agent issue gate"),
-            merge.REQUIRED_GATES,
+            merge.STANDARD_REQUIRED_GATES,
         )
+        self.assertEqual(("CI gate", "Agent issue gate"), merge.INCIDENT_REQUIRED_GATES)
+
+        specification = (
+            Path(__file__).resolve().parents[2]
+            / "coco-support/coco-document/superpowers/specs/2026-07-11-agent-governance-automation.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("| Administration | Read |", specification)
+        self.assertIn("禁止授予 `Administration: write`", specification)
+        self.assertNotIn("不授予 Administration 权限", specification)
+
+    def test_incident_shell_guard_allows_only_owner_workflow_dispatch(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/auto-merge.yml"
+        ).read_text(encoding="utf-8")
+        start = workflow.index('          if [[ -n "${INCIDENT_ISSUE_NUMBER}" ]]; then')
+        end = workflow.index("          args=(", start)
+        guard = "set -euo pipefail\n" + workflow[start:end]
+        allowed_environment = {
+            "INCIDENT_ISSUE_NUMBER": str(INCIDENT_ISSUE_NUMBER),
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_ACTOR": REPOSITORY_OWNER,
+            "GITHUB_TRIGGERING_ACTOR": REPOSITORY_OWNER,
+            "GITHUB_REPOSITORY_OWNER": REPOSITORY_OWNER,
+        }
+
+        def execute(environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["bash", "-c", guard],
+                check=False,
+                capture_output=True,
+                env={**os.environ, **environment},
+                text=True,
+            )
+
+        allowed = execute(allowed_environment)
+        self.assertEqual(0, allowed.returncode, allowed.stdout + allowed.stderr)
+        self.assertNotIn("Incident merge requires", allowed.stdout)
+
+        rejected_environments = {
+            "non-dispatch event": {"GITHUB_EVENT_NAME": "schedule"},
+            "non-owner dispatch actor": {"GITHUB_ACTOR": "maintainer"},
+            "non-owner re-run actor": {"GITHUB_TRIGGERING_ACTOR": "maintainer"},
+        }
+        for label, overrides in rejected_environments.items():
+            with self.subTest(label=label):
+                rejected = execute({**allowed_environment, **overrides})
+                self.assertEqual(1, rejected.returncode)
+                self.assertIn(
+                    "::error::Incident merge requires a repository-owner workflow_dispatch.",
+                    rejected.stdout,
+                )
 
 
 if __name__ == "__main__":

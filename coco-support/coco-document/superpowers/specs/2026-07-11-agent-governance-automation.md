@@ -35,9 +35,11 @@ App 最小权限为：
 | Contents | Read/Write | README 自动维护分支和最终 merge commit |
 | Issues | Read/Write | Agent Issue 和受管评论 |
 | Pull requests | Read/Write | 创建或更新 README PR |
+| Administration | Read | Auto Merge 读取受保护 `main` 的 required status checks |
 | Metadata | Read | GitHub App 固有权限 |
 
-不授予 Administration 权限。`Agent jury gate` 和 `Agent issue gate` 始终使用内置
+禁止授予 `Administration: write`；安装级 `Administration: read` 只能由 Auto Merge 的独立
+protection token 请求和使用，不得用于修改 branch protection。`Agent jury gate` 和 `Agent issue gate` 始终使用内置
 `github.token` 发布，使同一个 required context 只有 GitHub Actions App 一个 provider；专用 App token
 不得发布 gate。自动合并的可信度来自精确条件复核和分支保护，而不是管理员绕过。
 App 私钥只进入受保护 `main` 的 `workflow_run` publisher、计划或合并任务，不进入 source 或
@@ -168,21 +170,55 @@ CI/Agent workflow 完成、绑定 Issue 关闭/重开、受保护 `main` 上的�
 不能直接授权合并。审批和 review thread 变化由十分钟定时扫描发现；`pull_request_review` 使用未受保护的
 PR merge ref，不能进入持有 App 私钥的 `coco-agent` environment。
 
+自动合并使用三个相互分离的客户端能力：普通 `github.token` 只读取 PR、review、check、status 和 Issue；
+专用 Coco App 单独铸造只含 `Administration: read` 的短期 token，且客户端只暴露 `main` branch protection
+required-status-checks 读取；另一个 App token 只含 `Contents: write` 并只执行带 exact head 的 merge API。
+普通读取 token 和 merge token 均不得读取 branch protection，protection token 不得写 Contents。Auto Merge
+不拥有或调用 branch protection 管理写权限。App token 创建、权限、API 或解析失败全部 fail closed。
+
 对候选 PR 必须重新查询并同时满足：
 
 - state 为 open、base 为 `main`、非 draft；
 - head SHA 是 40 位小写十六进制且在整个检查过程中不变；
 - GitHub 报告 mergeable，且分支已与 `main` 同步；
 - 当前 head 至少有一个有效的非 bot 维护者 `APPROVED` review；
-- `CI gate`、`Agent jury gate`、`Agent issue gate` 对当前 head 均为 success，且发布 provider
-  分别是受保护配置允许的 GitHub Actions App/check actor；
+- 自动合并器从 `main` 当前 branch protection 的 `required_status_checks` 读取 required check
+  集合，而不自行用静态常量覆盖保护策略。响应必须为 strict，legacy `contexts` 与 App-bound
+  `checks` 必须同时存在、集合完全一致且 context 唯一；每项必须绑定 GitHub Actions App ID
+  `15368`。唯一允许的集合为标准的 `CI gate`、`Agent jury gate`、`Agent issue gate`，或已记录
+  受保护 base 事故期间仅暂时缺少 `Agent jury gate` 的 `CI gate`、`Agent issue gate`。缺少 CI
+  或 Issue、未知 context、重复 context、缺失或错误 App ID、畸形响应或 API 失败均拒绝合并；
+- 标准三 gate 路径不接受 incident Issue 参数。仅缺 `Agent jury gate` 的两 gate 路径必须由
+  仓库 owner 本人触发 `workflow_dispatch` 并显式提供一个公开 incident Issue number；初始 `actor` 和重跑时的
+  `triggering_actor` 都必须精确等于仓库 owner，普通自动触发、协作者或维护者 dispatch/re-run 均不能进入该路径。
+  候选 PR 必须由配置中钉住 login 和不可变 Bot ID 的专用 Coco Framework
+  Agent App 创建；Dependabot、用户或其他 App 创建的 PR 均拒绝。仓库 owner 还必须对 exact current head
+  提交当前有效的 `APPROVED` review，普通维护者批准或 head 更新前的 owner 批准不能替代；
+- incident Issue 仅记录事故审计和 exact binding，不作为授权者身份凭据。Issue 必须不是 PR、仍 open、由仓库
+  owner 的 `User` 身份创建，并且正文中恰有一个
+  canonical `coco-auto-merge-incident` JSON marker。marker schema 精确包含 `schema_version`、`repository`、
+  `base_sha`、`pull_request`、`head_sha`、`missing_context`、`issued_at` 和 `expires_at`；只能绑定当前仓库、
+  当前受保护 base SHA、一个 exact PR/head，并且 `missing_context` 只能为 `Agent jury gate`。授权时间必须使用
+  RFC3339 UTC 表示；接受 `Z`、`+00:00` 和包含一位或多位数字的 secfrac。Python `datetime` 微秒精度之外的
+  secfrac 仅在超出六位的数字全为 `0`、因而可无损规范化时接受；任何非零亚微秒部分均 fail closed，不得通过
+  舍入或有损截断放宽授权窗口。非 UTC、naive 或畸形值也必须拒绝。当前时间必须位于 issued/expires 区间内，
+  且总有效期不得超过 24 小时。Issue、作者、marker、时间或
+  API 任一异常均 fail closed；标题、可编辑正文自身、自然语言、评论、label 和通配字段都不构成身份授权。
+  即使协作者向 owner 创建的 Issue 注入合法 marker，没有 owner dispatch、指定 App PR 作者和 owner exact-head
+  approval 也必须拒绝；
+- 从上述保护配置派生的每个 gate 对当前 head 均为 success，且同名 status/check 仍必须来自受信
+  GitHub Actions provider，不能以动态配置接受伪造的同名信号；
 - 没有未解决 review thread；
 - 没有任何开放的严格绑定 Agent Issue；
 - 仓库仍只允许 merge commit。
 
-执行 merge API 时必须携带期望 head SHA 和 `merge` 方法。调用前必须完整重跑 PR、批准、三个 gate、
-review threads、开放 Issue 和仓库合并设置，而不只是二次读取 head；SHA、状态或任一条件变化则退出，
-不合并。脚本支持 dry-run，并对 API 分页、重复事件和并发执行保持幂等。
+执行 merge API 时必须携带期望 head SHA 和 `merge` 方法。调用前必须完整重跑 PR、批准、从保护配置
+派生的 gate、review threads、开放 Issue、仓库合并设置和 branch protection；而不只是二次读取 head。
+两次 eligibility 读取的 required gate 集合或任一 App binding 不同，或 SHA、状态或任一条件变化，均退出
+且不合并。两 gate 路径还必须在两次读取中重新验证 owner dispatch actor、指定 App PR 作者、owner
+exact-head approval，并重新获取同一个 incident Issue 和完全相同的 exact binding；actor、PR 作者、owner
+approval、head、Issue、marker、作者、时间或保护配置任一变化都立即停止。PR 合并后不再是 open candidate，且 marker 仅绑定
+该 PR/head/base，因此同一授权不能用于其他 PR。脚本支持 dry-run，并对 API 分页、重复事件和并发执行保持幂等。
 
 ## 自举顺序
 
@@ -211,6 +247,10 @@ review threads、开放 Issue 和仓库合并设置，而不只是二次读取 h
 移除故障的单个 required context，通过 PR merge commit 合并精确已评审 head，立即恢复原
 App ID 绑定 context，并完成同仓库与无密钥 canary。其他 required checks、审批、管理员保护、
 禁止 force push/删除分支等设置保持不变，任何情况下都不得直接 push `main`。
+执行该路线前必须在 dedicated Coco App 安装中显式授予 `Administration: read`，合并本修复后先对同仓
+exact PR/head/incident 连续运行两次 protection-read dry-run canary，证明独立 token 能完成两次读取且不含
+Contents 写权限。事故 PR 合并后管理员必须立即恢复 App ID `15368` 绑定的 `Agent jury gate`，再运行
+same-repository 和 no-secret canary；Auto Merge 不修改保护配置，也不能代替该恢复操作。
 
 ## 验收
 
