@@ -192,8 +192,11 @@ flowchart LR
 
 主席不能创建没有 source finding ID 的 blocker，也不能把未通过验证的 finding 升级为
 blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续展示，但不得进入
-`follow_up_finding_ids` 或成为 actionable finding。主席选中的双 `AGREE` P2/P3 才能创建
+`actionable_groups` 或成为 actionable finding。主席选中的双 `AGREE` P2/P3 group 才能创建
 受管 Issue；该 Issue 只影响独立的 `Agent issue gate`，不改变 `Agent jury gate` verdict。
+`actionable_groups` 是完整且严格的结构化契约：每个 group 必须含一个合法 primary source
+finding ID 和有序、唯一、且不含 primary 的 duplicate ID 列表。缺失、非对象、非法 primary、
+重复成员或错误类型均为基础设施失败，协调器不得静默忽略任何条目。
 
 ## 上下文模型
 
@@ -222,6 +225,14 @@ blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续
   记录完整 diff 来自 GitHub raw diff 还是经过完整性校验的 Files API patches。
 - `robustness-blind` 不接收 PR 正文、commit message 或“by design”说明，但仍接收受保护
   项目政策，避免把故意范围说明变成审查禁区。
+
+每个 source evidence 还显式记录总 `line_count` 和规范化、互不重叠的
+`available_line_ranges`。该区间集合必须恰好描述输入中实际可见的行；它可以因裁剪而在
+`line_count` 内留有间隔，不能据此假设完整文件可用。verifier 的 evidence ref 必须落在单一
+可用区间并使用允许的 trust domain；重复、畸形、越界或落入间隔的 ref 使报告失败。缺少某项
+check 所需的有效证据时，该 finding 只能是 `UNVERIFIED`，不得以相邻可见文本补全。同一路径的
+base `protected-policy`/`base-spec` 与 `head-code` 是不同 revision 的合法证据源；source 唯一性按
+trust domain、revision 和 path 判断，只拒绝同一 domain/revision/path 的真正重复。
 
 ### 预算
 
@@ -313,19 +324,26 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
   非法响应 envelope、角色、SHA、hash 或 binding 不匹配不进入任何重试，立即失败关闭。
   每次可重试输出只记录 attempt、受控 `stop_reason`、响应/累计字符数以及 expected/actual
   binding 的短前缀；不得记录 API key、原始响应分片、canonical context 或模型提示词。
-- P0/P1 只有同时得到 `evidence-verifier=AGREE` 和 `policy-skeptic=AGREE`，才能成为
-  confirmed blocker。
+- verifier 以结构化 claim/severity/anchor/trigger/impact/scope checks 和精确 evidence
+  references 报告；runtime 而非模型导出 `AGREE`、`DISAGREE` 或 `UNVERIFIED`。severity 与
+  scope 只能引用 `protected-policy` 或 `base-spec`，head/base code 不能伪装为政策。
+- P0/P1 只有同时得到两个 verifier runtime-derived `AGREE`，才能成为 confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不直接影响 jury verdict，并在评论中保留。
 - 任一验证者 `UNVERIFIED`：进入 unverified，不直接影响 jury verdict，并在评论中保留。
 - P2/P3 永不直接影响 jury verdict；只有两个 verifier 都为 `AGREE` 时才进入主席可选池。
-- 主席选中的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
+- 主席分组的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
   阻断独立的 `Agent issue gate`。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 只能
-  展示，不得进入 `follow_up_finding_ids` 或 actionable 集合。
+  展示，不得进入 `actionable_groups` 或 actionable 集合。
 - confirmed blocker 数量大于 0 时 verdict 必须为 BLOCK；等于 0 时必须为 PASS。
+- 主席必须把每个 confirmed P0/P1 恰好放入一个确定性 duplicate group，不能新增或删除 blocker；
+  group 不得混合严重级别或 P0/P1 与 P2/P3。
 - Chair 输出与确定性结果不一致时，Chair 阶段失败关闭。
 - publisher 重新加载全部 specialist、verifier 和 chair JSON，重新校验 schema、binding
   和完整角色集合，重算 consensus，并要求最终 Markdown 与重新渲染结果逐字一致；不能
   只信任 chair 上传的 `PASS`。
+- publisher 在任何 route binding failure status、gate status、label、Issue、comment、close 或
+  reopen 写入前预检 `max_actionable_issue_groups`。超限时必须零仓库写副作用，不得用失败 status
+  覆盖现有 gate；workflow 以失败退出表达该基础设施错误。
 
 上述分类和资格只能使用结构化 severity、finding ID 与显式 verifier status；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。

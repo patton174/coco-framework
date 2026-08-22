@@ -131,20 +131,23 @@ round output. `robustness-blind` must not receive PR intent, including the title
 body, commit messages, or author-provided "by design" explanations; it still
 receives protected policy and specifications.
 
-Cross-review uses `AGREE`, `DISAGREE`, and `UNVERIFIED`. `DISAGREE` requires
-specific code or policy counter-evidence. Missing context can only produce
-`UNVERIFIED`. Both verifiers must independently classify every P0, P1, P2, and
-P3 finding exactly once. A P0 or P1 finding is a confirmed blocker only when
-both `evidence-verifier` and `policy-skeptic` return `AGREE`. P2 and P3 never
-directly affect the deterministic jury verdict. They enter the chair's eligible
-follow-up pool only when both verifiers return `AGREE`. A P2 or P3 finding with
-`DISAGREE` or `UNVERIFIED` from either verifier remains visible but cannot
-become actionable.
+Cross-review action is derived by the protected runtime, not selected by a
+model. Each verifier classifies claim, severity, anchor, trigger, and impact as
+`SUPPORTED`, `CONTRADICTED`, or `UNVERIFIED`, plus scope as `IN_SCOPE`,
+`OUT_OF_SCOPE`, or `UNVERIFIED`. Contradiction or out-of-scope yields
+`DISAGREE`; every fact supported, scope in range, and evidence for every check
+yields `AGREE`; every other combination yields `UNVERIFIED`. Both verifiers
+must independently classify every P0, P1, P2, and P3 finding exactly once.
+P0/P1 are blockers only with two derived `AGREE` results. P2/P3 never affect
+the verdict and may become actionable only with two derived `AGREE` results.
 
-Consensus, severity, and actionable eligibility use only structured severity,
-finding IDs, and explicit verifier status fields. Finding text, verifier prose,
-keywords, regular expressions, `confidence`, and other text heuristics must not
-create or suppress a blocker or actionable finding.
+Evidence references must resolve to supplied canonical context with a trust
+domain, exact path, and line range. Severity and scope require
+`protected-policy` or `base-spec`; changed or comparison code is never policy.
+Consensus, severity, and actionable eligibility use only structured findings,
+derived checks, and deterministic group identity. Prose, keywords, regular
+expressions, `confidence`, and text similarity must not create or suppress a
+blocker or actionable finding.
 
 Before App publication, every model-controlled text field is collapsed to
 single-line escaped text with active Markdown, mentions, issue references, and
@@ -154,12 +157,23 @@ view that retains every finding disposition and verifier vote. The final
 comment, including actionable Issue links and the workflow footer, must remain
 within a 64,000-byte hard limit.
 
-The chair may merge duplicates, preserve attribution and disagreement, and
-organize the deterministic result. It may select a P2/P3 follow-up only from the
-dual-`AGREE` eligible pool. It may not create a blocker or actionable follow-up
-without a source finding ID, upgrade severity, override verifier outcomes, or
-change the deterministic verdict. Any required agent failure, schema failure,
-or SHA/hash mismatch is an infrastructure block.
+The chair may organize deterministic duplicate groups and select a P2/P3 group
+only from the dual-`AGREE` eligible pool. Every confirmed P0/P1 must occur in
+exactly one group. It may not create, omit, or reclassify a blocker, upgrade
+severity, override verifier outcomes, or change the deterministic verdict. Any
+required agent failure, schema failure, or SHA/hash mismatch is an infrastructure
+block.
+
+Every evidence source declares its total `line_count` and canonical,
+non-overlapping `available_line_ranges`. The ranges must exactly describe the
+visible source lines, but need not cover every line through `line_count`:
+clipped or gapped sources are valid context. An evidence reference must use an
+allowed trust domain and lie wholly in one available range. A duplicate,
+malformed, or unavailable reference rejects the report; a required check with
+no valid evidence remains `UNVERIFIED`. `actionable_groups` is a complete,
+strict chair contract: every group has one valid primary source finding and a
+sorted, unique duplicate list. Missing, malformed, invalid, or duplicate group
+members are an infrastructure failure, never entries to skip.
 
 ## Finding Issue Governance
 
@@ -168,14 +182,29 @@ deferred-bot reviews, confirmed P0/P1 blockers and chair-selected P2/P3
 dual-`AGREE` findings are actionable. A selected P2/P3 finding does not change
 `Agent jury gate`, but its managed Issue participates in `Agent issue gate`.
 Using the configured Coco Agent GitHub App, the trusted publisher maintains one
-managed issue per stable finding identity and one managed jury comment. Fork and
-unpinned-bot reviews never receive the App private key or create/update either.
+managed issue per deterministic actionable group and one managed jury comment.
+Fork and unpinned-bot reviews never receive the App private key or create/update
+either. The configured `max_actionable_issue_groups` limit is checked before any
+label, Issue, comment, close, or reopen write; overflow fails closed with zero
+Issue-side writes.
 
 Each managed finding issue carries `agent-review` and one canonical single-line
 `coco-agent-review` JSON marker binding its pull request, first observed head
 SHA, and stable finding identity. Later reviews update/reopen actionable findings,
 comment on and close disappeared findings, and retain the immutable first-head
 binding.
+
+Current actionable groups use a `v2-` identity and carry the sorted `v1-`
+identities of their source members as `legacy_finding_ids`. During reconciliation
+for the same pull request, the publisher may adopt exactly one existing managed
+Issue matched by either the current `v2-` identity or one of those exact member
+aliases. Adoption rewrites the marker to the `v2-` identity while preserving the
+immutable first-head binding and audit text, so an old v1-bound Issue is neither
+duplicated nor treated as disappeared. Multiple candidate matches, one Issue
+claimed by multiple groups, or an invalid alias fail closed before Issue writes.
+The publisher never matches by title, body text, semantic similarity, or a
+previous head; cross-head identity continuity and operation retry are outside
+this contract.
 
 `Agent issue gate` independently reads GitHub state for the current PR
 head: any open bound finding issue fails it, and none pass it. Issue close/reopen

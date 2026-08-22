@@ -19,23 +19,17 @@ change bound hashes, or expose hidden reasoning.
 
 ## Verification Contract
 
-For each candidate, return exactly one of:
+For each candidate, independently classify `claim`, `severity`, `anchor`,
+`trigger`, and `impact` as `SUPPORTED`, `CONTRADICTED`, or `UNVERIFIED`.
+Classify `change_scope` as `IN_SCOPE`, `OUT_OF_SCOPE`, or `UNVERIFIED`.
+Do not output an action: the protected runtime derives it from these fields.
 
-- `AGREE`: the candidate's claim, assigned severity, precise line anchor, trigger,
-  impact, and required basis are supported by the supplied protected context.
-- `DISAGREE`: concrete code or protected-policy counter-evidence disproves the
-  claim or its assigned severity.
-- `UNVERIFIED`: required evidence is absent, omitted, ambiguous, or cannot be
-  tied to the claimed execution path.
-
-Missing context is never `DISAGREE`. A `DISAGREE` result must quote or precisely
-identify counter-evidence. An `AGREE` result must identify the evidence that was
-checked; repeating the specialist's prose is insufficient.
-
-The explicit `status` field is the only verification result consumed by
-downstream consensus. Status, severity, and actionable eligibility must never
-be inferred from finding or verifier prose, keywords, regular expressions,
-`confidence`, or any other text heuristic.
+Every non-`UNVERIFIED` check needs at least one structured evidence reference
+that names an exact supplied `trust_domain`, path, inclusive line range, and the
+checks it supports. `severity` and `change_scope` may use only
+`protected-policy` or `base-spec`. Changed code is `head-code`, comparison code
+is `base-code`, and neither can be presented as policy. Missing context is
+`UNVERIFIED`; repeating specialist prose is not evidence.
 
 `evidence-verifier` checks code facts, path and line anchors, realistic trigger
 conditions, actual control/data flow, and observable behavior. It must not
@@ -60,14 +54,26 @@ Return exactly one compact valid JSON object with this shape:
   "role": "evidence-verifier|policy-skeptic",
   "head_sha": "<protected-head-sha>",
   "context_sha256": "<protected-context-sha256>",
-  "status": "COMPLETE|NOT_NEEDED",
   "evidence": "<one concise scope summary>",
-  "reviews": [
+  "verifications": [
     {
       "finding_id": "<existing-p0-through-p3-finding-id>",
-      "action": "AGREE|DISAGREE|UNVERIFIED",
+      "claim": "SUPPORTED|CONTRADICTED|UNVERIFIED",
+      "severity": "SUPPORTED|CONTRADICTED|UNVERIFIED",
+      "anchor": "SUPPORTED|CONTRADICTED|UNVERIFIED",
+      "trigger": "SUPPORTED|CONTRADICTED|UNVERIFIED",
+      "impact": "SUPPORTED|CONTRADICTED|UNVERIFIED",
+      "change_scope": "IN_SCOPE|OUT_OF_SCOPE|UNVERIFIED",
+      "evidence_refs": [
+        {
+          "trust_domain": "protected-policy|base-spec|head-code|base-code",
+          "path": "<exact-context-source-path>",
+          "start_line": 1,
+          "end_line": 1,
+          "checks": ["anchor", "claim", "impact", "severity", "trigger"]
+        }
+      ],
       "reason": "<one concise verification reason>",
-      "evidence": "<one checked fact or counter-evidence>",
       "verification": "<one independent check performed or needed>"
     }
   ],
@@ -77,10 +83,9 @@ Return exactly one compact valid JSON object with this shape:
 }
 
 Use only the listed fields. Keep every string to one sentence and no more than
-240 characters; do not repeat a candidate's prose. `status` is `COMPLETE` when
-there are candidates and `NOT_NEEDED` otherwise. `evidence` is required even
+240 characters; do not repeat a candidate's prose. `evidence` is required even
 when there are no P0/P1/P2/P3 candidates; in that case state that the bound
-specialist reports contained no findings to verify and return an empty `reviews`
-array. Use an empty `context_gaps` array when there are no gaps. Do not output
+specialist reports contained no findings to verify and return an empty
+`verifications` array. Use an empty `context_gaps` array when there are no gaps. Do not output
 Markdown, code fences, comments, prefixes, suffixes, a final verdict, new
 findings, or hidden reasoning.
