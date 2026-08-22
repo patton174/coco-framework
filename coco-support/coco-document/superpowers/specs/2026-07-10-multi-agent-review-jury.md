@@ -230,7 +230,9 @@ finding ID 和有序、唯一、且不含 primary 的 duplicate ID 列表。缺�
 `available_line_ranges`。该区间集合必须恰好描述输入中实际可见的行；它可以因裁剪而在
 `line_count` 内留有间隔，不能据此假设完整文件可用。verifier 的 evidence ref 必须落在单一
 可用区间并使用允许的 trust domain；重复、畸形、越界或落入间隔的 ref 使报告失败。缺少某项
-check 所需的有效证据时，该 finding 只能是 `UNVERIFIED`，不得以相邻可见文本补全。
+check 所需的有效证据时，该 finding 只能是 `UNVERIFIED`，不得以相邻可见文本补全。同一路径的
+base `protected-policy`/`base-spec` 与 `head-code` 是不同 revision 的合法证据源；source 唯一性按
+trust domain、revision 和 path 判断，只拒绝同一 domain/revision/path 的真正重复。
 
 ### 预算
 
@@ -339,8 +341,9 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
 - publisher 重新加载全部 specialist、verifier 和 chair JSON，重新校验 schema、binding
   和完整角色集合，重算 consensus，并要求最终 Markdown 与重新渲染结果逐字一致；不能
   只信任 chair 上传的 `PASS`。
-- publisher 在任何 label、Issue、comment、close 或 reopen 写入前预检
-  `max_actionable_issue_groups`。超限时 Issue 侧必须零副作用，两个 gate 仅可失败关闭。
+- publisher 在任何 route binding failure status、gate status、label、Issue、comment、close 或
+  reopen 写入前预检 `max_actionable_issue_groups`。超限时必须零仓库写副作用，不得用失败 status
+  覆盖现有 gate；workflow 以失败退出表达该基础设施错误。
 
 上述分类和资格只能使用结构化 severity、finding ID 与显式 verifier status；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。

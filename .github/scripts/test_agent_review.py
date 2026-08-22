@@ -2692,7 +2692,91 @@ class AgentReviewTests(unittest.TestCase):
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
 
-    def test_context_evidence_sources_reject_duplicate_or_mixed_domain_paths(
+    def test_canonical_policy_and_head_revision_of_same_path_validate_evidence(
+        self,
+    ) -> None:
+        source = "policy.py"
+
+        class FakeClient:
+            @staticmethod
+            def file_text(
+                repository: str,
+                path: str,
+                ref: str,
+                max_bytes: int,
+            ) -> str:
+                if (repository, path, ref, max_bytes) != (
+                    REPOSITORY,
+                    source,
+                    HEAD_SHA,
+                    256000,
+                ):
+                    raise AssertionError("Unexpected head-code lookup.")
+                return "head policy\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / source).write_text("base policy\n", encoding="utf-8")
+            configured = config()
+            configured["context"] = {"always": [source], "path_rules": []}
+            configured["protected_policy_paths"] = [source]
+            files = [
+                {
+                    "filename": source,
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "changes": 2,
+                    "patch": "@@ -1 +1 @@\n-base policy\n+head policy",
+                }
+            ]
+            policy = review.collect_policy(root, configured, [source], [])
+            code_contexts = review.build_code_contexts(
+                FakeClient(),
+                REPOSITORY,
+                HEAD_SHA,
+                root,
+                files,
+                configured,
+                [],
+            )
+
+        context = bound_context()
+        context["trusted"]["policy"] = policy
+        context["untrusted"]["code_contexts"] = code_contexts
+        context["binding"]["context_sha256"] = ""
+        context = review.bind_context(context)
+        evidence_refs = [
+            {
+                "trust_domain": "head-code",
+                "path": source,
+                "start_line": 1,
+                "end_line": 1,
+                "checks": ["anchor", "claim", "impact", "trigger"],
+            },
+            {
+                "trust_domain": "protected-policy",
+                "path": source,
+                "start_line": 1,
+                "end_line": 1,
+                "checks": ["change_scope", "severity"],
+            },
+        ]
+        report = verifier_report(
+            "evidence-verifier",
+            context,
+            "correctness:f1",
+            evidence_refs=evidence_refs,
+        )
+
+        sources = review.context_evidence_sources(context)
+        self.assertEqual({1}, sources[("protected-policy", source)])
+        self.assertEqual({1}, sources[("head-code", source)])
+        review.validate_cross_report(
+            report, "evidence-verifier", context, {"correctness:f1"}
+        )
+
+    def test_context_evidence_sources_reject_same_domain_duplicate_or_misrouting(
         self,
     ) -> None:
         for name, mutate in (
@@ -2700,16 +2784,6 @@ class AgentReviewTests(unittest.TestCase):
                 "duplicate-protected-policy",
                 lambda context: context["trusted"]["policy"].append(
                     json.loads(json.dumps(context["trusted"]["policy"][0]))
-                ),
-            ),
-            (
-                "mixed-domain-path",
-                lambda context: context["untrusted"]["code_contexts"].__setitem__(
-                    0,
-                    {
-                        **context["untrusted"]["code_contexts"][0],
-                        "source": "AGENTS.md",
-                    },
                 ),
             ),
             (
@@ -2917,6 +2991,77 @@ class AgentReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(review.ReportShapeError, "deterministic duplicate"):
             review.validate_chair(chair, consensus, context)
 
+    def test_chair_correction_merges_semantic_identity_duplicated_across_groups(
+        self,
+    ) -> None:
+        context = bound_context()
+        first = specialist_report("correctness", context)["findings"][0]
+        second = json.loads(json.dumps(first))
+        second["id"] = "architecture-api:f1"
+        second["title"] = "Equivalent result defect"
+        second["start_line"] = 9
+        second["end_line"] = 10
+        consensus = {
+            "confirmed": [{"finding": first}, {"finding": second}],
+            "challenged": [],
+            "unverified": [],
+        }
+        base = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "BLOCK",
+            "summary": "Two source reports identify one confirmed blocker.",
+            "confirmed_blocker_ids": sorted([first["id"], second["id"]]),
+            "questions": [],
+        }
+        duplicated = {
+            **base,
+            "actionable_groups": [
+                {
+                    "primary_finding_id": first["id"],
+                    "duplicate_finding_ids": [],
+                },
+                {
+                    "primary_finding_id": second["id"],
+                    "duplicate_finding_ids": [],
+                },
+            ],
+        }
+        corrected = {
+            **base,
+            "actionable_groups": [
+                {
+                    "primary_finding_id": first["id"],
+                    "duplicate_finding_ids": [second["id"]],
+                }
+            ],
+        }
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [duplicated, corrected]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        result = review.complete_with_shape_repair(
+            client,
+            "Each semantic identity must appear in exactly one actionable group.",
+            '{"task":"chair"}',
+            100,
+            lambda value: review.validate_chair(value, consensus, context),
+        )
+
+        self.assertEqual(corrected, result)
+        self.assertEqual(2, len(client.calls))
+        correction = json.loads(client.calls[1][1])
+        self.assertEqual(duplicated, correction["previous_response"])
+
     def test_actionable_issue_group_limit_has_zero_issue_side_effects(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
@@ -2952,24 +3097,21 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(0, client.reads)
         self.assertEqual(0, client.writes)
 
-    def test_publish_preflights_actionable_group_limit_before_repository_writes(
+    def test_publish_preflights_direct_and_deferred_groups_before_binding_writes(
         self,
     ) -> None:
         class FakeStatusClient:
             def __init__(self) -> None:
+                self.reads: list[str] = []
                 self.writes: list[tuple[str, str, dict]] = []
 
-            @staticmethod
-            def get_json(path: str) -> dict:
-                if path == f"repos/{REPOSITORY}/pulls/1":
-                    return {
-                        "state": "open",
-                        "head": {"sha": HEAD_SHA},
-                        "base": {"sha": BASE_SHA, "ref": "main"},
-                    }
+            def get_json(self, path: str) -> dict:
+                self.reads.append(path)
                 if path == f"repos/{REPOSITORY}/commits/{HEAD_SHA}/status":
                     return combined_ownership_status(42)
-                raise AssertionError(f"Unexpected GET path: {path}")
+                raise AssertionError(
+                    f"Actionable group preflight must precede binding read: {path}"
+                )
 
             def send_json(self, method: str, path: str, payload: dict) -> dict:
                 self.writes.append((method, path, payload))
@@ -2983,95 +3125,125 @@ class AgentReviewTests(unittest.TestCase):
                 self.writes.append((method, path, payload))
                 raise AssertionError(f"Unexpected repository write: {method} {path}")
 
-        metadata = {
-            **trusted_metadata(),
-            "context_sha256": "c" * 64,
-            "protocol_sha256": "d" * 64,
-        }
         selected_findings = [{"stable_id": f"v2-{index:064x}"} for index in range(2)]
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            metadata_path = root / "metadata.json"
-            config_path = root / "config.json"
-            context_path = root / "context.json"
-            specialists_path = root / "specialists"
-            verifiers_path = root / "verifiers"
-            final_json_path = root / "final.json"
-            final_markdown_path = root / "final.md"
-            review.write_json(metadata_path, metadata)
-            review.write_json(config_path, {})
-            review.write_json(
-                context_path,
+        routes = (
+            ("direct", trusted_metadata()),
+            (
+                "deferred-binding-drift",
                 {
-                    "binding": {
-                        "head_sha": HEAD_SHA,
-                        "base_sha": BASE_SHA,
-                        "context_sha256": metadata["context_sha256"],
-                        "protocol_sha256": metadata["protocol_sha256"],
-                        "model_config_sha256": MODEL_CONFIG_SHA256,
-                    }
+                    **trusted_metadata(),
+                    "pr_number": DEFERRED_PR_NUMBER,
+                    "review_route": review.PR_ROUTE_DEFERRED,
+                    "deferred": True,
+                    "source_run_id": SOURCE_RUN_ID,
                 },
-            )
-            specialists_path.mkdir()
-            verifiers_path.mkdir()
-            review.write_json(final_json_path, {"verdict": "PASS"})
-            final_markdown_path.write_text("validated report\n", encoding="utf-8")
-            status_client = FakeStatusClient()
-            agent_client = FakeAgentClient()
-            with (
-                patch.object(
-                    review,
-                    "GitHubClient",
-                    side_effect=[status_client, agent_client],
-                ),
-                patch.object(
-                    review,
-                    "load_config",
-                    return_value={"max_actionable_issue_groups": 1},
-                ),
-                patch.object(review, "validate_context"),
-                patch.object(review, "load_reports", return_value=[]),
-                patch.object(
-                    review, "validate_final_artifact", return_value="validated report\n"
-                ),
-                patch.object(
-                    review, "actionable_findings", return_value=selected_findings
-                ),
-                patch.object(review, "revalidate_model_configuration_if_available"),
-                patch.object(
-                    review,
-                    "managed_comment",
-                    side_effect=AssertionError(
-                        "group limit must be checked before comment reads"
-                    ),
-                ),
-                patch.dict(
-                    "os.environ",
+            ),
+        )
+        for name, route_metadata in routes:
+            with self.subTest(route=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                metadata = {
+                    **route_metadata,
+                    "context_sha256": "c" * 64,
+                    "protocol_sha256": "d" * 64,
+                }
+                metadata_path = root / "metadata.json"
+                config_path = root / "config.json"
+                context_path = root / "context.json"
+                specialists_path = root / "specialists"
+                verifiers_path = root / "verifiers"
+                final_json_path = root / "final.json"
+                final_markdown_path = root / "final.md"
+                review.write_json(metadata_path, metadata)
+                review.write_json(config_path, {})
+                review.write_json(
+                    context_path,
                     {
-                        "GH_TOKEN": "token",
-                        "AGENT_GH_TOKEN": "agent-token",
-                        "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
-                        "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                        "binding": {
+                            "head_sha": HEAD_SHA,
+                            "base_sha": BASE_SHA,
+                            "context_sha256": metadata["context_sha256"],
+                            "protocol_sha256": metadata["protocol_sha256"],
+                            "model_config_sha256": MODEL_CONFIG_SHA256,
+                        }
                     },
-                    clear=True,
-                ),
-            ):
-                with self.assertRaisesRegex(review.ReviewError, "protected limit is 1"):
-                    review.command_publish(
-                        SimpleNamespace(
-                            metadata=metadata_path,
-                            config=config_path,
-                            context=context_path,
-                            specialists=specialists_path,
-                            verifiers=verifiers_path,
-                            final_json=final_json_path,
-                            final_markdown=final_markdown_path,
-                            run_url="https://github.example/runs/42",
+                )
+                specialists_path.mkdir()
+                verifiers_path.mkdir()
+                review.write_json(final_json_path, {"verdict": "PASS"})
+                final_markdown_path.write_text("validated report\n", encoding="utf-8")
+                status_client = FakeStatusClient()
+                agent_client = FakeAgentClient()
+                with (
+                    patch.object(
+                        review,
+                        "GitHubClient",
+                        side_effect=[status_client, agent_client],
+                    ),
+                    patch.object(
+                        review,
+                        "load_config",
+                        return_value={"max_actionable_issue_groups": 1},
+                    ),
+                    patch.object(review, "validate_context"),
+                    patch.object(review, "load_reports", return_value=[]),
+                    patch.object(
+                        review,
+                        "validate_final_artifact",
+                        return_value="validated report\n",
+                    ),
+                    patch.object(
+                        review, "actionable_findings", return_value=selected_findings
+                    ),
+                    patch.object(review, "revalidate_model_configuration_if_available"),
+                    patch.object(
+                        review,
+                        "deferred_review_binding",
+                        side_effect=review.ReviewError(
+                            "Deferred Agent review binding changed before publication."
+                        ),
+                    ) as deferred_binding,
+                    patch.object(
+                        review,
+                        "managed_comment",
+                        side_effect=AssertionError(
+                            "group limit must be checked before comment reads"
+                        ),
+                    ),
+                    patch.dict(
+                        "os.environ",
+                        {
+                            "GH_TOKEN": "token",
+                            "AGENT_GH_TOKEN": "agent-token",
+                            "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
+                            "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                        },
+                        clear=True,
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        review.ReviewError, "protected limit is 1"
+                    ):
+                        review.command_publish(
+                            SimpleNamespace(
+                                metadata=metadata_path,
+                                config=config_path,
+                                context=context_path,
+                                specialists=specialists_path,
+                                verifiers=verifiers_path,
+                                final_json=final_json_path,
+                                final_markdown=final_markdown_path,
+                                run_url="https://github.example/runs/42",
+                            )
                         )
-                    )
 
-        self.assertEqual([], status_client.writes)
-        self.assertEqual([], agent_client.writes)
+                deferred_binding.assert_not_called()
+                self.assertEqual(
+                    [f"repos/{REPOSITORY}/commits/{HEAD_SHA}/status"],
+                    status_client.reads,
+                )
+                self.assertEqual([], status_client.writes)
+                self.assertEqual([], agent_client.writes)
 
     def test_unverified_vote_prevents_confirmation(self) -> None:
         context = bound_context()
@@ -4088,32 +4260,20 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(0, client.label_reads)
         self.assertEqual([], client.writes)
 
-    def test_issue_sync_rejects_cross_pr_legacy_alias_before_writes(self) -> None:
+    def test_issue_lookup_ignores_cross_pr_open_and_closed_id_alias_matches(
+        self,
+    ) -> None:
         app_login = "coco-agent[bot]"
         context = bound_context()
         finding = specialist_report("correctness", context, severity="P1")["findings"][
             0
         ]
         legacy_id = review.stable_finding_id(finding)
-        actionable = {
-            "stable_id": review.stable_actionable_group_id([finding]),
-            "legacy_finding_ids": [legacy_id],
-            "source_id": finding["id"],
-            "duplicate_source_ids": [],
-            "kind": "confirmed-blocker",
-            "finding": finding,
-        }
+        group_id = review.stable_actionable_group_id([finding])
 
         class FakeClient:
-            def __init__(self) -> None:
-                self.label_reads = 0
-                self.writes: list[tuple[str, str, dict]] = []
-
-            def get_json(self, path: str) -> dict:
-                self.label_reads += 1
-                raise AssertionError(f"Unexpected label lookup: {path}")
-
-            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+            @staticmethod
+            def paginate(path: str, limit: int = 1000) -> list[dict]:
                 if limit != 5000 or "issues?state=all&labels=agent-review" not in path:
                     raise AssertionError(f"Unexpected pagination: {path}")
                 return [
@@ -4123,29 +4283,22 @@ class AgentReviewTests(unittest.TestCase):
                         "state": "open",
                         "labels": [{"name": review.FINDING_ISSUE_LABEL}],
                         "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
-                    }
+                    },
+                    {
+                        "number": 12,
+                        "body": review.finding_issue_marker(62, BASE_SHA, group_id),
+                        "state": "closed",
+                        "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                        "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+                    },
                 ]
 
-            def send_json(self, method: str, path: str, payload: dict) -> dict:
-                self.writes.append((method, path, payload))
-                raise AssertionError(f"Unexpected Issue write: {method} {path}")
-
-        client = FakeClient()
-        with self.assertRaisesRegex(review.ReviewError, "another pull request"):
-            review.synchronize_finding_issues(
-                client,
-                REPOSITORY,
-                60,
-                HEAD_SHA,
-                [actionable],
-                app_login,
-                APP_BOT_ID,
-                "https://github.example/runs/1",
-                "https://github.example",
-                lambda: {},
-            )
-        self.assertEqual(0, client.label_reads)
-        self.assertEqual([], client.writes)
+        self.assertEqual(
+            {},
+            review.app_finding_issues(
+                FakeClient(), REPOSITORY, 60, app_login, APP_BOT_ID
+            ),
+        )
 
     def test_v1_alias_migrations_preserve_each_legacy_first_head(self) -> None:
         app_login = "coco-agent[bot]"

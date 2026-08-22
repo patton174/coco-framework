@@ -129,10 +129,11 @@ finding ID 必须是 `v1-` 或 `v2-` 加 64 位小写十六进制；新 actionab
 3. 对同一 PR/group identity 的开放 Issue 更新标题、正文、当前 head 和证据；不存在时创建。
    当前 `v2-` group 也可以精确匹配其成员携带的一个历史 `v1-` alias。该匹配仅限同一 PR、
    仅接受唯一候选；采用后把 marker 更新为 `v2-`，保留首次 head 和历史审计关系。多个候选、
-   一个 Issue 被多个 group 认领、或 alias 非法时在任何 Issue 写入前失败关闭。
+   一个 Issue 被多个 group 认领、或 alias 非法时在任何 Issue 写入前失败关闭。其他 PR marker
+   下的同 ID/alias 无论 Issue 开放或关闭均不参与当前 PR 的 identity 或歧义判断。
 4. 对上一轮存在、当前重评已经消失的 Issue 添加解决说明并关闭。
-5. 在任何 Issue 侧写入前预检 `max_actionable_issue_groups`；超限时不创建 label、Issue、comment，
-也不 close/reopen，直接失败关闭。
+5. 在任何 route binding failure status、gate status、label、Issue、comment、close 或 reopen
+   写入前预检 `max_actionable_issue_groups`；超限时保持零仓库写副作用并直接失败退出。
 6. 再次扫描全部开放绑定 Issue，并使用 `github.token` 向当前 head 写 `Agent issue gate`。
 
 对账不得根据标题、正文、模型文字或语义相似性认领 Issue，也不得使用 previous head 恢复

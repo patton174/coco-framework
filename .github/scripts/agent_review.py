@@ -3007,7 +3007,6 @@ def context_evidence_sources(
     context: dict[str, Any],
 ) -> dict[tuple[str, str], set[int]]:
     result: dict[tuple[str, str], set[int]] = {}
-    source_paths: set[str] = set()
     collections = (
         (context.get("trusted", {}).get("policy", []), True),
         (context.get("untrusted", {}).get("code_contexts", []), False),
@@ -3037,11 +3036,6 @@ def context_evidence_sources(
                 or not isinstance(declared_ranges, list)
             ):
                 raise ReportShapeError("Agent context evidence source is incomplete.")
-            if path in source_paths:
-                raise ReportShapeError(
-                    "Agent context evidence source path is duplicated."
-                )
-            source_paths.add(path)
             available: set[int] = set()
             previous_end = 0
             for line_range in declared_ranges:
@@ -3794,6 +3788,7 @@ def _validate_chair_contract(
         eligible_followups &= allowed_followups
     allowed_ids = set(confirmed) | eligible_followups
     seen: set[str] = set()
+    seen_semantic_identities: set[str] = set()
     for group in groups:
         if not isinstance(group, dict):
             raise ReportShapeError("Chair actionable group must be an object.")
@@ -3832,10 +3827,17 @@ def _validate_chair_contract(
             raise ReportShapeError(
                 "Chair actionable group mixes finding kinds or severities."
             )
-        if len({semantic_finding_identity(item) for item in findings}) != 1:
+        semantic_identities = {semantic_finding_identity(item) for item in findings}
+        if len(semantic_identities) != 1:
             raise ReportShapeError(
                 "Chair actionable group is not a deterministic duplicate set."
             )
+        semantic_identity = next(iter(semantic_identities))
+        if semantic_identity in seen_semantic_identities:
+            raise ReportShapeError(
+                "Chair actionable group semantic identity is duplicated across groups."
+            )
+        seen_semantic_identities.add(semantic_identity)
         seen.update(members)
     if not set(confirmed).issubset(seen):
         raise ReportShapeError(
@@ -4705,7 +4707,6 @@ def app_finding_issues(
     pr_number: int,
     expected_login: str,
     expected_bot_id: int,
-    reserved_finding_ids: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     label = urllib.parse.quote(FINDING_ISSUE_LABEL, safe="")
     issues = client.paginate(
@@ -4734,13 +4735,6 @@ def app_finding_issues(
         if marker is None:
             continue
         if marker["pull_request"] != pr_number:
-            if (
-                reserved_finding_ids is not None
-                and marker["finding_id"] in reserved_finding_ids
-            ):
-                raise ReviewError(
-                    "Managed Issue candidate is already bound to another pull request."
-                )
             continue
         number = issue.get("number")
         if type(number) is not int or number < 1:
@@ -4831,7 +4825,6 @@ def synchronize_finding_issues(
         raise ReviewError(
             "Actionable Issue group identities are invalid or duplicated."
         )
-    candidate_ids: set[str] = set(selected)
     actionable_aliases: dict[str, list[str]] = {}
     for actionable in selected.values():
         aliases = actionable.get("legacy_finding_ids", [])
@@ -4846,14 +4839,12 @@ def synchronize_finding_issues(
         ):
             raise ReviewError("Actionable Issue legacy finding aliases are invalid.")
         actionable_aliases[str(actionable["stable_id"])] = aliases
-        candidate_ids.update(aliases)
     existing = app_finding_issues(
         client,
         repository,
         pr_number,
         expected_login,
         expected_bot_id,
-        candidate_ids,
     )
     existing_binding: dict[str, str | None] = {}
     claimed_existing_numbers: set[int] = set()
@@ -5346,34 +5337,34 @@ def command_publish(args: argparse.Namespace) -> int:
                 raise
         return value
 
-    try:
-        require_publishable_binding()
-    except StaleAgentReviewRun:
-        return stale_run_result()
+    if run_order is not None:
+        try:
+            require_current_run_ownership(
+                status_client, repository, head_sha, run_order
+            )
+        except StaleAgentReviewRun:
+            return stale_run_result()
 
     if trusted:
         agent_client = GitHubClient(
             os.environ.get("AGENT_GH_TOKEN", ""),
             os.environ.get("GITHUB_API_URL", "https://api.github.com"),
         )
-        expected_app_login = require_app_bot_login(
-            os.environ.get("COCO_AGENT_APP_LOGIN", "")
-        )
-        expected_app_bot_id = require_app_bot_id(
-            os.environ.get("COCO_AGENT_APP_BOT_ID", "")
-        )
         artifact_valid = False
         selected_findings: list[dict[str, Any]] = []
         actionable_group_limit = 8
-        required_paths = (
-            args.config,
-            args.context,
-            args.specialists,
-            args.verifiers,
-            args.final_json,
-            args.final_markdown,
+        required_paths = tuple(
+            getattr(args, name, None)
+            for name in (
+                "config",
+                "context",
+                "specialists",
+                "verifiers",
+                "final_json",
+                "final_markdown",
+            )
         )
-        if all(path.exists() for path in required_paths):
+        if all(path is not None and path.exists() for path in required_paths):
             try:
                 config = deferred_config or load_config(args.config)
                 actionable_group_limit = max_actionable_issue_groups(config)
@@ -5453,6 +5444,10 @@ def command_publish(args: argparse.Namespace) -> int:
                 + "\n"
             )
     else:
+        try:
+            require_publishable_binding()
+        except StaleAgentReviewRun:
+            return stale_run_result()
         approved, approvers = current_maintainer_approval(
             status_client, repository, pr_number, head_sha
         )
@@ -5481,6 +5476,16 @@ def command_publish(args: argparse.Namespace) -> int:
         raise AssertionError("Trusted Agent jury publication requires a run identity.")
     if artifact_valid:
         require_actionable_issue_group_limit(selected_findings, actionable_group_limit)
+    try:
+        require_publishable_binding()
+    except StaleAgentReviewRun:
+        return stale_run_result()
+    expected_app_login = require_app_bot_login(
+        os.environ.get("COCO_AGENT_APP_LOGIN", "")
+    )
+    expected_app_bot_id = require_app_bot_id(
+        os.environ.get("COCO_AGENT_APP_BOT_ID", "")
+    )
     timestamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
     run_marker = f"<!-- agent-jury-run:{run_order[0]}:{run_order[1]} -->"
     review_body = review_body.replace(
