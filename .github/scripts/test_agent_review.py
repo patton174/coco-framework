@@ -1383,7 +1383,10 @@ class AgentReviewTests(unittest.TestCase):
         response_errors = (
             TimeoutError("response timeout"),
             ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
+            ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
             review.http.client.IncompleteRead(b"partial", 10),
+            review.ssl.SSLEOFError("TLS EOF"),
+            review.ssl.SSLZeroReturnError("TLS connection closed"),
         )
 
         for prior, method in ((None, "POST"), (previous, "PATCH")):
@@ -1475,7 +1478,10 @@ class AgentReviewTests(unittest.TestCase):
         recovery_errors = (
             TimeoutError("response timeout"),
             ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
+            ConnectionAbortedError(review.errno.ECONNABORTED, "connection aborted"),
             review.http.client.IncompleteRead(b"partial", 10),
+            review.ssl.SSLEOFError("TLS EOF"),
+            review.ssl.SSLZeroReturnError("TLS connection closed"),
         )
 
         for recovery_error in recovery_errors:
@@ -1576,12 +1582,265 @@ class AgentReviewTests(unittest.TestCase):
                 raise OSError(review.errno.EMFILE, "too many open files")
 
         client = review.GitHubClient("token")
-        with patch.object(
-            review.urllib.request, "urlopen", return_value=FakeResponse()
+        for error in (
+            OSError(review.errno.EMFILE, "too many open files"),
+            review.ssl.SSLCertVerificationError("certificate rejected"),
+            review.ssl.SSLError("TLS protocol error"),
         ):
-            with self.assertRaises(OSError) as raised:
+            with self.subTest(error=type(error).__name__):
+                with (
+                    patch.object(FakeResponse, "read", side_effect=error),
+                    patch.object(
+                        review.urllib.request, "urlopen", return_value=FakeResponse()
+                    ),
+                ):
+                    with self.assertRaises(type(error)) as raised:
+                        client.send_json("POST", f"repos/{REPOSITORY}/issues", {})
+                self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+
+    def test_short_content_length_write_reconciles_without_replay(self) -> None:
+        app_login = "coco-agent[bot]"
+        previous = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+
+        for prior, method in ((None, "POST"), (previous, "PATCH")):
+            with self.subTest(method=method):
+                persisted: dict | None = None
+                reads = 0
+                writes = 0
+
+                class FakeResponse:
+                    def __init__(self, body: bytes, declared: int) -> None:
+                        self.body = body
+                        self.headers = {"Content-Length": str(declared)}
+
+                    def __enter__(self) -> "FakeResponse":
+                        return self
+
+                    def __exit__(self, *args: object) -> None:
+                        return None
+
+                    def read(self, limit: int) -> bytes:
+                        if limit != 4 * 1024 * 1024 + 1:
+                            raise AssertionError(f"Unexpected read limit: {limit}")
+                        return self.body
+
+                def urlopen(request: object, timeout: int) -> FakeResponse:
+                    nonlocal persisted, reads, writes
+                    if timeout != 60 or not isinstance(
+                        request, review.urllib.request.Request
+                    ):
+                        raise AssertionError("Unexpected GitHub request")
+                    request_method = request.get_method()
+                    if request_method == "GET":
+                        reads += 1
+                        body = review.canonical_json(
+                            [] if persisted is None else [persisted]
+                        ).encode("utf-8")
+                        return FakeResponse(body, len(body))
+                    if request_method != method:
+                        raise AssertionError(f"Unexpected write: {request_method}")
+                    writes += 1
+                    payload = json.loads(bytes(request.data or b"{}"))
+                    persisted = {
+                        "id": 7,
+                        "body": payload["body"],
+                        "user": {
+                            "id": APP_BOT_ID,
+                            "login": app_login,
+                            "type": "Bot",
+                        },
+                    }
+                    response_body = b'{"incomplete":true}'
+                    return FakeResponse(response_body, len(response_body) + 1)
+
+                checks: list[int] = []
+                with patch.object(review.urllib.request, "urlopen", urlopen):
+                    result = review.upsert_comment(
+                        review.GitHubClient("token"),
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        60,
+                        HEAD_SHA,
+                        review.COMMENT_MARKER
+                        + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                        (42, 1),
+                        app_login,
+                        APP_BOT_ID,
+                        lambda: checks.append(1) or {},
+                        prior,
+                    )
+                self.assertEqual(7, result["id"])
+                self.assertEqual(1, writes)
+                self.assertEqual(1 if prior is not None else 2, reads)
+                self.assertEqual(3, len(checks))
+
+    def test_short_content_length_recovery_get_uses_bounded_retry(self) -> None:
+        app_login = "coco-agent[bot]"
+        previous = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+        persisted: dict | None = None
+        reads = 0
+        writes = 0
+
+        class FakeResponse:
+            def __init__(self, body: bytes, declared: int) -> None:
+                self.body = body
+                self.headers = {"Content-Length": str(declared)}
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                if limit != 4 * 1024 * 1024 + 1:
+                    raise AssertionError(f"Unexpected read limit: {limit}")
+                return self.body
+
+        def urlopen(request: object, timeout: int) -> FakeResponse:
+            nonlocal persisted, reads, writes
+            if timeout != 60 or not isinstance(request, review.urllib.request.Request):
+                raise AssertionError("Unexpected GitHub request")
+            if request.get_method() == "PATCH":
+                writes += 1
+                payload = json.loads(bytes(request.data or b"{}"))
+                persisted = {
+                    "id": 7,
+                    "body": payload["body"],
+                    "user": {
+                        "id": APP_BOT_ID,
+                        "login": app_login,
+                        "type": "Bot",
+                    },
+                }
+                response_body = b'{"incomplete":true}'
+                return FakeResponse(response_body, len(response_body) + 1)
+            if request.get_method() != "GET" or persisted is None:
+                raise AssertionError(f"Unexpected request: {request.full_url}")
+            reads += 1
+            body = review.canonical_json([persisted]).encode("utf-8")
+            return FakeResponse(body, len(body) + (1 if reads == 1 else 0))
+
+        checks: list[int] = []
+        with (
+            patch.object(review.urllib.request, "urlopen", urlopen),
+            patch.object(review.time, "sleep") as sleep,
+        ):
+            result = review.upsert_comment(
+                review.GitHubClient("token"),
+                REPOSITORY,
+                REPOSITORY_ID,
+                60,
+                HEAD_SHA,
+                review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                (42, 1),
+                app_login,
+                APP_BOT_ID,
+                lambda: checks.append(1) or {},
+                previous,
+            )
+        self.assertEqual(7, result["id"])
+        self.assertEqual(1, writes)
+        self.assertEqual(2, reads)
+        self.assertEqual(5, len(checks))
+        sleep.assert_called_once_with(
+            review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[0]
+        )
+
+    def test_content_length_contract_is_strict_without_chunked_inference(self) -> None:
+        class Headers:
+            def __init__(
+                self,
+                content_lengths: list[str] | None = None,
+                transfer_encodings: list[str] | None = None,
+            ) -> None:
+                self.content_lengths = content_lengths or []
+                self.transfer_encodings = transfer_encodings or []
+
+            def get_all(self, name: str) -> list[str] | None:
+                if name.lower() == "content-length":
+                    return self.content_lengths or None
+                if name.lower() == "transfer-encoding":
+                    return self.transfer_encodings or None
+                return None
+
+            def items(self) -> list[tuple[str, str]]:
+                return [
+                    *[("Content-Length", value) for value in self.content_lengths],
+                    *[
+                        ("Transfer-Encoding", value)
+                        for value in self.transfer_encodings
+                    ],
+                ]
+
+        class FakeResponse:
+            def __init__(self, body: bytes, headers: Headers) -> None:
+                self.body = body
+                self.headers = headers
+                self.reads = 0
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                self.reads += 1
+                if limit != 4 * 1024 * 1024 + 1:
+                    raise AssertionError(f"Unexpected read limit: {limit}")
+                return self.body
+
+        client = review.GitHubClient("token")
+        invalid_headers = (
+            Headers(["invalid"]),
+            Headers(["-1"]),
+            Headers(["1", "2"]),
+            Headers(["1,2"]),
+            Headers(["2"], ["chunked"]),
+        )
+        for headers in invalid_headers:
+            with self.subTest(headers=headers.items()):
+                response = FakeResponse(b"{}", headers)
+                with patch.object(
+                    review.urllib.request, "urlopen", return_value=response
+                ):
+                    with self.assertRaises(review.ReviewError) as raised:
+                        client.send_json("POST", f"repos/{REPOSITORY}/issues", {})
+                self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+                self.assertEqual(0, response.reads)
+
+        oversized = FakeResponse(b"", Headers([str(4 * 1024 * 1024 + 1)]))
+        with patch.object(review.urllib.request, "urlopen", return_value=oversized):
+            with self.assertRaisesRegex(review.ReviewError, "bounded size"):
                 client.send_json("POST", f"repos/{REPOSITORY}/issues", {})
-        self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+        self.assertEqual(0, oversized.reads)
+
+        accepted_headers = (
+            Headers(),
+            Headers(transfer_encodings=["chunked"]),
+            Headers(["2", "2"]),
+            Headers(["2, 2"]),
+        )
+        for headers in accepted_headers:
+            with self.subTest(headers=headers.items()):
+                response = FakeResponse(b"{}", headers)
+                with patch.object(
+                    review.urllib.request, "urlopen", return_value=response
+                ):
+                    self.assertEqual(
+                        {},
+                        client.send_json("POST", f"repos/{REPOSITORY}/issues", {}),
+                    )
+                self.assertEqual(1, response.reads)
 
     def test_build_context_adds_related_test_and_module_pom(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -12483,8 +12742,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(55_359, largest_size)
-        self.assertEqual(8_641, limit - largest_size)
+        self.assertEqual(55_517, largest_size)
+        self.assertEqual(8_483, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 15)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:

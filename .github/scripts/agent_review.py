@@ -248,6 +248,49 @@ def retryable_github_lookup_error(
     return isinstance(error, urllib.error.URLError) and retryable_url_error(error)
 
 
+def response_header_values(headers: Any, name: str) -> list[str]:
+    if headers is None:
+        return []
+    get_all = getattr(headers, "get_all", None)
+    if callable(get_all):
+        values = get_all(name) or []
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) for value in values
+        ):
+            raise ReviewError("GitHub API response headers are invalid.")
+        return values
+    try:
+        items = headers.items()
+    except AttributeError as exc:
+        raise ReviewError("GitHub API response headers are invalid.") from exc
+    values = [value for key, value in items if str(key).lower() == name.lower()]
+    if any(not isinstance(value, str) for value in values):
+        raise ReviewError("GitHub API response headers are invalid.")
+    return values
+
+
+def trusted_response_content_length(headers: Any) -> int | None:
+    content_lengths = response_header_values(headers, "content-length")
+    transfer_encodings = response_header_values(headers, "transfer-encoding")
+    if content_lengths and transfer_encodings:
+        raise ReviewError("GitHub API response framing headers conflict.")
+    if not content_lengths:
+        return None
+    parsed: list[int] = []
+    try:
+        for header in content_lengths:
+            for token in header.split(","):
+                value = token.strip()
+                if not re.fullmatch(r"[0-9]+", value):
+                    raise ReviewError("GitHub API Content-Length is invalid.")
+                parsed.append(int(value))
+    except ValueError as exc:
+        raise ReviewError("GitHub API Content-Length is invalid.") from exc
+    if not parsed or len(set(parsed)) != 1:
+        raise ReviewError("GitHub API Content-Length values conflict.")
+    return parsed[0]
+
+
 def finding_issue_marker(pr_number: int, first_head_sha: str, finding_id: str) -> str:
     if type(pr_number) is not int or pr_number < 1:
         raise ReviewError("Finding issue pull request number is invalid.")
@@ -824,18 +867,32 @@ class GitHubClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
+                content_length = trusted_response_content_length(response.headers)
+                if content_length is not None and content_length > max_bytes:
+                    raise ReviewError("GitHub API response exceeded the bounded size.")
                 try:
                     body = response.read(max_bytes + 1)
                 except (
                     TimeoutError,
                     ConnectionResetError,
+                    ConnectionAbortedError,
                     http.client.IncompleteRead,
+                    ssl.SSLEOFError,
+                    ssl.SSLZeroReturnError,
                 ) as exc:
                     raise GitHubTransientError(
                         f"GitHub API response read failed for {method} {path}."
                     ) from exc
                 if len(body) > max_bytes:
                     raise ReviewError("GitHub API response exceeded the bounded size.")
+                if content_length is not None and len(body) < content_length:
+                    raise GitHubTransientError(
+                        f"GitHub API response body was truncated for {method} {path}."
+                    )
+                if content_length is not None and len(body) > content_length:
+                    raise ReviewError(
+                        "GitHub API response body exceeds its Content-Length."
+                    )
                 headers = {
                     key.lower(): value for key, value in response.headers.items()
                 }

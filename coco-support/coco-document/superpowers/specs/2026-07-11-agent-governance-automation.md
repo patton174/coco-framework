@@ -147,7 +147,9 @@ PR/head/group 与枚举 action；Issue finding marker 仍为首行，operation m
 每轮仍经 PR 前后复核。写前快照、缺失或结构不完整 actor 仅为 pending；完整 actor 明确错配以及 identity/target
 ID/body/state 冲突才 hard conflict。comment 对账必须先验证精确 App 身份再解析 operation marker，忽略未受信评论，
 但受信 malformed marker 立即 fail closed。新 run、重复/冲突/head 漂移立即 fail closed，0 匹配耗尽失败。
-衍生写入须在首写前校验正文预算。
+响应读取的 timeout/reset/abort、明确 TLS EOF 和 incomplete read 属于暂态；可信 Content-Length 短体同样暂态，
+但声明超限仍走正文上限失败，非法/冲突 framing hard fail，无 Content-Length 或 chunked 不推断短体。衍生写入须在首写前
+校验正文预算。
 status 须用正整数 ID 和 client API URL 绑定 endpoint，且匹配 state/context/description/target URL；status/label
 不恢复/重发。日志仅含 action/attempt/path。
 
