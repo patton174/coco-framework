@@ -6343,7 +6343,13 @@ def synchronize_finding_issues(
                 if (
                     candidate_id == stable_id
                     and marker.get("schema_version") == FINDING_ISSUE_SCHEMA_V2
+                    and marker["repository"] == repository
+                    and marker["repository_id"] == repository_id
+                    and marker["pull_request"] == pr_number
                     and finding_marker_current_head(marker) == head_sha
+                    and marker["finding_id"] == stable_id
+                    and canonical_json(marker["anchor"])
+                    == canonical_json(continuity_anchor(actionable["finding"]))
                 ):
                     direct.append(candidate_id)
                 else:
@@ -7637,7 +7643,7 @@ def command_publish(args: argparse.Namespace) -> int:
                 expected_app_bot_id,
             )
             open_issue_count = sum(
-                1 for issue in existing_issues.values() if issue.get("state") == "open"
+                1 for issue in existing_issues if issue.get("state") == "open"
             )
     except StaleAgentReviewRun:
         return stale_run_result()
@@ -7669,6 +7675,18 @@ def command_publish(args: argparse.Namespace) -> int:
         review_body.rstrip()
         + f"\n\n<sub>Updated {timestamp} - [workflow run]({args.run_url})</sub>\n"
     )
+    issue_gate_state = (
+        "failure" if not artifact_valid or open_issue_count else "success"
+    )
+    issue_gate_description = (
+        "Agent issue artifact validation failed"
+        if not artifact_valid
+        else (
+            f"{open_issue_count} open Agent review issue(s)"
+            if open_issue_count
+            else "No open Agent review issues"
+        )
+    )
     try:
         require_publishable_binding()
         require_comment_size(body, MAX_GITHUB_COMMENT_BODY_BYTES, "Agent jury comment")
@@ -7696,12 +7714,8 @@ def command_publish(args: argparse.Namespace) -> int:
             status_client,
             repository,
             head_sha,
-            "failure" if open_issue_count else "success",
-            (
-                f"{open_issue_count} open Agent review issue(s)"
-                if open_issue_count
-                else "No open Agent review issues"
-            ),
+            issue_gate_state,
+            issue_gate_description,
             args.run_url,
             ISSUE_STATUS_CONTEXT,
         )
@@ -7720,12 +7734,8 @@ def command_publish(args: argparse.Namespace) -> int:
             status_client,
             repository,
             head_sha,
-            "failure" if open_issue_count else "success",
-            (
-                f"{open_issue_count} open Agent review issue(s)"
-                if open_issue_count
-                else "No open Agent review issues"
-            ),
+            issue_gate_state,
+            issue_gate_description,
             args.run_url,
             ISSUE_STATUS_CONTEXT,
         )

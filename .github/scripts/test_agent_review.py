@@ -12762,6 +12762,160 @@ class AgentReviewTests(unittest.TestCase):
             ):
                 review.collect_policy(root, bounded, ["probe"], [])
 
+    def test_invalid_trusted_artifacts_publish_both_failure_gates(
+        self,
+    ) -> None:
+        class StatusClient:
+            api_url = "https://api.github.com"
+
+            def __init__(self) -> None:
+                self.sent: list[tuple[str, str, dict]] = []
+
+            def get_json(self, path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                if path == f"repos/{REPOSITORY}/commits/{HEAD_SHA}/status":
+                    return combined_ownership_status(42)
+                raise AssertionError(f"Unexpected status read: {path}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.sent.append((method, path, payload))
+                return commit_status_response(path, payload)
+
+        class AgentClient:
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                if method != "POST" or not path.endswith("/comments"):
+                    raise AssertionError(f"Unexpected Agent write: {method} {path}")
+                return {
+                    "id": 7,
+                    "body": payload["body"],
+                    "user": app_actor(),
+                }
+
+        for mode in ("missing", "malformed", "stale"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                metadata_path = root / "metadata.json"
+                metadata = {
+                    **trusted_metadata(),
+                    "review_route": review.PR_ROUTE_DEFERRED,
+                    "deferred": True,
+                    "source_run_id": 7,
+                    "context_sha256": "a" * 64,
+                    "protocol_sha256": "b" * 64,
+                }
+                review.write_json(metadata_path, metadata)
+                required = {
+                    "config": root / "config.json",
+                    "context": root / "context.json",
+                    "specialists": root / "specialists",
+                    "verifiers": root / "verifiers",
+                    "final_json": root / "final.json",
+                    "final_markdown": root / "final.md",
+                }
+                for name, path in required.items():
+                    if name.endswith("s"):
+                        path.mkdir()
+                    else:
+                        path.write_text("{}", encoding="utf-8")
+                review.write_json(
+                    required["context"],
+                    {
+                        "binding": {
+                            "head_sha": HEAD_SHA,
+                            "base_sha": BASE_SHA,
+                            "context_sha256": metadata["context_sha256"],
+                            "protocol_sha256": metadata["protocol_sha256"],
+                            "model_config_sha256": MODEL_CONFIG_SHA256,
+                        }
+                    },
+                )
+                review.write_json(required["final_json"], {"verdict": "PASS"})
+                required["final_markdown"].write_text(
+                    "validated report\n", encoding="utf-8"
+                )
+                continuity = root / "continuity"
+                if mode != "missing":
+                    continuity.mkdir()
+                status_client = StatusClient()
+                with (
+                    patch.object(
+                        review,
+                        "GitHubClient",
+                        side_effect=[status_client, AgentClient()],
+                    ),
+                    patch.object(review, "revalidate_model_configuration_if_available"),
+                    patch.object(review, "validate_context"),
+                    patch.object(
+                        review,
+                        "load_config",
+                        return_value={"max_actionable_issue_groups": 8},
+                    ),
+                    patch.object(
+                        review,
+                        "load_reports",
+                        side_effect=lambda path: (
+                            (_ for _ in ()).throw(
+                                review.ReviewError("malformed continuity")
+                            )
+                            if mode == "malformed" and path == continuity
+                            else []
+                        ),
+                    ),
+                    patch.object(
+                        review,
+                        "validate_final_artifact",
+                        return_value="validated report\n",
+                    ),
+                    patch.object(review, "continuity_adoptions") as adoptions,
+                    patch.object(
+                        review,
+                        "deferred_review_binding",
+                        return_value={"base_sha": BASE_SHA},
+                    ),
+                    patch("builtins.print"),
+                    patch.dict(
+                        "os.environ",
+                        {
+                            "GH_TOKEN": "token",
+                            "AGENT_GH_TOKEN": "agent-token",
+                            "COCO_AGENT_APP_LOGIN": APP_LOGIN,
+                            "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                        },
+                        clear=True,
+                    ),
+                ):
+                    if mode == "stale":
+                        adoptions.side_effect = review.ReviewError("stale continuity")
+                    result = review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            **required,
+                            continuity=continuity,
+                            run_url="https://github.example/runs/42",
+                        )
+                    )
+
+                self.assertEqual(1, result)
+                self.assertEqual(2, len(status_client.sent))
+                self.assertEqual(
+                    {review.ISSUE_STATUS_CONTEXT, review.STATUS_CONTEXT},
+                    {payload["context"] for _, _, payload in status_client.sent},
+                )
+                self.assertTrue(
+                    all(
+                        payload["state"] == "failure"
+                        for _, _, payload in status_client.sent
+                    )
+                )
+
 
 class CrossHeadContinuityTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -12988,6 +13142,115 @@ class CrossHeadContinuityTest(unittest.TestCase):
             Client(), REPOSITORY, APP_LOGIN, APP_BOT_ID, marker, operation, verify
         )
         self.assertEqual(review.RecoveryState.EXACT, recovered.state)
+
+    def test_current_head_v2_direct_reuse_requires_complete_marker_binding(
+        self,
+    ) -> None:
+        stable_id = self.groups[0]["current_group_id"]
+        finding = {
+            **self.finding,
+            "title": "Bound current-head finding",
+            "claim": "The protected marker must bind the current group.",
+            "trigger": "Run the trusted publisher.",
+            "impact": "An unrelated Issue could otherwise be rewritten.",
+            "evidence": "The canonical anchor differs.",
+            "verification": "Check exact marker fields before PATCH.",
+        }
+        actionable = {
+            "stable_id": stable_id,
+            "legacy_finding_ids": [],
+            "source_id": "source",
+            "duplicate_source_ids": [],
+            "kind": "confirmed-blocker",
+            "finding": finding,
+        }
+
+        def marker(
+            repository: str = REPOSITORY,
+            repository_id: int = REPOSITORY_ID,
+            anchor: dict | None = None,
+        ) -> str:
+            return review.finding_issue_marker_v2(
+                repository,
+                repository_id,
+                60,
+                BASE_SHA,
+                HEAD_SHA,
+                stable_id,
+                anchor or self.anchor,
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+            )
+
+        class Client:
+            def __init__(self, issue: dict) -> None:
+                self.issue = issue
+                self.writes: list[tuple[str, str, dict]] = []
+
+            def paginate(self, path: str, limit: int = 1000) -> list[dict]:
+                return [self.issue]
+
+            def get_json(self, path: str) -> dict:
+                return {"name": review.FINDING_ISSUE_LABEL}
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.writes.append((method, path, payload))
+                self.issue.update(payload)
+                self.issue["labels"] = [{"name": name} for name in payload["labels"]]
+                return self.issue
+
+        drifted_anchor = {**self.anchor, "start_line": 99}
+        drifted_anchor["locator_sha256"] = review.sha256_text(
+            review.canonical_json(
+                {
+                    key: value
+                    for key, value in drifted_anchor.items()
+                    if key != "locator_sha256"
+                }
+            )
+        )
+        cases = {
+            "exact": marker(),
+            "cross-repository": marker(repository="other/repository"),
+            "repository-id": marker(repository_id=REPOSITORY_ID + 1),
+            "anchor-drift": marker(anchor=drifted_anchor),
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                client = Client(
+                    {
+                        "number": 7,
+                        "title": "old",
+                        "body": body,
+                        "state": "open",
+                        "labels": [{"name": review.FINDING_ISSUE_LABEL}],
+                        "user": app_actor(),
+                    }
+                )
+                synchronized = review.synchronize_finding_issues(
+                    client,
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    60,
+                    HEAD_SHA,
+                    [actionable],
+                    (1, 1),
+                    APP_LOGIN,
+                    APP_BOT_ID,
+                    "https://github.example/runs/1",
+                    "https://github.example",
+                    lambda: {},
+                    continuity_context=self.context,
+                    continuity_adopted={},
+                    continuity_proof_sha256="f" * 64,
+                )
+                if name == "exact":
+                    self.assertEqual(1, len(client.writes))
+                    self.assertNotIn("retained", synchronized[0])
+                else:
+                    self.assertEqual([], client.writes)
+                    self.assertTrue(synchronized[0]["retained"])
 
     def test_candidate_collection_rejects_non_ancestor_cross_binding_legacy_and_actor(
         self,
