@@ -1371,6 +1371,218 @@ class AgentReviewTests(unittest.TestCase):
                 finally:
                     error.close()
 
+    def test_github_client_read_failures_reconcile_post_and_patch_without_replay(
+        self,
+    ) -> None:
+        app_login = "coco-agent[bot]"
+        previous = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+        response_errors = (
+            TimeoutError("response timeout"),
+            ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
+            review.http.client.IncompleteRead(b"partial", 10),
+        )
+
+        for prior, method in ((None, "POST"), (previous, "PATCH")):
+            for response_error in response_errors:
+                with self.subTest(method=method, error=type(response_error).__name__):
+                    persisted: dict | None = None
+                    writes = 0
+                    reads = 0
+
+                    class FakeResponse:
+                        def __init__(
+                            self, body: bytes = b"", error: BaseException | None = None
+                        ) -> None:
+                            self.body = body
+                            self.error = error
+                            self.headers: dict[str, str] = {}
+
+                        def __enter__(self) -> "FakeResponse":
+                            return self
+
+                        def __exit__(self, *args: object) -> None:
+                            return None
+
+                        def read(self, limit: int) -> bytes:
+                            self.assert_limit(limit)
+                            if self.error is not None:
+                                raise self.error
+                            return self.body
+
+                        @staticmethod
+                        def assert_limit(limit: int) -> None:
+                            if limit != 4 * 1024 * 1024 + 1:
+                                raise AssertionError(f"Unexpected read limit: {limit}")
+
+                    def urlopen(request: object, timeout: int) -> FakeResponse:
+                        nonlocal persisted, reads, writes
+                        if timeout != 60 or not isinstance(
+                            request, review.urllib.request.Request
+                        ):
+                            raise AssertionError("Unexpected GitHub request")
+                        request_method = request.get_method()
+                        if request_method == "GET":
+                            reads += 1
+                            values = [] if persisted is None else [persisted]
+                            return FakeResponse(review.canonical_json(values).encode())
+                        if request_method != method:
+                            raise AssertionError(f"Unexpected write: {request_method}")
+                        writes += 1
+                        payload = json.loads(bytes(request.data or b"{}"))
+                        persisted = {
+                            "id": 7,
+                            "body": payload["body"],
+                            "user": {
+                                "id": APP_BOT_ID,
+                                "login": app_login,
+                                "type": "Bot",
+                            },
+                        }
+                        return FakeResponse(error=response_error)
+
+                    checks: list[int] = []
+                    with patch.object(review.urllib.request, "urlopen", urlopen):
+                        result = review.upsert_comment(
+                            review.GitHubClient("token"),
+                            REPOSITORY,
+                            REPOSITORY_ID,
+                            60,
+                            HEAD_SHA,
+                            review.COMMENT_MARKER
+                            + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                            (42, 1),
+                            app_login,
+                            APP_BOT_ID,
+                            lambda: checks.append(1) or {},
+                            prior,
+                        )
+                    self.assertEqual(7, result["id"])
+                    self.assertEqual(1, writes)
+                    self.assertEqual(1 if prior is not None else 2, reads)
+                    self.assertEqual(3, len(checks))
+
+    def test_github_client_read_failures_use_bounded_recovery_gets(self) -> None:
+        app_login = "coco-agent[bot]"
+        previous = {
+            "id": 7,
+            "body": review.COMMENT_MARKER + "\n<!-- agent-jury-run:41:1 -->\nOld\n",
+            "user": {"id": APP_BOT_ID, "login": app_login, "type": "Bot"},
+        }
+        recovery_errors = (
+            TimeoutError("response timeout"),
+            ConnectionResetError(review.errno.ECONNRESET, "connection reset"),
+            review.http.client.IncompleteRead(b"partial", 10),
+        )
+
+        for recovery_error in recovery_errors:
+            with self.subTest(error=type(recovery_error).__name__):
+                persisted: dict | None = None
+                reads = 0
+                writes = 0
+
+                class FakeResponse:
+                    def __init__(
+                        self, body: bytes = b"", error: BaseException | None = None
+                    ) -> None:
+                        self.body = body
+                        self.error = error
+                        self.headers: dict[str, str] = {}
+
+                    def __enter__(self) -> "FakeResponse":
+                        return self
+
+                    def __exit__(self, *args: object) -> None:
+                        return None
+
+                    def read(self, limit: int) -> bytes:
+                        if limit != 4 * 1024 * 1024 + 1:
+                            raise AssertionError(f"Unexpected read limit: {limit}")
+                        if self.error is not None:
+                            raise self.error
+                        return self.body
+
+                def urlopen(request: object, timeout: int) -> FakeResponse:
+                    nonlocal persisted, reads, writes
+                    if timeout != 60 or not isinstance(
+                        request, review.urllib.request.Request
+                    ):
+                        raise AssertionError("Unexpected GitHub request")
+                    if request.get_method() == "PATCH":
+                        writes += 1
+                        payload = json.loads(bytes(request.data or b"{}"))
+                        persisted = {
+                            "id": 7,
+                            "body": payload["body"],
+                            "user": {
+                                "id": APP_BOT_ID,
+                                "login": app_login,
+                                "type": "Bot",
+                            },
+                        }
+                        return FakeResponse(error=TimeoutError("write timeout"))
+                    if request.get_method() != "GET" or persisted is None:
+                        raise AssertionError(f"Unexpected request: {request.full_url}")
+                    reads += 1
+                    if reads == 1:
+                        return FakeResponse(error=recovery_error)
+                    return FakeResponse(
+                        review.canonical_json([persisted]).encode("utf-8")
+                    )
+
+                checks: list[int] = []
+                with (
+                    patch.object(review.urllib.request, "urlopen", urlopen),
+                    patch.object(review.time, "sleep") as sleep,
+                ):
+                    result = review.upsert_comment(
+                        review.GitHubClient("token"),
+                        REPOSITORY,
+                        REPOSITORY_ID,
+                        60,
+                        HEAD_SHA,
+                        review.COMMENT_MARKER
+                        + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                        (42, 1),
+                        app_login,
+                        APP_BOT_ID,
+                        lambda: checks.append(1) or {},
+                        previous,
+                    )
+                self.assertEqual(7, result["id"])
+                self.assertEqual(1, writes)
+                self.assertEqual(2, reads)
+                self.assertEqual(5, len(checks))
+                sleep.assert_called_once_with(
+                    review.FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS[0]
+                )
+
+    def test_github_client_read_failure_does_not_generalize_oserror(self) -> None:
+        class FakeResponse:
+            headers: dict[str, str] = {}
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                if limit != 4 * 1024 * 1024 + 1:
+                    raise AssertionError(f"Unexpected read limit: {limit}")
+                raise OSError(review.errno.EMFILE, "too many open files")
+
+        client = review.GitHubClient("token")
+        with patch.object(
+            review.urllib.request, "urlopen", return_value=FakeResponse()
+        ):
+            with self.assertRaises(OSError) as raised:
+                client.send_json("POST", f"repos/{REPOSITORY}/issues", {})
+        self.assertNotIsInstance(raised.exception, review.GitHubTransientError)
+
     def test_build_context_adds_related_test_and_module_pom(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

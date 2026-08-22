@@ -10,6 +10,7 @@ import datetime as dt
 import errno
 import fnmatch
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -823,7 +824,16 @@ class GitHubClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
-                body = response.read(max_bytes + 1)
+                try:
+                    body = response.read(max_bytes + 1)
+                except (
+                    TimeoutError,
+                    ConnectionResetError,
+                    http.client.IncompleteRead,
+                ) as exc:
+                    raise GitHubTransientError(
+                        f"GitHub API response read failed for {method} {path}."
+                    ) from exc
                 if len(body) > max_bytes:
                     raise ReviewError("GitHub API response exceeded the bounded size.")
                 headers = {
