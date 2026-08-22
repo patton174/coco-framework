@@ -5886,9 +5886,8 @@ def upsert_comment(
                     )
                     if canonical == marker:
                         matches.append(value)
-                if (
-                    isinstance(comment_body, str)
-                    and comment_body.startswith((COMMENT_MARKER, LEGACY_COMMENT_MARKER))
+                if isinstance(comment_body, str) and comment_body.startswith(
+                    (COMMENT_MARKER, LEGACY_COMMENT_MARKER)
                 ):
                     managed.append(value)
             if len(managed) > 1:

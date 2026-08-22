@@ -5101,10 +5101,7 @@ class AgentReviewTests(unittest.TestCase):
                 self.reads = 0
 
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
-                if (
-                    path != f"repos/{REPOSITORY}/issues/60/comments"
-                    or limit != 500
-                ):
+                if path != f"repos/{REPOSITORY}/issues/60/comments" or limit != 500:
                     raise AssertionError(f"Unexpected comments read: {path}")
                 self.reads += 1
                 if self.reads == 1:
@@ -5137,8 +5134,7 @@ class AgentReviewTests(unittest.TestCase):
                 REPOSITORY_ID,
                 60,
                 HEAD_SHA,
-                review.COMMENT_MARKER
-                + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
+                review.COMMENT_MARKER + "\n<!-- agent-jury-run:42:1 -->\nResult\n",
                 (42, 1),
                 app_login,
                 APP_BOT_ID,
