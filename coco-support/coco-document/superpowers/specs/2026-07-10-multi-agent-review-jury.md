@@ -239,7 +239,7 @@ trust domain、revision 和 path 判断，只拒绝同一 domain/revision/path �
 - PR diff 超过 180,000 Unicode 字符时失败，要求拆分 PR；不静默截断，也不生成可供模型
   继续裁决的部分 diff。
 - 单个 specialist 的 canonical 组装上下文上限为 384,000 字符。
-- 受保护政策和所有命中规格最多 48,000 字符且不得裁剪；PR 意图最多 8,000 字符；完整
+- 受保护政策和所有命中规格最多 64,000 字符且不得裁剪；PR 意图最多 8,000 字符；完整
   diff 预算为 180,000 字符；补充代码上下文总计最多 60,000 字符、每个来源最多 4,000
   字符，单个完整变更文件最多读取 12,000 字符。
 - 输出 schema、当前 task、固定 SHA 和省略清单不可被裁掉。
@@ -449,4 +449,4 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
 - Canary PR 的评论明确显示 5 specialist、2 verifier 和 1 chair。
 - 源码或评审脚本变更后执行 `codegraph sync .`，索引保持最新。
 - 对受保护生产配置的每条 policy 路由，`collect_policy` 的已选来源总字符数必须不超过
-  48,000，且不产生 policy omission；该矩阵作为回归测试执行。
+  64,000，且不产生 policy omission；该矩阵作为回归测试执行。

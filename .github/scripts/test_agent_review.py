@@ -533,8 +533,22 @@ class AgentReviewTests(unittest.TestCase):
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
-        self.assertEqual(52_400, limits["policy_chars"])
+        self.assertEqual(64_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
+        explicit_section_budget = sum(
+            limits[key]
+            for key in (
+                "diff_chars",
+                "policy_chars",
+                "intent_chars",
+                "code_context_chars",
+            )
+        )
+        self.assertEqual(312_000, explicit_section_budget)
+        self.assertEqual(
+            72_000, limits["assembled_context_chars"] - explicit_section_budget
+        )
+        self.assertEqual(limits["diff_chars"], limits["patch_chars"])
         repository_root = Path(__file__).resolve().parents[2]
         protocol = review.protocol_manifest(repository_root, value)
         self.assertRegex(protocol["protocol_sha256"], r"^[0-9a-f]{64}$")
@@ -11929,6 +11943,8 @@ class AgentReviewTests(unittest.TestCase):
         repository_root = Path(__file__).resolve().parents[2]
         value = review.load_config(repository_root / ".github/agent-review/config.json")
         limit = review.normalized_limits(value)["policy_chars"]
+        largest_path = ""
+        largest_size = 0
         for index, mapping in enumerate(value["spec_path_mappings"]):
             for pattern in mapping["path_globs"]:
                 changed_path = (
@@ -11945,31 +11961,28 @@ class AgentReviewTests(unittest.TestCase):
                     self.assertLess(
                         sum(len(source["content"]) for source in sources), limit
                     )
+                    selected_size = sum(len(source["content"]) for source in sources)
+                    if selected_size > largest_size:
+                        largest_path = changed_path
+                        largest_size = selected_size
 
-    def test_production_policy_route_fails_closed_at_budget_minus_one(self) -> None:
+        self.assertEqual(".github/agent-review/probe", largest_path)
+        self.assertEqual(55_190, largest_size)
+        self.assertEqual(8_810, limit - largest_size)
+        self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 15)
+
+    def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
         value = review.load_config(repository_root / ".github/agent-review/config.json")
-        largest_path = ""
-        largest_size = 0
-        for mapping in value["spec_path_mappings"]:
-            for pattern in mapping["path_globs"]:
-                changed_path = (
-                    pattern.replace("**", "probe")
-                    .replace("*", "probe")
-                    .replace("?", "x")
-                )
-                sources = review.collect_policy(
-                    repository_root, value, [changed_path], []
-                )
-                selected_size = sum(len(source["content"]) for source in sources)
-                if selected_size > largest_size:
-                    largest_path = changed_path
-                    largest_size = selected_size
-
-        bounded = json.loads(json.dumps(value))
-        bounded["context_budget"]["protected_policy_and_specs_limit"] = largest_size - 1
-        with self.assertRaisesRegex(review.ReviewError, "exceeds the context budget"):
-            review.collect_policy(repository_root, bounded, [largest_path], [])
+        limit = review.normalized_limits(value)["policy_chars"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("x" * (limit + 1), encoding="utf-8")
+            bounded = config(policy_chars=limit)
+            with self.assertRaisesRegex(
+                review.ReviewError, "exceeds the context budget"
+            ):
+                review.collect_policy(root, bounded, ["probe"], [])
 
 
 if __name__ == "__main__":

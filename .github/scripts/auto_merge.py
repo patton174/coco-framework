@@ -12,8 +12,9 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from agent_review import ReviewError as AgentReviewError
 from agent_review import parse_finding_issue_marker
@@ -22,12 +23,25 @@ from agent_review import require_resource_actor
 
 BASE_BRANCH = "main"
 AGENT_ISSUE_LABEL = "agent-review"
-REQUIRED_GATES = ("CI gate", "Agent jury gate", "Agent issue gate")
+STANDARD_REQUIRED_GATES = ("CI gate", "Agent jury gate", "Agent issue gate")
+INCIDENT_REQUIRED_GATES = ("CI gate", "Agent issue gate")
+INCIDENT_MISSING_CONTEXT = "Agent jury gate"
+INCIDENT_MARKER_PREFIX = "<!-- coco-auto-merge-incident: "
+INCIDENT_MARKER_RE = re.compile(
+    r"<!-- coco-auto-merge-incident: (?P<payload>\{[^\r\n]{1,2048}\}) -->"
+)
+INCIDENT_SCHEMA_VERSION = 1
+MAX_INCIDENT_AUTHORIZATION = timedelta(hours=24)
 CI_CHECK_APP_ID = 15368
 GITHUB_ACTIONS_BOT_LOGIN = "github-actions[bot]"
 GITHUB_ACTIONS_BOT_ID = 41898282
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+RFC3339_UTC_TIMESTAMP_RE = re.compile(
+    r"(?P<whole_seconds>[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+    r"[0-9]{2}:[0-9]{2}:[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]+))?(?:Z|\+00:00)"
+)
 REVIEWER_PERMISSIONS = {"write", "maintain", "admin"}
 MAX_EVENT_BYTES = 2 * 1024 * 1024
 MAX_OPEN_PULL_REQUESTS = 200
@@ -62,6 +76,7 @@ class PullRequestSnapshot:
     number: int
     state: str
     base_ref: str
+    base_sha: str
     head_sha: str
     draft: bool
     mergeable: bool | None
@@ -84,6 +99,51 @@ class RepositoryMergeSettings:
 
 
 @dataclasses.dataclass(frozen=True)
+class RequiredGateConfiguration:
+    """Validated App-bound required checks read from main branch protection."""
+
+    gates: tuple[str, ...]
+    app_bindings: tuple[tuple[str, int], ...]
+
+    def as_dict(self) -> dict[str, int]:
+        return dict(self.app_bindings)
+
+
+@dataclasses.dataclass(frozen=True)
+class IncidentAuthorization:
+    issue_number: int
+    issue_body: str
+    canonical_marker: str
+    repository: str
+    base_sha: str
+    pull_request: int
+    head_sha: str
+    missing_context: str
+    issued_at: datetime
+    expires_at: datetime
+    dispatch_actor: str
+    triggering_actor: str
+    pull_request_author_login: str
+    pull_request_author_bot_id: int
+    owner_approval_review_id: int | None
+
+
+@dataclasses.dataclass(frozen=True)
+class IncidentInvocation:
+    event_name: str
+    actor: str
+    triggering_actor: str
+    repository_owner: str
+
+
+@dataclasses.dataclass(frozen=True)
+class CurrentApproval:
+    login: str
+    user_type: str
+    review_id: int
+
+
+@dataclasses.dataclass(frozen=True)
 class ReviewState:
     decision: str
     unresolved_threads: int
@@ -99,6 +159,8 @@ class Eligibility:
     unresolved_review_threads: int = 0
     open_agent_issues: tuple[int, ...] = ()
     merge_settings: RepositoryMergeSettings | None = None
+    required_gate_configuration: RequiredGateConfiguration | None = None
+    incident_authorization: IncidentAuthorization | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -280,6 +342,19 @@ class GitHubClient:
         return require_mapping(root.get("data"), "GitHub GraphQL data")
 
 
+class BranchProtectionClient:
+    """Capability client exposing only protected-main required-check reads."""
+
+    def __init__(self, token: str, api_url: str = "https://api.github.com") -> None:
+        self._client = GitHubClient(token, api_url)
+
+    def required_status_checks(self, repository: str) -> Any:
+        branch = urllib.parse.quote(BASE_BRANCH, safe="")
+        return self._client.get_json(
+            f"repos/{repository}/branches/{branch}/protection/required_status_checks"
+        )
+
+
 def parse_agent_issue_marker(body: Any) -> dict[str, Any] | None:
     """Reuse the review publisher's canonical marker contract."""
 
@@ -287,6 +362,100 @@ def parse_agent_issue_marker(body: Any) -> dict[str, Any] | None:
         return parse_finding_issue_marker(body)
     except AgentReviewError as exc:
         raise ContractError(str(exc)) from exc
+
+
+def parse_utc_timestamp(value: Any, label: str) -> datetime:
+    match = (
+        RFC3339_UTC_TIMESTAMP_RE.fullmatch(value) if isinstance(value, str) else None
+    )
+    if match is None:
+        raise ContractError(f"{label} must be an RFC 3339 UTC timestamp.")
+    fraction = match.group("fraction") or ""
+    if len(fraction) > 6 and any(digit != "0" for digit in fraction[6:]):
+        raise ContractError(
+            f"{label} has sub-microsecond precision that cannot be represented without loss."
+        )
+    normalized = match.group("whole_seconds")
+    if fraction:
+        normalized += f".{fraction[:6]}"
+    normalized += "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ContractError(f"{label} is not a valid UTC timestamp.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ContractError(f"{label} must be an RFC 3339 UTC timestamp.")
+    return parsed.astimezone(timezone.utc)
+
+
+def parse_incident_marker(body: Any, issue_number: int) -> dict[str, Any]:
+    if not isinstance(body, str):
+        raise ContractError(f"Incident Issue #{issue_number} body is missing.")
+    matches = list(INCIDENT_MARKER_RE.finditer(body))
+    if body.count(INCIDENT_MARKER_PREFIX) != 1 or len(matches) != 1:
+        raise ContractError(
+            f"Incident Issue #{issue_number} must contain exactly one valid marker."
+        )
+    payload_text = matches[0].group("payload")
+    try:
+        payload = require_mapping(
+            json.loads(payload_text), f"Incident Issue #{issue_number} marker"
+        )
+    except json.JSONDecodeError as exc:
+        raise ContractError(
+            f"Incident Issue #{issue_number} marker is not valid JSON."
+        ) from exc
+    expected_fields = {
+        "schema_version",
+        "repository",
+        "base_sha",
+        "pull_request",
+        "head_sha",
+        "missing_context",
+        "issued_at",
+        "expires_at",
+    }
+    if set(payload) != expected_fields or canonical_json(payload) != payload_text:
+        raise ContractError(
+            f"Incident Issue #{issue_number} marker is not the exact canonical schema."
+        )
+    if (
+        type(payload.get("schema_version")) is not int
+        or payload.get("schema_version") != INCIDENT_SCHEMA_VERSION
+    ):
+        raise ContractError(
+            f"Incident Issue #{issue_number} marker schema_version is invalid."
+        )
+    if not isinstance(payload.get("repository"), str) or not REPOSITORY_RE.fullmatch(
+        str(payload.get("repository"))
+    ):
+        raise ContractError(
+            f"Incident Issue #{issue_number} marker repository is invalid."
+        )
+    valid_sha(payload.get("base_sha"), "incident protected base SHA")
+    positive_integer(payload.get("pull_request"), "incident pull request")
+    valid_sha(payload.get("head_sha"), "incident head SHA")
+    if payload.get("missing_context") != INCIDENT_MISSING_CONTEXT:
+        raise ContractError(
+            f"Incident Issue #{issue_number} missing_context is invalid."
+        )
+    parse_utc_timestamp(payload.get("issued_at"), "incident issued_at")
+    parse_utc_timestamp(payload.get("expires_at"), "incident expires_at")
+    return payload
+
+
+def incident_invocation_from_environment() -> IncidentInvocation:
+    values = {
+        "event_name": os.environ.get("GITHUB_EVENT_NAME", ""),
+        "actor": os.environ.get("GITHUB_ACTOR", ""),
+        "triggering_actor": os.environ.get("GITHUB_TRIGGERING_ACTOR", ""),
+        "repository_owner": os.environ.get("GITHUB_REPOSITORY_OWNER", ""),
+    }
+    if any(not isinstance(value, str) or not value for value in values.values()):
+        raise ContractError(
+            "Incident route requires GitHub-provided event, actor, and repository owner context."
+        )
+    return IncidentInvocation(**values)
 
 
 def read_event(path: Path | None) -> dict[str, Any]:
@@ -486,6 +655,7 @@ def pull_request_snapshot(value: Any, expected_number: int) -> PullRequestSnapsh
     base_ref = base.get("ref")
     if not isinstance(base_ref, str):
         raise ContractError("Pull request base ref is missing.")
+    base_sha = valid_sha(base.get("sha"), "pull request base SHA")
     head = require_mapping(pull_request.get("head"), "pull request head")
     head_sha = valid_sha(head.get("sha"), "pull request head SHA")
     draft = pull_request.get("draft")
@@ -505,6 +675,7 @@ def pull_request_snapshot(value: Any, expected_number: int) -> PullRequestSnapsh
         number=number,
         state=state,
         base_ref=base_ref,
+        base_sha=base_sha,
         head_sha=head_sha,
         draft=draft,
         mergeable=mergeable,
@@ -537,13 +708,13 @@ def snapshot_reasons(
     return reasons
 
 
-def current_approvers(
+def current_approvals(
     client: GitHubClient,
     repository: str,
     pull_request: int,
     head_sha: str,
     author_login: str,
-) -> tuple[str, ...]:
+) -> tuple[CurrentApproval, ...]:
     reviews = client.paginate(
         f"repos/{repository}/pulls/{pull_request}/reviews", limit=500
     )
@@ -565,8 +736,8 @@ def current_approvers(
         if previous is None or review_id > previous[0]:
             latest[login] = (review_id, review)
 
-    approvers: list[str] = []
-    for login, (_, review) in sorted(latest.items()):
+    approvals: list[CurrentApproval] = []
+    for login, (review_id, review) in sorted(latest.items()):
         if review.get("state") != "APPROVED" or review.get("commit_id") != head_sha:
             continue
         encoded_login = urllib.parse.quote(login, safe="")
@@ -582,8 +753,15 @@ def current_approvers(
             permission_payload, f"collaborator permission for {login}"
         ).get("permission")
         if permission in REVIEWER_PERMISSIONS:
-            approvers.append(login)
-    return tuple(approvers)
+            user = require_mapping(review.get("user"), "review user")
+            approvals.append(
+                CurrentApproval(
+                    login=login,
+                    user_type=str(user.get("type") or ""),
+                    review_id=review_id,
+                )
+            )
+    return tuple(approvals)
 
 
 def _latest_by_id(values: list[dict[str, Any]], label: str) -> dict[str, Any]:
@@ -622,8 +800,185 @@ def _status_outcome(status: dict[str, Any], gate: str) -> tuple[str, bool]:
     )
 
 
+def required_gate_configuration(
+    protection_client: BranchProtectionClient, repository: str
+) -> RequiredGateConfiguration:
+    """Read the current strict, App-bound required-check contract for main."""
+
+    payload = require_mapping(
+        protection_client.required_status_checks(repository),
+        "main branch required status checks",
+    )
+    if payload.get("strict") is not True:
+        raise ContractError("main branch required status checks must be strict.")
+    contexts = require_list(
+        payload.get("contexts"), "main branch required status check contexts"
+    )
+    checks = require_list(payload.get("checks"), "main branch required status checks")
+    context_names: list[str] = []
+    for value in contexts:
+        if not isinstance(value, str) or not value:
+            raise ContractError("main branch required status check context is invalid.")
+        context_names.append(value)
+    if len(set(context_names)) != len(context_names):
+        raise ContractError(
+            "main branch required status check contexts are duplicated."
+        )
+
+    bindings: list[tuple[str, int]] = []
+    for value in checks:
+        check = require_mapping(value, "main branch App-bound required status check")
+        context = check.get("context")
+        app_id = check.get("app_id")
+        if not isinstance(context, str) or not context:
+            raise ContractError(
+                "main branch App-bound required check context is invalid."
+            )
+        if type(app_id) is not int:
+            raise ContractError("main branch required check is missing its app_id.")
+        bindings.append((context, app_id))
+    bound_names = [context for context, _ in bindings]
+    if len(set(bound_names)) != len(bound_names):
+        raise ContractError("main branch App-bound required checks are duplicated.")
+    if set(context_names) != set(bound_names):
+        raise ContractError(
+            "main branch legacy contexts and App-bound required checks differ."
+        )
+    if any(app_id != CI_CHECK_APP_ID for _, app_id in bindings):
+        raise ContractError(
+            "main branch required checks must be bound to the GitHub Actions App."
+        )
+    gates = tuple(sorted(context_names))
+    if gates not in {
+        tuple(sorted(STANDARD_REQUIRED_GATES)),
+        tuple(sorted(INCIDENT_REQUIRED_GATES)),
+    }:
+        raise ContractError(
+            "main branch required check set is not the standard or controlled incident contract."
+        )
+    return RequiredGateConfiguration(
+        gates=gates,
+        app_bindings=tuple(sorted(bindings)),
+    )
+
+
+def validate_incident_authorization(
+    client: GitHubClient,
+    repository: str,
+    pull_request: dict[str, Any],
+    snapshot: PullRequestSnapshot,
+    issue_number: int,
+    now: datetime,
+    invocation: IncidentInvocation,
+    expected_app_login: str,
+    expected_app_bot_id: int,
+    owner_approval: CurrentApproval | None,
+) -> IncidentAuthorization:
+    owner = repository.split("/", 1)[0]
+    if invocation.event_name != "workflow_dispatch":
+        raise ContractError(
+            "Controlled incident merge is available only to workflow_dispatch."
+        )
+    if invocation.repository_owner != owner:
+        raise ContractError(
+            "GitHub repository owner context does not match the target repository."
+        )
+    if invocation.actor != owner:
+        raise ContractError(
+            "Controlled incident merge must be dispatched by the repository owner."
+        )
+    if invocation.triggering_actor != owner:
+        raise ContractError(
+            "Controlled incident merge must be run or re-run by the repository owner."
+        )
+    try:
+        require_resource_actor(
+            pull_request,
+            expected_app_login,
+            expected_app_bot_id,
+            "Controlled incident pull request",
+        )
+    except AgentReviewError as exc:
+        raise ContractError(str(exc)) from exc
+
+    issue_number = positive_integer(issue_number, "incident Issue number")
+    issue = require_mapping(
+        client.get_json(f"repos/{repository}/issues/{issue_number}"),
+        f"Incident Issue #{issue_number}",
+    )
+    returned_number = positive_integer(
+        issue.get("number"), f"Incident Issue #{issue_number} number"
+    )
+    if returned_number != issue_number:
+        raise ContractError(
+            f"GitHub returned Issue #{returned_number} while #{issue_number} was requested."
+        )
+    if "pull_request" in issue:
+        raise ContractError(f"Incident authorization #{issue_number} must not be a PR.")
+    if issue.get("state") != "open":
+        raise ContractError(f"Incident Issue #{issue_number} must remain open.")
+    author = require_mapping(issue.get("user"), f"Incident Issue #{issue_number} user")
+    if (
+        author.get("login") != owner
+        or author.get("type") != "User"
+        or issue.get("author_association") != "OWNER"
+    ):
+        raise ContractError(
+            f"Incident Issue #{issue_number} must be authored by the repository owner."
+        )
+    issue_body = issue.get("body")
+    marker = parse_incident_marker(issue_body, issue_number)
+    if marker["repository"] != repository:
+        raise ContractError(f"Incident Issue #{issue_number} binds another repository.")
+    if marker["base_sha"] != snapshot.base_sha:
+        raise ContractError(f"Incident Issue #{issue_number} binds another base SHA.")
+    if marker["pull_request"] != snapshot.number:
+        raise ContractError(f"Incident Issue #{issue_number} binds another PR.")
+    if marker["head_sha"] != snapshot.head_sha:
+        raise ContractError(f"Incident Issue #{issue_number} binds another head SHA.")
+    if now.tzinfo is None or now.utcoffset() != timedelta(0):
+        raise ContractError("Incident authorization clock must be UTC-aware.")
+    issued_at = parse_utc_timestamp(marker["issued_at"], "incident issued_at")
+    expires_at = parse_utc_timestamp(marker["expires_at"], "incident expires_at")
+    if issued_at >= expires_at:
+        raise ContractError(
+            f"Incident Issue #{issue_number} authorization interval is invalid."
+        )
+    if expires_at - issued_at > MAX_INCIDENT_AUTHORIZATION:
+        raise ContractError(
+            f"Incident Issue #{issue_number} authorization exceeds 24 hours."
+        )
+    now_utc = now.astimezone(timezone.utc)
+    if now_utc < issued_at or now_utc >= expires_at:
+        raise ContractError(
+            f"Incident Issue #{issue_number} authorization is not currently valid."
+        )
+    return IncidentAuthorization(
+        issue_number=issue_number,
+        issue_body=str(issue_body),
+        canonical_marker=canonical_json(marker),
+        repository=str(marker["repository"]),
+        base_sha=str(marker["base_sha"]),
+        pull_request=int(marker["pull_request"]),
+        head_sha=str(marker["head_sha"]),
+        missing_context=str(marker["missing_context"]),
+        issued_at=issued_at,
+        expires_at=expires_at,
+        dispatch_actor=invocation.actor,
+        triggering_actor=invocation.triggering_actor,
+        pull_request_author_login=expected_app_login,
+        pull_request_author_bot_id=expected_app_bot_id,
+        owner_approval_review_id=(
+            owner_approval.review_id if owner_approval is not None else None
+        ),
+    )
+
+
 def required_gate_states(
-    client: GitHubClient, repository: str, head_sha: str
+    client: GitHubClient,
+    repository: str,
+    head_sha: str,
+    required_gates: RequiredGateConfiguration,
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     statuses = client.paginate(
         f"repos/{repository}/commits/{head_sha}/statuses", limit=1000
@@ -634,10 +989,10 @@ def required_gate_states(
         key="check_runs",
     )
     status_matches: dict[str, list[dict[str, Any]]] = {
-        gate: [] for gate in REQUIRED_GATES
+        gate: [] for gate in required_gates.gates
     }
     check_matches: dict[str, list[dict[str, Any]]] = {
-        gate: [] for gate in REQUIRED_GATES
+        gate: [] for gate in required_gates.gates
     }
     for value in statuses:
         status = require_mapping(value, "commit status")
@@ -652,31 +1007,36 @@ def required_gate_states(
 
     states: dict[str, str] = {}
     reasons: list[str] = []
+    bindings = required_gates.as_dict()
 
-    ci_valid: list[dict[str, Any]] = []
-    ci_untrusted = len(status_matches["CI gate"])
-    for check_run in check_matches["CI gate"]:
-        app = check_run.get("app")
-        if isinstance(app, dict) and app.get("id") == CI_CHECK_APP_ID:
-            ci_valid.append(check_run)
-        else:
-            ci_untrusted += 1
-    if ci_untrusted:
-        reasons.append(
-            "required gate 'CI gate' has same-name signal(s) from an untrusted provider"
-        )
-    if not ci_valid:
-        states["CI gate"] = "missing-trusted-provider"
-        reasons.append("required gate 'CI gate' is missing its trusted check run")
-    else:
-        ci_signal, ci_success = _check_run_outcome(
-            _latest_by_id(ci_valid, "CI gate trusted check run"), "CI gate"
-        )
-        states["CI gate"] = ci_signal
-        if not ci_success:
-            reasons.append("required gate 'CI gate' is not successful")
+    for gate in required_gates.gates:
+        if gate == "CI gate":
+            trusted_checks: list[dict[str, Any]] = []
+            untrusted = len(status_matches[gate])
+            for check_run in check_matches[gate]:
+                app = check_run.get("app")
+                if isinstance(app, dict) and app.get("id") == bindings[gate]:
+                    trusted_checks.append(check_run)
+                else:
+                    untrusted += 1
+            if untrusted:
+                reasons.append(
+                    "required gate 'CI gate' has same-name signal(s) from an untrusted provider"
+                )
+            if not trusted_checks:
+                states[gate] = "missing-trusted-provider"
+                reasons.append(
+                    "required gate 'CI gate' is missing its trusted check run"
+                )
+                continue
+            signal, success = _check_run_outcome(
+                _latest_by_id(trusted_checks, "CI gate trusted check run"), gate
+            )
+            states[gate] = signal
+            if not success:
+                reasons.append("required gate 'CI gate' is not successful")
+            continue
 
-    for gate in ("Agent jury gate", "Agent issue gate"):
         trusted_statuses: list[dict[str, Any]] = []
         untrusted = len(check_matches[gate])
         for status in status_matches[gate]:
@@ -884,31 +1244,77 @@ def merge_setting_reasons(settings: RepositoryMergeSettings) -> tuple[str, ...]:
     return tuple(reasons)
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def evaluate_eligibility(
     client: GitHubClient,
+    protection_client: BranchProtectionClient,
     repository: str,
     candidate: Candidate,
     expected_head_sha: str | None,
     expected_app_login: str,
     expected_app_bot_id: int,
+    incident_issue_number: int | None,
+    now: datetime,
+    incident_invocation_provider: Callable[[], IncidentInvocation],
 ) -> Eligibility:
-    snapshot = pull_request_snapshot(
+    pull_request = require_mapping(
         client.get_json(f"repos/{repository}/pulls/{candidate.number}"),
-        candidate.number,
+        f"pull request #{candidate.number}",
     )
+    snapshot = pull_request_snapshot(pull_request, candidate.number)
     snapshot_failures = snapshot_reasons(snapshot, expected_head_sha)
     if snapshot_failures:
         return Eligibility(snapshot=snapshot, reasons=tuple(snapshot_failures))
 
+    gate_configuration = required_gate_configuration(protection_client, repository)
+    if gate_configuration.gates == tuple(sorted(STANDARD_REQUIRED_GATES)):
+        if incident_issue_number is not None:
+            raise ContractError(
+                "Standard three-gate protection rejects an incident Issue parameter."
+            )
     review_state = pull_request_review_state(client, repository, candidate.number)
-    approvers = current_approvers(
+    approvals = current_approvals(
         client,
         repository,
         candidate.number,
         snapshot.head_sha,
         snapshot.author_login,
     )
-    gates, gate_reasons = required_gate_states(client, repository, snapshot.head_sha)
+    approvers = tuple(approval.login for approval in approvals)
+    incident_authorization: IncidentAuthorization | None = None
+    incident_owner_approval: CurrentApproval | None = None
+    if gate_configuration.gates == tuple(sorted(INCIDENT_REQUIRED_GATES)):
+        if incident_issue_number is None:
+            raise ContractError(
+                "Controlled two-gate protection requires an incident Issue number."
+            )
+        owner = repository.split("/", 1)[0]
+        incident_owner_approval = next(
+            (
+                approval
+                for approval in approvals
+                if approval.login == owner and approval.user_type == "User"
+            ),
+            None,
+        )
+        incident_authorization = validate_incident_authorization(
+            client,
+            repository,
+            pull_request,
+            snapshot,
+            incident_issue_number,
+            now,
+            incident_invocation_provider(),
+            expected_app_login,
+            expected_app_bot_id,
+            incident_owner_approval,
+        )
+    gates, gate_reasons = required_gate_states(
+        client, repository, snapshot.head_sha, gate_configuration
+    )
     open_issues = open_bound_agent_issues(
         client,
         repository,
@@ -927,6 +1333,13 @@ def evaluate_eligibility(
         reasons.append(
             "no current valid non-bot maintainer approval exists for the current head"
         )
+    if (
+        gate_configuration.gates == tuple(sorted(INCIDENT_REQUIRED_GATES))
+        and incident_owner_approval is None
+    ):
+        reasons.append(
+            "controlled incident merge requires the repository owner's approval on the exact current head"
+        )
     if review_state.unresolved_threads:
         reasons.append(
             f"{review_state.unresolved_threads} review thread(s) remain unresolved"
@@ -943,6 +1356,8 @@ def evaluate_eligibility(
         unresolved_review_threads=review_state.unresolved_threads,
         open_agent_issues=open_issues,
         merge_settings=merge_settings,
+        required_gate_configuration=gate_configuration,
+        incident_authorization=incident_authorization,
     )
 
 
@@ -968,6 +1383,7 @@ def decision_from_eligibility(
 
 def evaluate_candidate(
     read_client: GitHubClient,
+    protection_client: BranchProtectionClient,
     merge_client: GitHubClient,
     repository: str,
     candidate: Candidate,
@@ -975,28 +1391,64 @@ def evaluate_candidate(
     expected_app_bot_id: int,
     *,
     dry_run: bool,
+    incident_issue_number: int | None = None,
+    now_provider: Callable[[], datetime] = utc_now,
+    incident_invocation_provider: Callable[
+        [], IncidentInvocation
+    ] = incident_invocation_from_environment,
 ) -> Decision:
     first = evaluate_eligibility(
         read_client,
+        protection_client,
         repository,
         candidate,
         candidate.expected_head_sha,
         expected_app_login,
         expected_app_bot_id,
+        incident_issue_number,
+        now_provider(),
+        incident_invocation_provider,
     )
     if first.reasons:
         return decision_from_eligibility("blocked", candidate, first)
 
     second = evaluate_eligibility(
         read_client,
+        protection_client,
         repository,
         candidate,
         first.snapshot.head_sha,
         expected_app_login,
         expected_app_bot_id,
+        incident_issue_number,
+        now_provider(),
+        incident_invocation_provider,
     )
     if second.reasons:
         return decision_from_eligibility("blocked", candidate, second)
+    changed_contracts: list[str] = []
+    if first.required_gate_configuration != second.required_gate_configuration:
+        changed_contracts.append("required-check configuration")
+    if first.incident_authorization != second.incident_authorization:
+        changed_contracts.append("incident authorization")
+    if changed_contracts:
+        return Decision(
+            state="blocked",
+            pull_request=candidate.number,
+            head_sha=second.snapshot.head_sha,
+            source=candidate.source,
+            reasons=(
+                f"main branch {' and '.join(changed_contracts)} changed during eligibility evaluation",
+            ),
+            approvers=second.approvers,
+            gates=second.gates,
+            review_decision=second.review_decision,
+            unresolved_review_threads=second.unresolved_review_threads,
+            open_agent_issues=second.open_agent_issues,
+            merge_settings=(
+                second.merge_settings.as_dict() if second.merge_settings else {}
+            ),
+        )
 
     if dry_run:
         return decision_from_eligibility("dry-run", candidate, second)
@@ -1048,6 +1500,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--pr-number", type=int)
     parser.add_argument("--expected-head-sha")
+    parser.add_argument("--incident-issue-number", type=int)
     parser.add_argument("--expected-app-login", required=True)
     parser.add_argument("--expected-app-bot-id", required=True, type=int)
     parser.add_argument("--dry-run", action="store_true")
@@ -1069,6 +1522,10 @@ def command_run(args: argparse.Namespace) -> int:
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
         os.environ.get("GITHUB_GRAPHQL_URL", "https://api.github.com/graphql"),
     )
+    protection_client = BranchProtectionClient(
+        os.environ.get("PROTECTION_GH_TOKEN", ""),
+        os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+    )
     merge_client = GitHubClient(
         os.environ.get("AGENT_GH_TOKEN", ""),
         os.environ.get("GITHUB_API_URL", "https://api.github.com"),
@@ -1079,6 +1536,11 @@ def command_run(args: argparse.Namespace) -> int:
         raise ContractError("expected app login must be a GitHub App bot login.")
     expected_app_bot_id = positive_integer(
         args.expected_app_bot_id, "expected app bot id"
+    )
+    incident_issue_number = (
+        positive_integer(args.incident_issue_number, "incident Issue number")
+        if args.incident_issue_number is not None
+        else None
     )
     candidates = resolve_candidates(
         read_client,
@@ -1094,12 +1556,14 @@ def command_run(args: argparse.Namespace) -> int:
     for candidate in candidates:
         decision = evaluate_candidate(
             read_client,
+            protection_client,
             merge_client,
             repository,
             candidate,
             expected_app_login,
             expected_app_bot_id,
             dry_run=bool(args.dry_run),
+            incident_issue_number=incident_issue_number,
         )
         print(canonical_json(decision.as_dict()))
     return 0
