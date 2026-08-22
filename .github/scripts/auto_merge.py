@@ -112,6 +112,8 @@ class RequiredGateConfiguration:
 @dataclasses.dataclass(frozen=True)
 class IncidentAuthorization:
     issue_number: int
+    issue_body: str
+    canonical_marker: str
     repository: str
     base_sha: str
     pull_request: int
@@ -924,7 +926,8 @@ def validate_incident_authorization(
         raise ContractError(
             f"Incident Issue #{issue_number} must be authored by the repository owner."
         )
-    marker = parse_incident_marker(issue.get("body"), issue_number)
+    issue_body = issue.get("body")
+    marker = parse_incident_marker(issue_body, issue_number)
     if marker["repository"] != repository:
         raise ContractError(f"Incident Issue #{issue_number} binds another repository.")
     if marker["base_sha"] != snapshot.base_sha:
@@ -952,6 +955,8 @@ def validate_incident_authorization(
         )
     return IncidentAuthorization(
         issue_number=issue_number,
+        issue_body=str(issue_body),
+        canonical_marker=canonical_json(marker),
         repository=str(marker["repository"]),
         base_sha=str(marker["base_sha"]),
         pull_request=int(marker["pull_request"]),

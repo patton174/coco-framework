@@ -666,6 +666,37 @@ class AutoMergeTests(unittest.TestCase):
                 self.assertEqual([], client.protection_client.configuration_pages)
                 self.assertEqual(0 if dry_run else 1, len(client.sent))
 
+    def test_incident_consumes_exactly_two_protection_snapshots(self) -> None:
+        three_pages = self.incident_client()
+        three_pages.protection_client.configuration_pages = [
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+        ]
+        decision = self.evaluate(
+            three_pages,
+            dry_run=True,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("dry-run", decision.state)
+        self.assertEqual(2, three_pages.protection_client.reads)
+        self.assertEqual(1, len(three_pages.protection_client.configuration_pages))
+
+        one_page = self.incident_client()
+        one_page.protection_client.configuration_pages = [
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES)
+        ]
+        with self.assertRaisesRegex(
+            AssertionError, "unexpected extra required check configuration read"
+        ):
+            self.evaluate(
+                one_page,
+                dry_run=True,
+                incident_issue_number=INCIDENT_ISSUE_NUMBER,
+            )
+        self.assertEqual(2, one_page.protection_client.reads)
+        self.assertEqual([], one_page.sent)
+
     def test_incident_owner_issue_marker_cannot_replace_owner_dispatch(self) -> None:
         cases = {
             "collaborator actor": incident_invocation(actor="maintainer"),
@@ -850,14 +881,41 @@ class AutoMergeTests(unittest.TestCase):
                 with self.assertRaisesRegex(merge.ContractError, "without loss"):
                     merge.parse_utc_timestamp(timestamp, "incident timestamp")
 
-        client = self.incident_client()
-        client.pull_reads = [pull_request(user=app_actor())]
-        client.incident_issue = incident_issue(
-            body=incident_marker(issued_at="2026-08-17T11:00:00.0000001Z")
+        lossless_window = self.incident_client()
+        lossless_window.incident_issue = incident_issue(
+            body=incident_marker(
+                issued_at="2026-08-17T11:00:00.000000000Z",
+                expires_at="2026-08-17T13:00:00.000000000+00:00",
+            )
         )
-        with self.assertRaisesRegex(merge.ContractError, "without loss"):
-            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
-        self.assertEqual([], client.sent)
+        decision = self.evaluate(
+            lossless_window,
+            dry_run=True,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("dry-run", decision.state)
+
+        unsafe_windows = {
+            "issued_at would be moved earlier by truncation": {
+                "issued_at": "2026-08-17T12:00:00.0000001Z"
+            },
+            "expires_at carries unrepresentable precision": {
+                "expires_at": "2026-08-17T12:00:00.0000001Z"
+            },
+        }
+        for label, marker_overrides in unsafe_windows.items():
+            with self.subTest(label=label):
+                client = self.incident_client()
+                client.pull_reads = [pull_request(user=app_actor())]
+                client.incident_issue = incident_issue(
+                    body=incident_marker(**marker_overrides)
+                )
+                with self.assertRaisesRegex(merge.ContractError, "without loss"):
+                    self.evaluate(
+                        client,
+                        incident_issue_number=INCIDENT_ISSUE_NUMBER,
+                    )
+                self.assertEqual([], client.sent)
 
     def test_incident_marker_rejects_non_utc_naive_and_malformed_timestamps(
         self,
@@ -1306,6 +1364,36 @@ class AutoMergeTests(unittest.TestCase):
             self.evaluate(changed_binding)
         self.assertEqual([], changed_binding.sent)
 
+    def test_protection_failure_precedes_simultaneous_incident_drift(self) -> None:
+        client = self.incident_client()
+        client.protection_client.configuration_pages = [
+            required_check_configuration(merge.INCIDENT_REQUIRED_GATES),
+            required_check_configuration(
+                merge.INCIDENT_REQUIRED_GATES,
+                checks=[
+                    {"context": "CI gate", "app_id": merge.CI_CHECK_APP_ID},
+                    {
+                        "context": "Agent issue gate",
+                        "app_id": merge.CI_CHECK_APP_ID + 1,
+                    },
+                ],
+            ),
+        ]
+        client.incident_issue_pages = [
+            incident_issue(),
+            incident_issue(body=incident_marker(issued_at="2026-08-17T11:01:00Z")),
+        ]
+
+        with self.assertRaisesRegex(
+            merge.ContractError,
+            "required checks must be bound to the GitHub Actions App",
+        ):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual(2, client.protection_client.reads)
+        self.assertEqual(1, client.incident_issue_reads)
+        self.assertEqual(1, len(client.incident_issue_pages))
+        self.assertEqual([], client.sent)
+
     def test_second_incident_read_rejects_binding_changes(self) -> None:
         client = self.incident_client()
         client.incident_issue_pages = [
@@ -1323,6 +1411,51 @@ class AutoMergeTests(unittest.TestCase):
         )
         self.assertEqual("blocked", decision.state)
         self.assertIn("incident authorization changed", " ".join(decision.reasons))
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_read_rejects_canonical_marker_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [
+            incident_issue(),
+            incident_issue(
+                body=incident_marker(issued_at="2026-08-17T11:00:00.000000000Z")
+            ),
+        ]
+        decision = self.evaluate(
+            client,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", decision.state)
+        self.assertIn("incident authorization changed", " ".join(decision.reasons))
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_read_rejects_issue_body_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [
+            incident_issue(body=f"initial details\n{incident_marker()}"),
+            incident_issue(body=f"edited details\n{incident_marker()}"),
+        ]
+        decision = self.evaluate(
+            client,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("blocked", decision.state)
+        self.assertIn("incident authorization changed", " ".join(decision.reasons))
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
+        self.assertEqual([], client.sent)
+
+    def test_second_incident_read_rejects_issue_state_changes(self) -> None:
+        client = self.incident_client()
+        client.incident_issue_pages = [incident_issue(), incident_issue(state="closed")]
+        with self.assertRaisesRegex(merge.ContractError, "must remain open"):
+            self.evaluate(client, incident_issue_number=INCIDENT_ISSUE_NUMBER)
+        self.assertEqual(2, client.incident_issue_reads)
+        self.assertEqual([], client.incident_issue_pages)
         self.assertEqual([], client.sent)
 
     def test_second_incident_eligibility_rejects_identity_and_head_drift(
