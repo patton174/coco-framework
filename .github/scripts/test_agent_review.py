@@ -2666,24 +2666,31 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_evidence_verifier_rejects_head_code_for_policy_checks(self) -> None:
         context = bound_context()
-        for check in ("severity", "change_scope"):
-            with self.subTest(check=check):
-                report = verifier_report("evidence-verifier", context, "correctness:f1")
-                report["reviews"][0]["evidence_refs"][0]["checks"] = [check]
-                report["reviews"][0]["evidence_refs"][1]["checks"] = [
-                    value
-                    for value in report["reviews"][0]["evidence_refs"][1]["checks"]
-                    if value != check
-                ]
-                report["reviews"][0]["evidence"] = (
-                    "head-code:src/Foo.java#L1-L1; protected-policy:AGENTS.md#L1-L1"
-                )
-                with self.assertRaisesRegex(
-                    review.ReportShapeError, "protected policy"
-                ):
-                    review.validate_cross_report(
-                        report, "evidence-verifier", context, {"correctness:f1"}
-                    )
+        report = verifier_report("evidence-verifier", context, "correctness:f1")
+        report["reviews"][0]["evidence_refs"][0]["checks"] = ["severity"]
+        report["reviews"][0]["evidence_refs"][1]["checks"] = ["change_scope"]
+        report["reviews"][0]["evidence"] = (
+            "head-code:src/Foo.java#L1-L1; protected-policy:AGENTS.md#L1-L1"
+        )
+        with self.assertRaisesRegex(review.ReportShapeError, "protected policy"):
+            review.validate_cross_report(
+                report, "evidence-verifier", context, {"correctness:f1"}
+            )
+
+    def test_evidence_verifier_rejects_head_code_as_change_scope_policy_evidence(
+        self,
+    ) -> None:
+        context = bound_context()
+        report = verifier_report("evidence-verifier", context, "correctness:f1")
+        report["reviews"][0]["evidence_refs"][0]["checks"] = ["change_scope"]
+        report["reviews"][0]["evidence_refs"][1]["checks"] = ["severity"]
+        report["reviews"][0]["evidence"] = (
+            "head-code:src/Foo.java#L1-L1; protected-policy:AGENTS.md#L1-L1"
+        )
+        with self.assertRaisesRegex(review.ReportShapeError, "protected policy"):
+            review.validate_cross_report(
+                report, "evidence-verifier", context, {"correctness:f1"}
+            )
 
     def test_context_evidence_sources_reject_duplicate_or_mixed_domain_paths(
         self,
@@ -2944,6 +2951,127 @@ class AgentReviewTests(unittest.TestCase):
             )
         self.assertEqual(0, client.reads)
         self.assertEqual(0, client.writes)
+
+    def test_publish_preflights_actionable_group_limit_before_repository_writes(
+        self,
+    ) -> None:
+        class FakeStatusClient:
+            def __init__(self) -> None:
+                self.writes: list[tuple[str, str, dict]] = []
+
+            @staticmethod
+            def get_json(path: str) -> dict:
+                if path == f"repos/{REPOSITORY}/pulls/1":
+                    return {
+                        "state": "open",
+                        "head": {"sha": HEAD_SHA},
+                        "base": {"sha": BASE_SHA, "ref": "main"},
+                    }
+                if path == f"repos/{REPOSITORY}/commits/{HEAD_SHA}/status":
+                    return combined_ownership_status(42)
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.writes.append((method, path, payload))
+                raise AssertionError(f"Unexpected repository write: {method} {path}")
+
+        class FakeAgentClient:
+            def __init__(self) -> None:
+                self.writes: list[tuple[str, str, dict]] = []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                self.writes.append((method, path, payload))
+                raise AssertionError(f"Unexpected repository write: {method} {path}")
+
+        metadata = {
+            **trusted_metadata(),
+            "context_sha256": "c" * 64,
+            "protocol_sha256": "d" * 64,
+        }
+        selected_findings = [{"stable_id": f"v2-{index:064x}"} for index in range(2)]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "metadata.json"
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            specialists_path = root / "specialists"
+            verifiers_path = root / "verifiers"
+            final_json_path = root / "final.json"
+            final_markdown_path = root / "final.md"
+            review.write_json(metadata_path, metadata)
+            review.write_json(config_path, {})
+            review.write_json(
+                context_path,
+                {
+                    "binding": {
+                        "head_sha": HEAD_SHA,
+                        "base_sha": BASE_SHA,
+                        "context_sha256": metadata["context_sha256"],
+                        "protocol_sha256": metadata["protocol_sha256"],
+                        "model_config_sha256": MODEL_CONFIG_SHA256,
+                    }
+                },
+            )
+            specialists_path.mkdir()
+            verifiers_path.mkdir()
+            review.write_json(final_json_path, {"verdict": "PASS"})
+            final_markdown_path.write_text("validated report\n", encoding="utf-8")
+            status_client = FakeStatusClient()
+            agent_client = FakeAgentClient()
+            with (
+                patch.object(
+                    review,
+                    "GitHubClient",
+                    side_effect=[status_client, agent_client],
+                ),
+                patch.object(
+                    review,
+                    "load_config",
+                    return_value={"max_actionable_issue_groups": 1},
+                ),
+                patch.object(review, "validate_context"),
+                patch.object(review, "load_reports", return_value=[]),
+                patch.object(
+                    review, "validate_final_artifact", return_value="validated report\n"
+                ),
+                patch.object(
+                    review, "actionable_findings", return_value=selected_findings
+                ),
+                patch.object(review, "revalidate_model_configuration_if_available"),
+                patch.object(
+                    review,
+                    "managed_comment",
+                    side_effect=AssertionError(
+                        "group limit must be checked before comment reads"
+                    ),
+                ),
+                patch.dict(
+                    "os.environ",
+                    {
+                        "GH_TOKEN": "token",
+                        "AGENT_GH_TOKEN": "agent-token",
+                        "COCO_AGENT_APP_LOGIN": "coco-agent[bot]",
+                        "COCO_AGENT_APP_BOT_ID": str(APP_BOT_ID),
+                    },
+                    clear=True,
+                ),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "protected limit is 1"):
+                    review.command_publish(
+                        SimpleNamespace(
+                            metadata=metadata_path,
+                            config=config_path,
+                            context=context_path,
+                            specialists=specialists_path,
+                            verifiers=verifiers_path,
+                            final_json=final_json_path,
+                            final_markdown=final_markdown_path,
+                            run_url="https://github.example/runs/42",
+                        )
+                    )
+
+        self.assertEqual([], status_client.writes)
+        self.assertEqual([], agent_client.writes)
 
     def test_unverified_vote_prevents_confirmation(self) -> None:
         context = bound_context()

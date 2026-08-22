@@ -357,6 +357,18 @@ def max_actionable_issue_groups(config: dict[str, Any]) -> int:
     return value
 
 
+def require_actionable_issue_group_limit(
+    findings: list[dict[str, Any]], max_groups: int
+) -> None:
+    if type(max_groups) is not int or max_groups < 1:
+        raise ReviewError("Actionable Issue group limit is invalid.")
+    if len(findings) > max_groups:
+        raise ReviewError(
+            f"Agent review produced {len(findings)} actionable Issue groups; "
+            f"the protected limit is {max_groups}."
+        )
+
+
 def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
     legacy = config.get("limits", {})
     context = config.get("context_budget", {})
@@ -4811,13 +4823,7 @@ def synchronize_finding_issues(
     require_current_pr: Callable[[], dict[str, Any]],
     max_groups: int = 8,
 ) -> list[dict[str, Any]]:
-    if type(max_groups) is not int or max_groups < 1:
-        raise ReviewError("Actionable Issue group limit is invalid.")
-    if len(findings) > max_groups:
-        raise ReviewError(
-            f"Agent review produced {len(findings)} actionable Issue groups; "
-            f"the protected limit is {max_groups}."
-        )
+    require_actionable_issue_group_limit(findings, max_groups)
     selected = {str(item["stable_id"]): item for item in findings}
     if len(selected) != len(findings) or any(
         not STABLE_FINDING_ID_RE.fullmatch(stable_id) for stable_id in selected
@@ -5473,6 +5479,8 @@ def command_publish(args: argparse.Namespace) -> int:
 
     if run_order is None:
         raise AssertionError("Trusted Agent jury publication requires a run identity.")
+    if artifact_valid:
+        require_actionable_issue_group_limit(selected_findings, actionable_group_limit)
     timestamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
     run_marker = f"<!-- agent-jury-run:{run_order[0]}:{run_order[1]} -->"
     review_body = review_body.replace(
