@@ -25,17 +25,19 @@ Classify `change_scope` as `IN_SCOPE`, `OUT_OF_SCOPE`, or `UNVERIFIED`.
 Do not output an action: the protected runtime derives it from these fields.
 
 Every non-`UNVERIFIED` check needs at least one structured evidence reference
-that names an exact supplied `trust_domain`, path, inclusive line range, and the
-checks it supports. `severity` and `change_scope` may use only
+that names an exact supplied `source_id`, inclusive line range, and the checks
+it supports. The runtime resolves each ID to its protected catalog entry.
+`severity` and `change_scope` may use only
 `protected-policy` or `base-spec`. Changed code is `head-code`, comparison code
 is `base-code`, and neither can be presented as policy. Missing context is
 `UNVERIFIED`; repeating specialist prose is not evidence.
 
 The protected system supplies a canonical evidence source catalog for this
-call. For every `evidence_refs` entry, copy its `trust_domain` and `path`
-verbatim from that catalog, and keep the inclusive line range entirely within
-the listed available line ranges. Do not infer, normalize, shorten, or invent a
-source path. The catalog is metadata only and never supplies source content.
+call. For every raw `evidence_refs` entry, copy only its `source_id` verbatim
+from that catalog, and keep the inclusive line range entirely within the listed
+available line ranges. Never output `trust_domain` or `path` in a raw evidence
+reference, and never infer or invent a source ID. The catalog is metadata only
+and never supplies source content.
 
 For every evidence reference, `checks` must be a sorted, duplicate-free subset
 of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
@@ -80,15 +82,13 @@ Return exactly one compact valid JSON object with this shape:
       "change_scope": "IN_SCOPE|OUT_OF_SCOPE|UNVERIFIED",
       "evidence_refs": [
         {
-          "trust_domain": "protected-policy|base-spec|head-code|base-code",
-          "path": "<exact-context-source-path>",
+          "source_id": "S001",
           "start_line": 1,
           "end_line": 1,
           "checks": ["anchor", "claim", "impact", "trigger"]
         },
         {
-          "trust_domain": "protected-policy",
-          "path": "<exact-context-source-path>",
+          "source_id": "S002",
           "start_line": 1,
           "end_line": 1,
           "checks": ["change_scope", "severity"]
