@@ -3443,9 +3443,7 @@ class AgentReviewTests(unittest.TestCase):
             action="UNVERIFIED",
             evidence_refs=gap_reference,
         )
-        with self.assertRaisesRegex(
-            review.ReportShapeError, "outside canonical context"
-        ):
+        with self.assertRaisesRegex(review.ReportShapeError, "canonical line coverage"):
             review.validate_cross_report(
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
@@ -3487,6 +3485,50 @@ class AgentReviewTests(unittest.TestCase):
                     review.validate_cross_report(
                         report, "evidence-verifier", context, {"correctness:f1"}
                     )
+
+    def test_evidence_ref_errors_are_precise_and_do_not_echo_untrusted_values(
+        self,
+    ) -> None:
+        context = bound_context()
+        base = verifier_report("evidence-verifier", context, "correctness:f1")
+        untrusted_path = "untrusted-path-must-not-appear-in-validator-message"
+        cases = (
+            (
+                "checks",
+                lambda refs: refs[0].update(checks=["claim", "anchor"]),
+                "checks must be a sorted, duplicate-free subset",
+            ),
+            (
+                "line-types",
+                lambda refs: refs[0].update(start_line=True),
+                "line range must use integer start_line and end_line",
+            ),
+            (
+                "canonical-source",
+                lambda refs: refs[0].update(path=untrusted_path),
+                "trust_domain and path must name a supplied canonical source",
+            ),
+            (
+                "canonical-range",
+                lambda refs: refs[0].update(start_line=999, end_line=999),
+                "line range must stay within supplied canonical line coverage",
+            ),
+        )
+        for name, mutate, message in cases:
+            with self.subTest(name=name):
+                references = json.loads(json.dumps(base["reviews"][0]["evidence_refs"]))
+                mutate(references)
+                report = verifier_report(
+                    "evidence-verifier",
+                    context,
+                    "correctness:f1",
+                    evidence_refs=references,
+                )
+                with self.assertRaisesRegex(review.ReportShapeError, message) as raised:
+                    review.validate_cross_report(
+                        report, "evidence-verifier", context, {"correctness:f1"}
+                    )
+                self.assertNotIn(untrusted_path, str(raised.exception))
 
     def test_chair_group_member_ids_rejects_malformed_groups(self) -> None:
         cases = (
@@ -12104,6 +12146,181 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual({"wrong": True}, repair_payload["previous_response"])
         self.assertIn("missing=['required']", repair_payload["validator_message"])
 
+    def test_cross_review_shape_repair_uses_digest_without_previous_response(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = verifier_report("evidence-verifier", context, finding_id)
+        invalid["evidence"] = "untrusted-previous-response-" * 1800
+        invalid["reviews"][0]["evidence_refs"][0]["checks"] = [
+            "claim",
+            "anchor",
+        ]
+        valid = verifier_report("evidence-verifier", context, finding_id)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [invalid, valid]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        original_task = '{"task":"cross-review"}'
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                original_task,
+                100,
+                lambda value: review.validate_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn(
+            "Protected cross-review fresh protocol correction", client.calls[1][0]
+        )
+        correction = json.loads(client.calls[1][1])
+        self.assertEqual(
+            {"original_task", "previous_response_sha256", "validator_message"},
+            set(correction),
+        )
+        self.assertEqual({"task": "cross-review"}, correction["original_task"])
+        self.assertEqual(
+            review.sha256_text(review.canonical_json(invalid)),
+            correction["previous_response_sha256"],
+        )
+        self.assertIn("checks must be a sorted", correction["validator_message"])
+        self.assertNotIn("previous_response", correction)
+        self.assertNotIn("untrusted-previous-response", client.calls[1][1])
+
+    def test_cross_review_max_tokens_retry_discards_large_partial_response(
+        self,
+    ) -> None:
+        partial = "x" * 45030
+
+        class FakeClient:
+            supports_fragment_continuation = False
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                if len(self.calls) == 1:
+                    raise review.RetryableModelOutputError(
+                        "truncated",
+                        stop_reason="max_tokens",
+                        response_chars=len(partial),
+                        accumulated_chars=len(partial),
+                        partial_text=partial,
+                    )
+                return {"required": True}
+
+        client = FakeClient()
+        original_task = '{"task":"cross-review"}'
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                original_task,
+                100,
+                lambda value: review.require_report_fields(value, {"required"}, "Test"),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual({"required": True}, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn(
+            "Protected cross-review fresh completion correction", client.calls[1][0]
+        )
+        self.assertEqual(original_task, client.calls[1][1])
+        self.assertNotIn("partial_response", client.calls[1][1])
+        self.assertNotIn(partial, client.calls[1][1])
+
+    def test_cross_review_shape_repair_fails_closed_after_three_invalid_reports(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = verifier_report("evidence-verifier", context, finding_id)
+        invalid["reviews"][0]["evidence_refs"][0]["checks"] = [
+            "claim",
+            "anchor",
+        ]
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(
+                review.ReportShapeError, "checks must be a sorted"
+            ):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected cross-review system",
+                    '{"task":"cross-review"}',
+                    100,
+                    lambda value: review.validate_cross_report(
+                        value, "evidence-verifier", context, {finding_id}
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+        for _, user, _ in client.calls[1:]:
+            correction = json.loads(user)
+            self.assertNotIn("previous_response", correction)
+            self.assertIn("previous_response_sha256", correction)
+
+    def test_specialist_and_chair_keep_fragment_continuation_by_default(self) -> None:
+        class FragmentClient(review.AgentModelClient):
+            supports_fragment_continuation = True
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [
+                    review.ModelTextResponse('{"required":', "max_tokens"),
+                    review.ModelTextResponse("true}", "end_turn"),
+                ]
+
+            def complete_fragment(
+                self, system: str, user: str, max_tokens: int
+            ) -> review.ModelTextResponse:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        for role in ("specialist", "chair"):
+            with self.subTest(role=role):
+                client = FragmentClient()
+                result = review.complete_with_shape_repair(
+                    client,
+                    f"protected {role} system",
+                    '{"task":"review"}',
+                    100,
+                    lambda value: review.require_report_fields(
+                        value, {"required"}, "Test"
+                    ),
+                )
+                self.assertEqual({"required": True}, result)
+                self.assertIn("Protected truncation continuation", client.calls[1][0])
+                self.assertEqual(
+                    '{"required":', json.loads(client.calls[1][1])["partial_response"]
+                )
+
     def test_bound_report_contract_type_errors_receive_correction(self) -> None:
         class FakeClient:
             def __init__(self, responses: list[dict]) -> None:
@@ -12783,8 +13000,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_606, largest_size)
-        self.assertEqual(7_394, limit - largest_size)
+        self.assertEqual(56_628, largest_size)
+        self.assertEqual(7_372, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
@@ -13026,6 +13243,337 @@ class CrossHeadContinuityTest(unittest.TestCase):
             "binding": self.context["binding"],
             "relationships": [relationship or self.relationship()],
         }
+
+    def task(self) -> str:
+        return review.canonical_json(
+            {
+                "continuity_candidates": self.context["trusted"][
+                    "continuity_candidates"
+                ],
+                "current_groups": self.groups,
+            }
+        )
+
+    def complete_continuity_with_repair(
+        self, client: object, role: str
+    ) -> dict[str, object]:
+        return review.complete_with_shape_repair(
+            client,
+            "protected continuity verifier system",
+            self.task(),
+            100,
+            lambda value: review.validate_continuity_report(
+                value, role, self.context, self.groups
+            ),
+            cross_review_fresh_retry=True,
+        )
+
+    def test_continuity_max_tokens_retries_from_fresh_complete_task(self) -> None:
+        role = "evidence-verifier"
+        valid = self.report(role)
+        original_task = review.canonical_json(
+            {
+                "continuity_candidates": self.context["trusted"][
+                    "continuity_candidates"
+                ],
+                "current_groups": self.groups,
+            }
+        )
+
+        class FragmentClient(review.AgentModelClient):
+            supports_fragment_continuation = True
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [
+                    review.ModelTextResponse('{"discarded":', "max_tokens"),
+                    review.ModelTextResponse(json.dumps(valid), "end_turn"),
+                ]
+
+            def complete_fragment(
+                self, system: str, user: str, max_tokens: int
+            ) -> review.ModelTextResponse:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FragmentClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected continuity verifier system",
+                original_task,
+                100,
+                lambda value: review.validate_continuity_report(
+                    value, role, self.context, self.groups
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn(
+            "Protected cross-review fresh completion correction", client.calls[1][0]
+        )
+        self.assertEqual(original_task, client.calls[1][1])
+        self.assertNotIn("partial_response", client.calls[1][1])
+
+    def test_continuity_shape_repair_uses_digest_without_previous_response(
+        self,
+    ) -> None:
+        role = "policy-skeptic"
+        valid = self.report(role)
+        invalid = self.report(role)
+        invalid["relationships"] = "untrusted-continuity-response"
+        original_task = review.canonical_json(
+            {
+                "continuity_candidates": self.context["trusted"][
+                    "continuity_candidates"
+                ],
+                "current_groups": self.groups,
+            }
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [invalid, valid]
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected continuity verifier system",
+                original_task,
+                100,
+                lambda value: review.validate_continuity_report(
+                    value, role, self.context, self.groups
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        correction = json.loads(client.calls[1][1])
+        self.assertEqual(
+            {"original_task", "previous_response_sha256", "validator_message"},
+            set(correction),
+        )
+        self.assertEqual(json.loads(original_task), correction["original_task"])
+        self.assertEqual(
+            review.sha256_text(review.canonical_json(invalid)),
+            correction["previous_response_sha256"],
+        )
+        self.assertNotIn("previous_response", correction)
+        self.assertNotIn("untrusted-continuity-response", client.calls[1][1])
+
+    def test_continuity_shape_repair_fails_closed_after_three_invalid_reports(
+        self,
+    ) -> None:
+        role = "evidence-verifier"
+        invalid = self.report(role)
+        invalid["relationships"] = "invalid"
+        original_task = review.canonical_json(
+            {
+                "continuity_candidates": self.context["trusted"][
+                    "continuity_candidates"
+                ],
+                "current_groups": self.groups,
+            }
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaises(review.ReportShapeError):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected continuity verifier system",
+                    original_task,
+                    100,
+                    lambda value: review.validate_continuity_report(
+                        value, role, self.context, self.groups
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+        for _, user, _ in client.calls[1:]:
+            correction = json.loads(user)
+            self.assertIn("previous_response_sha256", correction)
+            self.assertNotIn("previous_response", correction)
+
+    def test_continuity_current_anchor_shape_repairs_after_binding(self) -> None:
+        role = "evidence-verifier"
+        valid = self.report(role)
+        invalid = self.report(
+            role, self.relationship(current_anchor={"file": "invalid"})
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [invalid, valid]
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = self.complete_continuity_with_repair(client, role)
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+
+    def test_continuity_model_shape_errors_repair_after_binding(self) -> None:
+        role = "policy-skeptic"
+        cases = {
+            "previous_anchor": lambda report: report["relationships"][0].update(
+                {"previous_anchor": {"file": "invalid"}}
+            ),
+            "candidate_sha256": lambda report: report["relationships"][0].update(
+                {"candidate_sha256": "not-a-digest"}
+            ),
+            "top_level_fields": lambda report: report.update({"extra": True}),
+        }
+
+        for name, corrupt in cases.items():
+            with self.subTest(shape=name):
+                valid = self.report(role)
+                invalid = json.loads(json.dumps(valid))
+                corrupt(invalid)
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+                        self.responses = [invalid, valid]
+
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        return self.responses.pop(0)
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    result = self.complete_continuity_with_repair(client, role)
+
+                self.assertEqual(valid, result)
+                self.assertEqual(2, len(client.calls))
+
+    def test_continuity_model_shape_errors_fail_closed_after_three_attempts(
+        self,
+    ) -> None:
+        role = "policy-skeptic"
+        cases = {
+            "current_anchor": lambda report: report["relationships"][0].update(
+                {"current_anchor": {"file": "invalid"}}
+            ),
+            "previous_anchor": lambda report: report["relationships"][0].update(
+                {"previous_anchor": {"file": "invalid"}}
+            ),
+            "candidate_sha256": lambda report: report["relationships"][0].update(
+                {"candidate_sha256": "not-a-digest"}
+            ),
+            "top_level_fields": lambda report: report.update({"extra": True}),
+        }
+
+        for name, corrupt in cases.items():
+            with self.subTest(shape=name):
+                invalid = self.report(role)
+                corrupt(invalid)
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        return invalid
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.ReportShapeError):
+                        self.complete_continuity_with_repair(client, role)
+
+                self.assertEqual(
+                    review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls)
+                )
+
+    def test_continuity_identity_and_binding_errors_fail_without_repair(self) -> None:
+        role = "evidence-verifier"
+        cases = {
+            "schema_version": lambda report: report.update({"schema_version": 1}),
+            "role": lambda report: report.update({"role": "invalid-role"}),
+            "head_sha": lambda report: report["binding"].update({"head_sha": "c" * 40}),
+            "context_sha256": lambda report: report["binding"].update(
+                {"context_sha256": "d" * 64}
+            ),
+        }
+
+        for name, corrupt in cases.items():
+            with self.subTest(protected=name):
+                invalid = json.loads(json.dumps(self.report(role)))
+                corrupt(invalid)
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        return invalid
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.ReviewError) as caught:
+                        self.complete_continuity_with_repair(client, role)
+
+                self.assertNotIsInstance(caught.exception, review.ReportShapeError)
+                self.assertEqual(1, len(client.calls))
+
+    def test_command_continuity_enables_cross_review_fresh_retry(self) -> None:
+        role = "evidence-verifier"
+        result = self.report(role)
+        args = SimpleNamespace(
+            config=Path("config.json"),
+            context=Path("context.json"),
+            specialists=Path("specialists"),
+            verifiers=Path("verifiers"),
+            final_json=Path("final.json"),
+            role=role,
+            prompt_root=Path("prompts"),
+            output=Path("continuity.json"),
+        )
+        with (
+            patch.object(review, "load_config", return_value=config()),
+            patch.object(review, "read_json", side_effect=[self.context, {}]),
+            patch.object(review, "validate_context"),
+            patch.object(review, "require_model_configuration_binding"),
+            patch.object(review, "load_reports", side_effect=[[], []]),
+            patch.object(review, "validate_final_artifact"),
+            patch.object(review, "continuity_groups", return_value=self.groups),
+            patch.object(review, "prompt_text", return_value="strict JSON"),
+            patch.object(review, "trusted_policy_text", return_value="policy"),
+            patch.object(review, "AgentModelClient", return_value=object()),
+            patch.object(
+                review, "complete_with_shape_repair", return_value=result
+            ) as complete,
+            patch.object(review, "write_json") as write_json,
+        ):
+            self.assertEqual(0, review.command_continuity(args))
+
+        self.assertTrue(complete.call_args.kwargs["cross_review_fresh_retry"])
+        write_json.assert_called_once_with(args.output, result)
 
     def test_v2_marker_is_canonical_and_v1_remains_legacy(self) -> None:
         marker = review.finding_issue_marker_v2(
