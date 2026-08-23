@@ -52,10 +52,14 @@ class FeatureArchiveSmokeIT {
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-audit-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-security-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-openapi-"));
-            assertThat(archiveLibraries).noneMatch(FeatureArchiveSmokeIT::isDisabledFeatureLibrary);
+            assertNoDisabledFeatureLibraries(archiveLibraries, "archive");
 
-            assertThat(indexLibraries(archive, "BOOT-INF/classpath.idx")).isEqualTo(archiveLibraries);
-            assertThat(indexLibraries(archive, "BOOT-INF/layers.idx")).isEqualTo(archiveLibraries);
+            Set<String> classpathLibraries = indexLibraries(archive, "BOOT-INF/classpath.idx");
+            Set<String> layerLibraries = indexLibraries(archive, "BOOT-INF/layers.idx");
+            assertNoDisabledFeatureLibraries(classpathLibraries, "BOOT-INF/classpath.idx");
+            assertNoDisabledFeatureLibraries(layerLibraries, "BOOT-INF/layers.idx");
+            assertThat(classpathLibraries).isEqualTo(archiveLibraries);
+            assertThat(layerLibraries).isEqualTo(archiveLibraries);
         }
     }
 
@@ -112,10 +116,19 @@ class FeatureArchiveSmokeIT {
         }
     }
 
+    private static void assertNoDisabledFeatureLibraries(Set<String> libraries, String source) {
+        assertThat(libraries).as("disabled feature libraries in %s", source)
+                .noneMatch(FeatureArchiveSmokeIT::isDisabledFeatureLibrary);
+    }
+
     private static boolean isDisabledFeatureLibrary(String library) {
         return library.startsWith("coco-feature-codegen-")
                 || library.startsWith("coco-mybatis-plus-")
                 || library.startsWith("coco-feature-mybatis-plus-")
+                || library.startsWith("coco-feature-tenant-")
+                || library.startsWith("coco-tenant-")
+                || library.startsWith("coco-feature-data-permission-")
+                || library.startsWith("coco-data-permission-")
                 || library.startsWith("mybatis-")
                 || library.startsWith("mybatis-plus-")
                 || library.startsWith("freemarker-");
