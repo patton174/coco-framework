@@ -68,15 +68,15 @@
 - [ ] Implement auto-configuration.
 - [ ] Run `mvn -pl coco-config -am test`; expected GREEN.
 
-### Task 4: Sample And Full Verification
+### Task 4: Archive Fixture And Full Verification
 
 **Files:**
-- Create: `coco-samples/coco-sample-basic/src/main/resources/application.yml`
+- Create: `coco-support/coco-feature-archive-smoke/src/main/resources/application.yml`
 
 **Interfaces:**
-- Produces: sample showing configuration file based disabled features.
+- Produces: archive fixture showing configuration file based disabled features.
 
-- [ ] Add sample `application.yml` using `coco.features.disabled`.
+- [ ] Add archive fixture `application.yml` using `coco.features.disabled`.
 - [ ] Run `mvn -q verify`; expected full reactor success.
 - [ ] Run `mvn -q -DskipTests install javadoc:javadoc`; expected JavaDoc success.
 - [ ] Commit and push the feature branch.

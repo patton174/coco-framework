@@ -105,7 +105,7 @@ values 全部包成 `StringValue(...)`，**不查列类型**。一旦业务把�
 
 **建议（M）：**
 - 在 `coco-common-context` 加执行器传播原语（"callWithContext"包装器）；
-- 在 `coco-samples` 提供推荐适配器，展示如何把 JWT / 登录主体 → 三个 `ContextHolder`；
+- 在 `coco-admin/framework-acceptance` 提供推荐适配器，展示如何把 JWT / 登录主体 → 三个 `ContextHolder`；
 - 不在 starter 强制模型，但必须给出"正确用法"的可运行范例。
 
 ---
@@ -291,7 +291,7 @@ payload 原始参数拆分、cached body 摘要，以及请求体解析器返回
 
 ---
 
-### C6.【构建 / 中】`coco-samples/coco-sample-basic/pom.xml:10` 把 parent 版本硬编码为 `1.0.2`，但根 pom 的 `${revision}=1.0.0-SNAPSHOT`，`.flattened-pom.xml` 也是 SNAPSHOT
+### C6.【构建 / 中】业务验收工程的 parent 版本硬编码为 `1.0.2`，但根 pom 的 `${revision}=1.0.0-SNAPSHOT`，`.flattened-pom.xml` 也是 SNAPSHOT
 
 发布后第一次 `mvn install` 即失败。
 
@@ -299,8 +299,8 @@ payload 原始参数拆分、cached body 摘要，以及请求体解析器返回
 
 **处理状态：** PR33 已处理。Maven 在独立构建 sample 时无法可靠地在 parent 解析前替换
 `<parent><version>${revision}</version>`，因此不采用该不可验证方案；保留 Maven 要求的字面 parent
-版本，同时新增跨平台脚本校验 `coco-sample-basic` parent 版本必须等于根 POM 的 `revision`，并在 CI 的
-sample 构建前执行，避免框架版本前进后 sample 仍绑定旧 parent。
+版本，同时新增跨平台检查校验业务验收工程 parent 版本必须等于根 POM 的 `revision`，并在 CI 的
+业务验收构建前执行，避免框架版本前进后业务验收工程仍绑定旧 parent。
 
 ---
 
@@ -327,12 +327,12 @@ sample 构建前执行，避免框架版本前进后 sample 仍绑定旧 parent�
 
 README 上列的 8 个 feature，开箱验证只能看到 web + i18n + 签名 / 加密 / 重放。
 
-**处理状态：** PR35 已处理。新增独立 `coco-sample-full`，只通过 `coco-parent`、单 starter 和 H2
+**处理状态：** PR35 已处理。外部业务验收工程只通过 `coco-parent`、单 starter 和 H2
 搭建完整业务链路；真实 MyBatis-Plus 查询同时验证租户 `tenant_id` 条件和数据权限 `owner_id`
 条件，业务服务显式调用 `CocoSecurity.requireRole`，查询成功后通过 `CocoAuditPublisher` 发布事件。
 JUnit 集成测试与 Python 黑盒脚本共同覆盖上下文清理、角色拒绝、缺少租户、跨租户隔离和审计结果。
 
-**建议（L）：** 增加 `coco-sample-tenant` 或 `coco-sample-full`：H2 + MP + 启用全部 feature + `CocoSecurity.requireRole` + 一次 `cocoAuditPublisher.publish` + 一次租户绑定查询 + 数据权限过滤。同步扩展 `verify_business_flow.py`。
+**建议（L）：** 在 `coco-admin/framework-acceptance` 增加 H2 + MP + 启用全部 feature + `CocoSecurity.requireRole` + 一次 `cocoAuditPublisher.publish` + 一次租户绑定查询 + 数据权限过滤。同步扩展业务验收脚本。
 
 ---
 
@@ -507,7 +507,7 @@ macOS 矩阵中执行。
 ### Q4（v1.1 改进）
 
 1. **A2** 安全模块补完 OR 从 README 撤回（建议先撤回，标 v1.2 重写）
-2. **C9 / C10** 新增 `coco-sample-tenant` + README 修正
+2. **C9 / C10** 扩展 `coco-admin/framework-acceptance` + README 修正
 3. **C1-C5 / C13-C21** API 收敛 + 内部接口降级 + 测试覆盖
 4. **D 组** 卫生条目批量处理
 

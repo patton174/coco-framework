@@ -330,6 +330,8 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
   </tbody>
 </table>
 
+> **Framework acceptance:** Business and HTTP acceptance is maintained in `coco-admin/framework-acceptance`. Coco Framework no longer maintains business samples; new source generation belongs to `coco-generate`.
+
 ## Runtime Shape
 
 ```mermaid

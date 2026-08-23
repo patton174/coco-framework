@@ -90,7 +90,7 @@ flowchart TD
 1. Agent Review 同时识别 1.x 路径和 2.0 目标路径，并为重命名的旧、新两侧注入完整规格。
 2. 先完成物理目录归组，不在同一 PR 中混入 Maven 坐标和 Java 包名变更。
 3. 再按 foundation、Spring 组合层和各 feature 分批重命名、扁平化或合并主实现模块；已发布旧坐标同步转换为 2.x 兼容门面，而不是直接删除。
-4. `coco-samples` 已在 `coco-admin` PR #2（merge commit `eea37f816fa8d5f4737c3a8a00a96d8dbeaa335d`）提供等价 HTTP + H2/MyBatis-Plus 验收后移出；新生成能力已由 `coco-generate` PR #2（merge commit `35eb48584e602cfcb6eeaa53faad20e8fc71e85c`）承接。框架保留 `coco-feature-codegen` 和 `coco:generate` 作为 2.x legacy compatibility surface，只维护兼容和安全修复；框架不得依赖 `coco-generate`。
+4. Framework 不再维护业务 samples。等价 HTTP + H2/MyBatis-Plus 验收由 `coco-admin/framework-acceptance` 承接；新生成能力由 `coco-generate` 承接。框架保留 `coco-feature-codegen` 和 `coco:generate` 作为 2.x legacy compatibility surface，只维护兼容和安全修复；框架不得依赖 `coco-generate`。
 5. 每个 PR 的完整 diff 必须低于 Agent Review 的 `180000` 字符硬上限；必选策略和规格必须完整装入 `52000` 字符预算，不能截断或静默遗漏。
 6. 每一步都必须通过 JDK 21 下的 Maven verify、release smoke、治理测试和当前 head 的三项合并门禁。
 

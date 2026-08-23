@@ -164,17 +164,19 @@ flowchart LR
 
 ### Cross Review
 
-- `evidence-verifier`：逐条核对所有 P0/P1/P2/P3 finding 的文件、行号、代码 anchor、触发场景和
+- `evidence-verifier`：仅逐条核对 P0/P1 blocker candidate 的文件、行号、代码 anchor、触发场景和
   实际行为，输出 `AGREE / DISAGREE / UNVERIFIED`。
-- `policy-skeptic`：逐条核对 finding 是否违反受保护项目规范、是否把非目标或明确治理
+- `policy-skeptic`：仅逐条核对 P0/P1 blocker candidate 是否违反受保护项目规范、是否把非目标或明确治理
   选择误判为缺陷、严重度是否成立，同样输出三态结果。
 
 `DISAGREE` 必须提供代码或规范反证。缺少上下文不能写 `DISAGREE`，只能写
 `UNVERIFIED`。
 
-两个 verifier 始终各自执行一次独立模型调用，并分别对每个 P0/P1/P2/P3 finding 恰好输出
-一次验证。没有 P0/P1/P2/P3 候选时也必须返回空验证数组，不能由协调器伪造一个“未需要
-验证”的模型结果。
+两个 verifier 均存在；P0/P1 由二者独立验证，双 `AGREE` 才 blocker。无 P0/P1
+时协调器不得调用模型，而是生成绑定 schema、role、head SHA、context SHA-256 的 `NOT_NEEDED` 报告。
+
+P2/P3 不进 verifier 或作 jury blocker，由 specialist、chair、评论保留。chair 按 source ID
+发布 finding Issue；仅影响 `Agent issue gate`。
 
 下游只能读取结构化 severity、finding ID 和显式 verifier status。不得从 finding 或 verifier
 文本、关键词、正则、`confidence` 或其他文本启发式推导共识、严重度或 actionable 资格。
@@ -186,14 +188,12 @@ flowchart LR
 - 合并重复 finding；
 - 保留来源和不同意见；
 - 把确定性验证器已确认的 blocker 排版到最终报告；
-- 从两个 verifier 都为 `AGREE` 的 P2/P3 候选中选择 actionable follow-up；
+- 从保留的 P2/P3 source finding 中选择非阻断 follow-up；
 - 把被反驳或无法验证的意见放入折叠区；
 - 汇总非阻断建议和待澄清问题。
 
-主席不能创建没有 source finding ID 的 blocker，也不能把未通过验证的 finding 升级为
-blocker。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 必须继续展示，但不得进入
-`actionable_groups` 或成为 actionable finding。主席选中的双 `AGREE` P2/P3 group 才能创建
-受管 Issue；该 Issue 只影响独立的 `Agent issue gate`，不改变 `Agent jury gate` verdict。
+主席不能创建无 source ID blocker，或把未双验证 P0/P1 升级为 blocker。P2/P3 必须展示且只能作为
+非阻断 follow-up 进入 `actionable_groups`；选中 group 可创建只影响 `Agent issue gate` 的受管 Issue。
 `actionable_groups` 是完整且严格的结构化契约：每个 group 必须含一个合法 primary source
 finding ID 和有序、唯一、且不含 primary 的 duplicate ID 列表。缺失、非对象、非法 primary、
 重复成员或错误类型均为基础设施失败，协调器不得静默忽略任何条目。
@@ -299,29 +299,16 @@ Specialist finding 至少包含：
 最终 verdict。字段存在时必须严格校验类型和范围；缺失不构成基础设施失败。
 
 Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `verifications`。每个 verifier
-必须覆盖全部 P0/P1/P2/P3 finding，且每个 finding ID 恰好出现一次。即使没有任何候选，也要
-明确记录已检查的绑定报告集合，并返回空 `verifications`，不能省略该席位的模型调用。
+只覆盖全部 P0/P1 finding，且每个 finding ID 恰好出现一次。无 P0/P1 时，协调器生成准确绑定
+的 `NOT_NEEDED` 空报告，两个 verifier 均为零模型调用。P2/P3 不进入 verifier 输入，仍由
+chair、受管评论和可选 actionable Issue 保留为非阻断 follow-up。
 
 ## 确定性门禁
 
-模型不能直接决定最终 status。确定性验证器按以下规则计算：
-
-- 任一必要 Agent 超时、拒答、API 错误、无法纠正的 schema 错误或 hash 不匹配：基础设施
-  BLOCK。
-- 模型输出因没有文本、文本不是严格 JSON 或兼容模型明确返回可重试的非完成状态时，使用
-  当前受保护 prompt、canonical task、角色和 binding 进行有界全新完成。在尚未取得可解析
-  报告时，全新完成输入不得包含上次输出。`max_tokens` 截断且返回非空文本时，受保护 runtime
-  可以改为有界续写：将原 canonical task 与截断前缀作为不可信数据，只要求返回该 JSON 对象
-  的剩余字符；runtime 必须逐段拼接，并且只接受拼接后可解析为一个完整 JSON 对象且通过原有
-  全部校验的结果。续写不能覆盖、推断或修复任何 binding 字段，也不能单独发布分片。
-- 对可解析 JSON，先校验 `schema_version`、受保护角色、`head_sha` 和 `context_sha256`；
-  `schema_version` 必须是 JSON 整数 `1`，布尔值或浮点数均不接受。任一身份或 binding 不匹配
-  都立即失败关闭。上述绑定通过后，字段集合、字段类型、数组、枚举、范围、
-  引用完整性或确定性权限契约不匹配，允许在同一受保护 prompt、角色和 binding 下进行协议
-  纠错。纠错输入包含原 canonical task、上次输出和确定性校验错误，并全部按不可信数据处理。
-  全新输出重试与协议纠错共享同一个固定预算，可以按实际失败顺序组合，但每个 Agent 总计最多
-  调用模型三次；第三次仍未完成或不符合契约时基础设施 BLOCK。拒答、API/鉴权或传输错误、
-  非法响应 envelope、角色、SHA、hash 或 binding 不匹配不进入任何重试，立即失败关闭。
+- 模型不决定最终 status；确定性验证器按以下规则计算：
+- 必要 Agent 任一超时、拒答、API 错误、不可纠正 schema 错误或 hash 不符：基础设施 BLOCK。
+- 无文本、非严格 JSON 或兼容模型可重试未完成输出，用受保护 prompt、canonical task、角色、binding 有界全新完成，不带上次输出。`max_tokens` 截断且返回非空时，specialist/chair 可续写：原 task、截断前缀不可信，仅返回 JSON 对象余字符；拼接后仅接受可解析且通过原校验的完整对象。续写不得覆盖/推断/修复 binding 字段或单独发布分片。cross-review/continuity 截断或非严格 JSON 从原 task 新鲜完成；禁 partial，紧凑 JSON，字符串<=240，每 finding 1项。
+- 可解析JSON先校验`schema_version`/角色/`head_sha`/`context_sha256`；版本仅整数`1`，身份/binding错关闭。结构错误在protected prompt/role/binding下纠错；specialist/chair可带不可信task/输出/错误，cross-review仅传原task、上次SHA-256及不回显值错误，完整替代且禁嵌入上次输出/清洗证据。catalog按已验证`context_evidence_sources(context)`排序，列`source_id`/domain/path/行区间，无内容；raw仅收ID/行区间/checks的`verifications`展开domain/path，拒绝`reviews/status`；发布/下游仅收normalized `reviews/status`，禁自动识别；持久化不变，未知ID/越界拒绝，domain授权关闭。每Agent最多三次，无效即基础设施BLOCK；拒答、API/鉴权/传输、非法envelope即关闭。
   每次可重试输出只记录 attempt、受控 `stop_reason`、响应/累计字符数以及 expected/actual
   binding 的短前缀；不得记录 API key、原始响应分片、canonical context 或模型提示词。
 - verifier 以结构化 claim/severity/anchor/trigger/impact/scope checks 和精确 evidence
@@ -330,10 +317,8 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
 - P0/P1 只有同时得到两个 verifier runtime-derived `AGREE`，才能成为 confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不直接影响 jury verdict，并在评论中保留。
 - 任一验证者 `UNVERIFIED`：进入 unverified，不直接影响 jury verdict，并在评论中保留。
-- P2/P3 永不直接影响 jury verdict；只有两个 verifier 都为 `AGREE` 时才进入主席可选池。
-- 主席分组的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
-  阻断独立的 `Agent issue gate`。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 只能
-  展示，不得进入 `actionable_groups` 或 actionable 集合。
+- P2/P3 不进入 verifier、永不影响 jury verdict，仍保留给 chair、受管评论和非阻断
+  `actionable_groups`；主席选中的 group 可创建只影响 `Agent issue gate` 的受管 Issue。
 - confirmed blocker 数量大于 0 时 verdict 必须为 BLOCK；等于 0 时必须为 PASS。
 - 主席必须把每个 confirmed P0/P1 恰好放入一个确定性 duplicate group，不能新增或删除 blocker；
   group 不得混合严重级别或 P0/P1 与 P2/P3。
@@ -348,8 +333,8 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
 上述分类和资格只能使用结构化 severity、finding ID 与显式 verifier status；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。
 
-这与项目已有审计方法一致：所有 P0/P1/P2/P3 finding 都需要双重独立验证，默认未验证为
-false，避免把单 Agent 的合理措辞误当成事实。
+这与项目已有审计方法一致：P0/P1 需要双重独立验证，默认未验证为 false，避免把单 Agent 的
+合理措辞误当成 blocker；P2/P3 仍走非阻断发布路径。
 
 ## 两阶段路由和延迟评审
 
@@ -382,14 +367,15 @@ workflow run 共同提供可见证据。所有 publisher job 使用同一个 PR 
 - 被评审 head SHA、protocol SHA-256 和 context SHA-256；
 - 5 个 specialist、2 个 verifier 和 chair 的执行状态；
 - confirmed blockers；
-- 非阻断 findings、双 `AGREE` actionable follow-up 和澄清问题；
+- 非阻断 findings、由 chair 选中的 P2/P3 评论/Issue follow-up 和澄清问题；
 - challenged/unverified finding 的折叠区及反证；
 - 实际注入的上下文来源和省略项；
 - workflow run 链接。
 
 所有模型可控文本在发布前必须折叠为单行安全文本，并中和主动 Markdown、mention、Issue
 引用和自动链接。详细评论正文预算为 40,000 UTF-8 bytes；超限时必须确定性切换到 compact
-视图，继续逐条保留全部 finding 的 disposition、两个 verifier 的显式状态和裁剪后的反证。
+视图，继续逐条保留全部 finding 的 disposition、P0/P1 的两个 verifier 显式状态、P2/P3 的
+specialist/chair 非阻断状态和裁剪后的反证。
 追加 actionable Issue 链接与 workflow footer 后的最终评论不得超过 64,000 UTF-8 bytes。
 
 Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立执行。分支保护只要求
@@ -429,11 +415,11 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
 
 ## 验收
 
-- 单元测试覆盖 context 预算、SHA 绑定、role schema、全部 P0-P3 的 cross-review 三态、
-  P2/P3 双 `AGREE` actionable 资格、确定性 verdict、Markdown/mention 中和以及最大规模报告的
+- 单元测试覆盖 context 预算、SHA 绑定、role schema、P0/P1 cross-review 三态、无 P0/P1 的
+  `NOT_NEEDED` 零模型调用、P2/P3 非阻断 Issue 路径、确定性 verdict、Markdown/mention 中和与
   40,000/64,000-byte 评论预算。
 - 负向测试覆盖 Agent 缺失、超时、拒答、非法 JSON、未知 finding、hash 不匹配和 Chair
-  试图新增 blocker、选择非双 `AGREE` P2/P3 或通过文本启发式推导资格。
+  试图新增 blocker、将 P2/P3 当作 blocker 或通过文本启发式推导资格。
 - actionlint、ShellCheck、Python unittest 和 `git diff --check` 通过。
 - Workflow 不 checkout 或执行 PR head。
 - source、fork/未固定身份 bot job 日志和环境中不存在模型 API key 或 App 私钥；受保护运行时

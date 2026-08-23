@@ -113,7 +113,7 @@ Its `spring.factories` preserves the existing Spring application listener and en
 ## Non-goals
 
 - Renaming `coco-feature-*` artifacts; that remains batch 8.
-- Renaming `coco-test` or moving samples and code generation; those remain later batches.
+- Renaming `coco-test` or moving code generation; those remain later batches.
 - Removing the published `coco-config` or `coco-feature-runtime` coordinates; that is not allowed within 2.x.
 - Converting the compatibility JARs to Maven relocation POMs or physically moving their module directories.
 - Changing feature defaults, dependency resolution, configuration keys, starter contents beyond dependency rewiring, or concrete feature behavior.

@@ -22,6 +22,8 @@
   </tbody>
 </table>
 
+> **Framework 验收：** 业务和 HTTP 验收由 `coco-admin/framework-acceptance` 维护。Coco Framework 不再维护业务 samples；新的源码生成由 `coco-generate` 承接。
+
 ## 运行形态
 
 ```mermaid

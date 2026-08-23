@@ -28,7 +28,7 @@ mvn -B install
 ```
 
 这一步会生成 `.flattened-pom.xml` 并安装到本地仓库，验证 `${revision}` 解析、feature assembly 和
-`coco-maven-plugin` 的 Spring Boot 包裁剪回归。框架不再维护业务样例；Basic/Full 的黑盒框架验收由
+`coco-maven-plugin` 的 Spring Boot 包裁剪回归。Framework 不再维护业务 samples；Basic/Full 的等价黑盒框架验收由
 [`coco-admin/framework-acceptance`](https://github.com/patton174/coco-admin/tree/main/framework-acceptance) 独立维护。
 
 需要检查 release profile 产物时，可以执行：

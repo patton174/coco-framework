@@ -80,7 +80,7 @@ coco-framework
 +   +-- coco-feature-codegen
 +-- coco-maven-plugin
 +-- coco-test
-+-- coco-samples
++-- coco-support/coco-feature-archive-smoke
 ```
 
 ## Module Responsibilities
@@ -214,7 +214,7 @@ The first implementation stage should create:
 - empty feature modules
 - `coco-maven-plugin` minimal no-op goal
 - `coco-test`
-- `coco-samples`
+- `coco-feature-archive-smoke`
 - GitHub Actions CI for build and tests
 - basic README
 - license and Maven Central friendly project metadata

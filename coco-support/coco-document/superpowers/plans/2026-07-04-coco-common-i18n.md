@@ -117,19 +117,19 @@
 - [ ] Add default framework message bundles with codes `coco.error.unknown`, `coco.error.invalid-argument`, and `coco.error.missing-message-code`.
 - [ ] Run `mvn -pl :coco-common-i18n -am test`; expected GREEN.
 
-### Task 5: Add Sample Configuration And Full Verification
+### Task 5: Add Acceptance Configuration And Full Verification
 
 **Files:**
-- Modify: `coco-samples/coco-sample-basic/src/main/resources/application.yml`
-- Create: `coco-samples/coco-sample-basic/src/main/resources/messages_zh_CN.properties`
-- Create: `coco-samples/coco-sample-basic/src/main/resources/messages_en_US.properties`
+- Modify: external framework acceptance application configuration.
+- Create: external framework acceptance Chinese message bundle.
+- Create: external framework acceptance English message bundle.
 
 **Interfaces:**
-- Produces sample `coco.common.i18n` configuration.
-- Produces sample business message bundle override pattern.
+- Produces acceptance `coco.common.i18n` configuration.
+- Produces business message bundle override pattern in the external acceptance project.
 
-- [ ] Add sample `coco.common.i18n` configuration under the existing `coco` root.
-- [ ] Add sample message bundle entries such as `sample.hello=你好，Coco` and `sample.hello=Hello, Coco`.
+- [ ] Add acceptance `coco.common.i18n` configuration under the existing `coco` root.
+- [ ] Add acceptance message bundle entries such as `acceptance.hello=你好，Coco` and `acceptance.hello=Hello, Coco`.
 - [ ] Run `mvn -pl :coco-common-i18n -am test`; expected GREEN.
 - [ ] Run `mvn -q verify`; expected full reactor success.
 - [ ] Run `mvn -q -DskipTests install javadoc:javadoc`; expected JavaDoc success.

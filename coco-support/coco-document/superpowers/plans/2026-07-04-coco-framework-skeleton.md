@@ -33,7 +33,7 @@
 - Create empty feature shell modules with marker classes.
 - Create `coco-maven-plugin` no-op Mojo.
 - Create `coco-test` placeholder test helper module.
-- Create `coco-samples/coco-sample-basic` sample Spring Boot app.
+- Create `coco-support/coco-feature-archive-smoke` Spring Boot archive fixture.
 
 ### Task 1: Maven Foundation And Repository Metadata
 
@@ -172,8 +172,8 @@ Expected: registry tests pass.
 - Create: marker classes in each `coco-feature-*` module.
 - Create: `coco-maven-plugin/src/main/java/io/github/coco/maven/CocoFeaturesMojo.java`
 - Create: `coco-test/src/main/java/io/github/coco/test/CocoTestSupport.java`
-- Create: `coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/CocoSampleBasicApplication.java`
-- Create: `coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/CocoConfig.java`
+- Create: `coco-support/coco-feature-archive-smoke/src/main/java/io/github/coco/fixture/archive/FeatureArchiveSmokeApplication.java`
+- Create: `coco-support/coco-feature-archive-smoke/src/test/java/io/github/coco/fixture/archive/FeatureArchiveSmokeIT.java`
 
 **Interfaces:**
 - Consumes: `CocoConfigurer` and `CocoFeatureRegistry`.
