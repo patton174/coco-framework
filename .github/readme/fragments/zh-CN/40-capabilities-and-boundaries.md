@@ -85,6 +85,11 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
       <td>数据库迁移与可用性、集群时钟同步、业务事务和 exactly-once 语义。</td>
     </tr>
     <tr>
+      <td>Idempotency</td>
+      <td><code>@CocoIdempotent</code>、<code>Idempotency-Key</code>、原子租约、TTL 和可替换 Store SPI；成功请求不回放响应，失败或 5xx 可重试。</td>
+      <td>共享存储实现、业务事务与跨系统 exactly-once 语义。</td>
+    </tr>
+    <tr>
       <td>Security</td>
       <td>上下文门面、解析 SPI、Servlet 上下文桥接、可信请求头适配、断言工具和上下文传播原语。</td>
       <td>认证提供方、RBAC/ABAC 模型、会话、令牌和用户存储。</td>

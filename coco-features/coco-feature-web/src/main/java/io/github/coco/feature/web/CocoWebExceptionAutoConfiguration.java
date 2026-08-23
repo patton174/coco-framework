@@ -2,10 +2,12 @@ package io.github.coco.feature.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.CocoCommonProperties;
+import io.github.coco.i18n.CocoLocaleResolver;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.logging.core.CocoLogManager;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.exception.CocoFilterExceptionResponseWriter;
+import io.github.coco.feature.web.exception.CocoWebErrorResponseWriter;
 import io.github.coco.feature.web.exception.CocoWebExceptionHandler;
 import io.github.coco.feature.web.exception.DefaultCocoExceptionHttpStatusResolver;
 import io.github.coco.feature.web.response.CocoResponseBodyFactory;
@@ -87,5 +89,14 @@ public class CocoWebExceptionAutoConfiguration {
     public CocoFilterExceptionResponseWriter cocoFilterExceptionResponseWriter(
             CocoWebExceptionHandler exceptionHandler, ObjectProvider<ObjectMapper> objectMapper) {
         return new CocoFilterExceptionResponseWriter(exceptionHandler, objectMapper.getIfAvailable(ObjectMapper::new));
+    }
+
+    /** 创建基础设施统一错误响应写出器。 */
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnMissingBean
+    public CocoWebErrorResponseWriter cocoWebErrorResponseWriter(CocoWebExceptionHandler exceptionHandler,
+            ObjectProvider<ObjectMapper> objectMapper, CocoLocaleResolver localeResolver) {
+        return new CocoWebErrorResponseWriter(exceptionHandler, objectMapper.getIfAvailable(ObjectMapper::new), localeResolver);
     }
 }

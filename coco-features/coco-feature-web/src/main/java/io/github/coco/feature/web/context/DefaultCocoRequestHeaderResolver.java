@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,6 +33,7 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
     private static final String MASKED_VALUE = "******";
 
     private final CocoWebContextProperties properties;
+    private final Set<String> contributedSensitiveHeaderNames;
 
     /**
      * <p>
@@ -40,7 +42,26 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
      * @param properties Web 请求上下文配置属性
      */
     public DefaultCocoRequestHeaderResolver(CocoWebContextProperties properties) {
+        this(properties, List.of());
+    }
+
+    /**
+     * <p>创建默认解析器，并纳入各 Web 功能贡献的敏感请求头。</p>
+     * @param properties Web 请求上下文配置属性
+     * @param contributors 敏感请求头贡献者
+     */
+    public DefaultCocoRequestHeaderResolver(CocoWebContextProperties properties,
+            Iterable<CocoSensitiveRequestHeaderContributor> contributors) {
         this.properties = properties == null ? new CocoWebContextProperties() : properties;
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        if (contributors != null) {
+            for (CocoSensitiveRequestHeaderContributor contributor : contributors) {
+                if (contributor == null || contributor.headerNames() == null) { continue; }
+                contributor.headerNames().stream().filter(Objects::nonNull).map(String::trim)
+                        .filter(name -> !name.isEmpty()).map(name -> name.toLowerCase(Locale.ROOT)).forEach(names::add);
+            }
+        }
+        this.contributedSensitiveHeaderNames = Set.copyOf(names);
     }
 
     /**
@@ -53,7 +74,9 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
             return Map.of();
         }
         Map<String, String> headers = new LinkedHashMap<>();
-        for (String headerName : this.properties.getIncludedHeaderNames()) {
+        java.util.LinkedHashSet<String> included = new java.util.LinkedHashSet<>(this.properties.getIncludedHeaderNames());
+        included.addAll(this.contributedSensitiveHeaderNames);
+        for (String headerName : included) {
             String value = existingHeaderValue(checkedRequest, headerName);
             if (value != null) {
                 headers.put(headerName, sanitizeHeaderValue(headerName, value));
@@ -130,7 +153,8 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
     }
 
     private String sanitizeHeaderValue(String name, String value) {
-        if (name != null && this.properties.getMaskedHeaderNames().contains(name.trim().toLowerCase(Locale.ROOT))) {
+        if (name != null && (this.properties.getMaskedHeaderNames().contains(name.trim().toLowerCase(Locale.ROOT))
+                || this.contributedSensitiveHeaderNames.contains(name.trim().toLowerCase(Locale.ROOT)))) {
             return MASKED_VALUE;
         }
         return trimValue(value, this.properties.getMaxHeaderValueLength());

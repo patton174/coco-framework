@@ -96,6 +96,22 @@ class ApplicationCocoConfiguration {
 
 Prefer YAML or `@CocoFeatures` for feature selection. The older `CocoConfigurer` Java hook is kept for compatibility but is deprecated.
 
+To protect a write request, explicitly enable idempotency and annotate the Controller class or method with `@CocoIdempotent`. Clients send an `Idempotency-Key` for the first submission; only a normally completed `2xx/3xx` response retains the key for its TTL and returns `409` on repeats; an exception or any `4xx/5xx` releases the lease for retry.
+
+```yaml
+coco:
+  idempotency:
+    enabled: true
+```
+
+```java
+@PostMapping
+@CocoIdempotent(namespace = "orders")
+OrderResponse create(@RequestBody CreateOrderRequest request) {
+    return this.orderService.create(request);
+}
+```
+
 Business controllers remain ordinary Spring code:
 
 ```java
@@ -282,6 +298,11 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
       <td>Replay</td>
       <td>Process-local default, explicit shared JDBC reference store, atomic key reservation, expiry cleanup, and replaceable store SPI.</td>
       <td>Database migration and availability, cluster clock synchronization, business transactions, and exactly-once semantics.</td>
+    </tr>
+    <tr>
+      <td>Idempotency</td>
+      <td><code>@CocoIdempotent</code>, <code>Idempotency-Key</code>, atomic leases, TTL, and a replaceable store SPI; successful requests are not replayed and failures or 5xx responses may retry.</td>
+      <td>Shared-store implementations, business transactions, and cross-system exactly-once semantics.</td>
     </tr>
     <tr>
       <td>Security</td>
