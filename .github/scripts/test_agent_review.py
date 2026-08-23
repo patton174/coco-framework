@@ -13000,8 +13000,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_628, largest_size)
-        self.assertEqual(7_372, limit - largest_size)
+        self.assertEqual(56_624, largest_size)
+        self.assertEqual(7_376, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
