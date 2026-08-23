@@ -3405,9 +3405,7 @@ class AgentReviewTests(unittest.TestCase):
             action="UNVERIFIED",
             evidence_refs=gap_reference,
         )
-        with self.assertRaisesRegex(
-            review.ReportShapeError, "outside canonical context"
-        ):
+        with self.assertRaisesRegex(review.ReportShapeError, "canonical line coverage"):
             review.validate_cross_report(
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
@@ -3449,6 +3447,50 @@ class AgentReviewTests(unittest.TestCase):
                     review.validate_cross_report(
                         report, "evidence-verifier", context, {"correctness:f1"}
                     )
+
+    def test_evidence_ref_errors_are_precise_and_do_not_echo_untrusted_values(
+        self,
+    ) -> None:
+        context = bound_context()
+        base = verifier_report("evidence-verifier", context, "correctness:f1")
+        untrusted_path = "untrusted-path-must-not-appear-in-validator-message"
+        cases = (
+            (
+                "checks",
+                lambda refs: refs[0].update(checks=["claim", "anchor"]),
+                "checks must be a sorted, duplicate-free subset",
+            ),
+            (
+                "line-types",
+                lambda refs: refs[0].update(start_line=True),
+                "line range must use integer start_line and end_line",
+            ),
+            (
+                "canonical-source",
+                lambda refs: refs[0].update(path=untrusted_path),
+                "trust_domain and path must name a supplied canonical source",
+            ),
+            (
+                "canonical-range",
+                lambda refs: refs[0].update(start_line=999, end_line=999),
+                "line range must stay within supplied canonical line coverage",
+            ),
+        )
+        for name, mutate, message in cases:
+            with self.subTest(name=name):
+                references = json.loads(json.dumps(base["reviews"][0]["evidence_refs"]))
+                mutate(references)
+                report = verifier_report(
+                    "evidence-verifier",
+                    context,
+                    "correctness:f1",
+                    evidence_refs=references,
+                )
+                with self.assertRaisesRegex(review.ReportShapeError, message) as raised:
+                    review.validate_cross_report(
+                        report, "evidence-verifier", context, {"correctness:f1"}
+                    )
+                self.assertNotIn(untrusted_path, str(raised.exception))
 
     def test_chair_group_member_ids_rejects_malformed_groups(self) -> None:
         cases = (
@@ -12066,6 +12108,181 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual({"wrong": True}, repair_payload["previous_response"])
         self.assertIn("missing=['required']", repair_payload["validator_message"])
 
+    def test_cross_review_shape_repair_uses_digest_without_previous_response(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = verifier_report("evidence-verifier", context, finding_id)
+        invalid["evidence"] = "untrusted-previous-response-" * 1800
+        invalid["reviews"][0]["evidence_refs"][0]["checks"] = [
+            "claim",
+            "anchor",
+        ]
+        valid = verifier_report("evidence-verifier", context, finding_id)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [invalid, valid]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        original_task = '{"task":"cross-review"}'
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                original_task,
+                100,
+                lambda value: review.validate_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn(
+            "Protected cross-review fresh protocol correction", client.calls[1][0]
+        )
+        correction = json.loads(client.calls[1][1])
+        self.assertEqual(
+            {"original_task", "previous_response_sha256", "validator_message"},
+            set(correction),
+        )
+        self.assertEqual({"task": "cross-review"}, correction["original_task"])
+        self.assertEqual(
+            review.sha256_text(review.canonical_json(invalid)),
+            correction["previous_response_sha256"],
+        )
+        self.assertIn("checks must be a sorted", correction["validator_message"])
+        self.assertNotIn("previous_response", correction)
+        self.assertNotIn("untrusted-previous-response", client.calls[1][1])
+
+    def test_cross_review_max_tokens_retry_discards_large_partial_response(
+        self,
+    ) -> None:
+        partial = "x" * 45030
+
+        class FakeClient:
+            supports_fragment_continuation = False
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                if len(self.calls) == 1:
+                    raise review.RetryableModelOutputError(
+                        "truncated",
+                        stop_reason="max_tokens",
+                        response_chars=len(partial),
+                        accumulated_chars=len(partial),
+                        partial_text=partial,
+                    )
+                return {"required": True}
+
+        client = FakeClient()
+        original_task = '{"task":"cross-review"}'
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                original_task,
+                100,
+                lambda value: review.require_report_fields(value, {"required"}, "Test"),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual({"required": True}, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn(
+            "Protected cross-review fresh completion correction", client.calls[1][0]
+        )
+        self.assertEqual(original_task, client.calls[1][1])
+        self.assertNotIn("partial_response", client.calls[1][1])
+        self.assertNotIn(partial, client.calls[1][1])
+
+    def test_cross_review_shape_repair_fails_closed_after_three_invalid_reports(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = verifier_report("evidence-verifier", context, finding_id)
+        invalid["reviews"][0]["evidence_refs"][0]["checks"] = [
+            "claim",
+            "anchor",
+        ]
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(
+                review.ReportShapeError, "checks must be a sorted"
+            ):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected cross-review system",
+                    '{"task":"cross-review"}',
+                    100,
+                    lambda value: review.validate_cross_report(
+                        value, "evidence-verifier", context, {finding_id}
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+        for _, user, _ in client.calls[1:]:
+            correction = json.loads(user)
+            self.assertNotIn("previous_response", correction)
+            self.assertIn("previous_response_sha256", correction)
+
+    def test_specialist_and_chair_keep_fragment_continuation_by_default(self) -> None:
+        class FragmentClient(review.AgentModelClient):
+            supports_fragment_continuation = True
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [
+                    review.ModelTextResponse('{"required":', "max_tokens"),
+                    review.ModelTextResponse("true}", "end_turn"),
+                ]
+
+            def complete_fragment(
+                self, system: str, user: str, max_tokens: int
+            ) -> review.ModelTextResponse:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        for role in ("specialist", "chair"):
+            with self.subTest(role=role):
+                client = FragmentClient()
+                result = review.complete_with_shape_repair(
+                    client,
+                    f"protected {role} system",
+                    '{"task":"review"}',
+                    100,
+                    lambda value: review.require_report_fields(
+                        value, {"required"}, "Test"
+                    ),
+                )
+                self.assertEqual({"required": True}, result)
+                self.assertIn("Protected truncation continuation", client.calls[1][0])
+                self.assertEqual(
+                    '{"required":', json.loads(client.calls[1][1])["partial_response"]
+                )
+
     def test_bound_report_contract_type_errors_receive_correction(self) -> None:
         class FakeClient:
             def __init__(self, responses: list[dict]) -> None:
@@ -12745,8 +12962,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_500, largest_size)
-        self.assertEqual(7_500, limit - largest_size)
+        self.assertEqual(56_637, largest_size)
+        self.assertEqual(7_363, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
