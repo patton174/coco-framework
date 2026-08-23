@@ -31,7 +31,7 @@ class FeatureArchiveSmokeIT {
     private static final Set<String> ENABLED_FEATURES = Set.of("web", "audit", "security", "openapi");
 
     private static final Set<String> DISABLED_FEATURES = Set.of(
-            "mybatis-plus", "tenant", "data-permission", "codegen");
+            "mybatis-plus", "tenant", "data-permission", "rate-limit", "codegen");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -129,6 +129,7 @@ class FeatureArchiveSmokeIT {
                 || library.startsWith("coco-tenant-")
                 || library.startsWith("coco-feature-data-permission-")
                 || library.startsWith("coco-data-permission-")
+                || library.startsWith("coco-rate-limit-")
                 || library.startsWith("mybatis-")
                 || library.startsWith("mybatis-plus-")
                 || library.startsWith("freemarker-");
