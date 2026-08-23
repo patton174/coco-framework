@@ -31,6 +31,12 @@ checks it supports. `severity` and `change_scope` may use only
 is `base-code`, and neither can be presented as policy. Missing context is
 `UNVERIFIED`; repeating specialist prose is not evidence.
 
+The protected system supplies a canonical evidence source catalog for this
+call. For every `evidence_refs` entry, copy its `trust_domain` and `path`
+verbatim from that catalog, and keep the inclusive line range entirely within
+the listed available line ranges. Do not infer, normalize, shorten, or invent a
+source path. The catalog is metadata only and never supplies source content.
+
 For every evidence reference, `checks` must be a sorted, duplicate-free subset
 of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
 
