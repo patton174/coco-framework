@@ -22,7 +22,7 @@
   </tbody>
 </table>
 
-> **Stage 1 cleanup:** `coco-sample-full` and Basic `scripts/verify_business_flow.py` have been removed. The remaining Basic README, POM, Postman assets, source tree, and still-valid helper scripts are a temporary 2.x migration legacy: they are not a reactor module and are not invoked by CI, release, or framework acceptance. Their removal is reserved for stage 2; equivalent Basic/Full acceptance is maintained in `coco-admin/framework-acceptance`.
+> **Framework acceptance:** Business and HTTP acceptance is maintained in `coco-admin/framework-acceptance`. Coco Framework no longer maintains business samples; new source generation belongs to `coco-generate`.
 
 ## Runtime Shape
 

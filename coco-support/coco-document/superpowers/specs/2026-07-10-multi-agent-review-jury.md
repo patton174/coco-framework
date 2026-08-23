@@ -305,24 +305,10 @@ chair、受管评论和可选 actionable Issue 保留为非阻断 follow-up。
 
 ## 确定性门禁
 
-模型不能直接决定最终 status。确定性验证器按以下规则计算：
-
-- 任一必要 Agent 超时、拒答、API 错误、无法纠正的 schema 错误或 hash 不匹配：基础设施
-  BLOCK。
-- 无文本、非严格 JSON 或兼容模型可重试非完成输出，以受保护 prompt、canonical task、角色、
-  binding 有界全新完成，不带上次输出。`max_tokens` 截断且返回非空文本时，specialist/chair
-  可续写：原 task、截断前缀均不可信，仅返回 JSON 对象剩余字符；拼接后仅接受可解析、通过原有校验的
-  完整对象。续写不得覆盖、推断、修复 binding 字段或单独发布分片。
-  cross-review/continuity 截断或非严格 JSON 从原 task 新鲜完成；禁 partial，紧凑 JSON，字符串<=240，
-  每 finding 1项。
-- 对可解析 JSON，先校验 `schema_version`、受保护角色、`head_sha` 和 `context_sha256`；
-  `schema_version` 必为 JSON整数 `1`，拒绝布尔/浮点。身份/binding 不匹配立即失败关闭。
-  binding 后字段/类型/数组/枚举/范围/引用/权限契约不匹配，可在同一受保护 prompt、角色、binding
-  下纠错；specialist/chair 可含原 task、上次输出和错误，均不可信。cross-review/continuity 的
-  schema_version/role/binding 立即失败；其余 shape 纠错只传原 task、上次 SHA-256 和不回显值的精确错误；
-  从头替代，禁嵌入上次输出或清洗非法 evidence。全新输出重试与协议纠错共享固定预算，可按失败顺序组合；
-  每个 Agent 最多三次，第三次仍未完成或不符合契约时基础设施 BLOCK。拒答、API/鉴权/传输错误、
-  非法 envelope、角色/SHA/hash/binding 不匹配立即失败关闭。
+- 模型不决定最终 status；确定性验证器按以下规则计算：
+- 必要 Agent 任一超时、拒答、API 错误、不可纠正 schema 错误或 hash 不符：基础设施 BLOCK。
+- 无文本、非严格 JSON 或兼容模型可重试未完成输出，用受保护 prompt、canonical task、角色、binding 有界全新完成，不带上次输出。`max_tokens` 截断且返回非空时，specialist/chair 可续写：原 task、截断前缀不可信，仅返回 JSON 对象余字符；拼接后仅接受可解析且通过原校验的完整对象。续写不得覆盖/推断/修复 binding 字段或单独发布分片。cross-review/continuity 截断或非严格 JSON 从原 task 新鲜完成；禁 partial，紧凑 JSON，字符串<=240，每 finding 1项。
+- 对可解析 JSON，先校验 `schema_version`、受保护角色、`head_sha` 和 `context_sha256`；`schema_version` 只接受 JSON整数 `1`，拒绝布尔/浮点；身份/binding 不符立即失败关闭。binding 后字段/类型/数组/枚举/范围/引用/权限契约不符，可在同一受保护 prompt/角色/binding 下纠错；specialist/chair 可含不可信的原 task、上次输出、错误。cross-review/continuity 的 schema_version/role/binding 立即失败；其余 shape 纠错只传原 task、上次 SHA-256 和不回显值的精确错误；从头替代，禁嵌入上次输出/清洗非法 evidence。全新重试、协议纠错共享固定预算，可按失败顺序组合；每 Agent 最多三次，第三次仍未完成或不符合契约时基础设施 BLOCK。拒答、API/鉴权/传输错误、非法 envelope、角色/SHA/hash/binding 不匹配立即失败关闭。
   每次可重试输出只记录 attempt、受控 `stop_reason`、响应/累计字符数以及 expected/actual
   binding 的短前缀；不得记录 API key、原始响应分片、canonical context 或模型提示词。
 - verifier 以结构化 claim/severity/anchor/trigger/impact/scope checks 和精确 evidence
