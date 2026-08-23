@@ -3631,7 +3631,9 @@ def context_evidence_catalog(context: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the protected, content-free catalog of canonical evidence sources."""
 
     catalog: list[dict[str, Any]] = []
-    for (domain, path), available in sorted(context_evidence_sources(context).items()):
+    for index, ((domain, path), available) in enumerate(
+        sorted(context_evidence_sources(context).items()), 1
+    ):
         ranges: list[list[int]] = []
         for line in sorted(available):
             if not ranges or line != ranges[-1][1] + 1:
@@ -3640,6 +3642,7 @@ def context_evidence_catalog(context: dict[str, Any]) -> list[dict[str, Any]]:
                 ranges[-1][1] = line
         catalog.append(
             {
+                "source_id": f"S{index:03d}",
                 "trust_domain": domain,
                 "path": path,
                 "available_line_ranges": ranges,
@@ -3649,13 +3652,22 @@ def context_evidence_catalog(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def validate_evidence_refs(
-    value: Any, context: dict[str, Any], role: str
+    value: Any,
+    context: dict[str, Any],
+    role: str,
+    *,
+    raw_schema: bool = False,
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) > 12:
         raise ReportShapeError(
             f"Cross-review {role} evidence_refs must be an array with at most 12 items."
         )
-    sources = context_evidence_sources(context)
+    sources = context_evidence_sources(context) if not raw_schema else {}
+    catalog_by_id = (
+        {item["source_id"]: item for item in context_evidence_catalog(context)}
+        if raw_schema
+        else {}
+    )
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
     for reference in value:
@@ -3665,22 +3677,50 @@ def validate_evidence_refs(
             )
         require_report_fields(
             reference,
-            {"trust_domain", "path", "start_line", "end_line", "checks"},
+            (
+                {"source_id", "start_line", "end_line", "checks"}
+                if raw_schema
+                else {"trust_domain", "path", "start_line", "end_line", "checks"}
+            ),
             f"Cross-review {role} evidence reference",
         )
-        domain = reference.get("trust_domain")
-        path = reference.get("path")
+        if raw_schema:
+            source_id = reference.get("source_id")
+            if not isinstance(source_id, str):
+                raise ReportShapeError(
+                    f"Cross-review {role} evidence reference source_id must be a string."
+                )
+            source = catalog_by_id.get(source_id)
+            if source is None:
+                raise ReportShapeError(
+                    f"Cross-review {role} evidence reference source_id must name a supplied canonical source."
+                )
+            domain = source["trust_domain"]
+            path = source["path"]
+            available = {
+                line
+                for start_line, end_line in source["available_line_ranges"]
+                for line in range(start_line, end_line + 1)
+            }
+        else:
+            domain = reference.get("trust_domain")
+            path = reference.get("path")
+            if not isinstance(domain, str):
+                raise ReportShapeError(
+                    f"Cross-review {role} evidence reference trust_domain must be a string."
+                )
+            if not isinstance(path, str):
+                raise ReportShapeError(
+                    f"Cross-review {role} evidence reference path must be a string."
+                )
+            available = sources.get((domain, path))
+            if available is None:
+                raise ReportShapeError(
+                    f"Cross-review {role} evidence reference trust_domain and path must name a supplied canonical source."
+                )
         start = reference.get("start_line")
         end = reference.get("end_line")
         checks = reference.get("checks")
-        if not isinstance(domain, str):
-            raise ReportShapeError(
-                f"Cross-review {role} evidence reference trust_domain must be a string."
-            )
-        if not isinstance(path, str):
-            raise ReportShapeError(
-                f"Cross-review {role} evidence reference path must be a string."
-            )
         if type(start) is not int or type(end) is not int:
             raise ReportShapeError(
                 f"Cross-review {role} evidence reference line range must use integer start_line and end_line."
@@ -3702,11 +3742,6 @@ def validate_evidence_refs(
                 f"Cross-review {role} evidence reference checks contain an unsupported field."
             )
         checks = sorted(set(checks))
-        available = sources.get((domain, path))
-        if available is None:
-            raise ReportShapeError(
-                f"Cross-review {role} evidence reference trust_domain and path must name a supplied canonical source."
-            )
         if any(line not in available for line in range(start, end + 1)):
             raise ReportShapeError(
                 f"Cross-review {role} evidence reference line range must stay within supplied canonical line coverage."
@@ -4135,7 +4170,7 @@ def _validate_cross_report_contract(
             )
         checks["change_scope"] = scope
         evidence_refs = validate_evidence_refs(
-            review.get("evidence_refs"), context, role
+            review.get("evidence_refs"), context, role, raw_schema=raw_schema
         )
         if not raw_schema:
             review["evidence_refs"] = evidence_refs
@@ -4267,10 +4302,11 @@ def command_cross(args: argparse.Namespace) -> int:
             f"## Assigned verifier\nID: {args.role}\nFocus: {verifier.get('focus', verifier.get('lens', ''))}",
             f"## Trusted Coco policy\n{trusted_policy_text(context)}",
             "## Protected canonical evidence source catalog\n"
-            "For `evidence_refs`, copy `trust_domain` and `path` exactly from this "
-            "catalog and keep every inclusive line range entirely within its "
-            "available coverage. This catalog is the only canonical source list; "
-            "it contains no source content.\n"
+            "For raw model `evidence_refs`, copy only `source_id` exactly from this "
+            "catalog and keep every inclusive line range entirely within that "
+            "source's available coverage. Never output `trust_domain` or `path` "
+            "inside a raw evidence reference. This catalog is the only canonical "
+            "source list and contains no source content.\n"
             f"{canonical_json(context_evidence_catalog(context))}",
         ]
     )
