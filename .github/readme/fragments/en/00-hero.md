@@ -30,7 +30,7 @@
   ·
   <a href="#extension-boundaries">Extension Boundaries</a>
   ·
-  <a href="#samples">Samples</a>
+  <a href="#framework-acceptance">Acceptance</a>
   ·
   <a href="#star-history">Stars</a>
   ·

@@ -45,7 +45,7 @@ jobs:
             exit 1
           fi
 
-  # Reuse the release-critical cross-platform build and sample verification as
+  # Reuse the release-critical cross-platform reactor and archive verification as
   # a hard prerequisite. Static analysis and CodeQL remain merge-time CI gates.
   test:
     name: Test

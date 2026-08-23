@@ -32,7 +32,7 @@
   ·
   <a href="#扩展边界">扩展边界</a>
   ·
-  <a href="#示例">示例</a>
+  <a href="#framework-验收">框架验收</a>
   ·
   <a href="#星标历史">星星趋势</a>
   ·
@@ -118,7 +118,7 @@ class OrderController {
 
 ## 显式 CRUD 源码生成
 
-需要标准 CRUD 脚手架时，在业务项目根目录创建 `coco-codegen.yml`：
+需要标准 CRUD 脚手架时，使用独立的 [coco-generate](https://github.com/patton174/coco-generate)。它在开发期生成业务项目拥有的普通源码，不会成为应用运行时依赖。在业务项目根目录创建 `coco-generate.yml`：
 
 ```yaml
 base-package: com.example.catalog
@@ -132,13 +132,7 @@ resources:
       - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
 ```
 
-然后显式运行：
-
-```powershell
-mvn coco:generate
-```
-
-生成器默认写入 `src/main/java`，并拒绝覆盖已有文件。它会生成普通的 Controller、DTO、应用服务、领域仓储契约和 MyBatis-Plus 基础设施源码；生成后由业务项目继续维护。该 goal 不绑定构建生命周期，也不会在运行时自动暴露实体。
+`coco-generate` 默认写入 `src/main/java`，并拒绝覆盖已有文件。它会生成普通的 Controller、DTO、应用服务、领域仓储契约和 MyBatis-Plus 基础设施源码；生成后由业务项目继续维护，也不会在运行时自动暴露实体。已使用 `mvn coco:generate` 的 2.x 项目仍受框架兼容支持，但新能力和模板扩展仅在 `coco-generate` 演进。
 
 ## 生产 SQL 防护
 
@@ -312,12 +306,12 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
   </tbody>
 </table>
 
-## 示例
+## Framework 验收
 
 <table>
   <thead>
     <tr>
-      <th width="24%">示例</th>
+      <th width="24%">验收场景</th>
       <th width="46%">验证范围</th>
       <th width="30%">入口</th>
     </tr>
@@ -326,12 +320,12 @@ CRUD 应该走代码生成，而不是运行时暴露实体。生成后的代码
     <tr>
       <td><strong>Basic</strong></td>
       <td>无数据库场景下的统一响应、异常、i18n、Trace、签名、加密和防重放。</td>
-      <td><a href="./coco-samples/coco-sample-basic/README.md">查看示例</a></td>
+      <td><a href="https://github.com/patton174/coco-admin/tree/main/framework-acceptance">查看 coco-admin 验收</a></td>
     </tr>
     <tr>
       <td><strong>Full</strong></td>
       <td>H2 + MyBatis-Plus，以及安全断言、租户 SQL 隔离、数据权限 SQL 过滤和审计发布。</td>
-      <td><a href="./coco-samples/coco-sample-full/README.md">查看示例</a></td>
+      <td><a href="https://github.com/patton174/coco-admin/tree/main/framework-acceptance">查看 coco-admin 验收</a></td>
     </tr>
   </tbody>
 </table>

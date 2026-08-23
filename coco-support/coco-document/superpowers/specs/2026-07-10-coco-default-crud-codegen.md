@@ -1,8 +1,10 @@
 # Coco 默认 CRUD 源码生成规格
 
+> **状态：2.x legacy compatibility surface。** 新项目的 CRUD 生成入口、模板扩展和执行引擎由 [coco-generate](https://github.com/patton174/coco-generate) 所有。本规格保留以约束已发布的 `coco-feature-codegen` 与 `mvn coco:generate` 的兼容和安全修复；Framework 不得依赖 `coco-generate`，也不得在 2.x 删除、改名或破坏这些既有 API。
+
 ## 目标
 
-`coco-feature-codegen` 应从只有 SPI 和 No-Op 默认实现，演进为一个可直接使用、同时可替换的源码生成基础设施。
+`coco-feature-codegen` 是已发布的 2.x compatibility surface，保留可直接使用、同时可替换的源码生成基础设施，供既有业务项目继续使用。
 
 默认能力面向常规 Spring Boot Web 业务项目：开发者显式执行一次 Maven goal，从一份小型 YAML 规格生成可读 Java 源码。生成后代码完全属于业务项目，可以继续修改、删除或替换。
 
@@ -10,13 +12,13 @@
 
 ## 使用入口
 
-业务项目继承 `coco-parent` 后，在项目根目录创建 `coco-codegen.yml`，然后显式执行：
+既有业务项目继承 `coco-parent` 后，可继续在项目根目录创建 `coco-codegen.yml`，然后显式执行：
 
 ```powershell
 mvn coco:generate
 ```
 
-该 goal 不绑定 Maven 默认生命周期。是否生成、何时生成，由业务开发者决定。
+该 goal 不绑定 Maven 默认生命周期。新项目应使用 `coco-generate`；是否生成、何时生成，仍由业务开发者决定。
 
 可选参数：
 
