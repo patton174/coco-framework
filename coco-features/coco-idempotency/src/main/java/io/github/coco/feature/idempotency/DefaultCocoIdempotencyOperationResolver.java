@@ -23,7 +23,8 @@ public final class DefaultCocoIdempotencyOperationResolver implements CocoIdempo
                 + ";params=" + conditions(checked, RequestMapping::params)
                 + ";headers=" + conditions(checked, RequestMapping::headers)
                 + ";consumes=" + conditions(checked, RequestMapping::consumes)
-                + ";produces=" + conditions(checked, RequestMapping::produces);
+                + ";produces=" + conditions(checked, RequestMapping::produces)
+                + ";version=" + versions(checked);
     }
 
     private static String matchedPattern(HttpServletRequest request) {
@@ -47,6 +48,11 @@ public final class DefaultCocoIdempotencyOperationResolver implements CocoIdempo
         return mappings(handlerMethod).flatMap(mapping -> Arrays.stream(values.apply(mapping))).filter(Objects::nonNull)
                 .map(String::trim).filter(value -> !value.isEmpty()).distinct().sorted()
                 .collect(Collectors.joining(","));
+    }
+
+    private static String versions(HandlerMethod handlerMethod) {
+        return mappings(handlerMethod).map(RequestMapping::version).filter(Objects::nonNull).map(String::trim)
+                .filter(value -> !value.isEmpty()).distinct().sorted().collect(Collectors.joining(","));
     }
 
     private static java.util.stream.Stream<RequestMapping> mappings(HandlerMethod handlerMethod) {

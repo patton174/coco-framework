@@ -119,11 +119,15 @@ class CocoIdempotencyMvcInterceptorTest {
         String first = resolver.resolve(request, new HandlerMethod(new EquivalentControllerOne(),
                 method(EquivalentControllerOne.class, "operation")));
         String second = resolver.resolve(request, new HandlerMethod(new EquivalentControllerTwo(),
-                method(EquivalentControllerTwo.class, "operation")));
+                method(EquivalentControllerTwo.class, "renamedOperation")));
         String headerVariant = resolver.resolve(request, new HandlerMethod(new ConditionController(),
                 method(ConditionController.class, "one")));
         String parameterVariant = resolver.resolve(request, new HandlerMethod(new ParameterController(),
                 method(ParameterController.class, "one")));
+        String versionOne = resolver.resolve(request, new HandlerMethod(new VersionController(),
+                method(VersionController.class, "one")));
+        String versionTwo = resolver.resolve(request, new HandlerMethod(new VersionController(),
+                method(VersionController.class, "two")));
 
         assertThat(first).isEqualTo(second);
         assertThat(first).doesNotContain(EquivalentControllerOne.class.getName()).doesNotContain("operation()");
@@ -131,6 +135,7 @@ class CocoIdempotencyMvcInterceptorTest {
                 method(ConditionController.class, "two"))));
         assertThat(parameterVariant).isNotEqualTo(resolver.resolve(request, new HandlerMethod(new ParameterController(),
                 method(ParameterController.class, "two"))));
+        assertThat(versionOne).isNotEqualTo(versionTwo);
     }
 
     @Test
@@ -195,17 +200,23 @@ class CocoIdempotencyMvcInterceptorTest {
     }
 
     @RestController
+    static class VersionController {
+        @PostMapping(value = "/orders/{id}", version = "1") @CocoIdempotent String one() { return "one"; }
+        @PostMapping(value = "/orders/{id}", version = "2") @CocoIdempotent String two() { return "two"; }
+    }
+
+    @RestController
     static class EquivalentControllerOne {
         @PostMapping(value = "/orders/{id}", params = "version=1", headers = "X-Mode=one",
-                consumes = "application/json", produces = "application/json")
+                consumes = "application/json", produces = "application/json", version = "1")
         String operation() { return "one"; }
     }
 
     @RestController
     static class EquivalentControllerTwo {
         @PostMapping(value = "/orders/{id}", params = "version=1", headers = "X-Mode=one",
-                consumes = "application/json", produces = "application/json")
-        String operation() { return "two"; }
+                consumes = "application/json", produces = "application/json", version = "1")
+        String renamedOperation() { return "two"; }
     }
 
     @CocoIdempotent(namespace = "class")
