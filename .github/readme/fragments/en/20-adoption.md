@@ -65,7 +65,7 @@ class OrderController {
 
 ## Explicit CRUD Source Generation
 
-When a project needs standard CRUD scaffolding, add `coco-codegen.yml` at its root:
+When a project needs standard CRUD scaffolding, use the standalone [coco-generate](https://github.com/patton174/coco-generate). It generates business-owned ordinary source during development and is not an application runtime dependency. Add `coco-generate.yml` at the project root:
 
 ```yaml
 base-package: com.example.catalog
@@ -79,10 +79,4 @@ resources:
       - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
 ```
 
-Run the opt-in goal:
-
-```powershell
-mvn coco:generate
-```
-
-The generator writes to `src/main/java` by default and refuses to overwrite existing files. It produces ordinary Controller, DTO, application-service, domain-repository, and MyBatis-Plus infrastructure source owned by the business project. The goal is not bound to the build lifecycle and never exposes entities automatically at runtime.
+`coco-generate` writes to `src/main/java` by default and refuses to overwrite existing files. It produces ordinary Controller, DTO, application-service, domain-repository, and MyBatis-Plus infrastructure source owned by the business project, and never exposes entities automatically at runtime. Existing 2.x projects using `mvn coco:generate` remain supported as a framework compatibility surface, but new capabilities and template extensions evolve only in `coco-generate`.

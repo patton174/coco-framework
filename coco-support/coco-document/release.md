@@ -27,18 +27,9 @@ Central Portal 中还需要完成 `io.github.patton174` 命名空间验证，否
 mvn -B install
 ```
 
-这一步会生成 `.flattened-pom.xml` 并安装到本地仓库，主要用于验证 `${revision}` 已被解析，样例项目可以像外部业务项目一样消费框架依赖。
-
-验证真实业务接入示例时执行：
-
-```bash
-mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
-python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
-```
-
-该命令会像外部业务项目一样只声明 `coco-spring-boot-starter`，并生成 Spring Boot 可执行包；`coco.features.disabled`
-中关闭的功能模块会从最终 `BOOT-INF/lib` 和 Spring Boot 索引文件中裁剪掉。Python 脚本会启动最终
-Spring Boot jar，并通过商品查询、创建订单、查询订单和库存不足场景执行黑盒 HTTP 验证。
+这一步会生成 `.flattened-pom.xml` 并安装到本地仓库，验证 `${revision}` 解析、feature assembly 和
+`coco-maven-plugin` 的 Spring Boot 包裁剪回归。阶段 1 仅移除 Full 和 Basic 的 `verify_business_flow.py`；Basic 的 README、POM、Postman、源码测试及其余辅助脚本暂留，但不参与 reactor、CI、发布或框架验收，阶段 2 再物理删除。Basic/Full 的等价黑盒框架验收由
+[`coco-admin/framework-acceptance`](https://github.com/patton174/coco-admin/tree/main/framework-acceptance) 独立维护。
 
 需要检查 release profile 产物时，可以执行：
 
@@ -66,6 +57,8 @@ Central 与 GPG 密钥。Maven Central 发布成功后，工作流会为已验�
 发布的精确提交。不要手工创建或推送发布标签；仓库规则集禁止已有发布标签被更新或
 删除。
 
-## 样例模块
+## 验收所有权
 
-`coco-samples/coco-sample-basic` 只用于本地和 CI 验证，不作为正式框架组件发布到 Maven Central。
+框架仓库负责模块级回归、feature assembly 和 `prune-package` 的 Boot archive / index 裁剪验证；当前反应堆的
+实际 archive smoke 位于 `coco-support/coco-feature-archive-smoke`，并在 `mvn -B install` 的 Failsafe 阶段执行。
+跨模块的 Basic/Full HTTP 验收属于 `coco-admin/framework-acceptance`，不作为 Framework 的 Maven Central 制品发布。

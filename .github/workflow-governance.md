@@ -51,7 +51,7 @@ merges. Head branches are deleted automatically after merge.
 `.github/workflows/ci.yml` is the deterministic required-check entry point. It
 joins three reusable jobs:
 
-- cross-platform framework and sample verification;
+- cross-platform framework reactor and archive verification;
 - blocking actionlint, ShellCheck, jury protocol tests, and Checkstyle, plus a
   report-only SpotBugs baseline;
 - CodeQL Java analysis.

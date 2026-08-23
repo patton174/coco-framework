@@ -150,7 +150,7 @@ Implemented or partially implemented foundations:
 - `coco-feature-data-permission` provides data permission context, resource mapping, and SQL predicate generation through MyBatis-Plus.
 - `coco-feature-audit` provides default structured audit logging, formatter and recorder SPI, publisher, failure policy, and access-log-to-audit adapter.
 - `coco-feature-openapi` provides OpenAPI metadata provider boundaries.
-- `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe file writing; `coco-maven-plugin` exposes the opt-in `coco:generate` goal.
+- `coco-feature-codegen` and `coco-maven-plugin:coco:generate` remain the published 2.x legacy Codegen compatibility surface. New generation capability and template extension ownership is in `coco-generate`; the framework has no dependency on it.
 
 Not implemented as core behavior:
 
@@ -210,7 +210,7 @@ When adding a feature, it should satisfy these checks:
 - Does it preserve the one-starter application experience?
 - Does it respect feature pruning and runtime feature conditions?
 - Does it keep module dependency direction clean?
-- Does it include focused tests and, when relevant, sample coverage?
+- Does it include focused tests and, when relevant, framework acceptance coverage owned by `coco-admin`?
 
 ## Roadmap Guidance
 
