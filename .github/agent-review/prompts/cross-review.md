@@ -40,7 +40,7 @@ decide that an explicit project policy is undesirable.
 
 `policy-skeptic` checks protected policy and related base specifications,
 explicit non-goals and governance decisions, public-contract relevance, and
-whether the assigned P0/P1/P2/P3 severity is justified. It must not substitute
+whether the assigned P0/P1 severity is justified. It must not substitute
 author claims for protected policy.
 
 Review each supplied P0/P1 finding id exactly once, preserve the id

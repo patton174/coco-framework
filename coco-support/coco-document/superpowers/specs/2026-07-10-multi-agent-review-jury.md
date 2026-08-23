@@ -299,8 +299,9 @@ Specialist finding 至少包含：
 最终 verdict。字段存在时必须严格校验类型和范围；缺失不构成基础设施失败。
 
 Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `verifications`。每个 verifier
-必须覆盖全部 P0/P1/P2/P3 finding，且每个 finding ID 恰好出现一次。即使没有任何候选，也要
-明确记录已检查的绑定报告集合，并返回空 `verifications`，不能省略该席位的模型调用。
+只覆盖全部 P0/P1 finding，且每个 finding ID 恰好出现一次。无 P0/P1 时，协调器生成准确绑定
+的 `NOT_NEEDED` 空报告，两个 verifier 均为零模型调用。P2/P3 不进入 verifier 输入，仍由
+chair、受管评论和可选 actionable Issue 保留为非阻断 follow-up。
 
 ## 确定性门禁
 
@@ -332,10 +333,8 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
 - P0/P1 只有同时得到两个 verifier runtime-derived `AGREE`，才能成为 confirmed blocker。
 - 任一验证者 `DISAGREE`：进入 challenged，不直接影响 jury verdict，并在评论中保留。
 - 任一验证者 `UNVERIFIED`：进入 unverified，不直接影响 jury verdict，并在评论中保留。
-- P2/P3 永不直接影响 jury verdict；只有两个 verifier 都为 `AGREE` 时才进入主席可选池。
-- 主席分组的双 `AGREE` P2/P3 才是 actionable finding，才可创建受管 Issue 并通过开放 Issue
-  阻断独立的 `Agent issue gate`。任一 verifier 为 `DISAGREE` 或 `UNVERIFIED` 的 P2/P3 只能
-  展示，不得进入 `actionable_groups` 或 actionable 集合。
+- P2/P3 不进入 verifier、永不影响 jury verdict，仍保留给 chair、受管评论和非阻断
+  `actionable_groups`；主席选中的 group 可创建只影响 `Agent issue gate` 的受管 Issue。
 - confirmed blocker 数量大于 0 时 verdict 必须为 BLOCK；等于 0 时必须为 PASS。
 - 主席必须把每个 confirmed P0/P1 恰好放入一个确定性 duplicate group，不能新增或删除 blocker；
   group 不得混合严重级别或 P0/P1 与 P2/P3。
@@ -350,8 +349,8 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
 上述分类和资格只能使用结构化 severity、finding ID 与显式 verifier status；禁止使用 finding
 文本、验证理由、关键词、正则、`confidence` 或其他文本启发式补全或覆盖协议状态。
 
-这与项目已有审计方法一致：所有 P0/P1/P2/P3 finding 都需要双重独立验证，默认未验证为
-false，避免把单 Agent 的合理措辞误当成事实。
+这与项目已有审计方法一致：P0/P1 需要双重独立验证，默认未验证为 false，避免把单 Agent 的
+合理措辞误当成 blocker；P2/P3 仍走非阻断发布路径。
 
 ## 两阶段路由和延迟评审
 
@@ -431,11 +430,11 @@ Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立�
 
 ## 验收
 
-- 单元测试覆盖 context 预算、SHA 绑定、role schema、全部 P0-P3 的 cross-review 三态、
-  P2/P3 双 `AGREE` actionable 资格、确定性 verdict、Markdown/mention 中和以及最大规模报告的
+- 单元测试覆盖 context 预算、SHA 绑定、role schema、P0/P1 cross-review 三态、无 P0/P1 的
+  `NOT_NEEDED` 零模型调用、P2/P3 非阻断 Issue 路径、确定性 verdict、Markdown/mention 中和与
   40,000/64,000-byte 评论预算。
 - 负向测试覆盖 Agent 缺失、超时、拒答、非法 JSON、未知 finding、hash 不匹配和 Chair
-  试图新增 blocker、选择非双 `AGREE` P2/P3 或通过文本启发式推导资格。
+  试图新增 blocker、将 P2/P3 当作 blocker 或通过文本启发式推导资格。
 - actionlint、ShellCheck、Python unittest 和 `git diff --check` 通过。
 - Workflow 不 checkout 或执行 PR head。
 - source、fork/未固定身份 bot job 日志和环境中不存在模型 API key 或 App 私钥；受保护运行时

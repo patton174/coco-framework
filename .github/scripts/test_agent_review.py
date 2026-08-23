@@ -3058,6 +3058,33 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual("COMPLETE", report["status"])
         self.assertNotIn("verifications", report)
 
+    def test_cross_review_contract_text_limits_verifiers_to_blockers(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        prompt = (root / ".github/agent-review/prompts/cross-review.md").read_text(
+            encoding="utf-8"
+        )
+        spec = (
+            root / "coco-support/coco-document/superpowers/specs/"
+            "2026-07-10-multi-agent-review-jury.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("every supplied P0/P1 blocker candidate", prompt)
+        self.assertIn("P2/P3 candidates are not supplied to verifier calls.", prompt)
+        self.assertIn("does not call you when there are no P0/P1 candidates", prompt)
+        self.assertIn("只覆盖全部 P0/P1 finding", spec)
+        self.assertIn("两个 verifier 均为零模型调用", spec)
+        self.assertIn("P2/P3 不进入 verifier", spec)
+        for obsolete in (
+            "P0/P1/P2/P3 severity",
+            "必须覆盖全部 P0/P1/P2/P3 finding",
+            "不能省略该席位的模型调用",
+            "所有 P0/P1/P2/P3 finding 都需要双重独立验证",
+            "P2/P3 双 `AGREE` actionable",
+            "选择非双 `AGREE` P2/P3",
+        ):
+            with self.subTest(obsolete=obsolete):
+                self.assertNotIn(obsolete, prompt + spec)
+
     def test_cross_review_writes_exact_not_needed_without_model_when_no_findings(
         self,
     ) -> None:
@@ -13056,8 +13083,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_636, largest_size)
-        self.assertEqual(7_364, limit - largest_size)
+        self.assertEqual(56_580, largest_size)
+        self.assertEqual(7_420, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
