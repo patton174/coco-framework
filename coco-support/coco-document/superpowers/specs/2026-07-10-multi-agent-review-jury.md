@@ -308,20 +308,19 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
 
 - 任一必要 Agent 超时、拒答、API 错误、无法纠正的 schema 错误或 hash 不匹配：基础设施
   BLOCK。
-- 无文本、非严格 JSON 或兼容模型可重试的非完成输出，使用当前受保护 prompt、canonical task、
-  角色和 binding 有界全新完成且不带上次输出。`max_tokens`
-  截断且返回非空文本时，specialist 和
-  chair 可以改为有界续写：将原 canonical task 与截断前缀作为不可信数据，只要求返回该 JSON
-  对象的剩余字符；runtime 必须逐段拼接，并且只接受拼接后可解析为一个完整 JSON 对象且通过
+- 无文本、非严格 JSON 或兼容模型可重试的非完成输出，使用受保护 prompt、canonical task、
+  角色和 binding 有界全新完成，不带上次输出。`max_tokens`
+  截断且返回非空文本时，specialist/chair 可有界续写：将原 task 与截断前缀作为不可信数据，
+  只返回该 JSON 对象的剩余字符；runtime 逐段拼接，只接受拼接后可解析为完整 JSON 对象且通过
   原有全部校验的结果。续写不能覆盖、推断或修复任何 binding 字段，也不能单独发布分片。
-  cross-review 截断或非严格 JSON 必须从原 task 新鲜完成；禁 partial，JSON 紧凑、字符串<=240、
-  每 finding 一项。
+  cross-review/continuity 截断或非严格 JSON 从原 task 新鲜完成；禁 partial，紧凑 JSON、字符串<=240、
+  每 finding一项。
 - 对可解析 JSON，先校验 `schema_version`、受保护角色、`head_sha` 和 `context_sha256`；
   `schema_version` 必须是 JSON 整数 `1`，布尔值或浮点数均不接受。任一身份或 binding 不匹配
   都立即失败关闭。上述绑定通过后，字段集合、字段类型、数组、枚举、范围、
   引用完整性或确定性权限契约不匹配，允许在同一受保护 prompt、角色和 binding 下进行协议
   纠错。specialist/chair 纠错可含原 task、上次输出和错误，均不可信。
-  cross-review shape 纠错只传原 task、上次 SHA-256 和不回显值的精确错误；从头替代，禁止嵌入
+  cross-review/continuity shape 纠错只传原 task、上次 SHA-256 和不回显值的精确错误；从头替代，禁止嵌入
   上次输出或清洗非法 evidence。
   全新输出重试与协议纠错共享同一个固定预算，可以按
   实际失败顺序组合，但每个 Agent 总计最多

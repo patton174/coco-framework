@@ -4938,6 +4938,7 @@ def command_continuity(args: argparse.Namespace) -> int:
         lambda candidate: validate_continuity_report(
             candidate, args.role, context, groups
         ),
+        cross_review_fresh_retry=True,
     )
     write_json(args.output, report)
     return 0
@@ -5666,18 +5667,18 @@ def continuity_relationship_contract(
         "schema_version",
     }
     if not isinstance(relationship, dict) or set(relationship) != required:
-        raise ReviewError("Continuity relationship schema is invalid.")
+        raise ReportShapeError("Continuity relationship schema is invalid.")
     if relationship.get("schema_version") != CONTINUITY_SCHEMA_VERSION:
-        raise ReviewError("Continuity relationship schema_version is invalid.")
+        raise ReportShapeError("Continuity relationship schema_version is invalid.")
     if relationship.get("current_group_id") != group["current_group_id"]:
-        raise ReviewError("Continuity relationship current group is invalid.")
+        raise ReportShapeError("Continuity relationship current group is invalid.")
     if canonical_json(
         require_continuity_anchor(relationship.get("current_anchor"))
     ) != canonical_json(group["anchor"]):
-        raise ReviewError("Continuity relationship current anchor drifted.")
+        raise ReportShapeError("Continuity relationship current anchor drifted.")
     action = relationship.get("action")
     if action not in CONTINUITY_ACTIONS:
-        raise ReviewError("Continuity relationship action is invalid.")
+        raise ReportShapeError("Continuity relationship action is invalid.")
     if action != "ADOPT":
         if any(
             relationship.get(name) is not None
@@ -5688,7 +5689,9 @@ def continuity_relationship_contract(
                 "previous_issue_number",
             )
         ):
-            raise ReviewError("Non-adopt continuity relationship claims a candidate.")
+            raise ReportShapeError(
+                "Non-adopt continuity relationship claims a candidate."
+            )
         return {
             "action": action,
             "current_anchor": group["anchor"],
@@ -5699,7 +5702,9 @@ def continuity_relationship_contract(
     )
     candidate = candidates.get(candidate_hash)
     if candidate is None:
-        raise ReviewError("Continuity relationship references an unknown candidate.")
+        raise ReportShapeError(
+            "Continuity relationship references an unknown candidate."
+        )
     if (
         relationship.get("previous_group_id") != candidate["previous_group_id"]
         or relationship.get("previous_issue_number")
@@ -5709,7 +5714,7 @@ def continuity_relationship_contract(
         )
         != canonical_json(candidate["anchor"])
     ):
-        raise ReviewError("Continuity relationship candidate binding drifted.")
+        raise ReportShapeError("Continuity relationship candidate binding drifted.")
     return {
         "action": "ADOPT",
         "candidate_sha256": candidate_hash,
@@ -5748,7 +5753,7 @@ def validate_continuity_report(
         raise ReviewError("Continuity verifier report binding is invalid.")
     relationships = report.get("relationships")
     if not isinstance(relationships, list) or len(relationships) != len(groups):
-        raise ReviewError("Continuity verifier relationship set is incomplete.")
+        raise ReportShapeError("Continuity verifier relationship set is incomplete.")
     normalized = [
         continuity_relationship_contract(value, group, candidates)
         for value, group in zip(relationships, groups, strict=True)
@@ -5756,7 +5761,7 @@ def validate_continuity_report(
     if [item["current_group_id"] for item in normalized] != [
         item["current_group_id"] for item in groups
     ]:
-        raise ReviewError("Continuity verifier relationship order is invalid.")
+        raise ReportShapeError("Continuity verifier relationship order is invalid.")
     report = copy.deepcopy(report)
     report["relationships"] = normalized
     return report
