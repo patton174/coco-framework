@@ -168,6 +168,8 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
 
     int capacityCleanupRuns() { return this.capacityCleanupRuns.get(); }
 
+    boolean isClosed() { return this.closed.get(); }
+
     @Override
     public void close() {
         if (!this.closed.compareAndSet(false, true)) { return; }

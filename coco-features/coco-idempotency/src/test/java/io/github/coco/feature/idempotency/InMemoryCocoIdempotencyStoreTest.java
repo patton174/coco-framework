@@ -82,9 +82,8 @@ class InMemoryCocoIdempotencyStoreTest {
             Future<CocoIdempotencyStore.AcquireResult> acquire = executor.submit(
                     () -> store.acquire(lease("owner", "orders", clock, 60)));
             assertThat(entries.computeEntered.await(5, TimeUnit.SECONDS)).isTrue();
-            CountDownLatch closeStarted = new CountDownLatch(1);
-            Future<?> close = executor.submit(() -> { closeStarted.countDown(); store.close(); });
-            assertThat(closeStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<?> close = executor.submit(store::close);
+            assertThat(awaitClosed(store)).isTrue();
             entries.allowCompute.countDown();
             assertThat(result(acquire)).isEqualTo(CocoIdempotencyStore.AcquireResult.UNAVAILABLE);
             close.get(5, TimeUnit.SECONDS);
@@ -177,6 +176,14 @@ class InMemoryCocoIdempotencyStoreTest {
     private CocoIdempotencyStore.AcquireResult result(Future<CocoIdempotencyStore.AcquireResult> future) {
         try { return future.get(5, TimeUnit.SECONDS); }
         catch (Exception exception) { throw new AssertionError(exception); }
+    }
+
+    private static boolean awaitClosed(InMemoryCocoIdempotencyStore store) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!store.isClosed() && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        return store.isClosed();
     }
 
     private static CocoIdempotencyProperties properties(int entries) {
