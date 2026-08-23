@@ -1,7 +1,7 @@
 # Coco Framework 业务架构审计 —— 客户端 API / 分层 / 契约
 
 - **审计日期：** 2026-07-09
-- **审计范围：** coco-api-core（5 类）+ coco-samples/coco-sample-basic（14 主类 + 2 测试）+ coco-common-exception 的 `CocoBusinessCode` / `CocoErrorCode` / `CocoCommonErrorCode`
+- **审计范围：** coco-api-core（5 类）+ 历史业务验收工程（14 主类 + 2 测试）+ coco-common-exception 的 `CocoBusinessCode` / `CocoErrorCode` / `CocoCommonErrorCode`
 - **审计方法：** 通读 sample 全部源文件 + coco-api-core 全部源文件 + 与 AGENTS.md "business-facing simplicity / one starter / clear override points" 原则对齐
 - **结论先说：** sample 是教科书式的 DDD 四层架构，领域层**真正做到了 framework-agnostic**；但 coco-api-core 的 5 个契约类中有 3 个**几乎没被任何业务使用**，是**典型的"为未来可能性过度设计"**。同时 sample 暴露了几个会被复制到所有业务项目里的反模式（`@Transactional` 缺失、i18n bundle 命名/内容错位、Controller 4 个 secure 端点只是 URL 装饰）。
 
@@ -67,7 +67,7 @@ infrastructure.order   ←  import: SampleOrderRepository (实现)
 
 ### 【业务架构 / 高】B1. `SampleOrderApplicationService.createOrder` 缺 `@Transactional` 边界
 
-**位置：** `coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/application/order/SampleOrderApplicationService.java:63-70`
+**位置：** 历史业务验收工程的 `SampleOrderApplicationService.java:63-70`
 
 ```java
 public SampleOrder createOrder(String buyerName, String sku, int quantity) {
@@ -93,7 +93,7 @@ public SampleOrder createOrder(String buyerName, String sku, int quantity) {
 
 ### 【业务架构 / 高】B2. `InMemorySampleOrderRepository` 抛业务异常，违反"仓储只做持久化"分层原则
 
-**位置：** `coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/infrastructure/order/InMemorySampleOrderRepository.java:74-89`
+**位置：** 历史业务验收工程的 `InMemorySampleOrderRepository.java:74-89`
 
 ```java
 @Override
@@ -200,7 +200,7 @@ public enum CocoFeature {
 
 ### 【业务架构 / 中】B5. `SampleOrderRepository` 接口违反 ISP —— 商品查询与订单管理混杂
 
-**位置：** `coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/domain/order/SampleOrderRepository.java:22-51`
+**位置：** 历史业务验收工程的 `SampleOrderRepository.java:22-51`
 
 ```java
 public interface SampleOrderRepository {
@@ -224,9 +224,9 @@ public interface SampleOrderRepository {
 ### 【i18n / 中】B6. sample 的 messages.properties / messages_en_US.properties 内容**完全相同**（中文）
 
 **位置：**
-- `coco-samples/coco-sample-basic/src/main/resources/messages.properties` （4 行英文）
-- `coco-samples/coco-sample-basic/src/main/resources/messages_en_US.properties` （4 行英文）
-- `coco-samples/coco-sample-basic/src/main/resources/messages_zh_CN.properties` （4 行中文）
+- 历史业务验收工程的 `messages.properties` （4 行英文）
+- 历史业务验收工程的 `messages_en_US.properties` （4 行英文）
+- 历史业务验收工程的 `messages_zh_CN.properties` （4 行中文）
 
 ```bash
 $ diff messages.properties messages_en_US.properties   # → 无差异

@@ -126,23 +126,23 @@
 - [ ] Add `coco-core-runtime` dependency to feature modules that use the condition.
 - [ ] Add tests proving disabled features skip their auto-configuration.
 
-### Task 6: Sample And End-To-End Verification
+### Task 6: Archive Fixture And End-To-End Verification
 
 **Files:**
-- Modify: `coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/CocoConfig.java`
-- Modify: `coco-samples/coco-sample-basic/src/main/resources/application.yml`
-- Add test files only if the existing sample structure supports them without introducing a full web application test.
+- Modify: `coco-support/coco-feature-archive-smoke/src/main/java/io/github/coco/fixture/archive/FeatureArchiveSmokeApplication.java`
+- Modify: `coco-support/coco-feature-archive-smoke/pom.xml`
+- Add test files only if the archive fixture structure supports them without introducing a full web application test.
 
 **Interfaces:**
 - Consumes: inherited `coco:features` execution from `coco-parent`.
-- Produces: sample build output with `META-INF/coco/features.json`.
+- Produces: archive fixture build output with `META-INF/coco/features.json`.
 
-- [ ] Use `@CocoFeatures(disabled = {CocoFeature.TENANT, CocoFeature.DATA_PERMISSION})` in the sample configuration.
-- [ ] Keep application YAML focused on i18n or feature settings not represented by the annotation.
+- [ ] Use `@CocoFeatures(disabled = {CocoFeature.TENANT, CocoFeature.DATA_PERMISSION})` in the archive fixture configuration.
+- [ ] Keep archive fixture feature selection in the annotation; it has no business application YAML.
 - [ ] Run focused module tests.
 - [ ] Run `mvn -q verify`.
 - [ ] Run `mvn -q -DskipTests install javadoc:javadoc`.
-- [ ] Inspect sample `target/classes/META-INF/coco/features.json`.
+- [ ] Inspect archive fixture `target/classes/META-INF/coco/features.json`.
 - [ ] Commit, push, create PR, wait for CI, and merge after checks pass.
 
 ## Self-Review

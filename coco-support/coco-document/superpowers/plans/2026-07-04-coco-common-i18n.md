@@ -117,19 +117,20 @@
 - [ ] Add default framework message bundles with codes `coco.error.unknown`, `coco.error.invalid-argument`, and `coco.error.missing-message-code`.
 - [ ] Run `mvn -pl :coco-common-i18n -am test`; expected GREEN.
 
-### Task 5: Add Sample Configuration And Full Verification
+### Task 5: Historical Sample Configuration And Full Verification
 
 **Files:**
-- Modify: `coco-samples/coco-sample-basic/src/main/resources/application.yml`
-- Create: `coco-samples/coco-sample-basic/src/main/resources/messages_zh_CN.properties`
-- Create: `coco-samples/coco-sample-basic/src/main/resources/messages_en_US.properties`
+- Historical: retired sample application configuration.
+- Historical: retired sample Chinese message bundle.
+- Historical: retired sample English message bundle.
 
 **Interfaces:**
-- Produces sample `coco.common.i18n` configuration.
-- Produces sample business message bundle override pattern.
+- Produced sample `coco.common.i18n` configuration.
+- Produced sample business message bundle override pattern.
 
-- [ ] Add sample `coco.common.i18n` configuration under the existing `coco` root.
-- [ ] Add sample message bundle entries such as `sample.hello=你好，Coco` and `sample.hello=Hello, Coco`.
+- [x] Historical sample configuration used `coco.common.i18n` under the existing `coco` root.
+- [x] Historical sample message bundles included business message override entries.
+- 当前：历史验收已随 samples 退役，当前由 `coco-admin/framework-acceptance` 维护；本工作树未发现该模块，未记录可执行命令。
 - [ ] Run `mvn -pl :coco-common-i18n -am test`; expected GREEN.
 - [ ] Run `mvn -q verify`; expected full reactor success.
 - [ ] Run `mvn -q -DskipTests install javadoc:javadoc`; expected JavaDoc success.

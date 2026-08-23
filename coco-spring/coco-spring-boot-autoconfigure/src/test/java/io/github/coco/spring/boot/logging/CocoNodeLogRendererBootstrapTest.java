@@ -38,14 +38,14 @@ class CocoNodeLogRendererBootstrapTest {
         MockEnvironment environment = new MockEnvironment();
 
         assertFalse(CocoNodeLogRendererBootstrap.shouldInstall(environment,
-                "io.github.coco.sample.basic.CocoSampleBasicApplication"));
+                "io.github.example.Application"));
     }
 
     @Test
     void installsForJarLaunchByDefault() {
         MockEnvironment environment = new MockEnvironment();
 
-        assertTrue(CocoNodeLogRendererBootstrap.shouldInstall(environment, "coco-sample-basic.jar"));
+        assertTrue(CocoNodeLogRendererBootstrap.shouldInstall(environment, "application.jar"));
     }
 
     @Test
@@ -53,7 +53,7 @@ class CocoNodeLogRendererBootstrapTest {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("coco.logging.node-renderer.enabled", "false");
 
-        assertFalse(CocoNodeLogRendererBootstrap.shouldInstall(environment, "coco-sample-basic.jar"));
+        assertFalse(CocoNodeLogRendererBootstrap.shouldInstall(environment, "application.jar"));
     }
 
     @Test
@@ -62,7 +62,7 @@ class CocoNodeLogRendererBootstrapTest {
                 .withProperty("coco.logging.node-renderer.jar-only", "false");
 
         assertTrue(CocoNodeLogRendererBootstrap.shouldInstall(environment,
-                "io.github.coco.sample.basic.CocoSampleBasicApplication"));
+                "io.github.example.Application"));
     }
 
     @Test
