@@ -43,6 +43,8 @@ coco-support/
   coco-tools/
 ```
 
+`coco-idempotency` 是显式启用的 Servlet 写请求幂等功能。它不缓存或回放首次响应；仅正常完成的 `2xx/3xx` 保留租约到 TTL，异常及所有 `4xx/5xx` 均释放租约以允许安全重试。
+
 ## 所有权
 
 | 目录 | 职责 |

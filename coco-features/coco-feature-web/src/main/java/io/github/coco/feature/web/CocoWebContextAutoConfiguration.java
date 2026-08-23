@@ -8,6 +8,7 @@ import io.github.coco.feature.web.context.CocoBrowserFingerprintResolver;
 import io.github.coco.feature.web.context.CocoClientIpResolver;
 import io.github.coco.feature.web.context.CocoRequestCookieResolver;
 import io.github.coco.feature.web.context.CocoRequestHeaderResolver;
+import io.github.coco.feature.web.context.CocoSensitiveRequestHeaderContributor;
 import io.github.coco.feature.web.context.CocoRequestParameterResolver;
 import io.github.coco.feature.web.context.CocoWebRequestCanonicalizer;
 import io.github.coco.feature.web.context.CocoWebRequestContextResolver;
@@ -81,8 +82,9 @@ public class CocoWebContextAutoConfiguration {
     @Bean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
-    public CocoRequestHeaderResolver cocoRequestHeaderResolver(CocoWebProperties properties) {
-        return new DefaultCocoRequestHeaderResolver(properties.getContext());
+    public CocoRequestHeaderResolver cocoRequestHeaderResolver(CocoWebProperties properties,
+            ObjectProvider<CocoSensitiveRequestHeaderContributor> sensitiveHeaderContributors) {
+        return new DefaultCocoRequestHeaderResolver(properties.getContext(), sensitiveHeaderContributors.orderedStream().toList());
     }
 
     /**

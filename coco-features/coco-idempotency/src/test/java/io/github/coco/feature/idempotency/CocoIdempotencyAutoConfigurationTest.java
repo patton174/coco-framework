@@ -16,6 +16,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 class CocoIdempotencyAutoConfigurationTest {
@@ -70,13 +71,20 @@ class CocoIdempotencyAutoConfigurationTest {
         @Bean("cocoIdempotencyClock") Clock clock() { return Clock.fixed(Instant.parse("2026-08-24T00:00:00Z"), ZoneOffset.UTC); }
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
         @Bean CocoMessageService cocoMessageService() { return new TestMessageService(); }
+        @Bean CocoIdempotencyResponseWriter cocoIdempotencyResponseWriter() {
+            return (code, request, response) -> response.setStatus(500);
+        }
     }
 
     @Configuration(proxyBeanMethods = false)
     static class Overrides {
         @Bean CocoIdempotencyStore customStore() { return new OverridesStore(); }
-        @Bean("customResolver") CocoIdempotencyKeyResolver customResolver() { return (request, method, intent) -> new CocoIdempotencyKey("custom", "POST", "/custom", "digest"); }
-        @Bean("customWriter") CocoIdempotencyResponseWriter customWriter() { return (code, request, response) -> response.setStatus(418); }
+        @Bean("customResolver") CocoIdempotencyKeyResolver customResolver() {
+            return (request, method, intent) -> CocoIdempotencyKey.fromRawKey("custom", "POST", "custom", "key");
+        }
+        @Bean("customWriter") @Primary CocoIdempotencyResponseWriter customWriter() {
+            return (code, request, response) -> response.setStatus(418);
+        }
     }
 
     static final class OverridesStore implements CocoIdempotencyStore {

@@ -1,86 +1,182 @@
 package io.github.coco.feature.idempotency;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Controller;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.HandlerMethod;
-import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.HandlerInterceptor;
 
 class CocoIdempotencyMvcInterceptorTest {
-    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-08-24T00:00:00Z"), ZoneOffset.UTC);
     @Test
-    void methodIntentOverridesClassIntentAndSuccessKeepsLease() throws Exception {
-        RecordingStore store = new RecordingStore();
-        CocoIdempotencyMvcInterceptor interceptor = interceptor(store);
-        MockHttpServletRequest request = request("POST", "valid-key");
-        HandlerMethod handler = new HandlerMethod(new ClassController(), ClassController.class.getMethod("method"));
-        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(), handler)).isTrue();
-        assertThat(store.leases).singleElement().satisfies(lease -> assertThat(lease.key().namespace()).isEqualTo("method"));
-        interceptor.afterCompletion(request, new MockHttpServletResponse(), handler, null);
-        assertThat(store.released).isEmpty();
+    void normalSuccessKeepsLeaseAndSecondRequestIsRejected() throws Exception {
+        TestController controller = new TestController();
+        CountingStore store = new CountingStore();
+        MockMvc mvc = mvc(controller, store);
+        mvc.perform(post("/orders/success").header("Idempotency-Key", "success-key"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/orders/success").header("Idempotency-Key", "success-key"))
+                .andExpect(status().isConflict());
+        assertThat(controller.successCalls.get()).isOne();
+        assertThat(store.acquireCalls.get()).isEqualTo(2);
     }
+
     @Test
-    void rejectsMissingInvalidDuplicateAndUnavailableKeys() throws Exception {
-        HandlerMethod handler = new HandlerMethod(new ClassController(), ClassController.class.getMethod("method"));
-        assertStatus(interceptor(new RecordingStore()), request("POST", null), handler, 400);
-        assertStatus(interceptor(new RecordingStore()), request("POST", "has space"), handler, 400);
-        RecordingStore duplicate = new RecordingStore(); duplicate.result = CocoIdempotencyStore.AcquireResult.DUPLICATE;
-        assertStatus(interceptor(duplicate), request("POST", "valid"), handler, 409);
-        RecordingStore unavailable = new RecordingStore(); unavailable.result = CocoIdempotencyStore.AcquireResult.UNAVAILABLE;
-        assertStatus(interceptor(unavailable), request("POST", "valid"), handler, 503);
+    void resolvedFourHundredControllerExceptionReleasesLease() throws Exception {
+        TestController controller = new TestController();
+        MockMvc mvc = mvc(controller, new CountingStore());
+        mvc.perform(post("/orders/bad-request").header("Idempotency-Key", "retry-400"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/orders/bad-request").header("Idempotency-Key", "retry-400"))
+                .andExpect(status().isBadRequest());
+        assertThat(controller.badRequestCalls.get()).isEqualTo(2);
     }
+
     @Test
-    void failuresReleaseOnceAndAsyncRedispatchDoesNotAcquireTwice() throws Exception {
-        RecordingStore store = new RecordingStore();
-        CocoIdempotencyMvcInterceptor interceptor = interceptor(store);
-        MockHttpServletRequest request = request("POST", "valid");
-        HandlerMethod handler = new HandlerMethod(new ClassController(), ClassController.class.getMethod("method"));
-        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(), handler)).isTrue();
-        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(), handler)).isTrue();
-        assertThat(store.leases).hasSize(1);
-        MockHttpServletResponse response = new MockHttpServletResponse(); response.setStatus(500);
-        interceptor.afterCompletion(request, response, handler, null);
-        interceptor.afterCompletion(request, response, handler, null);
-        assertThat(store.released).hasSize(1);
+    void fiveHundredControllerExceptionReleasesLease() throws Exception {
+        TestController controller = new TestController();
+        MockMvc mvc = mvc(controller, new CountingStore());
+        mvc.perform(post("/orders/server-error").header("Idempotency-Key", "retry-500"))
+                .andExpect(status().isInternalServerError());
+        mvc.perform(post("/orders/server-error").header("Idempotency-Key", "retry-500"))
+                .andExpect(status().isInternalServerError());
+        assertThat(controller.serverErrorCalls.get()).isEqualTo(2);
     }
+
     @Test
-    void ignoresUnannotatedAndDisallowedMethods() throws Exception {
-        RecordingStore store = new RecordingStore(); CocoIdempotencyMvcInterceptor interceptor = interceptor(store);
-        assertThat(interceptor.preHandle(request("GET", "valid"), new MockHttpServletResponse(), new HandlerMethod(new ClassController(), ClassController.class.getMethod("method")))).isTrue();
-        assertThat(interceptor.preHandle(request("POST", "valid"), new MockHttpServletResponse(), new HandlerMethod(new PlainController(), PlainController.class.getMethod("plain")))).isTrue();
-        assertThat(store.leases).isEmpty();
+    void laterInterceptorRejectionReleasesLease() throws Exception {
+        TestController controller = new TestController();
+        AtomicBoolean reject = new AtomicBoolean(true);
+        HandlerInterceptor authorization = new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(jakarta.servlet.http.HttpServletRequest request,
+                    jakarta.servlet.http.HttpServletResponse response, Object handler) {
+                if (reject.compareAndSet(true, false)) { response.setStatus(401); return false; }
+                return true;
+            }
+        };
+        MockMvc mvc = mvc(controller, new CountingStore(), authorization);
+        mvc.perform(post("/orders/success").header("Idempotency-Key", "retry-401"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/orders/success").header("Idempotency-Key", "retry-401"))
+                .andExpect(status().isOk());
+        assertThat(controller.successCalls.get()).isOne();
     }
+
     @Test
-    void executesAfterTheRateLimitInterceptorOrder() {
-        assertThat(CocoIdempotencyAutoConfiguration.MVC_INTERCEPTOR_ORDER)
-                .isGreaterThan(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+    void asyncRedispatchAcquiresOnceAndKeepsOnlyAfterFinalCompletion() throws Exception {
+        TestController controller = new TestController();
+        CountingStore store = new CountingStore();
+        MockMvc mvc = mvc(controller, store);
+        MvcResult initial = mvc.perform(post("/orders/async").header("Idempotency-Key", "async-key"))
+                .andExpect(request().asyncStarted()).andReturn();
+        mvc.perform(asyncDispatch(initial)).andExpect(status().isOk());
+        assertThat(store.acquireCalls.get()).isOne();
+        mvc.perform(post("/orders/async").header("Idempotency-Key", "async-key"))
+                .andExpect(status().isConflict());
+        assertThat(controller.asyncCalls.get()).isOne();
     }
-    private void assertStatus(CocoIdempotencyMvcInterceptor interceptor, MockHttpServletRequest request, HandlerMethod handler, int status) throws Exception {
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        assertThat(interceptor.preHandle(request, response, handler)).isFalse(); assertThat(response.getStatus()).isEqualTo(status);
+
+    @Test
+    void distinctHeaderMappingConditionsDoNotShareLease() throws Exception {
+        ConditionController controller = new ConditionController();
+        MockMvc mvc = mvc(controller, new CountingStore());
+        mvc.perform(post("/orders/condition").header("X-Mode", "one").header("Idempotency-Key", "shared"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/orders/condition").header("X-Mode", "two").header("Idempotency-Key", "shared"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/orders/condition").header("X-Mode", "one").header("Idempotency-Key", "shared"))
+                .andExpect(status().isConflict());
+        assertThat(controller.oneCalls.get()).isOne();
+        assertThat(controller.twoCalls.get()).isOne();
     }
-    private static CocoIdempotencyMvcInterceptor interceptor(RecordingStore store) {
+
+    @Test
+    void methodAnnotationOverridesClassNamespace() {
         CocoIdempotencyProperties properties = new CocoIdempotencyProperties();
-        CocoIdempotencyResponseWriter writer = (code, request, response) -> response.setStatus(switch (code) { case INVALID_KEY -> 400; case DUPLICATE -> 409; case UNAVAILABLE -> 503; });
-        return new CocoIdempotencyMvcInterceptor(properties, new DefaultCocoIdempotencyKeyResolver(properties), store, writer, CLOCK);
+        DefaultCocoIdempotencyKeyResolver resolver = new DefaultCocoIdempotencyKeyResolver(properties);
+        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest("POST", "/orders");
+        request.addHeader("Idempotency-Key", "method-key");
+        HandlerMethod method = new HandlerMethod(new ClassAnnotatedController(), method(ClassAnnotatedController.class, "operation"));
+        CocoIdempotent annotation = org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(
+                method.getMethod(), CocoIdempotent.class);
+        assertThat(resolver.resolve(request, method, annotation).namespace()).isEqualTo("method");
     }
-    private static MockHttpServletRequest request(String method, String key) { MockHttpServletRequest request = new MockHttpServletRequest(method, "/orders/42"); request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/orders/{id}"); if (key != null) { request.addHeader("Idempotency-Key", key); } return request; }
-    @CocoIdempotent(namespace = "class") static class ClassController { @CocoIdempotent(namespace = "method") public void method() { } }
-    static class PlainController { public void plain() { } }
-    private static final class RecordingStore implements CocoIdempotencyStore {
-        private final List<CocoIdempotencyLease> leases = new ArrayList<>(); private final List<CocoIdempotencyLease> released = new ArrayList<>(); private CocoIdempotencyStore.AcquireResult result = CocoIdempotencyStore.AcquireResult.ACQUIRED;
-        @Override public CocoIdempotencyStore.AcquireResult acquire(CocoIdempotencyLease lease) { this.leases.add(lease); return this.result; }
-        @Override public void release(CocoIdempotencyLease lease) { this.released.add(lease); }
+
+    private static MockMvc mvc(Object controller, CountingStore store, HandlerInterceptor... following) {
+        CocoIdempotencyProperties properties = new CocoIdempotencyProperties();
+        CocoIdempotencyResponseWriter writer = (code, request, response) -> response.setStatus(switch (code) {
+            case INVALID_KEY -> 400;
+            case DUPLICATE -> 409;
+            case UNAVAILABLE -> 503;
+        });
+        CocoIdempotencyMvcInterceptor interceptor = new CocoIdempotencyMvcInterceptor(properties,
+                new DefaultCocoIdempotencyKeyResolver(properties), store, writer, Clock.systemUTC());
+        HandlerInterceptor[] all = new HandlerInterceptor[following.length + 1];
+        all[0] = interceptor;
+        System.arraycopy(following, 0, all, 1, following.length);
+        return MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new ErrorAdvice()).addInterceptors(all).build();
+    }
+
+    private static java.lang.reflect.Method method(Class<?> type, String name) {
+        try { return type.getDeclaredMethod(name); }
+        catch (NoSuchMethodException exception) { throw new AssertionError(exception); }
+    }
+
+    @RestController
+    static class TestController {
+        private final AtomicInteger successCalls = new AtomicInteger();
+        private final AtomicInteger badRequestCalls = new AtomicInteger();
+        private final AtomicInteger serverErrorCalls = new AtomicInteger();
+        private final AtomicInteger asyncCalls = new AtomicInteger();
+        @PostMapping("/orders/success") @CocoIdempotent String success() { this.successCalls.incrementAndGet(); return "ok"; }
+        @PostMapping("/orders/bad-request") @CocoIdempotent String badRequest() { this.badRequestCalls.incrementAndGet(); throw new IllegalArgumentException(); }
+        @PostMapping("/orders/server-error") @CocoIdempotent String serverError() { this.serverErrorCalls.incrementAndGet(); throw new IllegalStateException(); }
+        @PostMapping("/orders/async") @CocoIdempotent Callable<String> async() {
+            return () -> { this.asyncCalls.incrementAndGet(); return "ok"; };
+        }
+    }
+
+    @RestController
+    static class ConditionController {
+        private final AtomicInteger oneCalls = new AtomicInteger();
+        private final AtomicInteger twoCalls = new AtomicInteger();
+        @PostMapping(value = "/orders/condition", headers = "X-Mode=one") @CocoIdempotent String one() { this.oneCalls.incrementAndGet(); return "one"; }
+        @PostMapping(value = "/orders/condition", headers = "X-Mode=two") @CocoIdempotent String two() { this.twoCalls.incrementAndGet(); return "two"; }
+    }
+
+    @CocoIdempotent(namespace = "class")
+    static class ClassAnnotatedController { @CocoIdempotent(namespace = "method") void operation() { } }
+
+    @RestControllerAdvice
+    static class ErrorAdvice {
+        @ExceptionHandler(IllegalArgumentException.class) ResponseEntity<Void> badRequest() { return ResponseEntity.badRequest().build(); }
+        @ExceptionHandler(IllegalStateException.class) ResponseEntity<Void> serverError() { return ResponseEntity.internalServerError().build(); }
+    }
+
+    static final class CountingStore implements CocoIdempotencyStore, AutoCloseable {
+        private final InMemoryCocoIdempotencyStore delegate = new InMemoryCocoIdempotencyStore(new CocoIdempotencyProperties());
+        private final AtomicInteger acquireCalls = new AtomicInteger();
+        @Override public AcquireResult acquire(CocoIdempotencyLease lease) { this.acquireCalls.incrementAndGet(); return this.delegate.acquire(lease); }
+        @Override public void release(CocoIdempotencyLease lease) { this.delegate.release(lease); }
+        @Override public void close() { this.delegate.close(); }
     }
 }

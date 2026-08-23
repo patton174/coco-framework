@@ -96,7 +96,7 @@ class ApplicationCocoConfiguration {
 
 功能选择优先使用 YAML 或 `@CocoFeatures`。旧的 `CocoConfigurer` Java 钩子仅保留兼容，已不再推荐。
 
-需要保护写请求时，显式启用幂等功能，并在 Controller 类或方法上标注 `@CocoIdempotent`。客户端每次首次提交需携带 `Idempotency-Key`；成功后的同一键在 TTL 内得到 `409`，异常或 `5xx` 会释放租约以允许重试。
+需要保护写请求时，显式启用幂等功能，并在 Controller 类或方法上标注 `@CocoIdempotent`。客户端每次首次提交需携带 `Idempotency-Key`；仅正常完成的 `2xx/3xx` 会保留键到 TTL，同一键随后得到 `409`；任何异常或 `4xx/5xx` 都会释放租约以允许重试。
 
 ```yaml
 coco:

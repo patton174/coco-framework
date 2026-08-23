@@ -223,6 +223,22 @@ public class CocoWebExceptionHandler {
         return handleCocoException(exception, request, locale, true);
     }
 
+    /**
+     * <p>使用既有响应元数据和国际化规则创建基础设施错误响应。</p>
+     * @param statusCode HTTP 状态
+     * @param code 业务响应码
+     * @param messageCode 国际化消息码
+     * @param request 当前 Web 请求
+     * @param locale 当前请求语言
+     * @return 统一错误响应实体
+     */
+    public ResponseEntity<Object> handleError(HttpStatusCode statusCode, int code, String messageCode,
+            WebRequest request, Locale locale) {
+        Objects.requireNonNull(statusCode, "statusCode must not be null");
+        Objects.requireNonNull(messageCode, "messageCode must not be null");
+        return error(statusCode, code, this.messageService.getMessage(messageCode, effectiveLocale(locale)), request);
+    }
+
     private ResponseEntity<Object> handleCocoException(CocoException exception, WebRequest request, Locale locale,
             boolean explicitLocale) {
         CocoException checkedException = Objects.requireNonNull(exception, "exception must not be null");
