@@ -3627,6 +3627,27 @@ def context_evidence_sources(
     return result
 
 
+def context_evidence_catalog(context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the protected, content-free catalog of canonical evidence sources."""
+
+    catalog: list[dict[str, Any]] = []
+    for (domain, path), available in sorted(context_evidence_sources(context).items()):
+        ranges: list[list[int]] = []
+        for line in sorted(available):
+            if not ranges or line != ranges[-1][1] + 1:
+                ranges.append([line, line])
+            else:
+                ranges[-1][1] = line
+        catalog.append(
+            {
+                "trust_domain": domain,
+                "path": path,
+                "available_line_ranges": ranges,
+            }
+        )
+    return catalog
+
+
 def validate_evidence_refs(
     value: Any, context: dict[str, Any], role: str
 ) -> list[dict[str, Any]]:
@@ -3653,41 +3674,41 @@ def validate_evidence_refs(
         end = reference.get("end_line")
         checks = reference.get("checks")
         if not isinstance(domain, str):
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference trust_domain must be a string."
             )
         if not isinstance(path, str):
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference path must be a string."
             )
         if type(start) is not int or type(end) is not int:
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference line range must use integer start_line and end_line."
             )
         if start < 1 or end < start or end - start > 500:
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference line range must satisfy 1 <= start_line <= end_line and span at most 501 lines."
             )
         if not isinstance(checks, list) or not checks:
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference checks must be a non-empty array."
             )
         if any(not isinstance(check, str) for check in checks):
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference checks must contain only strings."
             )
         if any(check not in VERIFIER_CHECK_FIELDS for check in checks):
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference checks contain an unsupported field."
             )
         checks = sorted(set(checks))
         available = sources.get((domain, path))
         if available is None:
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference trust_domain and path must name a supplied canonical source."
             )
         if any(line not in available for line in range(start, end + 1)):
-            raise ReviewError(
+            raise ReportShapeError(
                 f"Cross-review {role} evidence reference line range must stay within supplied canonical line coverage."
             )
         item = {
@@ -3699,7 +3720,9 @@ def validate_evidence_refs(
         }
         identity = canonical_json(item)
         if identity in seen:
-            raise ReviewError(f"Cross-review {role} evidence reference is duplicated.")
+            raise ReportShapeError(
+                f"Cross-review {role} evidence reference is duplicated."
+            )
         seen.add(identity)
         normalized.append(item)
     return normalized
@@ -4243,6 +4266,12 @@ def command_cross(args: argparse.Namespace) -> int:
             f"## Protected task metadata\n{canonical_json(protected_task)}",
             f"## Assigned verifier\nID: {args.role}\nFocus: {verifier.get('focus', verifier.get('lens', ''))}",
             f"## Trusted Coco policy\n{trusted_policy_text(context)}",
+            "## Protected canonical evidence source catalog\n"
+            "For `evidence_refs`, copy `trust_domain` and `path` exactly from this "
+            "catalog and keep every inclusive line range entirely within its "
+            "available coverage. This catalog is the only canonical source list; "
+            "it contains no source content.\n"
+            f"{canonical_json(context_evidence_catalog(context))}",
         ]
     )
     max_tokens = int(
