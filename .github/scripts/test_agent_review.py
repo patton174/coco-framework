@@ -12962,8 +12962,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_630, largest_size)
-        self.assertEqual(7_370, limit - largest_size)
+        self.assertEqual(56_628, largest_size)
+        self.assertEqual(7_372, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
@@ -13206,6 +13206,30 @@ class CrossHeadContinuityTest(unittest.TestCase):
             "relationships": [relationship or self.relationship()],
         }
 
+    def task(self) -> str:
+        return review.canonical_json(
+            {
+                "continuity_candidates": self.context["trusted"][
+                    "continuity_candidates"
+                ],
+                "current_groups": self.groups,
+            }
+        )
+
+    def complete_continuity_with_repair(
+        self, client: object, role: str
+    ) -> dict[str, object]:
+        return review.complete_with_shape_repair(
+            client,
+            "protected continuity verifier system",
+            self.task(),
+            100,
+            lambda value: review.validate_continuity_report(
+                value, role, self.context, self.groups
+            ),
+            cross_review_fresh_retry=True,
+        )
+
     def test_continuity_max_tokens_retries_from_fresh_complete_task(self) -> None:
         role = "evidence-verifier"
         valid = self.report(role)
@@ -13350,6 +13374,138 @@ class CrossHeadContinuityTest(unittest.TestCase):
             correction = json.loads(user)
             self.assertIn("previous_response_sha256", correction)
             self.assertNotIn("previous_response", correction)
+
+    def test_continuity_current_anchor_shape_repairs_after_binding(self) -> None:
+        role = "evidence-verifier"
+        valid = self.report(role)
+        invalid = self.report(
+            role, self.relationship(current_anchor={"file": "invalid"})
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [invalid, valid]
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = self.complete_continuity_with_repair(client, role)
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+
+    def test_continuity_model_shape_errors_repair_after_binding(self) -> None:
+        role = "policy-skeptic"
+        cases = {
+            "previous_anchor": lambda report: report["relationships"][0].update(
+                {"previous_anchor": {"file": "invalid"}}
+            ),
+            "candidate_sha256": lambda report: report["relationships"][0].update(
+                {"candidate_sha256": "not-a-digest"}
+            ),
+            "top_level_fields": lambda report: report.update({"extra": True}),
+        }
+
+        for name, corrupt in cases.items():
+            with self.subTest(shape=name):
+                valid = self.report(role)
+                invalid = json.loads(json.dumps(valid))
+                corrupt(invalid)
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+                        self.responses = [invalid, valid]
+
+                    def complete(
+                        self, system: str, user: str, max_tokens: int
+                    ) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        return self.responses.pop(0)
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    result = self.complete_continuity_with_repair(client, role)
+
+                self.assertEqual(valid, result)
+                self.assertEqual(2, len(client.calls))
+
+    def test_continuity_model_shape_errors_fail_closed_after_three_attempts(
+        self,
+    ) -> None:
+        role = "policy-skeptic"
+        cases = {
+            "current_anchor": lambda report: report["relationships"][0].update(
+                {"current_anchor": {"file": "invalid"}}
+            ),
+            "previous_anchor": lambda report: report["relationships"][0].update(
+                {"previous_anchor": {"file": "invalid"}}
+            ),
+            "candidate_sha256": lambda report: report["relationships"][0].update(
+                {"candidate_sha256": "not-a-digest"}
+            ),
+            "top_level_fields": lambda report: report.update({"extra": True}),
+        }
+
+        for name, corrupt in cases.items():
+            with self.subTest(shape=name):
+                invalid = self.report(role)
+                corrupt(invalid)
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(
+                        self, system: str, user: str, max_tokens: int
+                    ) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        return invalid
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.ReportShapeError):
+                        self.complete_continuity_with_repair(client, role)
+
+                self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+
+    def test_continuity_identity_and_binding_errors_fail_without_repair(self) -> None:
+        role = "evidence-verifier"
+        cases = {
+            "schema_version": lambda report: report.update({"schema_version": 1}),
+            "role": lambda report: report.update({"role": "invalid-role"}),
+            "head_sha": lambda report: report["binding"].update({"head_sha": "c" * 40}),
+            "context_sha256": lambda report: report["binding"].update(
+                {"context_sha256": "d" * 64}
+            ),
+        }
+
+        for name, corrupt in cases.items():
+            with self.subTest(protected=name):
+                invalid = json.loads(json.dumps(self.report(role)))
+                corrupt(invalid)
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(
+                        self, system: str, user: str, max_tokens: int
+                    ) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        return invalid
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.ReviewError) as caught:
+                        self.complete_continuity_with_repair(client, role)
+
+                self.assertNotIsInstance(caught.exception, review.ReportShapeError)
+                self.assertEqual(1, len(client.calls))
 
     def test_command_continuity_enables_cross_review_fresh_retry(self) -> None:
         role = "evidence-verifier"
