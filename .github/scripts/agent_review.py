@@ -117,6 +117,8 @@ VERIFIER_FACT_FIELDS = ("claim", "severity", "anchor", "trigger", "impact")
 VERIFIER_CHECK_FIELDS = (*VERIFIER_FACT_FIELDS, "change_scope")
 VERIFIER_FACT_VALUES = {"SUPPORTED", "CONTRADICTED", "UNVERIFIED"}
 VERIFIER_SCOPE_VALUES = {"IN_SCOPE", "OUT_OF_SCOPE", "UNVERIFIED"}
+BLOCKING_FINDING_SEVERITIES = frozenset({"P0", "P1"})
+NONBLOCKING_FINDING_SEVERITIES = frozenset({"P2", "P3"})
 POLICY_EVIDENCE_DOMAINS = frozenset({"protected-policy", "base-spec"})
 CODE_EVIDENCE_DOMAINS = frozenset({"head-code", "base-code"})
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
@@ -3651,42 +3653,41 @@ def validate_evidence_refs(
         end = reference.get("end_line")
         checks = reference.get("checks")
         if not isinstance(domain, str):
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference trust_domain must be a string."
             )
         if not isinstance(path, str):
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference path must be a string."
             )
         if type(start) is not int or type(end) is not int:
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference line range must use integer start_line and end_line."
             )
         if start < 1 or end < start or end - start > 500:
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference line range must satisfy 1 <= start_line <= end_line and span at most 501 lines."
             )
         if not isinstance(checks, list) or not checks:
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference checks must be a non-empty array."
             )
         if any(not isinstance(check, str) for check in checks):
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference checks must contain only strings."
             )
-        if checks != sorted(set(checks)) or any(
-            check not in VERIFIER_CHECK_FIELDS for check in checks
-        ):
-            raise ReportShapeError(
-                f"Cross-review {role} evidence reference checks must be a sorted, duplicate-free subset of {list(sorted(VERIFIER_CHECK_FIELDS))}."
+        if any(check not in VERIFIER_CHECK_FIELDS for check in checks):
+            raise ReviewError(
+                f"Cross-review {role} evidence reference checks contain an unsupported field."
             )
+        checks = sorted(set(checks))
         available = sources.get((domain, path))
         if available is None:
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference trust_domain and path must name a supplied canonical source."
             )
         if any(line not in available for line in range(start, end + 1)):
-            raise ReportShapeError(
+            raise ReviewError(
                 f"Cross-review {role} evidence reference line range must stay within supplied canonical line coverage."
             )
         item = {
@@ -3698,9 +3699,7 @@ def validate_evidence_refs(
         }
         identity = canonical_json(item)
         if identity in seen:
-            raise ReportShapeError(
-                f"Cross-review {role} evidence reference is duplicated."
-            )
+            raise ReviewError(f"Cross-review {role} evidence reference is duplicated.")
         seen.add(identity)
         normalized.append(item)
     return normalized
@@ -3746,13 +3745,13 @@ def validate_verifier_evidence_domains(
                 check in {"severity", "change_scope"}
                 and domain not in POLICY_EVIDENCE_DOMAINS
             ):
-                raise ReportShapeError(
+                raise ReviewError(
                     f"Cross-review {role} {check} evidence must be protected policy or a base specification."
                 )
             if checks[check] == "CONTRADICTED" and domain not in (
                 POLICY_EVIDENCE_DOMAINS | CODE_EVIDENCE_DOMAINS
             ):
-                raise ReportShapeError(
+                raise ReviewError(
                     f"Cross-review {role} contradicted evidence has an invalid domain."
                 )
 
@@ -4005,6 +4004,35 @@ def reviewable_findings(reports: Iterable[dict[str, Any]]) -> list[dict[str, Any
     ]
 
 
+def blocking_findings(reports: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        finding
+        for finding in reviewable_findings(reports)
+        if finding.get("severity") in BLOCKING_FINDING_SEVERITIES
+    ]
+
+
+def nonblocking_consensus_finding_ids(consensus: dict[str, Any]) -> set[str]:
+    result: set[str] = set()
+    for state in ("confirmed", "challenged", "unverified"):
+        entries = consensus.get(state)
+        if not isinstance(entries, list):
+            raise ReviewError(f"Consensus {state} findings are invalid.")
+        for item in entries:
+            if not isinstance(item, dict) or not isinstance(item.get("finding"), dict):
+                raise ReviewError("Consensus finding entry is invalid.")
+            finding = item["finding"]
+            finding_id = finding.get("id")
+            if (
+                finding.get("severity") in NONBLOCKING_FINDING_SEVERITIES
+                and isinstance(finding_id, str)
+                and finding_id
+                and (state == "confirmed" or item.get("verification") == {})
+            ):
+                result.add(finding_id)
+    return result
+
+
 def validate_cross_report(
     report: dict[str, Any],
     role: str,
@@ -4086,6 +4114,8 @@ def _validate_cross_report_contract(
         evidence_refs = validate_evidence_refs(
             review.get("evidence_refs"), context, role
         )
+        if not raw_schema:
+            review["evidence_refs"] = evidence_refs
         validate_verifier_evidence_domains(checks, evidence_refs, role)
         action = derive_verifier_action(checks, evidence_refs)
         evidence = (
@@ -4118,7 +4148,7 @@ def _validate_cross_report_contract(
         )
     if seen != finding_ids:
         raise ReportShapeError(
-            f"Cross-review {role} did not address every P0-P3 finding."
+            f"Cross-review {role} did not address every P0/P1 finding."
         )
     context_gaps = report.get("context_gaps")
     if (
@@ -4169,12 +4199,33 @@ def command_cross(args: argparse.Namespace) -> int:
             limits["max_questions_per_agent"],
             limits["max_context_gaps_per_agent"],
         )
-    claims = reviewable_findings(reports)
+    claims = blocking_findings(reports)
     finding_ids = {str(finding["id"]) for finding in claims}
     verifiers = role_map(config, "verifiers")
     if args.role not in verifiers:
         raise ReviewError(f"Unknown verifier role: {args.role}")
     verifier = verifiers[args.role]
+    if not claims:
+        binding = context["binding"]
+        report = {
+            "schema_version": SCHEMA_VERSION,
+            "role": args.role,
+            "head_sha": binding["head_sha"],
+            "context_sha256": binding["context_sha256"],
+            "status": "NOT_NEEDED",
+            "evidence": "No P0/P1 blocker candidates were present in the bound specialist reports.",
+            "reviews": [],
+            "context_gaps": [],
+        }
+        validate_cross_report(
+            report,
+            args.role,
+            context,
+            finding_ids,
+            normalized_limits(config)["max_context_gaps_per_agent"],
+        )
+        write_json(args.output, report)
+        return 0
     user = canonical_json(
         {
             "claims": claims,
@@ -4233,7 +4284,18 @@ def compute_consensus(
         raise ReviewError("Verifier report set is incomplete.")
     result = {"confirmed": [], "challenged": [], "unverified": []}
     for finding_id, finding in findings.items():
-        entries = {role: role_votes[finding_id] for role, role_votes in votes.items()}
+        entries = {
+            role: role_votes[finding_id]
+            for role, role_votes in votes.items()
+            if finding_id in role_votes
+        }
+        if finding.get("severity") in NONBLOCKING_FINDING_SEVERITIES and len(
+            entries
+        ) != len(required):
+            result["unverified"].append({"finding": finding, "verification": {}})
+            continue
+        if len(entries) != len(required):
+            raise ReviewError("Verifier report omitted a blocking finding.")
         actions = {entry["action"] for entry in entries.values()}
         item = {"finding": finding, "verification": entries}
         if actions == {"AGREE"}:
@@ -4353,12 +4415,13 @@ def _validate_chair_contract(
     chair_group_member_ids(chair)
     if not isinstance(groups, list):
         raise AssertionError("Chair group validation must return an array.")
-    confirmed_items = {
+    consensus_items = {
         str(item["finding"]["id"]): item["finding"]
-        for item in consensus.get("confirmed", [])
+        for state in ("confirmed", "challenged", "unverified")
+        for item in consensus.get(state, [])
         if isinstance(item, dict) and isinstance(item.get("finding"), dict)
     }
-    eligible_followups = confirmed_finding_ids(consensus, {"P2", "P3"})
+    eligible_followups = nonblocking_consensus_finding_ids(consensus)
     if allowed_followups is not None:
         eligible_followups &= allowed_followups
     allowed_ids = set(confirmed) | eligible_followups
@@ -4393,7 +4456,7 @@ def _validate_chair_contract(
             raise ReportShapeError(
                 "Chair actionable group references an ineligible or duplicate finding."
             )
-        findings = [confirmed_items[value] for value in members]
+        findings = [consensus_items[value] for value in members]
         kinds = {
             "confirmed-blocker" if value in confirmed else "follow-up"
             for value in members
@@ -4553,10 +4616,10 @@ def compact_review(
         severity = str(finding["severity"])
         if state == "confirmed" and severity in {"P0", "P1"}:
             disposition = "confirmed blocker"
-        elif state == "confirmed" and finding_id in selected_followup_ids:
-            disposition = "verified and selected"
-        elif state == "confirmed":
-            disposition = "verified, not selected"
+        elif finding_id in selected_followup_ids:
+            disposition = "non-blocking follow-up selected"
+        elif severity in NONBLOCKING_FINDING_SEVERITIES and not item["verification"]:
+            disposition = "non-blocking follow-up"
         else:
             disposition = state
         votes = ", ".join(
@@ -4608,10 +4671,10 @@ def render_review(
 ) -> str:
     binding = context["binding"]
     confirmed_blocker_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
-    eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
+    eligible_followup_ids = nonblocking_consensus_finding_ids(consensus)
     selected_followup_ids = chair_group_member_ids(chair) - confirmed_blocker_ids
     consensus_state = {
-        str(item["finding"]["id"]): state
+        str(item["finding"]["id"]): (state, item)
         for state in ("confirmed", "challenged", "unverified")
         for item in consensus[state]
     }
@@ -4680,11 +4743,13 @@ def render_review(
     if lower:
         for finding in lower:
             finding_id = str(finding["id"])
-            state = consensus_state.get(finding_id, "unverified")
+            state, item = consensus_state.get(finding_id, ("unverified", {}))
             if finding_id in selected_followup_ids:
-                disposition = "verified and selected"
+                disposition = "selected for Issue"
+            elif item.get("verification"):
+                disposition = state
             elif finding_id in eligible_followup_ids:
-                disposition = "verified, not selected"
+                disposition = "reported, not selected"
             else:
                 disposition = state
             lines.append(
@@ -4783,7 +4848,7 @@ def command_chair(args: argparse.Namespace) -> int:
             limits["max_context_gaps_per_agent"],
         )
     finding_ids = {
-        str(finding["id"]) for finding in reviewable_findings(specialist_reports)
+        str(finding["id"]) for finding in blocking_findings(specialist_reports)
     }
     for report in verifier_reports:
         validate_cross_report(
@@ -4795,7 +4860,7 @@ def command_chair(args: argparse.Namespace) -> int:
         )
     consensus = compute_consensus(specialist_reports, verifier_reports)
     confirmed_blocker_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
-    eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
+    eligible_followup_ids = nonblocking_consensus_finding_ids(consensus)
     deterministic = {
         "confirmed_blocker_ids": sorted(confirmed_blocker_ids),
         "eligible_follow_up_ids": sorted(eligible_followup_ids),
@@ -4990,7 +5055,7 @@ def validate_final_artifact(
             limits["max_context_gaps_per_agent"],
         )
     finding_ids = {
-        str(finding["id"]) for finding in reviewable_findings(specialist_reports)
+        str(finding["id"]) for finding in blocking_findings(specialist_reports)
     }
     for report in verifier_reports:
         validate_cross_report(
@@ -5009,7 +5074,7 @@ def validate_final_artifact(
     chair = final.get("chair")
     if not isinstance(chair, dict):
         raise ReviewError("Final jury chair report is invalid.")
-    allowed_followups = confirmed_finding_ids(consensus, {"P2", "P3"})
+    allowed_followups = nonblocking_consensus_finding_ids(consensus)
     validate_chair(
         chair,
         consensus,
@@ -5194,7 +5259,7 @@ def actionable_findings(
     if not isinstance(consensus, dict) or not isinstance(chair, dict):
         raise ReviewError("Final jury artifact cannot select actionable findings.")
     confirmed_ids = confirmed_finding_ids(consensus, {"P0", "P1"})
-    eligible_followup_ids = confirmed_finding_ids(consensus, {"P2", "P3"})
+    eligible_followup_ids = nonblocking_consensus_finding_ids(consensus)
     groups = chair.get("actionable_groups")
     if not isinstance(groups, list):
         raise ReviewError("Chair actionable groups are invalid.")
