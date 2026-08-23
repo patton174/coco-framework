@@ -8,11 +8,9 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -26,17 +24,21 @@ class InMemoryCocoIdempotencyStoreTest {
     @Test
     void sameKeyCompetitionHasExactlyOneWinnerAfterCommonStart() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-08-24T00:00:00Z"));
-        ExecutorService executor = Executors.newFixedThreadPool(16);
+        ExecutorService executor = Executors.newFixedThreadPool(64);
         try (InMemoryCocoIdempotencyStore store = new InMemoryCocoIdempotencyStore(properties(10), clock, false)) {
-            CyclicBarrier start = new CyclicBarrier(64);
+            CountDownLatch ready = new CountDownLatch(64);
+            CountDownLatch start = new CountDownLatch(1);
             List<Future<CocoIdempotencyStore.AcquireResult>> results = new ArrayList<>();
             for (int index = 0; index < 64; index++) {
                 int owner = index;
                 results.add(executor.submit(() -> {
-                    start.await(5, TimeUnit.SECONDS);
+                    ready.countDown();
+                    if (!start.await(5, TimeUnit.SECONDS)) { throw new AssertionError("workers were not released"); }
                     return store.acquire(lease("owner-" + owner, "orders", clock, 60));
                 }));
             }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
             assertThat(results.stream().map(this::result)
                     .filter(value -> value == CocoIdempotencyStore.AcquireResult.ACQUIRED)).hasSize(1);
             assertThat(store.size()).isOne();
@@ -47,20 +49,25 @@ class InMemoryCocoIdempotencyStoreTest {
     @Test
     void differentKeysNeverExceedStrictCapacityUnderConcurrentArrival() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-08-24T00:00:00Z"));
-        ExecutorService executor = Executors.newFixedThreadPool(16);
+        ExecutorService executor = Executors.newFixedThreadPool(32);
         try (InMemoryCocoIdempotencyStore store = new InMemoryCocoIdempotencyStore(properties(8), clock, false)) {
-            CyclicBarrier start = new CyclicBarrier(32);
+            CountDownLatch ready = new CountDownLatch(32);
+            CountDownLatch start = new CountDownLatch(1);
             List<Future<CocoIdempotencyStore.AcquireResult>> results = new ArrayList<>();
             for (int index = 0; index < 32; index++) {
                 int key = index;
                 results.add(executor.submit(() -> {
-                    start.await(5, TimeUnit.SECONDS);
+                    ready.countDown();
+                    if (!start.await(5, TimeUnit.SECONDS)) { throw new AssertionError("workers were not released"); }
                     return store.acquire(lease("owner-" + key, "operation-" + key, clock, 60));
                 }));
             }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
             assertThat(results.stream().map(this::result)
                     .filter(value -> value == CocoIdempotencyStore.AcquireResult.ACQUIRED)).hasSize(8);
             assertThat(store.size()).isEqualTo(8);
+            assertThat(store.entryCount()).isEqualTo(8);
         }
         finally { executor.shutdownNow(); }
     }
@@ -131,6 +138,42 @@ class InMemoryCocoIdempotencyStoreTest {
         }
     }
 
+    @Test
+    void expiredSameBinEntryIsCleanedBeforeTheReplacementIsComputed() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-24T00:00:00Z"));
+        CocoIdempotencyKey[] keys = sameBinKeys();
+        ConcurrentMap<CocoIdempotencyKey, InMemoryCocoIdempotencyStore.Entry> entries = new ConcurrentHashMap<>(1);
+        try (InMemoryCocoIdempotencyStore store = new InMemoryCocoIdempotencyStore(properties(1), clock, false, entries)) {
+            CocoIdempotencyLease expired = new CocoIdempotencyLease(keys[0], "owner-a", clock.instant().plusSeconds(1));
+            CocoIdempotencyLease replacement = new CocoIdempotencyLease(keys[1], "owner-b", clock.instant().plusSeconds(60));
+            assertThat(store.acquire(expired)).isEqualTo(CocoIdempotencyStore.AcquireResult.ACQUIRED);
+            clock.advanceSeconds(1);
+
+            assertThat(store.acquire(replacement)).isEqualTo(CocoIdempotencyStore.AcquireResult.ACQUIRED);
+            assertThat(store.acquire(new CocoIdempotencyLease(keys[1], "owner-c", clock.instant().plusSeconds(60))))
+                    .isEqualTo(CocoIdempotencyStore.AcquireResult.DUPLICATE);
+            assertThat(store.size()).isOne();
+            assertThat(store.entryCount()).isOne();
+        }
+    }
+
+    @Test
+    void fullCapacityMissesRunAtMostOneFullCleanupWithinTheCleanupWindow() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-24T00:00:00Z"));
+        CocoIdempotencyProperties properties = properties(1);
+        properties.setCleanupInterval(java.time.Duration.ofMinutes(1));
+        try (InMemoryCocoIdempotencyStore store = new InMemoryCocoIdempotencyStore(properties, clock, false)) {
+            assertThat(store.acquire(lease("owner", "occupied", clock, 60))).isEqualTo(CocoIdempotencyStore.AcquireResult.ACQUIRED);
+            for (int index = 0; index < 20; index++) {
+                assertThat(store.acquire(lease("owner-" + index, "miss-" + index, clock, 60)))
+                        .isEqualTo(CocoIdempotencyStore.AcquireResult.UNAVAILABLE);
+            }
+            assertThat(store.capacityCleanupRuns()).isOne();
+            assertThat(store.size()).isOne();
+            assertThat(store.entryCount()).isOne();
+        }
+    }
+
     private CocoIdempotencyStore.AcquireResult result(Future<CocoIdempotencyStore.AcquireResult> future) {
         try { return future.get(5, TimeUnit.SECONDS); }
         catch (Exception exception) { throw new AssertionError(exception); }
@@ -146,6 +189,26 @@ class InMemoryCocoIdempotencyStoreTest {
         return new CocoIdempotencyLease(CocoIdempotencyKey.fromRawKey("default", "POST", operation,
                 "request-key-" + operation), owner, clock.instant().plusSeconds(seconds));
     }
+
+    private static CocoIdempotencyKey[] sameBinKeys() {
+        CocoIdempotencyKey first = null;
+        int firstBin = -1;
+        for (int index = 0; index < 10_000; index++) {
+            CocoIdempotencyKey candidate = CocoIdempotencyKey.fromRawKey("default", "POST", "orders",
+                    "same-bin-key-" + index);
+            int bin = spread(candidate.hashCode()) & 1;
+            if (first == null) {
+                first = candidate;
+                firstBin = bin;
+            }
+            else if (firstBin == bin) {
+                return new CocoIdempotencyKey[] {first, candidate};
+            }
+        }
+        throw new AssertionError("no same-bin keys found");
+    }
+
+    private static int spread(int hash) { return hash ^ (hash >>> 16); }
 
     private static final class BlockingMap extends ConcurrentHashMap<CocoIdempotencyKey, InMemoryCocoIdempotencyStore.Entry> {
         private final CountDownLatch computeEntered = new CountDownLatch(1);

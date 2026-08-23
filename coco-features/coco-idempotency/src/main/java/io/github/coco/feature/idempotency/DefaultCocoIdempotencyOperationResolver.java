@@ -1,8 +1,6 @@
 package io.github.coco.feature.idempotency;
 
-import java.lang.reflect.AnnotatedElement;
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -13,35 +11,50 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerMapping;
 
-/** 基于处理方法和完整 {@link RequestMapping} 条件的默认操作标识解析器。 */
+/** 基于完整稳定 {@link RequestMapping} 条件的默认操作标识解析器。 */
 public final class DefaultCocoIdempotencyOperationResolver implements CocoIdempotencyOperationResolver {
     @Override
     public String resolve(HttpServletRequest request, HandlerMethod handlerMethod) {
         Objects.requireNonNull(request, "request must not be null");
         HandlerMethod checked = Objects.requireNonNull(handlerMethod, "handlerMethod must not be null");
+        String matchedPath = matchedPattern(request);
+        return "path=" + matchedPath
+                + ";methods=" + methods(checked)
+                + ";params=" + conditions(checked, RequestMapping::params)
+                + ";headers=" + conditions(checked, RequestMapping::headers)
+                + ";consumes=" + conditions(checked, RequestMapping::consumes)
+                + ";produces=" + conditions(checked, RequestMapping::produces);
+    }
+
+    private static String matchedPattern(HttpServletRequest request) {
         Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
-        String matchedPath = pattern == null ? request.getRequestURI() : String.valueOf(pattern);
-        return checked.getBeanType().getName() + "#" + checked.getMethod().toGenericString()
-                + "|class=" + mapping(checked.getBeanType())
-                + "|method=" + mapping(checked.getMethod())
-                + "|matched-path=" + matchedPath;
+        if (pattern == null) {
+            throw new IllegalStateException("No Spring matching route pattern is available");
+        }
+        String value = String.valueOf(pattern).trim();
+        if (value.isEmpty()) {
+            throw new IllegalStateException("Spring matching route pattern is blank");
+        }
+        return value;
     }
 
-    private static String mapping(AnnotatedElement element) {
-        RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(element, RequestMapping.class);
-        if (mapping == null) { return ""; }
-        return "paths=" + values(mapping.path(), mapping.value())
-                + ";methods=" + Arrays.stream(mapping.method()).map(RequestMethod::name).sorted()
-                        .collect(Collectors.joining(","))
-                + ";params=" + values(mapping.params())
-                + ";headers=" + values(mapping.headers())
-                + ";consumes=" + values(mapping.consumes())
-                + ";produces=" + values(mapping.produces());
+    private static String methods(HandlerMethod handlerMethod) {
+        return mappings(handlerMethod).flatMap(mapping -> Arrays.stream(mapping.method())).map(RequestMethod::name)
+                .distinct().sorted().collect(Collectors.joining(","));
     }
 
-    private static String values(String[]... groups) {
-        return Arrays.stream(groups).flatMap(Arrays::stream).filter(Objects::nonNull).map(String::trim)
-                .filter(value -> !value.isEmpty()).map(value -> value.toLowerCase(Locale.ROOT)).distinct().sorted()
+    private static String conditions(HandlerMethod handlerMethod, MappingValues values) {
+        return mappings(handlerMethod).flatMap(mapping -> Arrays.stream(values.apply(mapping))).filter(Objects::nonNull)
+                .map(String::trim).filter(value -> !value.isEmpty()).distinct().sorted()
                 .collect(Collectors.joining(","));
     }
+
+    private static java.util.stream.Stream<RequestMapping> mappings(HandlerMethod handlerMethod) {
+        return java.util.stream.Stream.of(handlerMethod.getBeanType(), handlerMethod.getMethod())
+                .map(element -> AnnotatedElementUtils.findMergedAnnotation(element, RequestMapping.class))
+                .filter(Objects::nonNull);
+    }
+
+    @FunctionalInterface
+    private interface MappingValues { String[] apply(RequestMapping mapping); }
 }

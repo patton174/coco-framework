@@ -110,11 +110,36 @@ class CocoIdempotencyMvcInterceptorTest {
     }
 
     @Test
+    void routeOperationIdentityIsStableAcrossEquivalentHandlersAndSeparatesMappingConditions() {
+        DefaultCocoIdempotencyOperationResolver resolver = new DefaultCocoIdempotencyOperationResolver();
+        org.springframework.mock.web.MockHttpServletRequest request =
+                new org.springframework.mock.web.MockHttpServletRequest("POST", "/orders/42");
+        request.setAttribute(org.springframework.web.servlet.HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/orders/{id}");
+
+        String first = resolver.resolve(request, new HandlerMethod(new EquivalentControllerOne(),
+                method(EquivalentControllerOne.class, "operation")));
+        String second = resolver.resolve(request, new HandlerMethod(new EquivalentControllerTwo(),
+                method(EquivalentControllerTwo.class, "operation")));
+        String headerVariant = resolver.resolve(request, new HandlerMethod(new ConditionController(),
+                method(ConditionController.class, "one")));
+        String parameterVariant = resolver.resolve(request, new HandlerMethod(new ParameterController(),
+                method(ParameterController.class, "one")));
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).doesNotContain(EquivalentControllerOne.class.getName()).doesNotContain("operation()");
+        assertThat(headerVariant).isNotEqualTo(resolver.resolve(request, new HandlerMethod(new ConditionController(),
+                method(ConditionController.class, "two"))));
+        assertThat(parameterVariant).isNotEqualTo(resolver.resolve(request, new HandlerMethod(new ParameterController(),
+                method(ParameterController.class, "two"))));
+    }
+
+    @Test
     void methodAnnotationOverridesClassNamespace() {
         CocoIdempotencyProperties properties = new CocoIdempotencyProperties();
         DefaultCocoIdempotencyKeyResolver resolver = new DefaultCocoIdempotencyKeyResolver(properties);
         org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest("POST", "/orders");
         request.addHeader("Idempotency-Key", "method-key");
+        request.setAttribute(org.springframework.web.servlet.HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/orders");
         HandlerMethod method = new HandlerMethod(new ClassAnnotatedController(), method(ClassAnnotatedController.class, "operation"));
         CocoIdempotent annotation = org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(
                 method.getMethod(), CocoIdempotent.class);
@@ -161,6 +186,26 @@ class CocoIdempotencyMvcInterceptorTest {
         private final AtomicInteger twoCalls = new AtomicInteger();
         @PostMapping(value = "/orders/condition", headers = "X-Mode=one") @CocoIdempotent String one() { this.oneCalls.incrementAndGet(); return "one"; }
         @PostMapping(value = "/orders/condition", headers = "X-Mode=two") @CocoIdempotent String two() { this.twoCalls.incrementAndGet(); return "two"; }
+    }
+
+    @RestController
+    static class ParameterController {
+        @PostMapping(value = "/orders/{id}", params = "version=1") @CocoIdempotent String one() { return "one"; }
+        @PostMapping(value = "/orders/{id}", params = "version=2") @CocoIdempotent String two() { return "two"; }
+    }
+
+    @RestController
+    static class EquivalentControllerOne {
+        @PostMapping(value = "/orders/{id}", params = "version=1", headers = "X-Mode=one",
+                consumes = "application/json", produces = "application/json")
+        String operation() { return "one"; }
+    }
+
+    @RestController
+    static class EquivalentControllerTwo {
+        @PostMapping(value = "/orders/{id}", params = "version=1", headers = "X-Mode=one",
+                consumes = "application/json", produces = "application/json")
+        String operation() { return "two"; }
     }
 
     @CocoIdempotent(namespace = "class")

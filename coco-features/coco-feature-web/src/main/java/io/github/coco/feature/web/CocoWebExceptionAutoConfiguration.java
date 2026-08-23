@@ -2,6 +2,7 @@ package io.github.coco.feature.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.CocoCommonProperties;
+import io.github.coco.i18n.CocoLocaleResolver;
 import io.github.coco.i18n.CocoMessageService;
 import io.github.coco.logging.core.CocoLogManager;
 import io.github.coco.feature.web.exception.CocoExceptionHttpStatusResolver;
@@ -95,7 +96,7 @@ public class CocoWebExceptionAutoConfiguration {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
     public CocoWebErrorResponseWriter cocoWebErrorResponseWriter(CocoWebExceptionHandler exceptionHandler,
-            ObjectProvider<ObjectMapper> objectMapper) {
-        return new CocoWebErrorResponseWriter(exceptionHandler, objectMapper.getIfAvailable(ObjectMapper::new));
+            ObjectProvider<ObjectMapper> objectMapper, CocoLocaleResolver localeResolver) {
+        return new CocoWebErrorResponseWriter(exceptionHandler, objectMapper.getIfAvailable(ObjectMapper::new), localeResolver);
     }
 }

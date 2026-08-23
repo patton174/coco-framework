@@ -2,13 +2,12 @@ package io.github.coco.feature.web.exception;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.Objects;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.i18n.CocoLocaleResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -18,11 +17,19 @@ import org.springframework.web.context.request.ServletWebRequest;
 public final class CocoWebErrorResponseWriter {
     private final CocoWebExceptionHandler exceptionHandler;
     private final ObjectMapper objectMapper;
+    private final CocoLocaleResolver localeResolver;
 
     /** 创建统一错误响应写出器。 */
     public CocoWebErrorResponseWriter(CocoWebExceptionHandler exceptionHandler, ObjectMapper objectMapper) {
+        this(exceptionHandler, objectMapper, () -> null);
+    }
+
+    /** 创建使用 Coco 语言解析器的统一错误响应写出器。 */
+    public CocoWebErrorResponseWriter(CocoWebExceptionHandler exceptionHandler, ObjectMapper objectMapper,
+            CocoLocaleResolver localeResolver) {
         this.exceptionHandler = Objects.requireNonNull(exceptionHandler, "exceptionHandler must not be null");
         this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
+        this.localeResolver = Objects.requireNonNull(localeResolver, "localeResolver must not be null");
     }
 
     /**
@@ -40,16 +47,11 @@ public final class CocoWebErrorResponseWriter {
         Objects.requireNonNull(messageCode, "messageCode must not be null");
         if (response.isCommitted()) { throw new IllegalStateException("Cannot write an error response after commit"); }
         ResponseEntity<Object> entity = this.exceptionHandler.handleError(status, code, messageCode,
-                new ServletWebRequest(request, response), resolveRequestLocale(request));
+                new ServletWebRequest(request, response), this.localeResolver.resolveLocale());
         response.setStatus(entity.getStatusCode().value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         entity.getHeaders().forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
         this.objectMapper.writeValue(response.getOutputStream(), entity.getBody());
-    }
-
-    private static Locale resolveRequestLocale(HttpServletRequest request) {
-        String acceptLanguage = request.getHeader(HttpHeaders.ACCEPT_LANGUAGE);
-        return acceptLanguage == null || acceptLanguage.isBlank() ? null : request.getLocale();
     }
 }

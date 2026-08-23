@@ -12,6 +12,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.slf4j.Logger;
@@ -27,6 +28,9 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
     private final ScheduledExecutorService cleanupExecutor;
     private final AtomicInteger entryCount = new AtomicInteger();
     private final AtomicBoolean capacityCleanupRunning = new AtomicBoolean();
+    private final AtomicLong nextCapacityCleanupAtMillis = new AtomicLong(Long.MIN_VALUE);
+    private final AtomicInteger capacityCleanupRuns = new AtomicInteger();
+    private final long capacityCleanupCooldownMillis;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final ReentrantReadWriteLock lifecycle = new ReentrantReadWriteLock();
 
@@ -49,6 +53,7 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
         if (interval == null || interval.isNegative()) {
             throw new IllegalArgumentException("coco.idempotency.cleanup-interval must not be negative");
         }
+        this.capacityCleanupCooldownMillis = Math.max(1L, interval.isZero() ? 1_000L : interval.toMillis());
         this.cleanupExecutor = backgroundCleanupEnabled && !interval.isZero() ? Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "coco-idempotency-cleanup");
             thread.setDaemon(true);
@@ -71,6 +76,9 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
             Instant now = this.clock.instant();
             if (this.closed.get() || !lease.expiresAt().isAfter(now)) { return AcquireResult.UNAVAILABLE; }
             AcquireResult result = acquireCurrent(lease, now);
+            if (result == AcquireResult.UNAVAILABLE && cleanupExpiredAtCapacity(now)) {
+                result = acquireCurrent(lease, now);
+            }
             if (this.closed.get() && result == AcquireResult.ACQUIRED) {
                 removeCurrent(lease.key(), new Entry(lease.ownerToken(), lease.expiresAt()));
                 return AcquireResult.UNAVAILABLE;
@@ -92,18 +100,12 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
                 acquired.set(true);
                 return new Entry(lease.ownerToken(), lease.expiresAt());
             }
-            if (!reserveEntry(now)) { return null; }
+            if (!reserveWithoutCleanup()) { return null; }
             acquired.set(true);
             return new Entry(lease.ownerToken(), lease.expiresAt());
         });
         if (acquired.get()) { return AcquireResult.ACQUIRED; }
         return duplicate.get() ? AcquireResult.DUPLICATE : AcquireResult.UNAVAILABLE;
-    }
-
-    private boolean reserveEntry(Instant now) {
-        if (reserveWithoutCleanup()) { return true; }
-        cleanupExpiredAtCapacity(now);
-        return reserveWithoutCleanup();
     }
 
     private boolean reserveWithoutCleanup() {
@@ -133,9 +135,20 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
         finally { this.lifecycle.readLock().unlock(); }
     }
 
-    private void cleanupExpiredAtCapacity(Instant now) {
-        if (!this.capacityCleanupRunning.compareAndSet(false, true)) { return; }
-        try { cleanupExpired(now); }
+    private boolean cleanupExpiredAtCapacity(Instant now) {
+        long currentMillis = now.toEpochMilli();
+        long nextAttempt = this.nextCapacityCleanupAtMillis.get();
+        if (currentMillis < nextAttempt
+                || !this.nextCapacityCleanupAtMillis.compareAndSet(nextAttempt,
+                        saturatingAdd(currentMillis, this.capacityCleanupCooldownMillis))) {
+            return false;
+        }
+        if (!this.capacityCleanupRunning.compareAndSet(false, true)) { return false; }
+        try {
+            this.capacityCleanupRuns.incrementAndGet();
+            cleanupExpired(now);
+            return true;
+        }
         finally { this.capacityCleanupRunning.set(false); }
     }
 
@@ -150,6 +163,10 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
     }
 
     int size() { return this.entries.size(); }
+
+    int entryCount() { return this.entryCount.get(); }
+
+    int capacityCleanupRuns() { return this.capacityCleanupRuns.get(); }
 
     @Override
     public void close() {
@@ -166,6 +183,10 @@ public final class InMemoryCocoIdempotencyStore implements CocoIdempotencyStore,
     private static int positive(int value, String property) {
         if (value < 1) { throw new IllegalArgumentException(property + " must be positive"); }
         return value;
+    }
+
+    private static long saturatingAdd(long value, long delta) {
+        return value > Long.MAX_VALUE - delta ? Long.MAX_VALUE : value + delta;
     }
 
     record Entry(String ownerToken, Instant expiresAt) { }

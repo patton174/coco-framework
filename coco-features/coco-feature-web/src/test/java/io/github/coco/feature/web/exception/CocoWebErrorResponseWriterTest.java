@@ -13,6 +13,7 @@ import io.github.coco.feature.web.response.DefaultCocoResponseBodyFactory;
 import io.github.coco.feature.web.trace.CocoTraceProperties;
 import io.github.coco.i18n.CocoMessage;
 import io.github.coco.i18n.CocoMessageService;
+import io.github.coco.i18n.CocoLocaleResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -49,12 +50,27 @@ class CocoWebErrorResponseWriterTest {
         assertThat(this.mapper.readTree(response.getContentAsByteArray()).has("traceId")).isFalse();
     }
 
+    @Test
+    void usesApplicationLocaleResolverWhenRequestDoesNotDeclareAcceptLanguage() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/orders/42");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        CocoWebErrorResponseWriter writer = writer(CocoResponseMetadataMode.NONE, () -> Locale.JAPANESE);
+
+        writer.write(HttpStatus.BAD_REQUEST, 40010, "locale", request, response);
+
+        assertThat(this.mapper.readTree(response.getContentAsByteArray()).path("message").asText()).isEqualTo("ja");
+    }
+
     private CocoWebErrorResponseWriter writer(CocoResponseMetadataMode mode) {
+        return writer(mode, () -> null);
+    }
+
+    private CocoWebErrorResponseWriter writer(CocoResponseMetadataMode mode, CocoLocaleResolver localeResolver) {
         CocoResponseProperties properties = new CocoResponseProperties();
         properties.setMetadataMode(mode);
         CocoWebExceptionHandler handler = new CocoWebExceptionHandler(new ChineseMessageService(), exception -> HttpStatus.INTERNAL_SERVER_ERROR,
                 CocoSystemCodes.defaults(), properties, new CocoTraceProperties(), new DefaultCocoResponseBodyFactory());
-        return new CocoWebErrorResponseWriter(handler, this.mapper);
+        return new CocoWebErrorResponseWriter(handler, this.mapper, localeResolver);
     }
 
     private static MockHttpServletRequest request() {
@@ -66,7 +82,9 @@ class CocoWebErrorResponseWriterTest {
 
     private static final class ChineseMessageService implements CocoMessageService {
         @Override public String getMessage(String code, Object... args) { return "error".equals(code) ? "中文错误" : code; }
-        @Override public String getMessage(String code, Locale locale, Object... args) { return getMessage(code, args); }
+        @Override public String getMessage(String code, Locale locale, Object... args) {
+            return "locale".equals(code) && Locale.JAPANESE.equals(locale) ? "ja" : getMessage(code, args);
+        }
         @Override public String getMessageOrDefault(String code, String defaultMessage, Object... args) { return getMessage(code, args); }
         @Override public String getMessageOrDefault(String code, String defaultMessage, Locale locale, Object... args) { return getMessage(code, args); }
         @Override public String resolve(CocoMessage message) { return getMessage(message.code()); }
