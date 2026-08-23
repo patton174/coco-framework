@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -124,10 +125,16 @@ class CocoIdempotencyMvcInterceptorTest {
                 method(ConditionController.class, "one")));
         String parameterVariant = resolver.resolve(request, new HandlerMethod(new ParameterController(),
                 method(ParameterController.class, "one")));
-        String versionOne = resolver.resolve(request, new HandlerMethod(new VersionController(),
-                method(VersionController.class, "one")));
-        String versionTwo = resolver.resolve(request, new HandlerMethod(new VersionController(),
-                method(VersionController.class, "two")));
+        String versionTwoWithClassOne = resolver.resolve(request, new HandlerMethod(new ClassVersionOneController(),
+                method(ClassVersionOneController.class, "versionTwo")));
+        String versionTwoWithClassThree = resolver.resolve(request, new HandlerMethod(new ClassVersionThreeController(),
+                method(ClassVersionThreeController.class, "renamedVersionTwo")));
+        String versionFourWithClassOne = resolver.resolve(request, new HandlerMethod(new ClassVersionOneController(),
+                method(ClassVersionOneController.class, "versionFour")));
+        String classFallbackOne = resolver.resolve(request, new HandlerMethod(new ClassVersionOneController(),
+                method(ClassVersionOneController.class, "classFallback")));
+        String classFallbackThree = resolver.resolve(request, new HandlerMethod(new ClassVersionThreeController(),
+                method(ClassVersionThreeController.class, "renamedClassFallback")));
 
         assertThat(first).isEqualTo(second);
         assertThat(first).doesNotContain(EquivalentControllerOne.class.getName()).doesNotContain("operation()");
@@ -135,7 +142,9 @@ class CocoIdempotencyMvcInterceptorTest {
                 method(ConditionController.class, "two"))));
         assertThat(parameterVariant).isNotEqualTo(resolver.resolve(request, new HandlerMethod(new ParameterController(),
                 method(ParameterController.class, "two"))));
-        assertThat(versionOne).isNotEqualTo(versionTwo);
+        assertThat(versionTwoWithClassOne).isEqualTo(versionTwoWithClassThree);
+        assertThat(versionTwoWithClassOne).isNotEqualTo(versionFourWithClassOne);
+        assertThat(classFallbackOne).isNotEqualTo(classFallbackThree);
     }
 
     @Test
@@ -200,9 +209,18 @@ class CocoIdempotencyMvcInterceptorTest {
     }
 
     @RestController
-    static class VersionController {
-        @PostMapping(value = "/orders/{id}", version = "1") @CocoIdempotent String one() { return "one"; }
-        @PostMapping(value = "/orders/{id}", version = "2") @CocoIdempotent String two() { return "two"; }
+    @RequestMapping(version = "1")
+    static class ClassVersionOneController {
+        @PostMapping(value = "/orders/{id}", version = "2") @CocoIdempotent String versionTwo() { return "two"; }
+        @PostMapping(value = "/orders/{id}", version = "4") @CocoIdempotent String versionFour() { return "four"; }
+        @PostMapping("/orders/{id}") @CocoIdempotent String classFallback() { return "class"; }
+    }
+
+    @RestController
+    @RequestMapping(version = "3")
+    static class ClassVersionThreeController {
+        @PostMapping(value = "/orders/{id}", version = "2") @CocoIdempotent String renamedVersionTwo() { return "two"; }
+        @PostMapping("/orders/{id}") @CocoIdempotent String renamedClassFallback() { return "class"; }
     }
 
     @RestController

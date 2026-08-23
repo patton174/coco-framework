@@ -51,8 +51,20 @@ public final class DefaultCocoIdempotencyOperationResolver implements CocoIdempo
     }
 
     private static String versions(HandlerMethod handlerMethod) {
-        return mappings(handlerMethod).map(RequestMapping::version).filter(Objects::nonNull).map(String::trim)
-                .filter(value -> !value.isEmpty()).distinct().sorted().collect(Collectors.joining(","));
+        String methodVersion = version(AnnotatedElementUtils.findMergedAnnotation(handlerMethod.getMethod(),
+                RequestMapping.class));
+        if (!methodVersion.isEmpty()) {
+            return methodVersion;
+        }
+        return version(AnnotatedElementUtils.findMergedAnnotation(handlerMethod.getBeanType(), RequestMapping.class));
+    }
+
+    private static String version(RequestMapping mapping) {
+        if (mapping == null || mapping.version() == null) {
+            return "";
+        }
+        String version = mapping.version().trim();
+        return version.isEmpty() ? "" : version;
     }
 
     private static java.util.stream.Stream<RequestMapping> mappings(HandlerMethod handlerMethod) {
