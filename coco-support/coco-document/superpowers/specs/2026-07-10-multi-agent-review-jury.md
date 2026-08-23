@@ -308,20 +308,22 @@ Verifier 报告还必须包含顶层 `evidence` 摘要以及逐 finding 的 `ver
 
 - 任一必要 Agent 超时、拒答、API 错误、无法纠正的 schema 错误或 hash 不匹配：基础设施
   BLOCK。
-- 模型输出因没有文本、文本不是严格 JSON 或兼容模型明确返回可重试的非完成状态时，使用
-  当前受保护 prompt、canonical task、角色和 binding 进行有界全新完成。在尚未取得可解析
-  报告时，全新完成输入不得包含上次输出。`max_tokens` 截断且返回非空文本时，受保护 runtime
-  可以改为有界续写：将原 canonical task 与截断前缀作为不可信数据，只要求返回该 JSON 对象
-  的剩余字符；runtime 必须逐段拼接，并且只接受拼接后可解析为一个完整 JSON 对象且通过原有
-  全部校验的结果。续写不能覆盖、推断或修复任何 binding 字段，也不能单独发布分片。
+- 无文本、非严格 JSON 或兼容模型可重试的非完成输出，使用受保护 prompt、canonical task、
+  角色和 binding 有界全新完成，不带上次输出。`max_tokens`
+  截断且返回非空文本时，specialist/chair 可有界续写：将原 task 与截断前缀作为不可信数据，
+  只返回该 JSON 对象的剩余字符；runtime 逐段拼接，只接受拼接后可解析为完整 JSON 对象且通过
+  原有全部校验的结果。续写不能覆盖、推断或修复任何 binding 字段，也不能单独发布分片。
+  cross-review/continuity 截断或非严格 JSON 从原 task 新鲜完成；禁 partial，紧凑 JSON、字符串<=240、
+  每 finding一项。
 - 对可解析 JSON，先校验 `schema_version`、受保护角色、`head_sha` 和 `context_sha256`；
   `schema_version` 必须是 JSON 整数 `1`，布尔值或浮点数均不接受。任一身份或 binding 不匹配
-  都立即失败关闭。上述绑定通过后，字段集合、字段类型、数组、枚举、范围、
-  引用完整性或确定性权限契约不匹配，允许在同一受保护 prompt、角色和 binding 下进行协议
-  纠错。纠错输入包含原 canonical task、上次输出和确定性校验错误，并全部按不可信数据处理。
-  全新输出重试与协议纠错共享同一个固定预算，可以按实际失败顺序组合，但每个 Agent 总计最多
-  调用模型三次；第三次仍未完成或不符合契约时基础设施 BLOCK。拒答、API/鉴权或传输错误、
-  非法响应 envelope、角色、SHA、hash 或 binding 不匹配不进入任何重试，立即失败关闭。
+  都立即失败关闭。binding 通过后字段/类型/数组/枚举/范围/引用/权限契约不匹配，可在同一受保护
+  prompt、角色、binding 下纠错；specialist/chair 可含原 task、上次输出和错误，均不可信。
+  cross-review/continuity 的 schema_version/role/binding 立即失败；其余 shape 纠错只传原 task、
+  上次 SHA-256 和不回显值的精确错误；从头替代，禁嵌入上次输出或清洗非法 evidence。
+  全新输出重试与协议纠错共享固定预算，可按失败顺序组合；每个 Agent 最多
+  调用模型三次，第三次仍未完成或不符合契约时基础设施 BLOCK。拒答、API/鉴权或传输错误、
+  非法响应 envelope、角色、SHA、hash 或 binding 不匹配立即失败关闭。
   每次可重试输出只记录 attempt、受控 `stop_reason`、响应/累计字符数以及 expected/actual
   binding 的短前缀；不得记录 API key、原始响应分片、canonical context 或模型提示词。
 - verifier 以结构化 claim/severity/anchor/trigger/impact/scope checks 和精确 evidence
