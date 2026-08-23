@@ -31,6 +31,9 @@ checks it supports. `severity` and `change_scope` may use only
 is `base-code`, and neither can be presented as policy. Missing context is
 `UNVERIFIED`; repeating specialist prose is not evidence.
 
+For every evidence reference, `checks` must be a sorted, duplicate-free subset
+of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
+
 `evidence-verifier` checks code facts, path and line anchors, realistic trigger
 conditions, actual control/data flow, and observable behavior. It must not
 decide that an explicit project policy is undesirable.
@@ -75,7 +78,14 @@ Return exactly one compact valid JSON object with this shape:
           "path": "<exact-context-source-path>",
           "start_line": 1,
           "end_line": 1,
-          "checks": ["anchor", "claim", "impact", "severity", "trigger"]
+          "checks": ["anchor", "claim", "impact", "trigger"]
+        },
+        {
+          "trust_domain": "protected-policy",
+          "path": "<exact-context-source-path>",
+          "start_line": 1,
+          "end_line": 1,
+          "checks": ["change_scope", "severity"]
         }
       ],
       "reason": "<one concise verification reason>",
