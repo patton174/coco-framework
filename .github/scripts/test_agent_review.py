@@ -1176,6 +1176,7 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-feature-mybatis-plus/pom.xml",
                 "coco-features/coco-mybatis-plus/pom.xml",
                 "coco-features/coco-feature-openapi/pom.xml",
+                "coco-features/coco-rate-limit/pom.xml",
                 "coco-features/coco-feature-security/pom.xml",
                 "coco-features/coco-feature-tenant/pom.xml",
             ],
