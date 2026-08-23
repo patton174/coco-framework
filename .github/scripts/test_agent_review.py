@@ -3077,12 +3077,15 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("every supplied P0/P1 blocker candidate", prompt)
         self.assertIn("P2/P3 candidates are not supplied to verifier calls.", prompt)
         self.assertIn("does not call you when there are no P0/P1 candidates", prompt)
+        self.assertIn("canonical evidence source catalog", prompt)
+        self.assertIn("copy its `trust_domain` and `path`", prompt)
         self.assertIn("只覆盖全部 P0/P1 finding", spec)
         self.assertIn("两个 verifier 均为零模型调用", spec)
         self.assertIn("P2/P3 不进入 verifier", spec)
         self.assertIn("由 chair 选中的 P2/P3 评论/Issue follow-up", spec)
         self.assertIn("P0/P1 的两个 verifier 显式状态", spec)
         self.assertIn("P2/P3 的\nspecialist/chair 非阻断状态", spec)
+        self.assertIn("context_evidence_sources(context)", spec)
         for obsolete in (
             "P0/P1/P2/P3 severity",
             "必须覆盖全部 P0/P1/P2/P3 finding",
@@ -3248,6 +3251,68 @@ class AgentReviewTests(unittest.TestCase):
                 review.read_json(output_path)["reviews"][0]["finding_id"],
             )
 
+    def test_cross_review_repairs_invalid_canonical_path_with_protected_catalog(
+        self,
+    ) -> None:
+        context = bound_context()
+        invalid = verifier_report("evidence-verifier", context, "correctness:f1")
+        invalid["reviews"][0]["evidence_refs"][0]["path"] = "src/NotCanonical.java"
+        valid = verifier_report("evidence-verifier", context, "correctness:f1")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports = root / "specialists"
+            prompt_root = root / "prompts-root"
+            reports.mkdir()
+            (prompt_root / "prompts").mkdir(parents=True)
+            (prompt_root / "prompts/cross-review.md").write_text(
+                "Return strict JSON.", encoding="utf-8"
+            )
+            for role in review.role_map(config(), "specialists"):
+                report = specialist_report(role, context)
+                if role != "correctness":
+                    report["findings"] = []
+                review.write_json(reports / f"{role}.json", report)
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_path = root / "verifier.json"
+            review.write_json(config_path, config())
+            review.write_json(context_path, context)
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict("os.environ", model_env("openai-responses"), clear=True),
+            ):
+                client_class.return_value.complete.side_effect = [invalid, valid]
+                self.assertEqual(
+                    0,
+                    review.command_cross(
+                        SimpleNamespace(
+                            role="evidence-verifier",
+                            config=config_path,
+                            prompt_root=prompt_root,
+                            context=context_path,
+                            reports=reports,
+                            output=output_path,
+                        )
+                    ),
+                )
+                calls = client_class.return_value.complete.call_args_list
+                output = review.read_json(output_path)
+
+        self.assertEqual(2, len(calls))
+        catalog = review.canonical_json(review.context_evidence_catalog(context))
+        self.assertIn("Protected canonical evidence source catalog", calls[0].args[0])
+        self.assertIn(catalog, calls[0].args[0])
+        self.assertIn(catalog, calls[1].args[0])
+        self.assertNotIn("class Foo", calls[0].args[0])
+        correction = json.loads(calls[1].args[1])
+        self.assertEqual(
+            {"original_task", "previous_response_sha256", "validator_message"},
+            set(correction),
+        )
+        self.assertNotIn("previous_response", correction)
+        self.assertNotIn("src/NotCanonical.java", calls[1].args[1])
+        self.assertEqual(valid, output)
+
     def test_nonblocking_findings_remain_publishable_without_verifier_votes(
         self,
     ) -> None:
@@ -3321,15 +3386,14 @@ class AgentReviewTests(unittest.TestCase):
             report["reviews"][0]["evidence_refs"][0]["checks"],
         )
 
-    def test_unknown_evidence_check_fails_closed_without_shape_repair(self) -> None:
+    def test_unknown_evidence_check_is_a_correctable_report_shape_error(self) -> None:
         context = bound_context()
         report = verifier_report("evidence-verifier", context, "correctness:f1")
         report["reviews"][0]["evidence_refs"][0]["checks"] = ["unknown"]
-        with self.assertRaisesRegex(review.ReviewError, "unsupported field") as raised:
+        with self.assertRaisesRegex(review.ReportShapeError, "unsupported field"):
             review.validate_cross_report(
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
-        self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
     def test_cross_review_schema_rejects_extra_fields(self) -> None:
         context = bound_context()
@@ -3480,6 +3544,38 @@ class AgentReviewTests(unittest.TestCase):
             report, "evidence-verifier", context, {"correctness:f1"}
         )
 
+    def test_canonical_evidence_catalog_uses_only_verified_sources_without_content(
+        self,
+    ) -> None:
+        context = bound_context()
+        verified_sources = {
+            ("protected-policy", "z-policy.md"): {1, 2, 5},
+            ("head-code", "a-code.java"): {3, 4, 8},
+        }
+        with patch.object(
+            review, "context_evidence_sources", return_value=verified_sources
+        ) as sources:
+            catalog = review.context_evidence_catalog(context)
+
+        sources.assert_called_once_with(context)
+        self.assertEqual(
+            [
+                {
+                    "trust_domain": "head-code",
+                    "path": "a-code.java",
+                    "available_line_ranges": [[3, 4], [8, 8]],
+                },
+                {
+                    "trust_domain": "protected-policy",
+                    "path": "z-policy.md",
+                    "available_line_ranges": [[1, 2], [5, 5]],
+                },
+            ],
+            catalog,
+        )
+        self.assertNotIn("Policy", review.canonical_json(catalog))
+        self.assertNotIn("class Foo", review.canonical_json(catalog))
+
     def test_context_evidence_sources_reject_same_domain_duplicate_or_misrouting(
         self,
     ) -> None:
@@ -3551,7 +3647,7 @@ class AgentReviewTests(unittest.TestCase):
             action="UNVERIFIED",
             evidence_refs=gap_reference,
         )
-        with self.assertRaisesRegex(review.ReviewError, "canonical line coverage"):
+        with self.assertRaisesRegex(review.ReportShapeError, "canonical line coverage"):
             review.validate_cross_report(
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
@@ -3589,7 +3685,7 @@ class AgentReviewTests(unittest.TestCase):
                     "correctness:f1",
                     evidence_refs=malformed,
                 )
-                with self.assertRaises(review.ReviewError):
+                with self.assertRaises(review.ReportShapeError):
                     review.validate_cross_report(
                         report, "evidence-verifier", context, {"correctness:f1"}
                     )
@@ -3632,7 +3728,7 @@ class AgentReviewTests(unittest.TestCase):
                     "correctness:f1",
                     evidence_refs=references,
                 )
-                with self.assertRaisesRegex(review.ReviewError, message) as raised:
+                with self.assertRaisesRegex(review.ReportShapeError, message) as raised:
                     review.validate_cross_report(
                         report, "evidence-verifier", context, {"correctness:f1"}
                     )
@@ -12359,13 +12455,14 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("partial_response", client.calls[1][1])
         self.assertNotIn(partial, client.calls[1][1])
 
-    def test_cross_review_shape_repair_fails_closed_after_three_invalid_reports(
+    def test_cross_review_invalid_canonical_path_fails_closed_after_three_reports(
         self,
     ) -> None:
         context = bound_context()
         finding_id = "correctness:f1"
         invalid = verifier_report("evidence-verifier", context, finding_id)
-        del invalid["reviews"][0]["reason"]
+        invalid["reviews"][0]["evidence_refs"][0]["path"] = "src/NotCanonical.java"
+        catalog = review.canonical_json(review.context_evidence_catalog(context))
 
         class FakeClient:
             def __init__(self) -> None:
@@ -12377,10 +12474,10 @@ class AgentReviewTests(unittest.TestCase):
 
         client = FakeClient()
         with patch("builtins.print"):
-            with self.assertRaisesRegex(review.ReportShapeError, "missing"):
+            with self.assertRaisesRegex(review.ReportShapeError, "canonical source"):
                 review.complete_with_shape_repair(
                     client,
-                    "protected cross-review system",
+                    "protected cross-review system\n" + catalog,
                     '{"task":"cross-review"}',
                     100,
                     lambda value: review.validate_cross_report(
@@ -12390,10 +12487,12 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
         self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
-        for _, user, _ in client.calls[1:]:
+        for system, user, _ in client.calls[1:]:
+            self.assertIn(catalog, system)
             correction = json.loads(user)
             self.assertNotIn("previous_response", correction)
             self.assertIn("previous_response_sha256", correction)
+            self.assertNotIn("src/NotCanonical.java", user)
 
     def test_specialist_and_chair_keep_fragment_continuation_by_default(self) -> None:
         class FragmentClient(review.AgentModelClient):
@@ -13106,8 +13205,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_632, largest_size)
-        self.assertEqual(7_368, limit - largest_size)
+        self.assertEqual(56_620, largest_size)
+        self.assertEqual(7_380, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
