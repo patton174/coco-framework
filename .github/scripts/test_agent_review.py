@@ -13421,9 +13421,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
                         self.calls: list[tuple[str, str, int]] = []
                         self.responses = [invalid, valid]
 
-                    def complete(
-                        self, system: str, user: str, max_tokens: int
-                    ) -> dict:
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
                         self.calls.append((system, user, max_tokens))
                         return self.responses.pop(0)
 
@@ -13460,9 +13458,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
                     def __init__(self) -> None:
                         self.calls: list[tuple[str, str, int]] = []
 
-                    def complete(
-                        self, system: str, user: str, max_tokens: int
-                    ) -> dict:
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
                         self.calls.append((system, user, max_tokens))
                         return invalid
 
@@ -13471,7 +13467,9 @@ class CrossHeadContinuityTest(unittest.TestCase):
                     with self.assertRaises(review.ReportShapeError):
                         self.complete_continuity_with_repair(client, role)
 
-                self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+                self.assertEqual(
+                    review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls)
+                )
 
     def test_continuity_identity_and_binding_errors_fail_without_repair(self) -> None:
         role = "evidence-verifier"
@@ -13493,9 +13491,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
                     def __init__(self) -> None:
                         self.calls: list[tuple[str, str, int]] = []
 
-                    def complete(
-                        self, system: str, user: str, max_tokens: int
-                    ) -> dict:
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
                         self.calls.append((system, user, max_tokens))
                         return invalid
 

@@ -5675,7 +5675,9 @@ def continuity_relationship_contract(
     try:
         current_anchor = require_continuity_anchor(relationship.get("current_anchor"))
     except ReviewError as exc:
-        raise ReportShapeError("Continuity relationship current anchor is invalid.") from exc
+        raise ReportShapeError(
+            "Continuity relationship current anchor is invalid."
+        ) from exc
     if canonical_json(current_anchor) != canonical_json(group["anchor"]):
         raise ReportShapeError("Continuity relationship current anchor drifted.")
     action = relationship.get("action")
@@ -5713,11 +5715,11 @@ def continuity_relationship_contract(
             "Continuity relationship references an unknown candidate."
         )
     try:
-        previous_anchor = require_continuity_anchor(
-            relationship.get("previous_anchor")
-        )
+        previous_anchor = require_continuity_anchor(relationship.get("previous_anchor"))
     except ReviewError as exc:
-        raise ReportShapeError("Continuity relationship previous anchor is invalid.") from exc
+        raise ReportShapeError(
+            "Continuity relationship previous anchor is invalid."
+        ) from exc
     if (
         relationship.get("previous_group_id") != candidate["previous_group_id"]
         or relationship.get("previous_issue_number")
