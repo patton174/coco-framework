@@ -28,6 +28,7 @@ public enum CocoFeature {
     TENANT("tenant"),
     DATA_PERMISSION("data-permission"),
     OPENAPI("openapi"),
+    RATE_LIMIT("rate-limit"),
     CODEGEN("codegen");
 
     private final String id;

@@ -3,6 +3,8 @@ package io.github.coco.feature.ratelimit;
 import java.time.Clock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.api.feature.CocoFeature;
+import io.github.coco.feature.runtime.condition.ConditionalOnCocoFeature;
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.i18n.CocoMessageService;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -21,12 +23,13 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 /**
  * Coco 限流模块自动配置。
  * <p>
- * 该模块不加入标准特性集合或 starter。应用显式依赖该模块并设置 {@code coco.rate-limit.enabled=true} 后，
- * 才会注册限流基础设施。
+ * 限流功能同时受 Coco 标准功能计划和 {@code coco.rate-limit.enabled} 属性控制。属性默认关闭，避免升级后
+ * 自动启用限流。
  * </p>
  */
 @AutoConfiguration
 @EnableConfigurationProperties(CocoRateLimitProperties.class)
+@ConditionalOnCocoFeature(CocoFeature.RATE_LIMIT)
 @ConditionalOnProperty(prefix = "coco.rate-limit", name = "enabled", havingValue = "true")
 public class CocoRateLimitAutoConfiguration {
 

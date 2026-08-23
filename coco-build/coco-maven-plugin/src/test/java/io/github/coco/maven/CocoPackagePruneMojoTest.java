@@ -52,7 +52,7 @@ class CocoPackagePruneMojoTest {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("project"));
         Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
         Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
-        writeManifest(classesDirectory, Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION));
+        writeManifest(classesDirectory, Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION, CocoFeature.RATE_LIMIT));
         Path archivePath = buildDirectory.resolve("demo.jar");
         writeArchive(archivePath);
 
@@ -73,22 +73,24 @@ class CocoPackagePruneMojoTest {
                         "BOOT-INF/lib/coco-feature-audit-1.0.0-SNAPSHOT.jar")
                 .doesNotContain(
                         "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar",
-                        "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar");
+                        "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar");
         assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
                 .contains("coco-feature-web")
-                .doesNotContain("coco-feature-tenant", "coco-feature-data-permission");
+                .doesNotContain("coco-feature-tenant", "coco-feature-data-permission", "coco-rate-limit");
         assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
                 .contains("coco-feature-web")
-                .doesNotContain("coco-feature-tenant", "coco-feature-data-permission");
+                .doesNotContain("coco-feature-tenant", "coco-feature-data-permission", "coco-rate-limit");
         assertRunnableSpringBootArchive(archivePath);
         Path originalArchivePath = buildDirectory.resolve("coco-prune.original.jar");
         assertThat(originalArchivePath).isRegularFile();
         assertThat(entries(originalArchivePath))
                 .contains(
                         "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar",
-                        "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar");
+                        "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar");
         assertThat(readEntry(originalArchivePath, "BOOT-INF/classpath.idx"))
-                .contains("coco-feature-tenant", "coco-feature-data-permission");
+                .contains("coco-feature-tenant", "coco-feature-data-permission", "coco-rate-limit");
     }
 
     @Test
@@ -213,18 +215,21 @@ class CocoPackagePruneMojoTest {
                     - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
                     """);
             add(outputStream, "BOOT-INF/layers.idx", """
                     - "dependencies":
                       - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
                     """);
             add(outputStream, "BOOT-INF/classes/application.yml", "spring.application.name=demo");
             add(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar", "web");
             add(outputStream, "BOOT-INF/lib/coco-feature-audit-1.0.0-SNAPSHOT.jar", "audit");
             add(outputStream, "BOOT-INF/lib/coco-feature-tenant-1.0.0-SNAPSHOT.jar", "tenant");
             add(outputStream, "BOOT-INF/lib/coco-feature-data-permission-1.0.0-SNAPSHOT.jar", "data-permission");
+            add(outputStream, "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar", "rate-limit");
         }
     }
 

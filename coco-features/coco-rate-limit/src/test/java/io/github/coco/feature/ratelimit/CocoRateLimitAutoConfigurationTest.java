@@ -30,7 +30,7 @@ class CocoRateLimitAutoConfigurationTest {
             .withUserConfiguration(RateLimitPrerequisites.class);
 
     @Test
-    void enabledDirectModuleRegistersCoreBeansAndProcessesConfiguredRoute() {
+    void legacyDirectModuleModeRegistersCoreBeansAndProcessesConfiguredRoute() {
         this.contextRunner
                 .withPropertyValues(
                         "coco.rate-limit.enabled=true",
@@ -86,17 +86,46 @@ class CocoRateLimitAutoConfigurationTest {
     }
 
     @Test
-    void disabledDirectModuleDoesNotRegisterRateLimitInfrastructure() {
+    void enabledStandardFeatureRegistersRateLimitInfrastructure() {
+        this.contextRunner
+                .withPropertyValues("coco.features.enabled=rate-limit", "coco.rate-limit.enabled=true")
+                .run(this::assertRateLimitInfrastructure);
+    }
+
+    @Test
+    void disabledPropertyDoesNotRegisterRateLimitInfrastructure() {
         this.contextRunner.run(context -> {
-            assertThat(context).doesNotHaveBean(CocoRateLimitProperties.class);
-            assertThat(context).doesNotHaveBean(CocoRateLimitKeyResolver.class);
-            assertThat(context).doesNotHaveBean(CocoRateLimitStore.class);
-            assertThat(context).doesNotHaveBean(CocoRateLimitRouteMatcher.class);
-            assertThat(context).doesNotHaveBean(CocoRateLimitResponseWriter.class);
-            assertThat(context).doesNotHaveBean(CocoRateLimitRequestHandler.class);
-            assertThat(context).doesNotHaveBean("cocoRateLimitFilterRegistration");
-            assertThat(context).doesNotHaveBean("cocoRateLimitMvcConfigurer");
+            assertRateLimitInfrastructureIsAbsent(context);
         });
+    }
+
+    @Test
+    void disabledStandardFeaturePreventsRegistrationWhenPropertyIsEnabled() {
+        this.contextRunner
+                .withPropertyValues("coco.features.disabled=rate-limit", "coco.rate-limit.enabled=true")
+                .run(this::assertRateLimitInfrastructureIsAbsent);
+    }
+
+    private void assertRateLimitInfrastructure(org.springframework.boot.test.context.assertj.AssertableWebApplicationContext context) {
+        assertThat(context).hasSingleBean(CocoRateLimitProperties.class);
+        assertThat(context).hasSingleBean(CocoRateLimitKeyResolver.class);
+        assertThat(context).hasSingleBean(CocoRateLimitStore.class);
+        assertThat(context).hasSingleBean(CocoRateLimitRouteMatcher.class);
+        assertThat(context).hasSingleBean(CocoRateLimitResponseWriter.class);
+        assertThat(context).hasSingleBean(CocoRateLimitRequestHandler.class);
+        assertThat(context).hasBean("cocoRateLimitFilterRegistration");
+    }
+
+    private void assertRateLimitInfrastructureIsAbsent(
+            org.springframework.boot.test.context.assertj.AssertableWebApplicationContext context) {
+        assertThat(context).doesNotHaveBean(CocoRateLimitProperties.class);
+        assertThat(context).doesNotHaveBean(CocoRateLimitKeyResolver.class);
+        assertThat(context).doesNotHaveBean(CocoRateLimitStore.class);
+        assertThat(context).doesNotHaveBean(CocoRateLimitRouteMatcher.class);
+        assertThat(context).doesNotHaveBean(CocoRateLimitResponseWriter.class);
+        assertThat(context).doesNotHaveBean(CocoRateLimitRequestHandler.class);
+        assertThat(context).doesNotHaveBean("cocoRateLimitFilterRegistration");
+        assertThat(context).doesNotHaveBean("cocoRateLimitMvcConfigurer");
     }
 
     private static MockHttpServletRequest request() {
