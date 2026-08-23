@@ -514,6 +514,46 @@ def verifier_report(
     }
 
 
+def raw_verifier_report(
+    role: str,
+    context: dict,
+    finding_id: str,
+    action: str = "AGREE",
+    evidence_refs: list[dict] | None = None,
+) -> dict:
+    normalized = verifier_report(role, context, finding_id, action=action)
+    normalized_review = normalized["reviews"][0]
+    if evidence_refs is None:
+        source_ids = {
+            (item["trust_domain"], item["path"]): item["source_id"]
+            for item in review.context_evidence_catalog(context)
+        }
+        evidence_refs = [
+            {
+                "source_id": source_ids[(item["trust_domain"], item["path"])],
+                "start_line": item["start_line"],
+                "end_line": item["end_line"],
+                "checks": item["checks"],
+            }
+            for item in normalized_review["evidence_refs"]
+        ]
+    verification = {
+        key: value
+        for key, value in normalized_review.items()
+        if key not in {"action", "evidence", "evidence_refs"}
+    }
+    verification["evidence_refs"] = evidence_refs
+    return {
+        "schema_version": normalized["schema_version"],
+        "role": normalized["role"],
+        "head_sha": normalized["head_sha"],
+        "context_sha256": normalized["context_sha256"],
+        "evidence": normalized["evidence"],
+        "verifications": [verification],
+        "context_gaps": normalized["context_gaps"],
+    }
+
+
 class FakeContextClient:
     def __init__(self, head_files: dict[str, str]) -> None:
         self.head_files = head_files
@@ -3022,47 +3062,79 @@ class AgentReviewTests(unittest.TestCase):
     def test_cross_review_prompt_schema_is_normalized(self) -> None:
         context = bound_context()
         finding_id = "correctness:f1"
-        report = {
-            "schema_version": 1,
-            "role": "evidence-verifier",
-            "head_sha": HEAD_SHA,
-            "context_sha256": context["binding"]["context_sha256"],
-            "evidence": "The verifier checked the cited branch and trigger.",
-            "verifications": [
-                {
-                    "finding_id": finding_id,
-                    "claim": "SUPPORTED",
-                    "severity": "SUPPORTED",
-                    "anchor": "SUPPORTED",
-                    "trigger": "SUPPORTED",
-                    "impact": "SUPPORTED",
-                    "change_scope": "IN_SCOPE",
-                    "evidence_refs": [
-                        {
-                            "trust_domain": "head-code",
-                            "path": "src/Foo.java",
-                            "start_line": 1,
-                            "end_line": 1,
-                            "checks": ["anchor", "claim", "impact", "trigger"],
-                        },
-                        {
-                            "trust_domain": "protected-policy",
-                            "path": "AGENTS.md",
-                            "start_line": 1,
-                            "end_line": 1,
-                            "checks": ["change_scope", "severity"],
-                        },
-                    ],
-                    "reason": "The claim follows from the cited branch.",
-                    "verification": "Exercise the cited branch with the stated input.",
-                }
-            ],
-            "context_gaps": [],
-        }
-        review.validate_cross_report(report, "evidence-verifier", context, {finding_id})
+        report = raw_verifier_report("evidence-verifier", context, finding_id)
+        review.validate_raw_cross_report(
+            report, "evidence-verifier", context, {finding_id}
+        )
         self.assertEqual("AGREE", report["reviews"][0]["action"])
         self.assertEqual("COMPLETE", report["status"])
         self.assertNotIn("verifications", report)
+        self.assertEqual(
+            [
+                {
+                    "trust_domain": "head-code",
+                    "path": "src/Foo.java",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "checks": ["anchor", "claim", "impact", "trigger"],
+                },
+                {
+                    "trust_domain": "protected-policy",
+                    "path": "AGENTS.md",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "checks": ["change_scope", "severity"],
+                },
+            ],
+            report["reviews"][0]["evidence_refs"],
+        )
+        self.assertNotIn("source_id", review.canonical_json(report))
+
+    def test_persisted_normalized_cross_report_revalidates_without_format_change(
+        self,
+    ) -> None:
+        context = bound_context()
+        report = verifier_report("evidence-verifier", context, "correctness:f1")
+        expected = json.loads(json.dumps(report))
+
+        review.validate_cross_report(
+            report, "evidence-verifier", context, {"correctness:f1"}
+        )
+
+        self.assertEqual(expected, report)
+
+    def test_raw_evidence_reference_rejects_domain_and_path_fields(self) -> None:
+        context = bound_context()
+        report = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        reference = report["verifications"][0]["evidence_refs"][0]
+        reference.pop("source_id")
+        reference.update({"trust_domain": "head-code", "path": "src/Foo.java"})
+
+        with self.assertRaisesRegex(review.ReportShapeError, "schema fields mismatch"):
+            review.validate_raw_cross_report(
+                report, "evidence-verifier", context, {"correctness:f1"}
+            )
+
+    def test_normalized_cross_validator_rejects_raw_envelope(self) -> None:
+        context = bound_context()
+        report = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+
+        with self.assertRaisesRegex(review.ReportShapeError, "schema fields mismatch"):
+            review.validate_cross_report(
+                report, "evidence-verifier", context, {"correctness:f1"}
+            )
+
+    def test_raw_cross_validator_checks_binding_before_envelope_shape(self) -> None:
+        context = bound_context()
+        report = verifier_report("evidence-verifier", context, "correctness:f1")
+        report["head_sha"] = "c" * 40
+
+        with self.assertRaisesRegex(review.ReviewError, "binding mismatch") as raised:
+            review.validate_raw_cross_report(
+                report, "evidence-verifier", context, {"correctness:f1"}
+            )
+
+        self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
     def test_cross_review_contract_text_limits_verifiers_to_blockers(self) -> None:
         root = Path(__file__).resolve().parents[2]
@@ -3078,7 +3150,8 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("P2/P3 candidates are not supplied to verifier calls.", prompt)
         self.assertIn("does not call you when there are no P0/P1 candidates", prompt)
         self.assertIn("canonical evidence source catalog", prompt)
-        self.assertIn("copy its `trust_domain` and `path`", prompt)
+        self.assertIn("copy only its `source_id`", prompt)
+        self.assertIn("Never output `trust_domain` or `path`", prompt)
         self.assertIn("只覆盖全部 P0/P1 finding", spec)
         self.assertIn("两个 verifier 均为零模型调用", spec)
         self.assertIn("P2/P3 不进入 verifier", spec)
@@ -3086,6 +3159,8 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("P0/P1 的两个 verifier 显式状态", spec)
         self.assertIn("P2/P3 的\nspecialist/chair 非阻断状态", spec)
         self.assertIn("context_evidence_sources(context)", spec)
+        self.assertIn("raw仅收ID/行区间/checks的`verifications`", spec)
+        self.assertIn("发布/下游仅收normalized `reviews/status`", spec)
         for obsolete in (
             "P0/P1/P2/P3 severity",
             "必须覆盖全部 P0/P1/P2/P3 finding",
@@ -3221,7 +3296,7 @@ class AgentReviewTests(unittest.TestCase):
             output_path = root / "verifier.json"
             review.write_json(config_path, config())
             review.write_json(context_path, context)
-            model_output = verifier_report(
+            model_output = raw_verifier_report(
                 "evidence-verifier", context, "correctness:f1"
             )
             with (
@@ -3251,13 +3326,124 @@ class AgentReviewTests(unittest.TestCase):
                 review.read_json(output_path)["reviews"][0]["finding_id"],
             )
 
-    def test_cross_review_repairs_invalid_canonical_path_with_protected_catalog(
+    def test_command_cross_repairs_normalized_envelope_then_accepts_raw(self) -> None:
+        context = bound_context()
+        normalized = verifier_report("evidence-verifier", context, "correctness:f1")
+        raw = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        expected = verifier_report("evidence-verifier", context, "correctness:f1")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports = root / "specialists"
+            prompt_root = root / "prompts-root"
+            reports.mkdir()
+            (prompt_root / "prompts").mkdir(parents=True)
+            (prompt_root / "prompts/cross-review.md").write_text(
+                "Return strict JSON.", encoding="utf-8"
+            )
+            for role in review.role_map(config(), "specialists"):
+                report = specialist_report(role, context)
+                if role != "correctness":
+                    report["findings"] = []
+                review.write_json(reports / f"{role}.json", report)
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_path = root / "verifier.json"
+            review.write_json(config_path, config())
+            review.write_json(context_path, context)
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict("os.environ", model_env("openai-responses"), clear=True),
+                patch("builtins.print"),
+            ):
+                client_class.return_value.complete.side_effect = [normalized, raw]
+                self.assertEqual(
+                    0,
+                    review.command_cross(
+                        SimpleNamespace(
+                            role="evidence-verifier",
+                            config=config_path,
+                            prompt_root=prompt_root,
+                            context=context_path,
+                            reports=reports,
+                            output=output_path,
+                        )
+                    ),
+                )
+                calls = client_class.return_value.complete.call_args_list
+                output = review.read_json(output_path)
+
+        self.assertEqual(2, len(calls))
+        correction = json.loads(calls[1].args[1])
+        self.assertEqual(
+            {"original_task", "previous_response_sha256", "validator_message"},
+            set(correction),
+        )
+        self.assertEqual(
+            review.sha256_text(review.canonical_json(normalized)),
+            correction["previous_response_sha256"],
+        )
+        self.assertNotIn("previous_response", correction)
+        self.assertIn("schema fields mismatch", correction["validator_message"])
+        self.assertEqual(expected, output)
+
+    def test_command_cross_rejects_three_normalized_envelopes(self) -> None:
+        context = bound_context()
+        normalized = verifier_report("evidence-verifier", context, "correctness:f1")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports = root / "specialists"
+            prompt_root = root / "prompts-root"
+            reports.mkdir()
+            (prompt_root / "prompts").mkdir(parents=True)
+            (prompt_root / "prompts/cross-review.md").write_text(
+                "Return strict JSON.", encoding="utf-8"
+            )
+            for role in review.role_map(config(), "specialists"):
+                report = specialist_report(role, context)
+                if role != "correctness":
+                    report["findings"] = []
+                review.write_json(reports / f"{role}.json", report)
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_path = root / "verifier.json"
+            review.write_json(config_path, config())
+            review.write_json(context_path, context)
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict("os.environ", model_env("openai-responses"), clear=True),
+                patch("builtins.print"),
+            ):
+                client_class.return_value.complete.return_value = normalized
+                with self.assertRaisesRegex(
+                    review.ReportShapeError, "schema fields mismatch"
+                ):
+                    review.command_cross(
+                        SimpleNamespace(
+                            role="evidence-verifier",
+                            config=config_path,
+                            prompt_root=prompt_root,
+                            context=context_path,
+                            reports=reports,
+                            output=output_path,
+                        )
+                    )
+                calls = client_class.return_value.complete.call_args_list
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(calls))
+        for call in calls[1:]:
+            correction = json.loads(call.args[1])
+            self.assertNotIn("previous_response", correction)
+            self.assertIn("previous_response_sha256", correction)
+            self.assertIn("schema fields mismatch", correction["validator_message"])
+
+    def test_cross_review_repairs_unknown_source_id_and_normalizes_output(
         self,
     ) -> None:
         context = bound_context()
-        invalid = verifier_report("evidence-verifier", context, "correctness:f1")
-        invalid["reviews"][0]["evidence_refs"][0]["path"] = "src/NotCanonical.java"
-        valid = verifier_report("evidence-verifier", context, "correctness:f1")
+        invalid = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        invalid["verifications"][0]["evidence_refs"][0]["source_id"] = "S999"
+        valid = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        expected = verifier_report("evidence-verifier", context, "correctness:f1")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             reports = root / "specialists"
@@ -3310,8 +3496,15 @@ class AgentReviewTests(unittest.TestCase):
             set(correction),
         )
         self.assertNotIn("previous_response", correction)
-        self.assertNotIn("src/NotCanonical.java", calls[1].args[1])
-        self.assertEqual(valid, output)
+        self.assertNotIn("S999", calls[1].args[1])
+        self.assertEqual(expected, output)
+        self.assertEqual(
+            "head-code", output["reviews"][0]["evidence_refs"][0]["trust_domain"]
+        )
+        self.assertEqual(
+            "src/Foo.java", output["reviews"][0]["evidence_refs"][0]["path"]
+        )
+        self.assertNotIn("source_id", review.canonical_json(output))
 
     def test_nonblocking_findings_remain_publishable_without_verifier_votes(
         self,
@@ -3445,6 +3638,39 @@ class AgentReviewTests(unittest.TestCase):
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
 
+    def test_raw_source_id_authorization_error_does_not_enter_shape_repair(
+        self,
+    ) -> None:
+        context = bound_context()
+        report = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        report["verifications"][0]["evidence_refs"][0]["checks"] = ["severity"]
+        report["verifications"][0]["evidence_refs"][1]["checks"] = ["change_scope"]
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, user, max_tokens
+                self.calls += 1
+                return report
+
+        client = FakeClient()
+        with self.assertRaisesRegex(review.ReviewError, "protected policy") as raised:
+            review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                '{"task":"cross-review"}',
+                100,
+                lambda value: review.validate_raw_cross_report(
+                    value, "evidence-verifier", context, {"correctness:f1"}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertNotIsInstance(raised.exception, review.ReportShapeError)
+        self.assertEqual(1, client.calls)
+
     def test_evidence_verifier_rejects_head_code_as_change_scope_policy_evidence(
         self,
     ) -> None:
@@ -3561,11 +3787,13 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(
             [
                 {
+                    "source_id": "S001",
                     "trust_domain": "head-code",
                     "path": "a-code.java",
                     "available_line_ranges": [[3, 4], [8, 8]],
                 },
                 {
+                    "source_id": "S002",
                     "trust_domain": "protected-policy",
                     "path": "z-policy.md",
                     "available_line_ranges": [[1, 2], [5, 5]],
@@ -12364,10 +12592,11 @@ class AgentReviewTests(unittest.TestCase):
     ) -> None:
         context = bound_context()
         finding_id = "correctness:f1"
-        invalid = verifier_report("evidence-verifier", context, finding_id)
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
         invalid["evidence"] = "untrusted-previous-response-" * 1800
-        del invalid["reviews"][0]["reason"]
-        valid = verifier_report("evidence-verifier", context, finding_id)
+        del invalid["verifications"][0]["reason"]
+        valid = raw_verifier_report("evidence-verifier", context, finding_id)
+        expected = verifier_report("evidence-verifier", context, finding_id)
 
         class FakeClient:
             def __init__(self) -> None:
@@ -12386,13 +12615,13 @@ class AgentReviewTests(unittest.TestCase):
                 "protected cross-review system",
                 original_task,
                 100,
-                lambda value: review.validate_cross_report(
+                lambda value: review.validate_raw_cross_report(
                     value, "evidence-verifier", context, {finding_id}
                 ),
                 cross_review_fresh_retry=True,
             )
 
-        self.assertEqual(valid, result)
+        self.assertEqual(expected, result)
         self.assertEqual(2, len(client.calls))
         self.assertIn(
             "Protected cross-review fresh protocol correction", client.calls[1][0]
@@ -12455,13 +12684,13 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("partial_response", client.calls[1][1])
         self.assertNotIn(partial, client.calls[1][1])
 
-    def test_cross_review_invalid_canonical_path_fails_closed_after_three_reports(
+    def test_cross_review_unknown_source_id_fails_closed_after_three_reports(
         self,
     ) -> None:
         context = bound_context()
         finding_id = "correctness:f1"
-        invalid = verifier_report("evidence-verifier", context, finding_id)
-        invalid["reviews"][0]["evidence_refs"][0]["path"] = "src/NotCanonical.java"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["evidence_refs"][0]["source_id"] = "S999"
         catalog = review.canonical_json(review.context_evidence_catalog(context))
 
         class FakeClient:
@@ -12474,13 +12703,13 @@ class AgentReviewTests(unittest.TestCase):
 
         client = FakeClient()
         with patch("builtins.print"):
-            with self.assertRaisesRegex(review.ReportShapeError, "canonical source"):
+            with self.assertRaisesRegex(review.ReportShapeError, "source_id"):
                 review.complete_with_shape_repair(
                     client,
                     "protected cross-review system\n" + catalog,
                     '{"task":"cross-review"}',
                     100,
-                    lambda value: review.validate_cross_report(
+                    lambda value: review.validate_raw_cross_report(
                         value, "evidence-verifier", context, {finding_id}
                     ),
                     cross_review_fresh_retry=True,
@@ -12492,7 +12721,7 @@ class AgentReviewTests(unittest.TestCase):
             correction = json.loads(user)
             self.assertNotIn("previous_response", correction)
             self.assertIn("previous_response_sha256", correction)
-            self.assertNotIn("src/NotCanonical.java", user)
+            self.assertNotIn("S999", user)
 
     def test_specialist_and_chair_keep_fragment_continuation_by_default(self) -> None:
         class FragmentClient(review.AgentModelClient):
@@ -12545,9 +12774,9 @@ class AgentReviewTests(unittest.TestCase):
         specialist_valid = specialist_report("correctness", context)
 
         finding_id = specialist_valid["findings"][0]["id"]
-        cross_invalid = verifier_report("evidence-verifier", context, finding_id)
-        cross_invalid["reviews"] = "not-an-array"
-        cross_valid = verifier_report("evidence-verifier", context, finding_id)
+        cross_invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        cross_invalid["verifications"] = "not-an-array"
+        cross_valid = raw_verifier_report("evidence-verifier", context, finding_id)
 
         chair_valid = {
             "schema_version": 1,
@@ -12577,7 +12806,7 @@ class AgentReviewTests(unittest.TestCase):
                 "cross-review",
                 cross_invalid,
                 cross_valid,
-                lambda value: review.validate_cross_report(
+                lambda value: review.validate_raw_cross_report(
                     value, "evidence-verifier", context, {finding_id}
                 ),
             ),
@@ -12995,7 +13224,7 @@ class AgentReviewTests(unittest.TestCase):
         context = bound_context()
         specialist = specialist_report("correctness", context)
         finding_id = specialist["findings"][0]["id"]
-        verifier = verifier_report("evidence-verifier", context, finding_id)
+        verifier = raw_verifier_report("evidence-verifier", context, finding_id)
         chair = {
             "schema_version": 1,
             "role": "chair",
@@ -13017,7 +13246,7 @@ class AgentReviewTests(unittest.TestCase):
             ),
             (
                 verifier,
-                lambda value: review.validate_cross_report(
+                lambda value: review.validate_raw_cross_report(
                     value, "evidence-verifier", context, {finding_id}
                 ),
             ),
@@ -13205,8 +13434,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_620, largest_size)
-        self.assertEqual(7_380, limit - largest_size)
+        self.assertEqual(56_629, largest_size)
+        self.assertEqual(7_371, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
