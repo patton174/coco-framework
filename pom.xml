@@ -52,6 +52,7 @@
         <module>coco-build/coco-maven-plugin</module>
         <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
         <module>coco-support/coco-test</module>
+        <module>coco-support/coco-feature-archive-smoke</module>
     </modules>
 
     <properties>

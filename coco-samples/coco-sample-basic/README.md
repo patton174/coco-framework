@@ -68,12 +68,18 @@ target\postman\coco-sample-basic.postman_environment.json
 python scripts\generate_postman_import.py --base-url http://localhost:18080
 ```
 
-## 黑盒验证
+## 迁移验证状态
 
-打包后运行：
+这是 2.x 迁移期间暂留的独立 Maven 示例，不参与 Framework 的 reactor、CI 或发布。完成根 reactor install 后，仍可独立验证：
 
 ```powershell
-python scripts\verify_business_flow.py --timeout-seconds 60
+mvn verify
 ```
 
-脚本会自动启动示例 jar，并在同一个应用实例中依次验证默认业务流、签名、防重放和加密流程。
+真实 HTTP 业务验收已迁移到 [`coco-admin/framework-acceptance`](https://github.com/patton174/coco-admin/tree/main/framework-acceptance)。本目录保留 Postman 生成器和 parent version 校验脚本：
+
+```powershell
+python scripts\verify_parent_version.py
+```
+
+已删除的 `verify_business_flow.py` 不再是当前入口，目录将在下一阶段移除。

@@ -195,6 +195,7 @@
         "coco-features/**",
         "coco-support/pom.xml",
         "coco-support/coco-test/**",
+        "coco-support/coco-feature-archive-smoke/**",
         "coco-support/coco-test-support/**",
         "coco-support/coco-tools/**",
         "docs/architecture/module-layout.md",

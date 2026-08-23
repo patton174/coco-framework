@@ -1,6 +1,6 @@
 name: Reusable / Tests
 
-# Reusable test pipeline: cross-platform framework build + sample verification.
+# Reusable test pipeline: cross-platform framework reactor verification.
 # Called by ci.yml (push/PR) and release.yml (before publishing) so the exact
 # same verification runs in CI and at release time. Not triggered directly.
 
@@ -45,46 +45,5 @@ jobs:
           java -version
           echo "Maven compiler release target: ${MAVEN_COMPILE_RELEASE}"
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: .github/requirements/ci.txt
-
-      - name: Install sample verification dependencies
-        run: python -m pip install --disable-pip-version-check -r .github/requirements/ci.txt
-
-      - name: Verify framework and install artifacts
+      - name: Verify framework reactor, feature assembly, and package pruning
         run: mvn -B -ntp install
-
-      - name: Verify sample parent version alignment
-        run: python coco-samples/coco-sample-basic/scripts/verify_parent_version.py
-
-      - name: Verify sample business application
-        run: mvn -B -ntp -f coco-samples/coco-sample-basic/pom.xml verify
-
-      - name: Verify sample feature pruning
-        run: >-
-          python .github/scripts/verify_sample_feature_coordinates.py
-          --archive coco-samples/coco-sample-basic/target/coco-sample-basic-0.0.1-SNAPSHOT.jar
-          --required-features web audit security openapi
-          --forbidden-features mybatis-plus tenant data-permission codegen
-          --forbidden-library-prefixes mybatis-
-
-      - name: Verify sample business flow with Python
-        run: python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
-
-      - name: Verify full sample business application
-        run: mvn -B -ntp -f coco-samples/coco-sample-full/pom.xml verify
-
-      - name: Verify full sample feature composition
-        run: >-
-          python .github/scripts/verify_sample_feature_coordinates.py
-          --archive coco-samples/coco-sample-full/target/coco-sample-full-0.0.1-SNAPSHOT.jar
-          --required-features web mybatis-plus audit security tenant data-permission openapi
-          --required-library-prefixes h2-
-          --require-codegen
-
-      - name: Verify full sample business flow with Python
-        run: python coco-samples/coco-sample-full/scripts/verify_business_flow.py

@@ -37,9 +37,10 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-feature-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
 - `coco-feature-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
 - `coco-feature-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
-- `coco-feature-codegen` provides a replaceable template generator, built-in explicit CRUD source templates, and safe generated-file writing; `coco-maven-plugin` exposes this through the opt-in `coco:generate` goal.
+- `coco-feature-codegen` and `coco:generate` are 2.x legacy compatibility surfaces: maintain compatibility and security fixes only. New generation belongs to `coco-generate`; the framework must not depend on it.
 - `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
 - `coco-support/coco-document` contains repository architecture, release, audit, plan, and specification documents; `coco-support/coco-tools` contains development-only repository tools; `coco-support/coco-test` contains reusable test support.
+- `coco-feature-archive-smoke` is a non-business Failsafe fixture for the packaged feature manifest and `prune-package` indexes.
 - During the staged 2.0 migration, I18n, Logging, and Feature Model retain their existing auto-configuration FQCNs. Their Spring bindings move to `coco-spring-boot-autoconfigure` in the separately reviewed Spring composition batch.
 
 ## Development Rules
@@ -84,13 +85,13 @@ Focused module verification:
 mvn -pl :module-artifact-id -am test
 ```
 
-Sample verification:
+Reactor checks:
 
 ```powershell
-mvn -B install
-mvn -B -f coco-samples/coco-sample-basic/pom.xml verify
-python coco-samples/coco-sample-basic/scripts/verify_business_flow.py
+mvn -B -pl :coco-feature-codegen,:coco-maven-plugin -am verify
 ```
+
+Admin owns HTTP acceptance; Generate owns new CRUD generation.
 
 Release profile smoke check without local GPG:
 

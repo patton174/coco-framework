@@ -65,7 +65,7 @@ class OrderController {
 
 ## 显式 CRUD 源码生成
 
-需要标准 CRUD 脚手架时，在业务项目根目录创建 `coco-codegen.yml`：
+需要标准 CRUD 脚手架时，使用独立的 [coco-generate](https://github.com/patton174/coco-generate)。它在开发期生成业务项目拥有的普通源码，不会成为应用运行时依赖。在业务项目根目录创建 `coco-generate.yml`：
 
 ```yaml
 base-package: com.example.catalog
@@ -79,10 +79,4 @@ resources:
       - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
 ```
 
-然后显式运行：
-
-```powershell
-mvn coco:generate
-```
-
-生成器默认写入 `src/main/java`，并拒绝覆盖已有文件。它会生成普通的 Controller、DTO、应用服务、领域仓储契约和 MyBatis-Plus 基础设施源码；生成后由业务项目继续维护。该 goal 不绑定构建生命周期，也不会在运行时自动暴露实体。
+`coco-generate` 默认写入 `src/main/java`，并拒绝覆盖已有文件。它会生成普通的 Controller、DTO、应用服务、领域仓储契约和 MyBatis-Plus 基础设施源码；生成后由业务项目继续维护，也不会在运行时自动暴露实体。已使用 `mvn coco:generate` 的 2.x 项目仍受框架兼容支持，但新能力和模板扩展仅在 `coco-generate` 演进。
