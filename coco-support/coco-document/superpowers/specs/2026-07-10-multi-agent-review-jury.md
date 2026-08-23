@@ -308,7 +308,7 @@ chair、受管评论和可选 actionable Issue 保留为非阻断 follow-up。
 - 模型不决定最终 status；确定性验证器按以下规则计算：
 - 必要 Agent 任一超时、拒答、API 错误、不可纠正 schema 错误或 hash 不符：基础设施 BLOCK。
 - 无文本、非严格 JSON 或兼容模型可重试未完成输出，用受保护 prompt、canonical task、角色、binding 有界全新完成，不带上次输出。`max_tokens` 截断且返回非空时，specialist/chair 可续写：原 task、截断前缀不可信，仅返回 JSON 对象余字符；拼接后仅接受可解析且通过原校验的完整对象。续写不得覆盖/推断/修复 binding 字段或单独发布分片。cross-review/continuity 截断或非严格 JSON 从原 task 新鲜完成；禁 partial，紧凑 JSON，字符串<=240，每 finding 1项。
-- 可解析JSON先校验`schema_version`/角色/`head_sha`/`context_sha256`；版本仅整数`1`，身份/binding错立即关闭。其余字段/类型/数组/枚举/范围/引用/权限错误可在protected prompt/role/binding下纠错；specialist/chair可带不可信原task/输出/错误，cross-review纠错仅传原task、上次SHA-256和不回显值的精确错误，完整替代且禁嵌入上次输出/清洗证据。cross-review catalog由已验证`context_evidence_sources(context)`稳定排序生成`source_id`，只列ID/domain/path/行区间，不含内容；raw evidence仅接受ID/行区间/checks并精确展开为兼容domain/path，持久化不变，未知ID/越界拒绝，domain授权立即关闭。每Agent最多三次，第三次无效即基础设施BLOCK；拒答、API/鉴权/传输、非法envelope、身份/binding错立即关闭。
+- 可解析JSON先校验`schema_version`/角色/`head_sha`/`context_sha256`；版本仅整数`1`，身份/binding错关闭。结构错误在protected prompt/role/binding下纠错；specialist/chair可带不可信task/输出/错误，cross-review仅传原task、上次SHA-256及不回显值错误，完整替代且禁嵌入上次输出/清洗证据。catalog按已验证`context_evidence_sources(context)`排序，列`source_id`/domain/path/行区间，无内容；raw仅收ID/行区间/checks的`verifications`展开domain/path，拒绝`reviews/status`；发布/下游仅收normalized `reviews/status`，禁自动识别；持久化不变，未知ID/越界拒绝，domain授权关闭。每Agent最多三次，无效即基础设施BLOCK；拒答、API/鉴权/传输、非法envelope即关闭。
   每次可重试输出只记录 attempt、受控 `stop_reason`、响应/累计字符数以及 expected/actual
   binding 的短前缀；不得记录 API key、原始响应分片、canonical context 或模型提示词。
 - verifier 以结构化 claim/severity/anchor/trigger/impact/scope checks 和精确 evidence

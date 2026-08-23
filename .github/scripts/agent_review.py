@@ -4102,7 +4102,32 @@ def validate_cross_report(
         report, role, context, f"Cross-review report for {role}"
     )
     return _validate_cross_report_contract(
-        report, role, context, finding_ids, max_context_gaps
+        report,
+        role,
+        context,
+        finding_ids,
+        max_context_gaps,
+        raw_schema=False,
+    )
+
+
+def validate_raw_cross_report(
+    report: dict[str, Any],
+    role: str,
+    context: dict[str, Any],
+    finding_ids: set[str],
+    max_context_gaps: int = 10,
+) -> dict[str, Any]:
+    require_bound_report_identity(
+        report, role, context, f"Cross-review report for {role}"
+    )
+    return _validate_cross_report_contract(
+        report,
+        role,
+        context,
+        finding_ids,
+        max_context_gaps,
+        raw_schema=True,
     )
 
 
@@ -4112,8 +4137,9 @@ def _validate_cross_report_contract(
     context: dict[str, Any],
     finding_ids: set[str],
     max_context_gaps: int,
+    *,
+    raw_schema: bool,
 ) -> dict[str, Any]:
-    raw_schema = "verifications" in report and "reviews" not in report
     require_report_fields(
         report,
         {
@@ -4318,7 +4344,7 @@ def command_cross(args: argparse.Namespace) -> int:
         system,
         user,
         max_tokens,
-        lambda candidate: validate_cross_report(
+        lambda candidate: validate_raw_cross_report(
             candidate,
             args.role,
             context,
