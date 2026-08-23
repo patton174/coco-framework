@@ -68,15 +68,16 @@
 - [ ] Implement auto-configuration.
 - [ ] Run `mvn -pl coco-config -am test`; expected GREEN.
 
-### Task 4: Archive Fixture And Full Verification
+### Task 4: Historical Sample And Full Verification
 
 **Files:**
-- Create: `coco-support/coco-feature-archive-smoke/src/main/resources/application.yml`
+- Historical: retired sample `application.yml`.
 
 **Interfaces:**
-- Produces: archive fixture showing configuration file based disabled features.
+- Produced: sample showing configuration file based disabled features.
 
-- [ ] Add archive fixture `application.yml` using `coco.features.disabled`.
+- [x] Historical sample `application.yml` used `coco.features.disabled`.
+- 当前：历史验收已随 samples 退役，当前由 `coco-admin/framework-acceptance` 维护；本工作树未发现该模块，未记录可执行命令。
 - [ ] Run `mvn -q verify`; expected full reactor success.
 - [ ] Run `mvn -q -DskipTests install javadoc:javadoc`; expected JavaDoc success.
 - [ ] Commit and push the feature branch.

@@ -138,7 +138,7 @@
 - Produces: archive fixture build output with `META-INF/coco/features.json`.
 
 - [ ] Use `@CocoFeatures(disabled = {CocoFeature.TENANT, CocoFeature.DATA_PERMISSION})` in the archive fixture configuration.
-- [ ] Keep application YAML focused on i18n or feature settings not represented by the annotation.
+- [ ] Keep archive fixture feature selection in the annotation; it has no business application YAML.
 - [ ] Run focused module tests.
 - [ ] Run `mvn -q verify`.
 - [ ] Run `mvn -q -DskipTests install javadoc:javadoc`.

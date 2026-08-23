@@ -116,16 +116,12 @@ codegraph status .
 - 拆分订单仓储和商品仓储职责。
 - 修正 sample i18n bundle。
 - 明确 secure endpoint 是过滤器路径匹配示例。
-- 检查 framework archive fixture 的版本一致性，但不得混入无关版本漂移。
+- 检查历史 sample 的 parent 版本一致性，但不得混入无关版本漂移。
 
 验收：
 
-```powershell
-mvn -B install
-mvn -B -pl :coco-feature-archive-smoke -am verify
-git diff --check
-codegraph sync .
-```
+历史验收已随 samples 退役，当前由 `coco-admin/framework-acceptance` 维护。本工作树未发现该模块，
+因此不记录或推断可执行命令；`coco-feature-archive-smoke` 不覆盖此业务验收。
 
 ### PR 3：Maven feature scanner 测试
 
@@ -761,22 +757,20 @@ mvn -B -pl :coco-feature-web -am test
 
 ### PR 33：业务验收工程版本联动
 
-状态：已迁移。业务 HTTP 验收和其 parent 版本检查由 `coco-admin/framework-acceptance` 维护。
+状态：done（历史）。历史 basic sample 的 parent 版本一致性当时已有自动校验。
 
 目标：收口 C6，保证框架根版本推进后，业务验收工程会跟随当前 `revision` 验证，而不是继续绑定旧 parent 后在首次安装或 CI 中失败。
 
 范围：
 
-- 不采用 `<parent><version>${revision}</version>`：Maven 独立解析业务验收工程 parent 时不会可靠替换该表达式。
-- 外部验收工程直接比较根 POM `revision` 和其 `coco-parent` 版本。
-- CI 在外部验收 `verify` 前执行版本一致性检查，提前暴露 root 版本推进但 parent 未同步的问题。
+- 不采用 `<parent><version>${revision}</version>`：Maven 独立解析历史 sample parent 时不会可靠替换该表达式。
+- 当时的 `verify_parent_version.py` 直接比较根 POM `revision` 和 sample 的 `coco-parent` 版本。
+- 当时 CI 在 sample `verify` 前执行版本一致性脚本，提前暴露 root 版本推进但 sample parent 未同步的问题。
 
 验收：
 
-```powershell
-mvn -B -pl :coco-feature-archive-smoke -am verify
-git diff --check
-```
+历史验收已随 samples 退役，当前由 `coco-admin/framework-acceptance` 维护。本工作树未发现该模块，
+因此不记录或推断可执行命令；archive fixture 无法验证 parent 版本联动。
 
 ### PR 34：Failsafe 集成测试闸门
 
@@ -801,32 +795,28 @@ codegraph sync .
 
 ### PR 35：完整数据库业务验收
 
-状态：已迁移。完整业务验收由 `coco-admin/framework-acceptance` 通过一个 starter 跑通安全、租户、数据权限、审计和 MyBatis-Plus。
+状态：done（历史）。当时的独立 full sample 通过一个 starter 跑通安全、租户、数据权限、审计和 MyBatis-Plus。
 
 目标：收口 C9，并用业务黑盒流证明 README 中的数据与上下文能力可以协同工作，而不只是在各 feature
 模块的自动配置测试中分别存在。
 
 范围：
 
-- 外部业务验收工程只额外引入 H2，保留单 starter 接入方式。
+- 历史 full sample 只额外引入 H2，保留单 starter 接入方式。
 - trusted-header bridge 建立安全主体；样例入口适配器把租户和主体映射为 tenant / data-permission 上下文。
 - MyBatis-Plus 查询同时受 `tenant_id` 和 `owner_id` 条件约束。
 - 业务服务显式调用 `CocoSecurity.requireRole`，并通过 `CocoAuditPublisher` 发布查询审计事件。
 - JUnit 和 Python 黑盒流验证角色拒绝、缺少租户、跨租户隔离、数据范围和审计结果。
-- CI 在 Ubuntu、Windows、macOS 构建并运行业务验收，同时断言完整 feature artifact 未被裁剪。
+- 当时 CI 在 Ubuntu、Windows、macOS 构建并运行 full sample，同时断言完整 feature artifact 未被裁剪。
 
 验收：
 
-```powershell
-mvn -B install
-mvn -B -pl :coco-feature-archive-smoke -am verify
-git diff --check
-codegraph sync .
-```
+历史验收已随 samples 退役，当前由 `coco-admin/framework-acceptance` 维护。本工作树未发现该模块，
+因此不记录或推断可执行命令；archive fixture 不覆盖 H2、MyBatis-Plus、安全、租户、数据权限或审计业务流。
 
 ### PR 36：样例安全材料外置
 
-状态：已迁移。业务验收工程、Python 黑盒脚本和 Postman 资产不再保存固定签名密钥或 AES key。
+状态：done（历史）。basic sample、Python 黑盒脚本和 Postman 资产不再保存固定签名密钥或 AES key。
 
 目标：收口 C11，防止示例中的固定安全材料被业务项目照搬，并保持一条命令可执行的 CI 黑盒流。
 
@@ -842,11 +832,8 @@ codegraph sync .
 
 验收：
 
-```powershell
-mvn -B -pl :coco-feature-archive-smoke -am verify
-git diff --check
-codegraph sync .
-```
+历史验收已随 samples 退役，当前由 `coco-admin/framework-acceptance` 维护。本工作树未发现该模块，
+因此不记录或推断可执行命令；archive fixture 不覆盖签名材料、AES、Python 黑盒脚本或 Postman 资产。
 
 ### PR 37：默认 CRUD 源码生成
 
