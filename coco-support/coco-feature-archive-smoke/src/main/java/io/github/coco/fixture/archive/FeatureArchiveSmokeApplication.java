@@ -17,6 +17,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         CocoFeature.MYBATIS_PLUS,
         CocoFeature.TENANT,
         CocoFeature.DATA_PERMISSION,
+        CocoFeature.RATE_LIMIT,
         CocoFeature.CODEGEN
 })
 public class FeatureArchiveSmokeApplication {
