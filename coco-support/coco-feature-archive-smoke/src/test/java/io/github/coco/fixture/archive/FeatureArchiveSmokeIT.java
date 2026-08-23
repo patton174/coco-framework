@@ -28,7 +28,7 @@ class FeatureArchiveSmokeIT {
 
     private static final Pattern INDEX_LIBRARY = Pattern.compile("BOOT-INF/lib/[^\"\\r\\n]+\\.jar");
 
-    private static final Set<String> ENABLED_FEATURES = Set.of("web", "audit", "security", "openapi");
+    private static final Set<String> ENABLED_FEATURES = Set.of("web", "audit", "security", "openapi", "idempotency");
 
     private static final Set<String> DISABLED_FEATURES = Set.of(
             "mybatis-plus", "tenant", "data-permission", "rate-limit", "codegen");
@@ -52,6 +52,7 @@ class FeatureArchiveSmokeIT {
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-audit-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-security-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-openapi-"));
+            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-idempotency-"));
             assertNoDisabledFeatureLibraries(archiveLibraries, "archive");
 
             Set<String> classpathLibraries = indexLibraries(archive, "BOOT-INF/classpath.idx");

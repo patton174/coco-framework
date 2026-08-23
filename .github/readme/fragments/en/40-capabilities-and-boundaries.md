@@ -85,6 +85,11 @@ CRUD belongs to code generation, not runtime entity exposure. Generated code sho
       <td>Database migration and availability, cluster clock synchronization, business transactions, and exactly-once semantics.</td>
     </tr>
     <tr>
+      <td>Idempotency</td>
+      <td><code>@CocoIdempotent</code>, <code>Idempotency-Key</code>, atomic leases, TTL, and a replaceable store SPI; successful requests are not replayed and failures or 5xx responses may retry.</td>
+      <td>Shared-store implementations, business transactions, and cross-system exactly-once semantics.</td>
+    </tr>
+    <tr>
       <td>Security</td>
       <td>Context facade, resolver SPI, Servlet context bridge, trusted-header adapter, assertions, and propagation primitives.</td>
       <td>Authentication provider, RBAC/ABAC model, sessions, tokens, and user storage.</td>

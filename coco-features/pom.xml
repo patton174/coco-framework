@@ -26,6 +26,7 @@
         <module>coco-feature-data-permission</module>
         <module>coco-feature-openapi</module>
         <module>coco-rate-limit</module>
+        <module>coco-idempotency</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>

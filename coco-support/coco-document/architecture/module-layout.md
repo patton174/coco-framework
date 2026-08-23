@@ -31,6 +31,7 @@ coco-features/
   coco-data-permission/
   coco-mybatis-plus/
   coco-openapi/
+  coco-idempotency/
   coco-security/
   coco-tenant/
   coco-web/

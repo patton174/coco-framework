@@ -43,6 +43,22 @@ class ApplicationCocoConfiguration {
 
 功能选择优先使用 YAML 或 `@CocoFeatures`。旧的 `CocoConfigurer` Java 钩子仅保留兼容，已不再推荐。
 
+需要保护写请求时，显式启用幂等功能，并在 Controller 类或方法上标注 `@CocoIdempotent`。客户端每次首次提交需携带 `Idempotency-Key`；成功后的同一键在 TTL 内得到 `409`，异常或 `5xx` 会释放租约以允许重试。
+
+```yaml
+coco:
+  idempotency:
+    enabled: true
+```
+
+```java
+@PostMapping
+@CocoIdempotent(namespace = "orders")
+OrderResponse create(@RequestBody CreateOrderRequest request) {
+    return this.orderService.create(request);
+}
+```
+
 业务 Controller 仍然是普通 Spring 代码：
 
 ```java

@@ -63,6 +63,9 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.RATE_LIMIT).autoConfigurationClassName());
         assertTrue(definitions.get(CocoFeature.RATE_LIMIT).defaultEnabled());
         assertEquals(Set.of(CocoFeature.WEB), definitions.get(CocoFeature.RATE_LIMIT).dependencies());
+        assertEquals("idempotency", CocoFeature.IDEMPOTENCY.id());
+        assertEquals("coco-idempotency", definitions.get(CocoFeature.IDEMPOTENCY).artifactId());
+        assertEquals(Set.of(CocoFeature.WEB), definitions.get(CocoFeature.IDEMPOTENCY).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
         assertEquals(Set.of("coco-feature-codegen", "freemarker"),
@@ -82,6 +85,7 @@ class StandardCocoFeaturesTest {
         assertTrue(enabled.contains(CocoFeature.SECURITY));
         assertTrue(enabled.contains(CocoFeature.OPENAPI));
         assertTrue(enabled.contains(CocoFeature.RATE_LIMIT));
+        assertTrue(enabled.contains(CocoFeature.IDEMPOTENCY));
     }
 
     @Test
@@ -92,6 +96,7 @@ class StandardCocoFeaturesTest {
         assertTrue(enabled.contains(CocoFeature.AUDIT));
         assertFalse(enabled.contains(CocoFeature.OPENAPI));
         assertFalse(enabled.contains(CocoFeature.RATE_LIMIT));
+        assertFalse(enabled.contains(CocoFeature.IDEMPOTENCY));
     }
 
     @Test
@@ -164,6 +169,7 @@ class StandardCocoFeaturesTest {
         assertFalse(loadedPlan.enabledFeatures().contains(CocoFeature.DATA_PERMISSION));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.RATE_LIMIT));
+        assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.IDEMPOTENCY));
         CocoFeatureDefinition loadedMybatisPlusDefinition = loadedPlan.definitions().stream()
                 .filter(definition -> definition.feature() == CocoFeature.MYBATIS_PLUS)
                 .findFirst()
