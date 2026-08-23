@@ -1000,47 +1000,14 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertIn("run: mvn -B -ntp install", workflow)
         self.assertNotIn("coco-samples/", workflow)
-        self.assertFalse((repository_root / "coco-samples/coco-sample-full").exists())
+        self.assertFalse((repository_root / "coco-samples").exists())
         tracked_samples = subprocess.run(
             ["git", "-C", str(repository_root), "ls-files", "coco-samples"],
             check=True,
             capture_output=True,
             text=True,
         )
-        self.assertEqual(
-            {
-                "coco-samples/coco-sample-basic/README.md",
-                "coco-samples/coco-sample-basic/pom.xml",
-                "coco-samples/coco-sample-basic/postman/coco-sample-basic.postman_collection.json",
-                "coco-samples/coco-sample-basic/postman/coco-sample-basic.postman_environment.json",
-                "coco-samples/coco-sample-basic/scripts/generate_postman_import.py",
-                "coco-samples/coco-sample-basic/scripts/verify_parent_version.py",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/CocoSampleBasicApplication.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/application/order/SampleOrderApplicationService.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/application/order/package-info.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/domain/order/SampleBusinessErrorCode.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/domain/order/SampleOrder.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/domain/order/SampleOrderRepository.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/domain/order/SampleProduct.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/domain/order/SampleProductRepository.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/domain/order/package-info.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/infrastructure/order/InMemorySampleOrderRepository.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/infrastructure/order/package-info.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/interfaces/rest/SampleCreateOrderRequest.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/interfaces/rest/SampleOrderController.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/interfaces/rest/SampleOrderResponse.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/interfaces/rest/SampleProductResponse.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/interfaces/rest/package-info.java",
-                "coco-samples/coco-sample-basic/src/main/java/io/github/coco/sample/basic/package-info.java",
-                "coco-samples/coco-sample-basic/src/main/resources/application.yml",
-                "coco-samples/coco-sample-basic/src/main/resources/messages.properties",
-                "coco-samples/coco-sample-basic/src/main/resources/messages_en_US.properties",
-                "coco-samples/coco-sample-basic/src/main/resources/messages_zh_CN.properties",
-                "coco-samples/coco-sample-basic/src/test/java/io/github/coco/sample/basic/architecture/CocoSampleBusinessIntegrationTest.java",
-                "coco-samples/coco-sample-basic/src/test/java/io/github/coco/sample/basic/interfaces/rest/CocoSampleBasicApplicationTest.java",
-            },
-            set(tracked_samples.stdout.splitlines()),
-        )
+        self.assertEqual([], tracked_samples.stdout.splitlines())
 
     def test_agent_open_pr_workflow_uses_protected_app_identity(self) -> None:
         workflow = (
@@ -12783,8 +12750,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_606, largest_size)
-        self.assertEqual(7_394, limit - largest_size)
+        self.assertEqual(56_734, largest_size)
+        self.assertEqual(7_266, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:

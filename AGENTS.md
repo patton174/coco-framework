@@ -21,6 +21,7 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-admin` is an ERP product built on the framework. ERP domains, authentication choices, organization and permission models, workflows, reports, and transactions belong there.
 - `coco-generate` is a development-time source generator and template platform. Generated source may target Coco applications, but business applications must not require the generator at runtime.
 - `coco-admin` may use `coco-generate` during development; generated files are then reviewed, committed, and owned by the Admin repository.
+- Coco Framework does not maintain business samples; business and HTTP acceptance belongs to `coco-admin/framework-acceptance`.
 - Existing public Codegen APIs and the `coco:generate` goal remain supported until a separately reviewed compatibility migration moves implementation ownership. Do not remove or duplicate them without a versioned migration path.
 
 ## Current Architecture

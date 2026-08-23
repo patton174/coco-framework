@@ -22,7 +22,7 @@
   </tbody>
 </table>
 
-> **阶段 1 清理状态：** `coco-sample-full` 和 Basic 的 `scripts/verify_business_flow.py` 已删除。保留的 Basic README、POM、Postman 资产、源码测试和仍有效的辅助脚本是临时 2.x 迁移遗留，不是 reactor 模块，也不会被 CI、发布或框架验收调用。其物理删除留待阶段 2；等价的 Basic/Full 验收由 `coco-admin/framework-acceptance` 维护。
+> **Framework 验收：** 业务和 HTTP 验收由 `coco-admin/framework-acceptance` 维护。Coco Framework 不再维护业务 samples；新的源码生成由 `coco-generate` 承接。
 
 ## 运行形态
 
