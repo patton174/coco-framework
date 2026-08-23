@@ -383,14 +383,15 @@ workflow run 共同提供可见证据。所有 publisher job 使用同一个 PR 
 - 被评审 head SHA、protocol SHA-256 和 context SHA-256；
 - 5 个 specialist、2 个 verifier 和 chair 的执行状态；
 - confirmed blockers；
-- 非阻断 findings、双 `AGREE` actionable follow-up 和澄清问题；
+- 非阻断 findings、由 chair 选中的 P2/P3 评论/Issue follow-up 和澄清问题；
 - challenged/unverified finding 的折叠区及反证；
 - 实际注入的上下文来源和省略项；
 - workflow run 链接。
 
 所有模型可控文本在发布前必须折叠为单行安全文本，并中和主动 Markdown、mention、Issue
 引用和自动链接。详细评论正文预算为 40,000 UTF-8 bytes；超限时必须确定性切换到 compact
-视图，继续逐条保留全部 finding 的 disposition、两个 verifier 的显式状态和裁剪后的反证。
+视图，继续逐条保留全部 finding 的 disposition、P0/P1 的两个 verifier 显式状态、P2/P3 的
+specialist/chair 非阻断状态和裁剪后的反证。
 追加 actionable Issue 链接与 workflow footer 后的最终评论不得超过 64,000 UTF-8 bytes。
 
 Actions UI 同时显示角色 matrix job，便于确认每位成员确实独立执行。分支保护只要求

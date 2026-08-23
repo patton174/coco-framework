@@ -3074,6 +3074,9 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("只覆盖全部 P0/P1 finding", spec)
         self.assertIn("两个 verifier 均为零模型调用", spec)
         self.assertIn("P2/P3 不进入 verifier", spec)
+        self.assertIn("由 chair 选中的 P2/P3 评论/Issue follow-up", spec)
+        self.assertIn("P0/P1 的两个 verifier 显式状态", spec)
+        self.assertIn("P2/P3 的\nspecialist/chair 非阻断状态", spec)
         for obsolete in (
             "P0/P1/P2/P3 severity",
             "必须覆盖全部 P0/P1/P2/P3 finding",
@@ -3081,9 +3084,23 @@ class AgentReviewTests(unittest.TestCase):
             "所有 P0/P1/P2/P3 finding 都需要双重独立验证",
             "P2/P3 双 `AGREE` actionable",
             "选择非双 `AGREE` P2/P3",
+            "非阻断 findings、双 `AGREE` actionable follow-up",
+            "全部 finding 的 disposition、两个 verifier 的显式状态",
         ):
             with self.subTest(obsolete=obsolete):
                 self.assertNotIn(obsolete, prompt + spec)
+
+        compact_view = spec.split("确定性切换到 compact\n视图，", 1)[1].split(
+            "\n追加 actionable", 1
+        )[0]
+        self.assertNotRegex(
+            compact_view,
+            r"(?:全部|所有) finding(?:(?!P0/P1|P2/P3).){0,160}两个 verifier",
+        )
+        self.assertNotRegex(
+            spec,
+            r"P2/P3(?:(?!chair|非阻断).){0,160}(?:双|两个|2 个)\s*`?AGREE`?",
+        )
 
     def test_cross_review_writes_exact_not_needed_without_model_when_no_findings(
         self,
@@ -13083,8 +13100,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_580, largest_size)
-        self.assertEqual(7_420, limit - largest_size)
+        self.assertEqual(56_623, largest_size)
+        self.assertEqual(7_377, limit - largest_size)
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
