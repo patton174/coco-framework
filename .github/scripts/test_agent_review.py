@@ -12899,13 +12899,12 @@ class AgentReviewTests(unittest.TestCase):
     ) -> None:
         for label in ("empty", "non-json"):
             with self.subTest(response=label):
+
                 class FakeClient:
                     def __init__(self) -> None:
                         self.calls: list[tuple[str, str, int]] = []
 
-                    def complete(
-                        self, system: str, user: str, max_tokens: int
-                    ) -> dict:
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
                         self.calls.append((system, user, max_tokens))
                         raise review.RetryableModelOutputError(
                             label,
@@ -12926,7 +12925,9 @@ class AgentReviewTests(unittest.TestCase):
                             cross_review_fresh_retry=True,
                         )
 
-                self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+                self.assertEqual(
+                    review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls)
+                )
                 for system, user, _ in client.calls[1:]:
                     self.assertIn("one complete replacement JSON object", system)
                     self.assertIn("no\nMarkdown", system)
