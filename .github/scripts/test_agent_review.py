@@ -13847,6 +13847,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
             with self.subTest(action=action):
                 report = self.report("evidence-verifier", self.relationship(action))
                 for name in (
+                    "schema_version",
                     "candidate_sha256",
                     "previous_anchor",
                     "previous_group_id",
@@ -13876,6 +13877,39 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 self.assertIsNone(relationship["previous_anchor"])
                 self.assertIsNone(relationship["previous_group_id"])
                 self.assertIsNone(relationship["previous_issue_number"])
+
+    def test_continuity_adopt_normalizes_missing_relationship_schema_version(
+        self,
+    ) -> None:
+        report = self.report("evidence-verifier", self.relationship("ADOPT"))
+        del report["relationships"][0]["schema_version"]
+
+        normalized = review.validate_continuity_report(
+            report, "evidence-verifier", self.context, self.groups
+        )
+
+        self.assertEqual(
+            review.CONTINUITY_SCHEMA_VERSION,
+            normalized["relationships"][0]["schema_version"],
+        )
+        self.assertEqual(
+            self.candidate["candidate_sha256"],
+            normalized["relationships"][0]["candidate_sha256"],
+        )
+
+    def test_continuity_adopt_requires_integer_previous_issue_number(self) -> None:
+        for value in (True, 7.0, "7"):
+            with self.subTest(value=value):
+                report = self.report(
+                    "evidence-verifier",
+                    self.relationship("ADOPT", previous_issue_number=value),
+                )
+                with self.assertRaisesRegex(
+                    review.ReportShapeError, "previous Issue number is invalid"
+                ):
+                    review.validate_continuity_report(
+                        report, "evidence-verifier", self.context, self.groups
+                    )
 
     def test_continuity_shape_repair_uses_digest_without_previous_response(
         self,

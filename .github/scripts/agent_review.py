@@ -5092,6 +5092,9 @@ def command_continuity(args: argparse.Namespace) -> int:
             "## Protected continuity contract\n"
             "Return only schema-v2 JSON with exactly `schema_version`, `role`, `binding`, and `relationships`. "
             "Emit exactly one relationship per supplied current group in its supplied order. "
+            "Each relationship must itself contain exactly these eight fields: numeric `schema_version` 2, `action`, `current_group_id`, `current_anchor`, `candidate_sha256`, `previous_group_id`, `previous_issue_number`, and `previous_anchor`. "
+            "The relationship-level schema_version is required even though the report has a schema_version. "
+            "Use a JSON integer for previous_issue_number when present and JSON null for absent candidate fields. "
             "ADOPT is permitted only when the exact candidate SHA, previous group/Issue, and both canonical anchors match the supplied records. "
             "Do not use titles, claims, body prose, semantic similarity, or any text similarity. "
             "For REJECT or INSUFFICIENT, set every previous/candidate field to null. "
@@ -5839,26 +5842,38 @@ def continuity_relationship_contract(
         "schema_version",
     }
     if isinstance(relationship, dict) and relationship.get("action") in {
+        "ADOPT",
         "REJECT",
         "INSUFFICIENT",
     }:
-        # Models may omit fields whose only legal value is null. Normalize that
-        # representation before applying the exact protected schema.
+        # Older completions treated schema_version as report-level metadata.
+        # Restore only this fixed protocol value; identity-bearing fields remain
+        # subject to the exact checks below.
         relationship = {
+            "schema_version": relationship.get(
+                "schema_version", CONTINUITY_SCHEMA_VERSION
+            ),
             **relationship,
-            **{
-                name: relationship.get(name)
-                for name in (
-                    "candidate_sha256",
-                    "previous_anchor",
-                    "previous_group_id",
-                    "previous_issue_number",
-                )
-            },
+            **(
+                {
+                    name: relationship.get(name)
+                    for name in (
+                        "candidate_sha256",
+                        "previous_anchor",
+                        "previous_group_id",
+                        "previous_issue_number",
+                    )
+                }
+                if relationship.get("action") in {"REJECT", "INSUFFICIENT"}
+                else {}
+            ),
         }
     if not isinstance(relationship, dict) or set(relationship) != required:
         raise ReportShapeError("Continuity relationship schema is invalid.")
-    if relationship.get("schema_version") != CONTINUITY_SCHEMA_VERSION:
+    if (
+        type(relationship.get("schema_version")) is not int
+        or relationship.get("schema_version") != CONTINUITY_SCHEMA_VERSION
+    ):
         raise ReportShapeError("Continuity relationship schema_version is invalid.")
     if relationship.get("current_group_id") != group["current_group_id"]:
         raise ReportShapeError("Continuity relationship current group is invalid.")
@@ -5896,6 +5911,11 @@ def continuity_relationship_contract(
             "previous_issue_number": None,
             "schema_version": CONTINUITY_SCHEMA_VERSION,
         }
+    if (
+        type(relationship.get("previous_issue_number")) is not int
+        or relationship["previous_issue_number"] < 1
+    ):
+        raise ReportShapeError("Continuity relationship previous Issue number is invalid.")
     try:
         candidate_hash = require_sha256(
             relationship.get("candidate_sha256"), "Continuity candidate SHA-256"
@@ -5930,6 +5950,7 @@ def continuity_relationship_contract(
         "previous_anchor": candidate["anchor"],
         "previous_group_id": candidate["previous_group_id"],
         "previous_issue_number": candidate["previous_issue_number"],
+        "schema_version": CONTINUITY_SCHEMA_VERSION,
     }
 
 
@@ -5947,7 +5968,8 @@ def validate_continuity_report(
     if not isinstance(report, dict):
         raise ReviewError("Continuity verifier report schema is invalid.")
     if (
-        report.get("schema_version") != CONTINUITY_SCHEMA_VERSION
+        type(report.get("schema_version")) is not int
+        or report.get("schema_version") != CONTINUITY_SCHEMA_VERSION
         or report.get("role") != role
     ):
         raise ReviewError("Continuity verifier report identity is invalid.")
