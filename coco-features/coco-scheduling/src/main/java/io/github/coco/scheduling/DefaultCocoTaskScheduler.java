@@ -193,6 +193,17 @@ public final class DefaultCocoTaskScheduler implements CocoTaskScheduler {
                         failure = exception;
                     }
                 }
+                if (failure == null && guarded) {
+                    try {
+                        if (!this.guard.isExecutionValid(registration.definition.getName())) {
+                            failure = this.validator.error(CocoSchedulingMessage.GUARD_EXECUTION_INVALID,
+                                    registration.definition.getName());
+                        }
+                    }
+                    catch (Throwable exception) {
+                        failure = exception;
+                    }
+                }
                 if (guarded) {
                     try {
                         this.guard.release(registration.definition.getName());

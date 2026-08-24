@@ -7,7 +7,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.coco.feature.lock.CocoLockManager;
@@ -79,6 +81,68 @@ class CocoLockTaskExecutionGuardTest {
         assertThat(releases).hasValue(1);
     }
 
+    @Test
+    void lostLeaseAfterNormalTaskReturnPublishesFailedInsteadOfSucceededAndCanClose() {
+        assertLostLeaseAfterNormalTaskReturn(CocoLockStore.RenewResult.UNAVAILABLE);
+        assertLostLeaseAfterNormalTaskReturn(CocoLockStore.RenewResult.NOT_OWNER);
+    }
+
+    private static void assertLostLeaseAfterNormalTaskReturn(CocoLockStore.RenewResult renewResult) {
+        CocoLockProperties lockProperties = new CocoLockProperties();
+        lockProperties.setWatchdogInterval(Duration.ofMillis(1));
+        LostRenewStore store = new LostRenewStore(renewResult);
+        CocoSchedulingProperties schedulingProperties = new CocoSchedulingProperties();
+        ManualTaskScheduler springScheduler = new ManualTaskScheduler();
+        AtomicInteger executions = new AtomicInteger();
+        List<CocoTaskExecutionEvent> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        CocoTaskDefinitionValidator validator = new CocoTaskDefinitionValidator(new CocoSchedulingMessageResolver(null));
+        try (DefaultCocoLockManager manager = new DefaultCocoLockManager(store, lockProperties, Clock.systemUTC())) {
+            CocoLockTaskExecutionGuard guard = new CocoLockTaskExecutionGuard(manager, schedulingProperties.getGuard());
+            DefaultCocoTaskScheduler scheduler = new DefaultCocoTaskScheduler(springScheduler, guard, List.of(events::add),
+                    validator, schedulingProperties.getShutdown());
+            String taskName = "lease-lost-" + renewResult.name().toLowerCase();
+            scheduler.register(CocoTaskDefinition.builder(taskName, () -> {
+                assertThat(await(store.renewEntered)).isTrue();
+                store.allowRenew.countDown();
+                assertThat(awaitInvalid(guard, taskName)).isTrue();
+                executions.incrementAndGet();
+            }).fixedRate(Duration.ofSeconds(1)).build());
+
+            springScheduler.latest().run();
+            scheduler.close();
+
+            assertThat(executions).hasValue(1);
+            assertThat(events).extracting(CocoTaskExecutionEvent::outcome)
+                    .containsExactly(CocoTaskExecutionOutcome.STARTED, CocoTaskExecutionOutcome.FAILED);
+            assertThat(events).noneMatch(event -> event.outcome() == CocoTaskExecutionOutcome.SUCCEEDED);
+            assertThat(events.get(1).failureType()).isEqualTo(CocoSchedulingException.class.getName());
+            assertThat(springScheduler.latest().future().cancelled()).isTrue();
+            assertThat(validator.error(CocoSchedulingMessage.GUARD_EXECUTION_INVALID, taskName).getCode())
+                    .isEqualTo("coco.scheduling.guard-execution-invalid");
+        }
+    }
+
+    private static boolean awaitInvalid(CocoLockTaskExecutionGuard guard, String taskName) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            if (!guard.isExecutionValid(taskName)) {
+                return true;
+            }
+            Thread.onSpinWait();
+        }
+        return !guard.isExecutionValid(taskName);
+    }
+
+    private static boolean await(CountDownLatch latch) {
+        try {
+            return latch.await(2, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
+    }
+
     private static final class ThrowingHandle implements io.github.coco.feature.lock.CocoLockHandle {
         private final AtomicInteger releases;
         private ThrowingHandle(AtomicInteger releases) { this.releases = releases; }
@@ -86,6 +150,41 @@ class CocoLockTaskExecutionGuardTest {
         @Override public boolean reentrant() { return false; }
         @Override public boolean lost() { return false; }
         @Override public void close() { this.releases.incrementAndGet(); throw new IllegalStateException("release failed"); }
+    }
+
+    private static final class LostRenewStore implements CocoLockStore {
+        private final CountDownLatch renewEntered = new CountDownLatch(1);
+        private final CountDownLatch allowRenew = new CountDownLatch(1);
+        private final RenewResult renewResult;
+
+        private LostRenewStore(RenewResult renewResult) {
+            this.renewResult = renewResult;
+        }
+
+        @Override
+        public AcquireResult acquire(io.github.coco.feature.lock.CocoLockLease lease) {
+            return AcquireResult.ACQUIRED;
+        }
+
+        @Override
+        public RenewResult renew(io.github.coco.feature.lock.CocoLockLease lease) {
+            this.renewEntered.countDown();
+            try {
+                if (!this.allowRenew.await(2, TimeUnit.SECONDS)) {
+                    throw new AssertionError("renewal was not released");
+                }
+            }
+            catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(exception);
+            }
+            return this.renewResult;
+        }
+
+        @Override
+        public boolean release(io.github.coco.feature.lock.CocoLockLease lease) {
+            return true;
+        }
     }
 
     private static final class MapBackedRedisTemplate extends StringRedisTemplate {

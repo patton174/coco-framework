@@ -11,7 +11,13 @@ import io.github.coco.feature.lock.CocoLockRequest;
 import io.github.coco.feature.lock.CocoLockResult;
 import io.github.coco.feature.lock.CocoLockStore;
 
-/** 基于 {@link CocoLockManager} 的跨实例任务执行 guard。 */
+/**
+ * 基于 {@link CocoLockManager} 的跨实例任务执行 guard。
+ * <p>
+ * 它在租约健康期间提供互斥，并在租约丢失后让调度器失败关闭；无法停止已经运行的业务线程，也不能撤销已发生的
+ * 业务副作用。需要该类保证的业务必须自行实现幂等或与下游资源协作的 fencing。
+ * </p>
+ */
 public final class CocoLockTaskExecutionGuard implements CocoTaskExecutionGuard {
 
     private static final String TASK_LOCK_NAMESPACE = "coco:scheduling:task:";
@@ -58,6 +64,19 @@ public final class CocoLockTaskExecutionGuard implements CocoTaskExecutionGuard 
             this.heldLocks.remove();
         }
         handle.close();
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 仅检查当前线程为该任务取得的最内层句柄，且在 release 移除句柄前调用。
+     * </p>
+     */
+    @Override
+    public boolean isExecutionValid(String taskName) {
+        String checkedTaskName = taskName(taskName);
+        ArrayDeque<CocoLockHandle> handles = this.heldLocks.get().get(checkedTaskName);
+        return handles != null && !handles.isEmpty() && !handles.peek().lost();
     }
 
     private static void validate(CocoSchedulingProperties.GuardProperties properties) {

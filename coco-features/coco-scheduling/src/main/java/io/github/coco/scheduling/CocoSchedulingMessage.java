@@ -24,7 +24,8 @@ enum CocoSchedulingMessage implements CocoMessageCode {
     ANNOTATION_DURATION_INVALID("coco.scheduling.annotation-duration-invalid"),
     ANNOTATION_ZONE_INVALID("coco.scheduling.annotation-zone-invalid"),
     POOL_SIZE_INVALID("coco.scheduling.pool-size-invalid"),
-    AWAIT_TERMINATION_NEGATIVE("coco.scheduling.await-termination-negative");
+    AWAIT_TERMINATION_NEGATIVE("coco.scheduling.await-termination-negative"),
+    GUARD_EXECUTION_INVALID("coco.scheduling.guard-execution-invalid");
 
     private final String code;
 
