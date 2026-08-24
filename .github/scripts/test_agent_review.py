@@ -3332,22 +3332,22 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertIn('"role": "<exact-protected-task-role-id>"', prompt)
         self.assertIn(
-            "Copy `role` verbatim from the protected task metadata.",
+            '"schema_version": 2',
             normalized_prompt,
         )
         self.assertIn(
-            "For an `evidence-verifier` task, output `evidence-verifier`",
+            '"relationships": [',
             normalized_prompt,
         )
         self.assertIn(
-            "for a `policy-skeptic` task, output `policy-skeptic`",
+            "The coordinator binds the normalized report identity to the protected task role",
+            normalized_prompt,
+        )
+        self.assertIn(
+            "For ordinary reports, copy `role` verbatim from the protected task metadata.",
             normalized_prompt,
         )
         self.assertNotIn('"role": "evidence-verifier|policy-skeptic"', prompt)
-        self.assertIn(
-            "Never output a role list, union, or alternative",
-            normalized_prompt,
-        )
 
     def test_cross_review_writes_exact_not_needed_without_model_when_no_findings(
         self,
@@ -14371,7 +14371,6 @@ class CrossHeadContinuityTest(unittest.TestCase):
         role = "evidence-verifier"
         cases = {
             "schema_version": lambda report: report.update({"schema_version": 1}),
-            "role": lambda report: report.update({"role": "invalid-role"}),
             "head_sha": lambda report: report["binding"].update({"head_sha": "c" * 40}),
             "context_sha256": lambda report: report["binding"].update(
                 {"context_sha256": "d" * 64}
@@ -14398,6 +14397,38 @@ class CrossHeadContinuityTest(unittest.TestCase):
 
                 self.assertNotIsInstance(caught.exception, review.ReportShapeError)
                 self.assertEqual(1, len(client.calls))
+
+    def test_continuity_report_role_is_normalized_from_protected_task_for_each_verifier(
+        self,
+    ) -> None:
+        for expected_role, model_role in (
+            ("evidence-verifier", "policy-skeptic"),
+            ("evidence-verifier", None),
+            ("evidence-verifier", "evidence-verifier"),
+            ("policy-skeptic", "evidence-verifier"),
+            ("policy-skeptic", None),
+            ("policy-skeptic", "policy-skeptic"),
+        ):
+            with self.subTest(expected_role=expected_role, model_role=model_role):
+                report = self.report(model_role or expected_role)
+                if model_role is None:
+                    del report["role"]
+                normalized = review.validate_continuity_report(
+                    report, expected_role, self.context, self.groups
+                )
+                self.assertEqual(expected_role, normalized["role"])
+
+    def test_continuity_report_role_rejects_present_non_string_values(self) -> None:
+        for value in (None, 1, ["evidence-verifier"]):
+            with self.subTest(value=value):
+                report = self.report("evidence-verifier")
+                report["role"] = value
+                with self.assertRaisesRegex(
+                    review.ReviewError, "identity is invalid"
+                ):
+                    review.validate_continuity_report(
+                        report, "evidence-verifier", self.context, self.groups
+                    )
 
     def test_command_continuity_enables_cross_review_fresh_retry(self) -> None:
         role = "evidence-verifier"
