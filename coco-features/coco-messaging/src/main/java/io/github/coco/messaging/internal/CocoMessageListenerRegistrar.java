@@ -6,9 +6,11 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import io.github.coco.messaging.CocoMessageEnvelope;
 import io.github.coco.messaging.CocoMessageHandler;
@@ -19,6 +21,7 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.util.ClassUtils;
 
 /**
  * 在所有单例 Bean 初始化后注册注解监听器和 Handler Bean。
@@ -134,9 +137,77 @@ public final class CocoMessageListenerRegistrar implements SmartInitializingSing
             return AopUtils.selectInvocableMethod(method, bean.getClass());
         }
         catch (IllegalStateException exception) {
-            throw new CocoMessagingException("coco.messaging.error.listener-invocation-failed", exception,
-                    method.toGenericString());
+            return selectCompatibleProxyMethod(bean, method, exception);
         }
+    }
+
+    private static Method selectCompatibleProxyMethod(Object bean, Method targetMethod, IllegalStateException cause) {
+        List<Method> candidates = compatibleProxyMethods(bean.getClass(), targetMethod);
+        if (candidates.isEmpty()) {
+            throw new CocoMessagingException("coco.messaging.error.listener-invocation-failed", cause,
+                    targetMethod.toGenericString());
+        }
+        List<Method> exactCandidates = candidates.stream()
+                .filter(candidate -> Arrays.equals(candidate.getParameterTypes(), targetMethod.getParameterTypes()))
+                .toList();
+        if (!exactCandidates.isEmpty()) {
+            return uniqueCandidate(targetMethod, exactCandidates);
+        }
+        List<Method> mostSpecificCandidates = candidates.stream()
+                .filter(candidate -> candidates.stream().noneMatch(other -> moreSpecific(other, candidate)))
+                .toList();
+        return uniqueCandidate(targetMethod, mostSpecificCandidates);
+    }
+
+    private static List<Method> compatibleProxyMethods(Class<?> proxyType, Method targetMethod) {
+        Set<Method> candidates = new LinkedHashSet<>();
+        for (Class<?> interfaceType : ClassUtils.getAllInterfacesForClass(proxyType)) {
+            for (Method candidate : interfaceType.getMethods()) {
+                if (candidate.isBridge() || candidate.isSynthetic() || Modifier.isStatic(candidate.getModifiers())
+                        || !Modifier.isPublic(candidate.getModifiers()) || candidate.getReturnType() != Void.TYPE
+                        || !candidate.getName().equals(targetMethod.getName())
+                        || candidate.getParameterCount() != targetMethod.getParameterCount()
+                        || !acceptsTargetParameters(candidate, targetMethod)) {
+                    continue;
+                }
+                candidates.add(candidate);
+            }
+        }
+        return candidates.stream().sorted(Comparator.comparing(Method::toGenericString)).toList();
+    }
+
+    private static boolean acceptsTargetParameters(Method candidate, Method targetMethod) {
+        Class<?>[] candidateParameters = candidate.getParameterTypes();
+        Class<?>[] targetParameters = targetMethod.getParameterTypes();
+        for (int index = 0; index < targetParameters.length; index++) {
+            if (!candidateParameters[index].isAssignableFrom(targetParameters[index])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean moreSpecific(Method left, Method right) {
+        Class<?>[] leftParameters = left.getParameterTypes();
+        Class<?>[] rightParameters = right.getParameterTypes();
+        boolean strictlyMoreSpecific = false;
+        for (int index = 0; index < leftParameters.length; index++) {
+            if (!rightParameters[index].isAssignableFrom(leftParameters[index])) {
+                return false;
+            }
+            strictlyMoreSpecific |= leftParameters[index] != rightParameters[index];
+        }
+        return strictlyMoreSpecific;
+    }
+
+    private static Method uniqueCandidate(Method targetMethod, List<Method> candidates) {
+        if (candidates.size() == 1) {
+            return candidates.get(0);
+        }
+        String descriptions = candidates.stream().map(Method::toGenericString).sorted()
+                .reduce((left, right) -> left + "; " + right).orElse("");
+        throw new CocoMessagingException("coco.messaging.error.listener-proxy-method-ambiguous",
+                targetMethod.toGenericString(), descriptions);
     }
 
     private static void validateMethod(Method method, CocoMessageListener listener) {

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -239,6 +240,30 @@ class CocoMessagingTest {
     }
 
     @Test
+    void invokesGenericJdkProxyListenerThroughErasedInterfaceMethodAndKeepsPayloadType() {
+        this.contextRunner.withUserConfiguration(GenericJdkProxyListenerConfiguration.class).run(context -> {
+            ReceivedMessages received = context.getBean(ReceivedMessages.class);
+            CocoMessagePublisher publisher = context.getBean(CocoMessagePublisher.class);
+
+            publisher.publish("generic.proxy.listener", "payload");
+
+            assertEquals(List.of("generic-proxy:payload"), received.values);
+            CocoMessagingException exception = assertThrows(CocoMessagingException.class,
+                    () -> publisher.publish("generic.proxy.listener", 42));
+            assertEquals("coco.messaging.error.payload-type-mismatch", exception.messageCode());
+        });
+    }
+
+    @Test
+    void failsClosedWhenGenericProxyMethodResolutionIsAmbiguous() {
+        this.contextRunner.withUserConfiguration(AmbiguousProxyListenerConfiguration.class).run(context -> {
+            assertInstanceOf(CocoMessagingException.class, context.getStartupFailure());
+            CocoMessagingException exception = (CocoMessagingException) context.getStartupFailure();
+            assertEquals("coco.messaging.error.listener-proxy-method-ambiguous", exception.messageCode());
+        });
+    }
+
+    @Test
     void registersGenericInterfaceAndImplementationListenerOnlyOnce() {
         this.contextRunner.withUserConfiguration(GenericListenerConfiguration.class).run(context -> {
             GenericReceivedMessages received = context.getBean(GenericReceivedMessages.class);
@@ -464,6 +489,65 @@ class CocoMessagingTest {
         @CocoMessageListener(topic = "proxy.listener")
         public void receive(String payload) {
             this.received.values.add("proxy:" + payload);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class GenericJdkProxyListenerConfiguration {
+        @Bean
+        ReceivedMessages receivedMessages() {
+            return new ReceivedMessages();
+        }
+
+        @Bean
+        GenericJdkProxyListener<?> genericJdkProxyListener(ReceivedMessages received) {
+            ProxyFactory factory = new ProxyFactory();
+            factory.setTarget(new GenericJdkProxyListenerTarget(received));
+            factory.setInterfaces(GenericJdkProxyListener.class);
+            return (GenericJdkProxyListener<?>) factory.getProxy();
+        }
+    }
+
+    public interface GenericJdkProxyListener<T> {
+        void receive(T payload);
+    }
+
+    public static class GenericJdkProxyListenerTarget implements GenericJdkProxyListener<String> {
+        private final ReceivedMessages received;
+
+        public GenericJdkProxyListenerTarget(ReceivedMessages received) {
+            this.received = received;
+        }
+
+        @Override
+        @CocoMessageListener(topic = "generic.proxy.listener")
+        public void receive(String payload) {
+            this.received.values.add("generic-proxy:" + payload);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class AmbiguousProxyListenerConfiguration {
+        @Bean
+        Object ambiguousProxyListener() {
+            ProxyFactory factory = new ProxyFactory();
+            factory.setTarget(new AmbiguousProxyListenerTarget());
+            factory.setInterfaces(CharSequenceProxyListener.class, SerializableProxyListener.class);
+            return factory.getProxy();
+        }
+    }
+
+    public interface CharSequenceProxyListener {
+        void receive(CharSequence payload);
+    }
+
+    public interface SerializableProxyListener {
+        void receive(Serializable payload);
+    }
+
+    public static class AmbiguousProxyListenerTarget {
+        @CocoMessageListener(topic = "ambiguous.proxy.listener")
+        public void receive(String payload) {
         }
     }
 
