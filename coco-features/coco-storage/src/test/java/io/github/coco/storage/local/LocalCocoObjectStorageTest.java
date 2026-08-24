@@ -294,6 +294,23 @@ class LocalCocoObjectStorageTest {
     }
 
     @Test
+    void zeroGcIntervalDisablesPeriodicCollectionButKeepsManualCollectionAvailable() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        CocoStorageProperties properties = properties(1024);
+        properties.getLocal().setGcInterval(Duration.ZERO);
+        properties.getLocal().setOrphanGracePeriod(Duration.ZERO);
+        LocalCocoObjectStorage storage = storage(properties, clock, LocalStorageTestHook.NONE);
+        storage.put(CocoObjectPutRequest.of("manual-gc.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "application/octet-stream"));
+        assertThat(storage.delete("manual-gc.bin")).isTrue();
+        assertThat(blobCount()).isEqualTo(1);
+
+        assertThat(storage.collectGarbage()).isEqualTo(1);
+        assertThat(blobCount()).isZero();
+        storage.close();
+    }
+
+    @Test
     void startsReplacementGraceWhenTheManifestStopsReferencingAnOldBlob() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
         LocalCocoObjectStorage storage = storageWithGarbageCollection(Duration.ofHours(1), clock);
@@ -481,8 +498,8 @@ class LocalCocoObjectStorageTest {
     }
 
     private static void createJunction(Path link, Path target) throws Exception {
-        String command = "mklink /J \"" + link + "\" \"" + target + "\"";
-        Process process = new ProcessBuilder("cmd.exe", "/c", command).start();
+        Process process = new ProcessBuilder("cmd.exe", "/c", "mklink", "/J", link.toString(), target.toString())
+                .redirectErrorStream(true).start();
         assertThat(process.waitFor(10, TimeUnit.SECONDS)).isTrue();
         assertThat(process.exitValue()).isZero();
     }

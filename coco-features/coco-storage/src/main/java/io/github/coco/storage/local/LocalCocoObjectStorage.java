@@ -44,6 +44,8 @@ import io.github.coco.storage.CocoStorageErrorCode;
 import io.github.coco.storage.CocoStorageException;
 import io.github.coco.storage.CocoStorageOverwritePolicy;
 import io.github.coco.storage.CocoStorageProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.AbstractResource;
 
 /**
@@ -57,6 +59,8 @@ import org.springframework.core.io.AbstractResource;
  * </p>
  */
 public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoCloseable {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(LocalCocoObjectStorage.class);
 
     private static final int BUFFER_SIZE = 8192;
 
@@ -762,8 +766,8 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         try {
             collectGarbage();
         }
-        catch (RuntimeException ignored) {
-            // A later periodic or shutdown pass retries recovery without interrupting application threads.
+        catch (RuntimeException exception) {
+            LOGGER.warn("Coco local object storage garbage collection failed; a later pass will retry", exception);
         }
     }
 
