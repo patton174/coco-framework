@@ -12854,7 +12854,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(valid, result)
         self.assertEqual(2, len(client.calls))
-        self.assertIn("one listed continuous interval", client.calls[1][0])
+        self.assertIn("continuous interval", client.calls[1][0])
+        self.assertIn("start_line equal to end_line", client.calls[1][0])
         correction = json.loads(client.calls[1][1])
         self.assertIn("canonical line coverage", correction["validator_message"])
         self.assertNotIn("previous_response", correction)
@@ -12892,6 +12893,46 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
         self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+
+    def test_cross_review_empty_and_non_json_retries_are_bounded_and_json_only(
+        self,
+    ) -> None:
+        for label in ("empty", "non-json"):
+            with self.subTest(response=label):
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(
+                        self, system: str, user: str, max_tokens: int
+                    ) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        raise review.RetryableModelOutputError(
+                            label,
+                            stop_reason="end_turn",
+                            response_chars=0 if label == "empty" else 12,
+                            accumulated_chars=0 if label == "empty" else 12,
+                        )
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.RetryableModelOutputError):
+                        review.complete_with_shape_repair(
+                            client,
+                            "protected cross-review system",
+                            '{"task":"cross-review"}',
+                            100,
+                            lambda value: value,
+                            cross_review_fresh_retry=True,
+                        )
+
+                self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+                for system, user, _ in client.calls[1:]:
+                    self.assertIn("one complete replacement JSON object", system)
+                    self.assertIn("no\nMarkdown", system)
+                    self.assertIn("at most one evidence reference", system)
+                    self.assertIn("start_line equal to end_line", system)
+                    self.assertEqual('{"task":"cross-review"}', user)
 
     def test_cross_review_max_tokens_retry_discards_large_partial_response(
         self,
