@@ -6,6 +6,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Locale;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.coco.i18n.CocoMessage;
@@ -14,16 +16,22 @@ import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 class CocoIdempotencyAutoConfigurationTest {
     private final WebApplicationContextRunner contextRunner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CocoIdempotencyAutoConfiguration.class))
+            .withUserConfiguration(Prerequisites.class);
+    private final ApplicationContextRunner redisContextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(CocoIdempotencyRedisAutoConfiguration.class))
             .withUserConfiguration(Prerequisites.class);
 
     @Test
@@ -83,6 +91,26 @@ class CocoIdempotencyAutoConfigurationTest {
                 .run(context -> assertThat(context.getBean(CocoIdempotencyStore.class)).isSameAs(customStore));
     }
 
+    @Test
+    void redisStoreUsesSingleOrPrimaryTemplateAndBacksOffOtherwise() {
+        this.redisContextRunner.withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> assertThat(context).hasSingleBean(RedisCocoIdempotencyStore.class));
+        this.redisContextRunner.withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    CocoIdempotencyKey key = CocoIdempotencyKey.fromRawKey("orders", "POST", "create", "key");
+                    context.getBean(CocoIdempotencyStore.class).acquire(new CocoIdempotencyLease(key, "owner", Instant.now().plusSeconds(60)));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                });
+        this.redisContextRunner.withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .withUserConfiguration(NonPrimaryRedisTemplates.class)
+                .run(context -> assertThat(context).doesNotHaveBean(CocoIdempotencyStore.class));
+        this.redisContextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .run(context -> assertThat(context).doesNotHaveBean(CocoIdempotencyStore.class));
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class Prerequisites {
         @Bean("cocoIdempotencyClock") Clock clock() { return Clock.fixed(Instant.parse("2026-08-24T00:00:00Z"), ZoneOffset.UTC); }
@@ -91,6 +119,25 @@ class CocoIdempotencyAutoConfigurationTest {
         @Bean CocoIdempotencyResponseWriter cocoIdempotencyResponseWriter() {
             return (code, request, response) -> response.setStatus(500);
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class PrimaryRedisTemplates {
+        @Bean @Primary TrackingRedisTemplate primaryTemplate() { return new TrackingRedisTemplate(); }
+        @Bean TrackingRedisTemplate secondaryTemplate() { return new TrackingRedisTemplate(); }
+    }
+    @Configuration(proxyBeanMethods = false)
+    static class NonPrimaryRedisTemplates {
+        @Bean TrackingRedisTemplate firstTemplate() { return new TrackingRedisTemplate(); }
+        @Bean TrackingRedisTemplate secondTemplate() { return new TrackingRedisTemplate(); }
+    }
+    static final class TrackingRedisTemplate extends StringRedisTemplate {
+        private final AtomicInteger calls = new AtomicInteger();
+        TrackingRedisTemplate() { super(new LettuceConnectionFactory()); }
+        @Override @SuppressWarnings("unchecked") public <T> T execute(RedisScript<T> script, List<String> keys, Object... args) {
+            this.calls.incrementAndGet(); return (T) Long.valueOf(1L);
+        }
+        int calls() { return this.calls.get(); }
     }
 
     @Configuration(proxyBeanMethods = false)
