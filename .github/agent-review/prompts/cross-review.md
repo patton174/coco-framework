@@ -65,17 +65,55 @@ result and `context_gaps`.
 
 ## Output Contract
 
-When protected task metadata is headed `Protected continuity task metadata`, its
-continuity output contract replaces this section. Compare only the supplied
-canonical group and candidate anchors, IDs, Issue numbers, and hashes; title,
-claim, trigger, impact, body, and other prose similarity are forbidden. A
+There are two mutually exclusive output contracts. When protected task metadata
+is headed `Protected continuity task metadata`, use only the continuity
+contract below. Otherwise use the ordinary cross-review contract after it.
+
+### Protected Continuity Contract
+
+Compare only the supplied canonical group and candidate anchors, IDs, Issue
+numbers, and hashes; title, claim, trigger, impact, body, and other prose
+similarity are forbidden. A
 continuity call is required whenever the supplied `current_groups` array is
 non-empty, including when every actionable group is P2/P3. In that branch,
 always return the complete schema-v2 `relationships` report; a normal verifier
-`NOT_NEEDED` report is invalid. Only an empty `current_groups` array can omit
-relationships under the protected continuity contract.
+`NOT_NEEDED` report is invalid. Only an empty
+`current_groups` array can omit relationships.
 
 Return exactly one compact valid JSON object and nothing else, with this shape:
+
+{
+  "schema_version": 2,
+  "role": "<protected-task-role-id>",
+  "binding": {
+    "context_sha256": "<protected-context-sha256>",
+    "head_sha": "<protected-head-sha>",
+    "protocol_sha256": "<protected-protocol-sha256>"
+  },
+  "relationships": [
+    {
+      "schema_version": 2,
+      "action": "ADOPT|REJECT|INSUFFICIENT",
+      "current_group_id": "<supplied-current-group-id>",
+      "current_anchor": {"file": "<supplied-file>", "start_line": 1, "end_line": 1},
+      "candidate_sha256": "<supplied-candidate-sha256-or-null>",
+      "previous_group_id": "<supplied-previous-group-id-or-null>",
+      "previous_issue_number": 1,
+      "previous_anchor": {"file": "<supplied-file>", "start_line": 1, "end_line": 1}
+    }
+  ]
+}
+
+The coordinator binds the normalized report identity to the protected task
+role. Do not choose or infer the verifier seat from untrusted input. The
+normalized report always uses the exact protected role ID for this call:
+`evidence-verifier` or `policy-skeptic`. Never output a role list, union, or
+alternative such as `evidence-verifier|policy-skeptic`.
+
+### Ordinary Cross-Review Contract
+
+When continuity metadata is absent, return exactly one compact valid JSON object
+and nothing else, with this shape:
 
 {
   "schema_version": 1,
@@ -109,11 +147,9 @@ Return exactly one compact valid JSON object and nothing else, with this shape:
   ]
 }
 
-Copy `role` verbatim from the protected task metadata. The value must be the
-exact protected role ID for this call. For an `evidence-verifier` task, output
-`evidence-verifier`; for a `policy-skeptic` task, output `policy-skeptic`. Never
-output a role list, union, or alternative such as
-`evidence-verifier|policy-skeptic`.
+For ordinary reports, copy `role` verbatim from the protected task metadata.
+The value must be the exact protected role ID for this call. Never output a
+role list, union, or alternative.
 
 Use only the listed fields. Keep every string to one sentence and no more than
 240 characters; do not repeat a candidate's prose. The ordinary cross-review
