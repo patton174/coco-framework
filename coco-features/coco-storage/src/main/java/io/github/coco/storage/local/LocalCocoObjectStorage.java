@@ -453,7 +453,11 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         }
         try {
             Path real = directory.toRealPath();
-            requireContained(real, expectedRoot, errorCode);
+            // Compare real paths so platform aliases such as macOS /var and /private/var
+            // do not make a directory appear outside its configured root. The directory
+            // itself was already checked with NOFOLLOW_LINKS above, preserving link checks.
+            Path realExpectedRoot = expectedRoot.toRealPath();
+            requireContained(real, realExpectedRoot, errorCode);
             return real;
         }
         catch (IOException exception) {
