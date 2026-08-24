@@ -195,7 +195,10 @@ class CocoLockAutoConfigurationTest {
                             .isInstanceOf(IllegalStateException.class)
                             .hasMessage("business failure")
                             .satisfies(exception -> assertThat(exception.getSuppressed())
-                                    .anySatisfy(suppressed -> assertThat(suppressed).hasMessage("release failure")));
+                                    .anySatisfy(suppressed -> assertThat(suppressed)
+                                            .isInstanceOf(CocoLockException.class)
+                                            .hasCauseInstanceOf(IllegalStateException.class)
+                                            .hasRootCauseMessage("release failure")));
                 });
     }
 

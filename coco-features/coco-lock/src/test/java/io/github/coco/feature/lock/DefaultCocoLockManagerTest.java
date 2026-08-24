@@ -1,6 +1,7 @@
 package io.github.coco.feature.lock;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -56,8 +57,8 @@ class DefaultCocoLockManagerTest {
             assertThat(awaitLost(handle)).isTrue();
             assertThat(manager.tryAcquire(request("orders", Duration.ZERO)).status())
                     .isEqualTo(CocoLockStore.AcquireResult.UNAVAILABLE);
-            handle.close();
-            assertThat(store.released.get()).isOne();
+            assertThatThrownBy(handle::close).isInstanceOf(CocoLockException.class);
+            assertThat(store.released.get()).isZero();
         }
     }
 
@@ -72,8 +73,8 @@ class DefaultCocoLockManagerTest {
         assertThat(handle.lost()).isTrue();
         assertThat(manager.tryAcquire(request("orders", Duration.ZERO)).status())
                 .isEqualTo(CocoLockStore.AcquireResult.UNAVAILABLE);
-        handle.close();
-        assertThat(store.released.get()).isOne();
+        assertThatThrownBy(handle::close).isInstanceOf(CocoLockException.class);
+        assertThat(store.released.get()).isZero();
     }
 
     @Test
@@ -86,7 +87,7 @@ class DefaultCocoLockManagerTest {
             assertThat(store.renewEntered.await(2, TimeUnit.SECONDS)).isTrue();
             store.allowRenew.countDown();
             assertThat(awaitLost(handle)).isTrue();
-            handle.close();
+            assertThatThrownBy(handle::close).isInstanceOf(CocoLockException.class);
         }
     }
 
@@ -100,7 +101,38 @@ class DefaultCocoLockManagerTest {
             assertThat(store.renewEntered.await(2, TimeUnit.SECONDS)).isTrue();
             store.allowRenew.countDown();
             assertThat(awaitLost(handle)).isTrue();
+            assertThatThrownBy(handle::close).isInstanceOf(CocoLockException.class);
+        }
+    }
+
+    @Test
+    void duplicateCloseIsIdempotentAfterSuccessfulOuterRelease() {
+        CocoLockProperties properties = properties();
+        properties.setWatchdogEnabled(false);
+        TrackingStore store = new TrackingStore();
+        try (DefaultCocoLockManager manager = new DefaultCocoLockManager(store, properties, Clock.systemUTC())) {
+            CocoLockHandle handle = manager.tryAcquire(request("orders", Duration.ZERO)).handle();
+
             handle.close();
+            handle.close();
+
+            assertThat(store.released.get()).isOne();
+        }
+    }
+
+    @Test
+    void rejectedStoreReleaseMarksTheHandleLostAndPropagatesLockException() {
+        CocoLockProperties properties = properties();
+        properties.setWatchdogEnabled(false);
+        ReleaseFailureStore store = new ReleaseFailureStore();
+        try (DefaultCocoLockManager manager = new DefaultCocoLockManager(store, properties, Clock.systemUTC())) {
+            CocoLockHandle handle = manager.tryAcquire(request("orders", Duration.ZERO)).handle();
+
+            assertThatThrownBy(handle::close).isInstanceOf(CocoLockException.class);
+            assertThat(handle.lost()).isTrue();
+            assertThat(store.released.get()).isOne();
+            handle.close();
+            assertThat(store.released.get()).isOne();
         }
     }
 
@@ -191,6 +223,16 @@ class DefaultCocoLockManagerTest {
             this.released.incrementAndGet();
             this.lease = null;
             return true;
+        }
+    }
+
+    private static final class ReleaseFailureStore implements CocoLockStore {
+        private final AtomicInteger released = new AtomicInteger();
+        @Override public AcquireResult acquire(CocoLockLease candidate) { return AcquireResult.ACQUIRED; }
+        @Override public RenewResult renew(CocoLockLease candidate) { return RenewResult.RENEWED; }
+        @Override public boolean release(CocoLockLease candidate) {
+            this.released.incrementAndGet();
+            return false;
         }
     }
 }

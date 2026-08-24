@@ -9,9 +9,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.github.coco.feature.lock.CocoLockException;
 import io.github.coco.feature.lock.CocoLockManager;
 import io.github.coco.feature.lock.CocoLockProperties;
 import io.github.coco.feature.lock.CocoLockRequest;
@@ -87,6 +92,44 @@ class CocoLockTaskExecutionGuardTest {
         assertLostLeaseAfterNormalTaskReturn(CocoLockStore.RenewResult.NOT_OWNER);
     }
 
+    @Test
+    void blockedRenewalThatReturnsNotOwnerAfterSchedulerValidationFailsTheTask() throws Exception {
+        assertBlockedRenewalAfterSchedulerValidationFails(CocoLockStore.RenewResult.NOT_OWNER);
+    }
+
+    @Test
+    void blockedRenewalThatReturnsUnavailableAfterSchedulerValidationFailsTheTask() throws Exception {
+        assertBlockedRenewalAfterSchedulerValidationFails(CocoLockStore.RenewResult.UNAVAILABLE);
+    }
+
+    @Test
+    void rejectedStoreReleaseFailsTheTaskInsteadOfPublishingSuccess() {
+        CocoLockProperties lockProperties = new CocoLockProperties();
+        lockProperties.setWatchdogEnabled(false);
+        ReleaseFalseStore store = new ReleaseFalseStore();
+        CocoSchedulingProperties schedulingProperties = new CocoSchedulingProperties();
+        ManualTaskScheduler springScheduler = new ManualTaskScheduler();
+        List<CocoTaskExecutionEvent> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        AtomicInteger executions = new AtomicInteger();
+        CocoTaskDefinitionValidator validator = new CocoTaskDefinitionValidator(new CocoSchedulingMessageResolver(null));
+        try (DefaultCocoLockManager manager = new DefaultCocoLockManager(store, lockProperties, Clock.systemUTC())) {
+            CocoLockTaskExecutionGuard guard = new CocoLockTaskExecutionGuard(manager, schedulingProperties.getGuard());
+            DefaultCocoTaskScheduler scheduler = new DefaultCocoTaskScheduler(springScheduler, guard, List.of(events::add),
+                    validator, schedulingProperties.getShutdown());
+            scheduler.register(CocoTaskDefinition.builder("release-false", executions::incrementAndGet)
+                    .fixedRate(Duration.ofSeconds(1)).build());
+
+            springScheduler.latest().run();
+            scheduler.close();
+
+            assertThat(executions).hasValue(1);
+            assertThat(store.released).hasValue(1);
+            assertThat(events).extracting(CocoTaskExecutionEvent::outcome)
+                    .containsExactly(CocoTaskExecutionOutcome.STARTED, CocoTaskExecutionOutcome.FAILED);
+            assertThat(events.get(1).failureType()).isEqualTo(CocoLockException.class.getName());
+        }
+    }
+
     private static void assertLostLeaseAfterNormalTaskReturn(CocoLockStore.RenewResult renewResult) {
         CocoLockProperties lockProperties = new CocoLockProperties();
         lockProperties.setWatchdogInterval(Duration.ofMillis(1));
@@ -119,6 +162,71 @@ class CocoLockTaskExecutionGuardTest {
             assertThat(springScheduler.latest().future().cancelled()).isTrue();
             assertThat(validator.error(CocoSchedulingMessage.GUARD_EXECUTION_INVALID, taskName).getCode())
                     .isEqualTo("coco.scheduling.guard-execution-invalid");
+        }
+    }
+
+    private static void assertBlockedRenewalAfterSchedulerValidationFails(CocoLockStore.RenewResult renewResult)
+            throws Exception {
+        CocoLockProperties lockProperties = new CocoLockProperties();
+        lockProperties.setWatchdogInterval(Duration.ofMillis(1));
+        LostRenewStore store = new LostRenewStore(renewResult);
+        CocoSchedulingProperties schedulingProperties = new CocoSchedulingProperties();
+        ManualTaskScheduler springScheduler = new ManualTaskScheduler();
+        List<CocoTaskExecutionEvent> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        CocoTaskDefinitionValidator validator = new CocoTaskDefinitionValidator(new CocoSchedulingMessageResolver(null));
+        CountDownLatch businessValidatedOwnership = new CountDownLatch(1);
+        CountDownLatch schedulerValidatedOwnership = new CountDownLatch(1);
+        CountDownLatch releaseStarted = new CountDownLatch(1);
+        AtomicBoolean schedulerOwnershipValid = new AtomicBoolean();
+        AtomicInteger executions = new AtomicInteger();
+        try (DefaultCocoLockManager manager = new DefaultCocoLockManager(store, lockProperties, Clock.systemUTC())) {
+            CocoLockTaskExecutionGuard lockGuard = new CocoLockTaskExecutionGuard(manager,
+                    schedulingProperties.getGuard());
+            CocoTaskExecutionGuard observingGuard = new CocoTaskExecutionGuard() {
+                @Override public boolean tryAcquire(String taskName) { return lockGuard.tryAcquire(taskName); }
+                @Override public void release(String taskName) {
+                    releaseStarted.countDown();
+                    lockGuard.release(taskName);
+                }
+                @Override public boolean isExecutionValid(String taskName) {
+                    boolean valid = lockGuard.isExecutionValid(taskName);
+                    schedulerOwnershipValid.set(valid);
+                    schedulerValidatedOwnership.countDown();
+                    return valid;
+                }
+            };
+            DefaultCocoTaskScheduler scheduler = new DefaultCocoTaskScheduler(springScheduler, observingGuard,
+                    List.of(events::add), validator, schedulingProperties.getShutdown());
+            String taskName = "release-race-" + renewResult.name().toLowerCase();
+            scheduler.register(CocoTaskDefinition.builder(taskName, () -> {
+                assertThat(await(store.renewEntered)).isTrue();
+                assertThat(lockGuard.isExecutionValid(taskName)).isTrue();
+                executions.incrementAndGet();
+                businessValidatedOwnership.countDown();
+            }).fixedRate(Duration.ofSeconds(1)).build());
+
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> execution = executor.submit(springScheduler.latest()::run);
+                assertThat(await(businessValidatedOwnership)).isTrue();
+                assertThat(await(schedulerValidatedOwnership)).isTrue();
+                assertThat(schedulerOwnershipValid.get()).isTrue();
+                assertThat(await(releaseStarted)).isTrue();
+                assertThat(execution.isDone()).isFalse();
+
+                store.allowRenew.countDown();
+                execution.get(2, TimeUnit.SECONDS);
+            }
+            finally {
+                store.allowRenew.countDown();
+                executor.shutdownNow();
+            }
+
+            scheduler.close();
+            assertThat(events).extracting(CocoTaskExecutionEvent::outcome)
+                    .containsExactly(CocoTaskExecutionOutcome.STARTED, CocoTaskExecutionOutcome.FAILED);
+            assertThat(executions).hasValue(1);
+            assertThat(events.get(1).failureType()).isEqualTo(CocoLockException.class.getName());
         }
     }
 
@@ -184,6 +292,23 @@ class CocoLockTaskExecutionGuardTest {
         @Override
         public boolean release(io.github.coco.feature.lock.CocoLockLease lease) {
             return true;
+        }
+    }
+
+    private static final class ReleaseFalseStore implements CocoLockStore {
+        private final AtomicInteger released = new AtomicInteger();
+
+        @Override public AcquireResult acquire(io.github.coco.feature.lock.CocoLockLease lease) {
+            return AcquireResult.ACQUIRED;
+        }
+
+        @Override public RenewResult renew(io.github.coco.feature.lock.CocoLockLease lease) {
+            return RenewResult.RENEWED;
+        }
+
+        @Override public boolean release(io.github.coco.feature.lock.CocoLockLease lease) {
+            this.released.incrementAndGet();
+            return false;
         }
     }
 

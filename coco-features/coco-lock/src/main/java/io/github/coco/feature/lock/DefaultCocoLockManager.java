@@ -88,19 +88,21 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
     }
 
     private void renew(HeldLock held) {
-        if (this.closed.get() || held.closed.get() || held.lost.get()) { return; }
-        CocoLockLease renewal = new CocoLockLease(held.lease.get().key(), held.lease.get().ownerToken(),
-                this.clock.instant().plus(held.leaseDuration));
-        try {
-            CocoLockStore.RenewResult result = this.store.renew(renewal);
-            if (result == CocoLockStore.RenewResult.RENEWED) {
-                held.lease.set(renewal);
-                return;
+        synchronized (held.serializationLock) {
+            if (this.closed.get() || held.closed.get() || held.lost.get()) { return; }
+            CocoLockLease renewal = new CocoLockLease(held.lease.get().key(), held.lease.get().ownerToken(),
+                    this.clock.instant().plus(held.leaseDuration));
+            try {
+                CocoLockStore.RenewResult result = this.store.renew(renewal);
+                if (result == CocoLockStore.RenewResult.RENEWED) {
+                    held.lease.set(renewal);
+                    return;
+                }
+                markLost(held, result.name(), null);
             }
-            markLost(held, result.name(), null);
-        }
-        catch (Throwable exception) {
-            markLost(held, "renew-threw", exception);
+            catch (Throwable exception) {
+                markLost(held, "renew-threw", exception);
+            }
         }
     }
 
@@ -125,13 +127,33 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
         if (held.reentrancy.decrementAndGet() != 0) { return; }
         if (!held.closed.compareAndSet(false, true)) { return; }
         if (held.watchdog != null) { held.watchdog.cancel(false); }
-        try { this.store.release(held.lease.get()); }
+        CocoLockException failure = null;
+        try {
+            synchronized (held.serializationLock) {
+                if (held.lost.get()) {
+                    failure = new CocoLockException(CocoLockErrorCode.UNAVAILABLE);
+                }
+                else {
+                    try {
+                        if (!this.store.release(held.lease.get())) {
+                            markLost(held, "release-not-owner", null);
+                            failure = new CocoLockException(CocoLockErrorCode.UNAVAILABLE);
+                        }
+                    }
+                    catch (Throwable exception) {
+                        markLost(held, "release-threw", exception);
+                        failure = new CocoLockException(CocoLockErrorCode.UNAVAILABLE, exception);
+                    }
+                }
+            }
+        }
         finally {
             this.activeLocks.remove(held);
             Map<String, HeldLock> currentLocks = this.heldLocks.get();
             currentLocks.remove(held.lease.get().key(), held);
             if (currentLocks.isEmpty()) { this.heldLocks.remove(); }
         }
+        if (failure != null) { throw failure; }
     }
 
     private static long deadline(Duration wait) {
@@ -182,6 +204,7 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
         private final AtomicInteger reentrancy = new AtomicInteger(1);
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicBoolean lost = new AtomicBoolean();
+        private final Object serializationLock = new Object();
         private volatile ScheduledFuture<?> watchdog;
         private HeldLock(CocoLockLease lease, Duration leaseDuration, Thread ownerThread) {
             this.lease = new AtomicReference<>(lease);

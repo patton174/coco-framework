@@ -213,6 +213,7 @@ public final class DefaultCocoTaskScheduler implements CocoTaskScheduler {
                             failure = exception;
                         }
                         else {
+                            failure.addSuppressed(exception);
                             LOGGER.error("Coco scheduled task guard release failed: name="
                                     + registration.definition.getName() + ", failureType="
                                     + exception.getClass().getName());
