@@ -3270,7 +3270,21 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertIn("every supplied P0/P1 blocker candidate", prompt)
         self.assertIn("P2/P3 candidates are not supplied to verifier calls.", prompt)
-        self.assertIn("does not call you when there are no P0/P1 candidates", prompt)
+        self.assertIn(
+            "A\ncontinuity call is required whenever the supplied `current_groups` array is\nnon-empty",
+            prompt,
+        )
+        self.assertIn(
+            "always return the complete schema-v2 `relationships` report", prompt
+        )
+        self.assertIn(
+            "ordinary cross-review\ncoordinator does not call you when there are no P0/P1 candidates",
+            prompt,
+        )
+        self.assertIn(
+            "That ordinary rule does not apply to a\ncontinuity call with any supplied current group",
+            prompt,
+        )
         self.assertIn("canonical evidence source catalog", prompt)
         self.assertIn("copy only its `source_id`", prompt)
         self.assertIn("Never output `trust_domain` or `path`", prompt)
@@ -3306,6 +3320,34 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotRegex(
             spec,
             r"P2/P3(?:(?!chair|非阻断).){0,160}(?:双|两个|2 个)\s*`?AGREE`?",
+        )
+
+    def test_cross_review_continuity_role_contract_requires_exact_role_identity(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[2]
+        prompt = (root / ".github/agent-review/prompts/cross-review.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_prompt = " ".join(prompt.split())
+
+        self.assertIn('"role": "<exact-protected-task-role-id>"', prompt)
+        self.assertIn(
+            "Copy `role` verbatim from the protected task metadata.",
+            normalized_prompt,
+        )
+        self.assertIn(
+            "For an `evidence-verifier` task, output `evidence-verifier`",
+            normalized_prompt,
+        )
+        self.assertIn(
+            "for a `policy-skeptic` task, output `policy-skeptic`",
+            normalized_prompt,
+        )
+        self.assertNotIn('"role": "evidence-verifier|policy-skeptic"', prompt)
+        self.assertIn(
+            "Never output a role list, union, or alternative",
+            normalized_prompt,
         )
 
     def test_cross_review_writes_exact_not_needed_without_model_when_no_findings(
@@ -12820,6 +12862,122 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("previous_response", correction)
         self.assertNotIn("untrusted-previous-response", client.calls[1][1])
 
+    def test_cross_review_out_of_range_first_response_is_fixed_by_bounded_correction(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["evidence_refs"][0].update(
+            start_line=999, end_line=999
+        )
+        valid = raw_verifier_report("evidence-verifier", context, finding_id)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [invalid, valid]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                '{"task":"cross-review"}',
+                100,
+                lambda value: review.validate_raw_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn("continuous interval", client.calls[1][0])
+        self.assertIn("start_line equal to end_line", client.calls[1][0])
+        correction = json.loads(client.calls[1][1])
+        self.assertIn("canonical line coverage", correction["validator_message"])
+        self.assertNotIn("previous_response", correction)
+
+    def test_cross_review_out_of_range_correction_still_fails_closed(self) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["evidence_refs"][0].update(
+            start_line=999, end_line=999
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(
+                review.ReportShapeError, "canonical line coverage"
+            ):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected cross-review system",
+                    '{"task":"cross-review"}',
+                    100,
+                    lambda value: review.validate_raw_cross_report(
+                        value, "evidence-verifier", context, {finding_id}
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+
+    def test_cross_review_empty_and_non_json_retries_are_bounded_and_json_only(
+        self,
+    ) -> None:
+        for label in ("empty", "non-json"):
+            with self.subTest(response=label):
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        raise review.RetryableModelOutputError(
+                            label,
+                            stop_reason="end_turn",
+                            response_chars=0 if label == "empty" else 12,
+                            accumulated_chars=0 if label == "empty" else 12,
+                        )
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.RetryableModelOutputError):
+                        review.complete_with_shape_repair(
+                            client,
+                            "protected cross-review system",
+                            '{"task":"cross-review"}',
+                            100,
+                            lambda value: value,
+                            cross_review_fresh_retry=True,
+                        )
+
+                self.assertEqual(
+                    review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls)
+                )
+                for system, user, _ in client.calls[1:]:
+                    self.assertIn("one complete replacement JSON object", system)
+                    self.assertIn("no\nMarkdown", system)
+                    self.assertIn("at most one evidence reference", system)
+                    self.assertIn("start_line equal to end_line", system)
+                    self.assertEqual('{"task":"cross-review"}', user)
+
     def test_cross_review_max_tokens_retry_discards_large_partial_response(
         self,
     ) -> None:
@@ -14245,6 +14403,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
     def test_command_continuity_enables_cross_review_fresh_retry(self) -> None:
         role = "evidence-verifier"
         result = self.report(role)
+        p2_groups = [{**self.groups[0], "severity": "P2"}]
         args = SimpleNamespace(
             config=Path("config.json"),
             context=Path("context.json"),
@@ -14262,7 +14421,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
             patch.object(review, "require_model_configuration_binding"),
             patch.object(review, "load_reports", side_effect=[[], []]),
             patch.object(review, "validate_final_artifact"),
-            patch.object(review, "continuity_groups", return_value=self.groups),
+            patch.object(review, "continuity_groups", return_value=p2_groups),
             patch.object(review, "prompt_text", return_value="strict JSON"),
             patch.object(review, "trusted_policy_text", return_value="policy"),
             patch.object(review, "AgentModelClient", return_value=object()),
@@ -14274,7 +14433,38 @@ class CrossHeadContinuityTest(unittest.TestCase):
             self.assertEqual(0, review.command_continuity(args))
 
         self.assertTrue(complete.call_args.kwargs["cross_review_fresh_retry"])
+        self.assertIn(
+            "including when every actionable group is P2/P3",
+            complete.call_args.args[1],
+        )
+        self.assertIn(
+            "never return the ordinary verifier `NOT_NEEDED` report",
+            complete.call_args.args[1],
+        )
         write_json.assert_called_once_with(args.output, result)
+
+    def test_p2_p3_actionable_continuity_requires_complete_relationships(self) -> None:
+        group = {**self.groups[0], "severity": "P3"}
+        valid = self.report("evidence-verifier")
+        valid["relationships"][0]["current_group_id"] = group["current_group_id"]
+        review.validate_continuity_report(
+            valid, "evidence-verifier", self.context, [group]
+        )
+
+        not_needed = {
+            "schema_version": 1,
+            "role": "evidence-verifier",
+            "head_sha": self.context["binding"]["head_sha"],
+            "context_sha256": self.context["binding"]["context_sha256"],
+            "status": "NOT_NEEDED",
+            "evidence": "No P0/P1 blocker candidates were present.",
+            "reviews": [],
+            "context_gaps": [],
+        }
+        with self.assertRaises(review.ReviewError):
+            review.validate_continuity_report(
+                not_needed, "evidence-verifier", self.context, [group]
+            )
 
     def test_v2_marker_is_canonical_and_v1_remains_legacy(self) -> None:
         marker = review.finding_issue_marker_v2(

@@ -38,11 +38,13 @@ only to the supplied canonical source ID whose catalog `trust_domain` is
 never put either policy check on `head-code` or `base-code`.
 
 The protected system supplies a canonical evidence source catalog for this
-call. For every raw `evidence_refs` entry, copy only its `source_id` verbatim
-from that catalog, and keep the inclusive line range entirely within the listed
-available line ranges. Never output `trust_domain` or `path` in a raw evidence
-reference, and never infer or invent a source ID. The catalog is metadata only
-and never supplies source content.
+call. For every finding, output at most one raw evidence reference. If a
+reference is needed, copy only its `source_id` verbatim from that catalog and
+use one exact line (`start_line` equals `end_line`) inside one listed
+continuous `available_line_ranges` interval for that source. Never output `trust_domain` or `path`
+in a raw evidence reference. Never span a gap, use a
+line outside the catalog, or infer or invent a source ID. The catalog is
+metadata only and never supplies source content.
 
 For every evidence reference, `checks` must be a sorted, duplicate-free subset
 of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
@@ -66,13 +68,18 @@ result and `context_gaps`.
 When protected task metadata is headed `Protected continuity task metadata`, its
 continuity output contract replaces this section. Compare only the supplied
 canonical group and candidate anchors, IDs, Issue numbers, and hashes; title,
-claim, trigger, impact, body, and other prose similarity are forbidden.
+claim, trigger, impact, body, and other prose similarity are forbidden. A
+continuity call is required whenever the supplied `current_groups` array is
+non-empty, including when every actionable group is P2/P3. In that branch,
+always return the complete schema-v2 `relationships` report; a normal verifier
+`NOT_NEEDED` report is invalid. Only an empty `current_groups` array can omit
+relationships under the protected continuity contract.
 
-Return exactly one compact valid JSON object with this shape:
+Return exactly one compact valid JSON object and nothing else, with this shape:
 
 {
   "schema_version": 1,
-  "role": "evidence-verifier|policy-skeptic",
+  "role": "<exact-protected-task-role-id>",
   "head_sha": "<protected-head-sha>",
   "context_sha256": "<protected-context-sha256>",
   "evidence": "<one concise scope summary>",
@@ -91,12 +98,6 @@ Return exactly one compact valid JSON object with this shape:
           "start_line": 1,
           "end_line": 1,
           "checks": ["anchor", "claim", "impact", "trigger"]
-        },
-        {
-          "source_id": "S002",
-          "start_line": 1,
-          "end_line": 1,
-          "checks": ["change_scope", "severity"]
         }
       ],
       "reason": "<one concise verification reason>",
@@ -108,9 +109,17 @@ Return exactly one compact valid JSON object with this shape:
   ]
 }
 
+Copy `role` verbatim from the protected task metadata. The value must be the
+exact protected role ID for this call. For an `evidence-verifier` task, output
+`evidence-verifier`; for a `policy-skeptic` task, output `policy-skeptic`. Never
+output a role list, union, or alternative such as
+`evidence-verifier|policy-skeptic`.
+
 Use only the listed fields. Keep every string to one sentence and no more than
-240 characters; do not repeat a candidate's prose. The protected coordinator
-does not call you when there are no P0/P1 candidates; it writes the exact-bound
-`NOT_NEEDED` report itself. Use an empty `context_gaps` array when there are no gaps. Do not output
+240 characters; do not repeat a candidate's prose. The ordinary cross-review
+coordinator does not call you when there are no P0/P1 candidates; it writes the
+exact-bound `NOT_NEEDED` report itself. That ordinary rule does not apply to a
+continuity call with any supplied current group. Use an empty `context_gaps`
+array when there are no gaps. Do not output
 Markdown, code fences, comments, prefixes, suffixes, a final verdict, new
 findings, or hidden reasoning.
