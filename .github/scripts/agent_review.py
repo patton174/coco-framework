@@ -5884,14 +5884,6 @@ def continuity_relationship_contract(
         raise ReportShapeError("Continuity relationship schema_version is invalid.")
     if relationship.get("current_group_id") != group["current_group_id"]:
         raise ReportShapeError("Continuity relationship current group is invalid.")
-    try:
-        current_anchor = require_continuity_anchor(relationship.get("current_anchor"))
-    except ReviewError as exc:
-        raise ReportShapeError(
-            "Continuity relationship current anchor is invalid."
-        ) from exc
-    if canonical_json(current_anchor) != canonical_json(group["anchor"]):
-        raise ReportShapeError("Continuity relationship current anchor drifted.")
     action = relationship.get("action")
     if action not in CONTINUITY_ACTIONS:
         raise ReportShapeError("Continuity relationship action is invalid.")

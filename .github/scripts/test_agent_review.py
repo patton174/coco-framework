@@ -14098,28 +14098,44 @@ class CrossHeadContinuityTest(unittest.TestCase):
             self.assertIn("previous_response_sha256", correction)
             self.assertNotIn("previous_response", correction)
 
-    def test_continuity_current_anchor_shape_repairs_after_binding(self) -> None:
+    def test_continuity_current_anchor_binds_to_supplied_group(self) -> None:
         role = "evidence-verifier"
-        valid = self.report(role)
-        invalid = self.report(
-            role, self.relationship(current_anchor={"file": "invalid"})
+        for value in ({"file": "invalid"}, {**self.anchor, "start_line": 99}):
+            with self.subTest(current_anchor=value):
+                report = self.report(role, self.relationship(current_anchor=value))
+                normalized = review.validate_continuity_report(
+                    report, role, self.context, self.groups
+                )
+
+                self.assertEqual(
+                    self.anchor,
+                    normalized["relationships"][0]["current_anchor"],
+                )
+                self.assertEqual(
+                    self.candidate["candidate_sha256"],
+                    normalized["relationships"][0]["candidate_sha256"],
+                )
+
+    def test_continuity_current_anchor_is_bound_for_normal_relationship(self) -> None:
+        normalized = review.validate_continuity_report(
+            self.report("evidence-verifier"),
+            "evidence-verifier",
+            self.context,
+            self.groups,
         )
-
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str, int]] = []
-                self.responses = [invalid, valid]
-
-            def complete(self, system: str, user: str, max_tokens: int) -> dict:
-                self.calls.append((system, user, max_tokens))
-                return self.responses.pop(0)
-
-        client = FakeClient()
-        with patch("builtins.print"):
-            result = self.complete_continuity_with_repair(client, role)
-
-        self.assertEqual(valid, result)
-        self.assertEqual(2, len(client.calls))
+        relationship = normalized["relationships"][0]
+        self.assertEqual(
+            self.groups[0]["current_group_id"], relationship["current_group_id"]
+        )
+        self.assertEqual(self.anchor, relationship["current_anchor"])
+        self.assertEqual(
+            self.candidate["previous_group_id"], relationship["previous_group_id"]
+        )
+        self.assertEqual(
+            self.candidate["previous_issue_number"],
+            relationship["previous_issue_number"],
+        )
+        self.assertEqual(self.candidate["anchor"], relationship["previous_anchor"])
 
     def test_continuity_model_shape_errors_repair_after_binding(self) -> None:
         role = "policy-skeptic"
@@ -14160,9 +14176,6 @@ class CrossHeadContinuityTest(unittest.TestCase):
     ) -> None:
         role = "policy-skeptic"
         cases = {
-            "current_anchor": lambda report: report["relationships"][0].update(
-                {"current_anchor": {"file": "invalid"}}
-            ),
             "previous_anchor": lambda report: report["relationships"][0].update(
                 {"previous_anchor": {"file": "invalid"}}
             ),
