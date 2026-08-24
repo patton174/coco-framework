@@ -27,6 +27,8 @@
         <module>coco-feature-openapi</module>
         <module>coco-rate-limit</module>
         <module>coco-idempotency</module>
+        <module>coco-scheduling</module>
+        <module>coco-lock</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>
