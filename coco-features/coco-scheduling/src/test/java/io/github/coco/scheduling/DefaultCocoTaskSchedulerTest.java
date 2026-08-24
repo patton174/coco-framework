@@ -8,6 +8,11 @@ import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -162,6 +167,103 @@ class DefaultCocoTaskSchedulerTest {
         assertThat(entry.future().interrupt()).isTrue();
         assertThatThrownBy(() -> scheduler.register(CocoTaskDefinition.builder("after-close", () -> { })
                 .fixedRate(Duration.ofSeconds(1)).build())).isInstanceOf(CocoSchedulingException.class);
+    }
+
+    @Test
+    void closeWaitsForExecutionReservedBeforeClosing() throws Exception {
+        ManualTaskScheduler springScheduler = new ManualTaskScheduler();
+        CocoSchedulingProperties properties = new CocoSchedulingProperties();
+        properties.getShutdown().setAwaitTermination(Duration.ofSeconds(5));
+        CountDownLatch acquireEntered = new CountDownLatch(1);
+        CountDownLatch allowAcquire = new CountDownLatch(1);
+        CountDownLatch closeReturned = new CountDownLatch(1);
+        AtomicInteger executions = new AtomicInteger();
+        CocoTaskExecutionGuard blockingGuard = new CocoTaskExecutionGuard() {
+            @Override
+            public boolean tryAcquire(String taskName) {
+                acquireEntered.countDown();
+                try {
+                    return allowAcquire.await(5, TimeUnit.SECONDS);
+                }
+                catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+
+            @Override
+            public void release(String taskName) {
+            }
+        };
+        DefaultCocoTaskScheduler scheduler = scheduler(springScheduler, blockingGuard, List.of(), properties);
+        scheduler.register(CocoTaskDefinition.builder("race", executions::incrementAndGet)
+                .fixedRate(Duration.ofSeconds(1)).build());
+        ManualTaskScheduler.Entry entry = springScheduler.latest();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> execution = executor.submit(entry::run);
+            assertThat(acquireEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<?> close = executor.submit(() -> {
+                scheduler.close();
+                closeReturned.countDown();
+            });
+
+            assertThat(entry.future().awaitCancellation(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(closeReturned.getCount()).isOne();
+            allowAcquire.countDown();
+            execution.get(5, TimeUnit.SECONDS);
+            close.get(5, TimeUnit.SECONDS);
+
+            assertThat(closeReturned.getCount()).isZero();
+            assertThat(executions).hasValue(1);
+        }
+        finally {
+            allowAcquire.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void isolatesGuardAcquireAndReleaseFailuresAcrossLaterTriggersAndClose() {
+        ManualTaskScheduler springScheduler = new ManualTaskScheduler();
+        AtomicInteger acquireCalls = new AtomicInteger();
+        AtomicInteger releaseCalls = new AtomicInteger();
+        AtomicInteger executions = new AtomicInteger();
+        List<CocoTaskExecutionEvent> events = new ArrayList<>();
+        CocoTaskExecutionGuard failingGuard = new CocoTaskExecutionGuard() {
+            @Override
+            public boolean tryAcquire(String taskName) {
+                if (acquireCalls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("acquire failed");
+                }
+                return true;
+            }
+
+            @Override
+            public void release(String taskName) {
+                if (releaseCalls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("release failed");
+                }
+            }
+        };
+        DefaultCocoTaskScheduler scheduler = scheduler(springScheduler, failingGuard, List.of(events::add));
+        scheduler.register(CocoTaskDefinition.builder("guard", executions::incrementAndGet)
+                .fixedRate(Duration.ofSeconds(1)).build());
+        ManualTaskScheduler.Entry entry = springScheduler.latest();
+
+        entry.run();
+        entry.run();
+        entry.run();
+        scheduler.close();
+
+        assertThat(executions).hasValue(2);
+        assertThat(acquireCalls).hasValue(3);
+        assertThat(releaseCalls).hasValue(2);
+        assertThat(events).extracting(CocoTaskExecutionEvent::outcome).containsExactly(
+                CocoTaskExecutionOutcome.STARTED, CocoTaskExecutionOutcome.FAILED,
+                CocoTaskExecutionOutcome.STARTED, CocoTaskExecutionOutcome.FAILED,
+                CocoTaskExecutionOutcome.STARTED, CocoTaskExecutionOutcome.SUCCEEDED);
+        assertThat(entry.future().cancelled()).isTrue();
     }
 
     @Test

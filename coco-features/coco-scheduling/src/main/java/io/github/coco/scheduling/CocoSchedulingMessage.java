@@ -20,6 +20,7 @@ enum CocoSchedulingMessage implements CocoMessageCode {
     SCHEDULER_CLOSED("coco.scheduling.scheduler-closed"),
     SCHEDULER_REJECTED("coco.scheduling.scheduler-rejected"),
     ANNOTATION_METHOD_ARGUMENTS("coco.scheduling.annotation-method-arguments"),
+    ANNOTATION_METHOD_NOT_INVOCABLE("coco.scheduling.annotation-method-not-invocable"),
     ANNOTATION_DURATION_INVALID("coco.scheduling.annotation-duration-invalid"),
     ANNOTATION_ZONE_INVALID("coco.scheduling.annotation-zone-invalid"),
     POOL_SIZE_INVALID("coco.scheduling.pool-size-invalid"),
