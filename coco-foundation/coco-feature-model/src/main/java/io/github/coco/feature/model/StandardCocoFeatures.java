@@ -68,6 +68,8 @@ public final class StandardCocoFeatures {
             feature(CocoFeature.IDEMPOTENCY, "coco-idempotency",
                     "io.github.coco.feature.idempotency.CocoIdempotencyAutoConfiguration",
                     CocoFeature.WEB),
+            feature(CocoFeature.MESSAGING, "coco-messaging",
+                    "io.github.coco.messaging.CocoMessagingAutoConfiguration"),
             feature(CocoFeature.CODEGEN, "coco-feature-codegen",
                     "io.github.coco.feature.codegen.CocoCodegenAutoConfiguration",
                     Set.of("coco-feature-codegen", "freemarker"),
