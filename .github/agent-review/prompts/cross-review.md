@@ -79,7 +79,7 @@ Return exactly one compact valid JSON object and nothing else, with this shape:
 
 {
   "schema_version": 1,
-  "role": "evidence-verifier|policy-skeptic",
+  "role": "<exact-protected-task-role-id>",
   "head_sha": "<protected-head-sha>",
   "context_sha256": "<protected-context-sha256>",
   "evidence": "<one concise scope summary>",
@@ -108,6 +108,12 @@ Return exactly one compact valid JSON object and nothing else, with this shape:
     "<missing-or-unusable-context-and-affected-finding-id>"
   ]
 }
+
+Copy `role` verbatim from the protected task metadata. The value must be the
+exact protected role ID for this call. For an `evidence-verifier` task, output
+`evidence-verifier`; for a `policy-skeptic` task, output `policy-skeptic`. Never
+output a role list, union, or alternative such as
+`evidence-verifier|policy-skeptic`.
 
 Use only the listed fields. Keep every string to one sentence and no more than
 240 characters; do not repeat a candidate's prose. The ordinary cross-review
