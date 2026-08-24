@@ -129,7 +129,8 @@ class CocoRateLimitAutoConfigurationTest {
                 permit.resetAt(), true);
         this.contextRunner
                 .withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
-                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=missingTemplate")
                 .withBean(CocoRateLimitStore.class, () -> customStore)
                 .run(context -> assertThat(context.getBean(CocoRateLimitStore.class)).isSameAs(customStore));
     }
@@ -146,12 +147,49 @@ class CocoRateLimitAutoConfigurationTest {
                     assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
                     assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
                 });
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=  secondaryTemplate  ")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    context.getBean(CocoRateLimitStore.class).acquire(new CocoRateLimitPermit(
+                            new CocoRateLimitKey("orders", "client"), 1, Instant.now().plusSeconds(60)));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                });
         this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
                 .withUserConfiguration(NonPrimaryRedisTemplates.class)
-                .run(context -> assertThat(context).doesNotHaveBean(CocoRateLimitStore.class));
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("candidates=[firstTemplate, secondTemplate]")
+                            .hasStackTraceContaining("coco.rate-limit.redis.template-bean-name");
+                });
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=missingTemplate")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.rate-limit.redis.template-bean-name")
+                            .hasStackTraceContaining("missingTemplate");
+                });
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=notATemplate")
+                .withBean("notATemplate", String.class, () -> "wrong type")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.rate-limit.redis.template-bean-name")
+                            .hasStackTraceContaining("notATemplate");
+                });
         this.redisContextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
                 .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
-                .run(context -> assertThat(context).doesNotHaveBean(CocoRateLimitStore.class));
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(CocoRateLimitStore.class);
+                });
+        this.contextRunner.withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
+                .withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     private void assertRateLimitInfrastructure(org.springframework.boot.test.context.assertj.AssertableWebApplicationContext context) {

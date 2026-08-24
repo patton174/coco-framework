@@ -35,20 +35,24 @@ public class CocoIdempotencyProperties {
         this.storeType = storeType == null ? CocoIdempotencyStoreType.IN_MEMORY : storeType;
     }
     public Redis getRedis() { return this.redis; }
-    public void setRedis(Redis redis) { this.redis.setKeyPrefix(Redis.copyOf(redis).getKeyPrefix()); }
+    public void setRedis(Redis redis) { Redis copy = Redis.copyOf(redis); this.redis.setKeyPrefix(copy.getKeyPrefix()); this.redis.setTemplateBeanName(copy.getTemplateBeanName()); }
     public List<String> getAllowedMethods() { return this.allowedMethods; }
     public void setAllowedMethods(List<String> allowedMethods) { this.allowedMethods.clear(); if (allowedMethods != null) { this.allowedMethods.addAll(allowedMethods); } }
 
     /** Redis shared store configuration. */
     public static class Redis {
         private String keyPrefix = "coco:idempotency:";
+        private String templateBeanName;
         public String getKeyPrefix() { return this.keyPrefix; }
         public void setKeyPrefix(String keyPrefix) {
             this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "coco:idempotency:" : keyPrefix.trim();
         }
+        public String getTemplateBeanName() { return this.templateBeanName; }
+        public void setTemplateBeanName(String templateBeanName) { this.templateBeanName = templateBeanName == null || templateBeanName.isBlank() ? null : templateBeanName.trim(); }
         static Redis copyOf(Redis source) {
             Redis copy = new Redis();
             if (source != null) { copy.setKeyPrefix(source.getKeyPrefix()); }
+            if (source != null) { copy.setTemplateBeanName(source.getTemplateBeanName()); }
             return copy;
         }
     }

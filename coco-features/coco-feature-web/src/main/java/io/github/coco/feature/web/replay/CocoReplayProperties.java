@@ -515,6 +515,7 @@ public class CocoReplayProperties {
     public static class RedisProperties {
 
         private String keyPrefix = "coco:replay:";
+        private String templateBeanName;
 
         public String getKeyPrefix() {
             return this.keyPrefix;
@@ -523,6 +524,8 @@ public class CocoReplayProperties {
         public void setKeyPrefix(String keyPrefix) {
             this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "coco:replay:" : keyPrefix.trim();
         }
+        public String getTemplateBeanName() { return this.templateBeanName; }
+        public void setTemplateBeanName(String templateBeanName) { this.templateBeanName = templateBeanName == null || templateBeanName.isBlank() ? null : templateBeanName.trim(); }
     }
 
     private static String normalizeHeaderName(String headerName, String defaultHeaderName) {
