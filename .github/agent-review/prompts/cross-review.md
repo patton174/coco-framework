@@ -39,10 +39,10 @@ never put either policy check on `head-code` or `base-code`.
 
 The protected system supplies a canonical evidence source catalog for this
 call. For every raw `evidence_refs` entry, copy only its `source_id` verbatim
-from that catalog, and keep the inclusive line range entirely within the listed
-available line ranges. Never output `trust_domain` or `path` in a raw evidence
-reference, and never infer or invent a source ID. The catalog is metadata only
-and never supplies source content.
+from that catalog, and keep the inclusive line range entirely within one listed
+continuous `available_line_ranges` interval for that source. Never output `trust_domain` or `path`
+in a raw evidence reference. Never span a gap, use a line outside the catalog, or infer or invent a source ID. The catalog is
+metadata only and never supplies source content.
 
 For every evidence reference, `checks` must be a sorted, duplicate-free subset
 of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
