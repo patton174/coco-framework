@@ -2508,6 +2508,33 @@ class AgentReviewTests(unittest.TestCase):
             ["trusted policy omitted by budget: docs/history.md"], omissions
         )
 
+    def test_collect_policy_fails_closed_for_oversized_protected_policies(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            value = config(policy_chars=10)
+            value["protected_policy_paths"] = ["AGENTS.md", "policy.md"]
+            value["context"] = {
+                "always": ["AGENTS.md", "policy.md"],
+                "path_rules": [],
+            }
+
+            for oversized in ("AGENTS.md", "policy.md"):
+                with self.subTest(oversized=oversized):
+                    (root / "AGENTS.md").write_text(
+                        "ok" if oversized != "AGENTS.md" else "x" * 11,
+                        encoding="utf-8",
+                    )
+                    (root / "policy.md").write_text(
+                        "ok" if oversized != "policy.md" else "x" * 11,
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(
+                        review.ReviewError, "exceeds the context budget"
+                    ):
+                        review.collect_policy(root, value, [], [])
+
     def test_build_context_rejects_patch_budget_below_hard_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
