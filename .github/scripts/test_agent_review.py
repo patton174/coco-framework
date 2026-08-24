@@ -1221,6 +1221,7 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-messaging/pom.xml",
                 "coco-features/coco-scheduling/pom.xml",
                 "coco-features/coco-lock/pom.xml",
+                "coco-features/coco-storage/pom.xml",
                 "coco-features/coco-feature-security/pom.xml",
                 "coco-features/coco-feature-tenant/pom.xml",
             ],

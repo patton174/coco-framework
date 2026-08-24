@@ -118,6 +118,8 @@ The single starter composes local task scheduling by default, with annotation an
 
 The single starter composes method-level distributed locking by default, with a replaceable atomic store; the feature does not depend on Web or MyBatis.
 
+The single starter composes object storage by default, with a secure local reference implementation that applications can replace; the feature does not depend on Web or MyBatis.
+
 Business controllers remain ordinary Spring code:
 
 ```java

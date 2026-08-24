@@ -118,6 +118,8 @@ OrderResponse create(@RequestBody CreateOrderRequest request) {
 
 单一 starter 默认组合方法级分布式锁能力，可替换原子存储实现；该能力不依赖 Web 或 MyBatis 功能。
 
+单一 starter 默认组合对象存储 SPI，提供安全本地参考实现且业务项目可替换；该能力不依赖 Web 或 MyBatis 功能。
+
 业务 Controller 仍然是普通 Spring 代码：
 
 ```java

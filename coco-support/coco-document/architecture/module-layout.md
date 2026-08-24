@@ -35,6 +35,7 @@ coco-features/
   coco-messaging/
   coco-scheduling/
   coco-lock/
+  coco-storage/
   coco-security/
   coco-tenant/
   coco-web/
@@ -53,6 +54,8 @@ coco-support/
 `coco-scheduling` 是默认由单一 starter 组合的本地任务调度能力，支持注解和动态注册任务，不依赖 Web 或 MyBatis 能力。
 
 `coco-lock` 是默认由单一 starter 组合的方法级分布式锁能力，可替换原子存储实现，不依赖 Web 或 MyBatis 能力。
+
+`coco-storage` 是默认由单一 starter 组合的对象存储 SPI，提供安全本地参考实现，业务项目可替换实现，不依赖 Web 或 MyBatis 能力。
 
 ## 所有权
 

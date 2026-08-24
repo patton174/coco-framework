@@ -53,7 +53,8 @@ class CocoPackagePruneMojoTest {
         Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
         Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
         writeManifest(classesDirectory, Set.of(CocoFeature.TENANT, CocoFeature.DATA_PERMISSION, CocoFeature.RATE_LIMIT,
-                CocoFeature.IDEMPOTENCY, CocoFeature.MESSAGING, CocoFeature.SCHEDULING, CocoFeature.LOCK));
+                CocoFeature.IDEMPOTENCY, CocoFeature.MESSAGING, CocoFeature.SCHEDULING, CocoFeature.LOCK,
+                CocoFeature.STORAGE));
         Path archivePath = buildDirectory.resolve("demo.jar");
         writeArchive(archivePath);
 
@@ -79,15 +80,16 @@ class CocoPackagePruneMojoTest {
                         "BOOT-INF/lib/coco-idempotency-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/coco-messaging-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar",
-                        "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar");
+                        "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-storage-1.0.0-SNAPSHOT.jar");
         assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
                 .contains("coco-feature-web")
                 .doesNotContain("coco-feature-tenant", "coco-feature-data-permission", "coco-rate-limit", "coco-idempotency",
-                        "coco-messaging", "coco-scheduling", "coco-lock");
+                        "coco-messaging", "coco-scheduling", "coco-lock", "coco-storage");
         assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
                 .contains("coco-feature-web")
                 .doesNotContain("coco-feature-tenant", "coco-feature-data-permission", "coco-rate-limit", "coco-idempotency",
-                        "coco-messaging", "coco-scheduling", "coco-lock");
+                        "coco-messaging", "coco-scheduling", "coco-lock", "coco-storage");
         assertRunnableSpringBootArchive(archivePath);
         Path originalArchivePath = buildDirectory.resolve("coco-prune.original.jar");
         assertThat(originalArchivePath).isRegularFile();
@@ -99,10 +101,11 @@ class CocoPackagePruneMojoTest {
                         "BOOT-INF/lib/coco-idempotency-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/coco-messaging-1.0.0-SNAPSHOT.jar",
                         "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar",
-                        "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar");
+                        "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-storage-1.0.0-SNAPSHOT.jar");
         assertThat(readEntry(originalArchivePath, "BOOT-INF/classpath.idx"))
                 .contains("coco-feature-tenant", "coco-feature-data-permission", "coco-rate-limit", "coco-idempotency",
-                        "coco-messaging", "coco-scheduling", "coco-lock");
+                        "coco-messaging", "coco-scheduling", "coco-lock", "coco-storage");
     }
 
     @Test
@@ -232,6 +235,7 @@ class CocoPackagePruneMojoTest {
                     - "BOOT-INF/lib/coco-messaging-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar"
                     - "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-storage-1.0.0-SNAPSHOT.jar"
                     """);
             add(outputStream, "BOOT-INF/layers.idx", """
                     - "dependencies":
@@ -243,6 +247,7 @@ class CocoPackagePruneMojoTest {
                       - "BOOT-INF/lib/coco-messaging-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar"
                       - "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-storage-1.0.0-SNAPSHOT.jar"
                     """);
             add(outputStream, "BOOT-INF/classes/application.yml", "spring.application.name=demo");
             add(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar", "web");
@@ -254,6 +259,7 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/lib/coco-messaging-1.0.0-SNAPSHOT.jar", "messaging");
             add(outputStream, "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar", "scheduling");
             add(outputStream, "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar", "lock");
+            add(outputStream, "BOOT-INF/lib/coco-storage-1.0.0-SNAPSHOT.jar", "storage");
         }
     }
 
