@@ -18,7 +18,10 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request_target' &&
+      (
+        github.event.workflow_run.event == 'pull_request_target' ||
+        github.event.workflow_run.event == 'pull_request_review'
+      ) &&
       github.event.workflow_run.head_repository.id == fromJSON(github.repository_id) &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest

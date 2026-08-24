@@ -39,7 +39,10 @@ tools, or return another format. Do not expose hidden reasoning.
   heuristic.
 - Group only findings with the same protected deterministic duplicate identity.
   Preserve every contributing source id. All confirmed blockers must appear in
-  exactly one group. Keep differing severities and dispositions separate.
+  exactly one group. Every actionable group must contain one kind and one
+  severity only. Keep differing kinds and severities in separate groups; when
+  exact duplicate identity, kind, and severity are not all proven, emit one
+  group per finding with an empty `duplicate_finding_ids` array.
 - `actionable_groups` may cite only canonical source finding ids listed in the
   protected deterministic consensus. A group containing a confirmed P0/P1 id is
   a confirmed-blocker group: every protected `confirmed_blocker_ids` member must
@@ -86,6 +89,7 @@ Return exactly one valid JSON object with this shape:
 `confirmed_blocker_ids` must exactly equal the protected deterministic list.
 Every confirmed blocker must occur in exactly one group. Non-blocker group
 members may contain only existing P2/P3 source ids with `AGREE` from both
-required verifiers. Use only the listed fields and empty arrays when appropriate.
+ required verifiers. Never combine source ids merely because they are both
+ eligible. Use only the listed fields and empty arrays when appropriate.
 Do not output Markdown, code fences, comments, prefixes, suffixes, new blocker
 ids, or hidden reasoning.

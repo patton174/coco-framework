@@ -638,7 +638,7 @@ def deferred_workflow_run() -> dict:
         "workflow_id": DEFERRED_WORKFLOW_ID,
         "name": run_title,
         "path": review.DEFERRED_WORKFLOW_PATH,
-        "event": review.DEFERRED_WORKFLOW_EVENT,
+        "event": "pull_request_target",
         "status": "completed",
         "conclusion": "success",
         "display_title": run_title,
@@ -1048,6 +1048,22 @@ class AgentReviewTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual([], tracked_samples.stdout.splitlines())
+
+    def test_security_specialist_has_compact_prompt_and_bounded_output_budget(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        value = review.load_config(root / "agent-review/config.json")
+        security = review.role_map(value, "specialists")["security-isolation"]
+        prompt = (root / "agent-review/prompts/specialist.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(6144, security["max_tokens"])
+        self.assertIn("Compact Output Requirement", prompt)
+        self.assertIn("no more than 160 characters", prompt)
+        self.assertIn("Never repeat the diff", prompt)
+        self.assertIn("do not omit a security finding", prompt)
 
     def test_agent_open_pr_workflow_uses_protected_app_identity(self) -> None:
         workflow = (
@@ -3090,6 +3106,35 @@ class AgentReviewTests(unittest.TestCase):
             report["reviews"][0]["evidence_refs"],
         )
         self.assertNotIn("source_id", review.canonical_json(report))
+
+    def test_raw_change_scope_evidence_uses_protected_policy_source(self) -> None:
+        context = bound_context()
+        report = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        catalog = {
+            item["source_id"]: item for item in review.context_evidence_catalog(context)
+        }
+        policy_source_id = next(
+            source_id
+            for source_id, item in catalog.items()
+            if item["trust_domain"] in review.POLICY_EVIDENCE_DOMAINS
+        )
+        code_source_id = next(
+            source_id
+            for source_id, item in catalog.items()
+            if item["trust_domain"] == "head-code"
+        )
+        refs = report["verifications"][0]["evidence_refs"]
+        refs[0]["checks"] = ["anchor", "claim", "impact", "trigger"]
+        refs[1]["source_id"] = policy_source_id
+        refs[1]["checks"] = ["change_scope", "severity"]
+        self.assertNotEqual(policy_source_id, code_source_id)
+        review.validate_raw_cross_report(
+            report, "evidence-verifier", context, {"correctness:f1"}
+        )
+        self.assertEqual(
+            "protected-policy",
+            report["reviews"][0]["evidence_refs"][1]["trust_domain"],
+        )
 
     def test_persisted_normalized_cross_report_revalidates_without_format_change(
         self,
@@ -7991,6 +8036,14 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("workflows: [Agent Review Jury]", deferred_workflow)
         self.assertIn("github.ref == 'refs/heads/main'", deferred_workflow)
         self.assertIn(
+            "github.event.workflow_run.event == 'pull_request_target'",
+            deferred_workflow,
+        )
+        self.assertIn(
+            "github.event.workflow_run.event == 'pull_request_review'",
+            deferred_workflow,
+        )
+        self.assertIn(
             "github.event.workflow_run.head_repository.id == fromJSON(github.repository_id)",
             deferred_workflow,
         )
@@ -8998,7 +9051,7 @@ class AgentReviewTests(unittest.TestCase):
             "wrong workflow path",
             run_change=("path", ".github/workflows/reusable-agent-review-jury.yml"),
         )
-        add_case("wrong event", run_change=("event", "pull_request_review"))
+        add_case("wrong event", run_change=("event", "push"))
         add_case("failed run", run_change=("conclusion", "failure"))
         add_case(
             "wrong run repository id",
@@ -11136,6 +11189,56 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertEqual(4, sleeper.call_count)
 
+    def test_deferred_binding_accepts_only_protected_source_events(self) -> None:
+        self.assertEqual(
+            frozenset({"pull_request_target", "pull_request_review"}),
+            review.DEFERRED_WORKFLOW_EVENTS,
+        )
+
+        class SourceRunClient:
+            def __init__(self, event: str) -> None:
+                self.run = deferred_workflow_run()
+                self.run["event"] = event
+
+            def get_json(self, path: str) -> dict:
+                if path == (
+                    f"repos/{REPOSITORY}/actions/workflows/"
+                    f"{review.DEFERRED_WORKFLOW_FILE}"
+                ):
+                    return deferred_workflow()
+                if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
+                    return self.run
+                if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    return deferred_pull_request()
+                if path == (
+                    f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}/jobs"
+                    "?filter=latest&per_page=100"
+                ):
+                    return deferred_source_jobs()
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        for event in review.DEFERRED_WORKFLOW_EVENTS:
+            with self.subTest(event=event):
+                binding = review.deferred_review_candidate(
+                    SourceRunClient(event),
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    SOURCE_RUN_ID,
+                    deferred_config(),
+                )
+                self.assertTrue(binding["eligible"])
+
+        with self.assertRaisesRegex(
+            review.ReviewError, "workflow run binding is invalid"
+        ):
+            review.deferred_review_candidate(
+                SourceRunClient("push"),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                deferred_config(),
+            )
+
     def test_deferred_binding_fails_closed_after_retry_exhaustion(self) -> None:
         class FailingClient:
             def __init__(self) -> None:
@@ -13031,6 +13134,8 @@ class AgentReviewTests(unittest.TestCase):
                 "may cite only canonical source finding IDs",
                 "can never be selected as follow-up work",
                 "one kind, one severity, and one deterministic semantic identity",
+                "Never combine IDs with different kinds or severities",
+                "one group per finding with an empty",
             ):
                 self.assertIn(phrase, calls[0][0][0])
                 self.assertIn(phrase, calls[1][0][0])
@@ -13746,11 +13851,83 @@ class CrossHeadContinuityTest(unittest.TestCase):
 
         self.assertEqual(valid, result)
         self.assertEqual(2, len(client.calls))
+
         self.assertIn(
             "Protected cross-review fresh completion correction", client.calls[1][0]
         )
         self.assertEqual(original_task, client.calls[1][1])
         self.assertNotIn("partial_response", client.calls[1][1])
+
+    def test_continuity_non_adopt_relationships_normalize_missing_null_fields(
+        self,
+    ) -> None:
+        for action in ("REJECT", "INSUFFICIENT"):
+            with self.subTest(action=action):
+                report = self.report("evidence-verifier", self.relationship(action))
+                for name in (
+                    "schema_version",
+                    "candidate_sha256",
+                    "previous_anchor",
+                    "previous_group_id",
+                    "previous_issue_number",
+                ):
+                    del report["relationships"][0][name]
+
+                normalized = review.validate_continuity_report(
+                    report, "evidence-verifier", self.context, self.groups
+                )
+                relationship = normalized["relationships"][0]
+                self.assertEqual(
+                    {
+                        "action",
+                        "candidate_sha256",
+                        "current_anchor",
+                        "current_group_id",
+                        "previous_anchor",
+                        "previous_group_id",
+                        "previous_issue_number",
+                        "schema_version",
+                    },
+                    set(relationship),
+                )
+                self.assertEqual(action, relationship["action"])
+                self.assertIsNone(relationship["candidate_sha256"])
+                self.assertIsNone(relationship["previous_anchor"])
+                self.assertIsNone(relationship["previous_group_id"])
+                self.assertIsNone(relationship["previous_issue_number"])
+
+    def test_continuity_adopt_normalizes_missing_relationship_schema_version(
+        self,
+    ) -> None:
+        report = self.report("evidence-verifier", self.relationship("ADOPT"))
+        del report["relationships"][0]["schema_version"]
+
+        normalized = review.validate_continuity_report(
+            report, "evidence-verifier", self.context, self.groups
+        )
+
+        self.assertEqual(
+            review.CONTINUITY_SCHEMA_VERSION,
+            normalized["relationships"][0]["schema_version"],
+        )
+        self.assertEqual(
+            self.candidate["candidate_sha256"],
+            normalized["relationships"][0]["candidate_sha256"],
+        )
+
+    def test_continuity_adopt_requires_integer_previous_issue_number(self) -> None:
+        for value in (True, 7.0, "7"):
+            with self.subTest(value=value):
+                report = self.report(
+                    "evidence-verifier",
+                    self.relationship("ADOPT", previous_issue_number=value),
+                )
+                with self.assertRaisesRegex(
+                    review.ReportShapeError, "previous Issue number is invalid"
+                ):
+                    review.validate_continuity_report(
+                        report, "evidence-verifier", self.context, self.groups
+                    )
 
     def test_continuity_shape_repair_uses_digest_without_previous_response(
         self,
