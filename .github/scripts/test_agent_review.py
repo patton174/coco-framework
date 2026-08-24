@@ -2422,7 +2422,7 @@ class AgentReviewTests(unittest.TestCase):
                     MODEL_CONFIG_SHA256,
                 )
 
-    def test_collect_policy_requires_complete_specs_for_both_rename_paths(
+    def test_collect_policy_keeps_complete_specs_when_they_fit(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2449,19 +2449,92 @@ class AgentReviewTests(unittest.TestCase):
                 {item["source"] for item in sources},
             )
             self.assertEqual([], omissions)
-            with self.assertRaisesRegex(review.ReviewError, "exceeds"):
-                review.collect_policy(
-                    root,
-                    config(policy_chars=7)
-                    | {
-                        "context": {
-                            "always": ["AGENTS.md"],
-                            "path_rules": value["context"]["path_rules"],
-                        }
-                    },
-                    ["old/Foo.java"],
-                    [],
-                )
+            omissions = []
+            sources = review.collect_policy(
+                root,
+                config(policy_chars=7)
+                | {
+                    "context": {
+                        "always": ["AGENTS.md"],
+                        "path_rules": value["context"]["path_rules"],
+                    }
+                },
+                ["old/Foo.java"],
+                omissions,
+            )
+            self.assertEqual({"AGENTS.md"}, {item["source"] for item in sources})
+            self.assertEqual(
+                ["trusted policy omitted by budget: docs/old.md"], omissions
+            )
+
+    def test_collect_policy_budget_does_not_drop_messaging_or_storage_specs(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs/history.md").write_text("history" * 3, encoding="utf-8")
+            (root / "docs/messaging.md").write_text("message", encoding="utf-8")
+            (root / "docs/storage.md").write_text("store", encoding="utf-8")
+            value = config(policy_chars=20)
+            value["context"]["path_rules"] = [
+                {"patterns": ["coco-features/**"], "files": ["docs/history.md"]},
+                {
+                    "patterns": ["coco-features/coco-messaging/**"],
+                    "files": ["docs/messaging.md"],
+                },
+                {
+                    "patterns": ["coco-features/coco-storage/**"],
+                    "files": ["docs/storage.md"],
+                },
+            ]
+
+            omissions: list[str] = []
+            sources = review.collect_policy(
+                root,
+                value,
+                [
+                    "coco-features/coco-messaging/pom.xml",
+                    "coco-features/coco-storage/pom.xml",
+                ],
+                omissions,
+            )
+
+        self.assertEqual(
+            {"AGENTS.md", "docs/messaging.md", "docs/storage.md"},
+            {item["source"] for item in sources},
+        )
+        self.assertEqual(
+            ["trusted policy omitted by budget: docs/history.md"], omissions
+        )
+
+    def test_collect_policy_fails_closed_for_oversized_protected_policies(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            value = config(policy_chars=10)
+            value["protected_policy_paths"] = ["AGENTS.md", "policy.md"]
+            value["context"] = {
+                "always": ["AGENTS.md", "policy.md"],
+                "path_rules": [],
+            }
+
+            for oversized in ("AGENTS.md", "policy.md"):
+                with self.subTest(oversized=oversized):
+                    (root / "AGENTS.md").write_text(
+                        "ok" if oversized != "AGENTS.md" else "x" * 11,
+                        encoding="utf-8",
+                    )
+                    (root / "policy.md").write_text(
+                        "ok" if oversized != "policy.md" else "x" * 11,
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(
+                        review.ReviewError, "exceeds the context budget"
+                    ):
+                        review.collect_policy(root, value, [], [])
 
     def test_build_context_rejects_patch_budget_below_hard_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -14026,28 +14099,44 @@ class CrossHeadContinuityTest(unittest.TestCase):
             self.assertIn("previous_response_sha256", correction)
             self.assertNotIn("previous_response", correction)
 
-    def test_continuity_current_anchor_shape_repairs_after_binding(self) -> None:
+    def test_continuity_current_anchor_binds_to_supplied_group(self) -> None:
         role = "evidence-verifier"
-        valid = self.report(role)
-        invalid = self.report(
-            role, self.relationship(current_anchor={"file": "invalid"})
+        for value in ({"file": "invalid"}, {**self.anchor, "start_line": 99}):
+            with self.subTest(current_anchor=value):
+                report = self.report(role, self.relationship(current_anchor=value))
+                normalized = review.validate_continuity_report(
+                    report, role, self.context, self.groups
+                )
+
+                self.assertEqual(
+                    self.anchor,
+                    normalized["relationships"][0]["current_anchor"],
+                )
+                self.assertEqual(
+                    self.candidate["candidate_sha256"],
+                    normalized["relationships"][0]["candidate_sha256"],
+                )
+
+    def test_continuity_current_anchor_is_bound_for_normal_relationship(self) -> None:
+        normalized = review.validate_continuity_report(
+            self.report("evidence-verifier"),
+            "evidence-verifier",
+            self.context,
+            self.groups,
         )
-
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str, int]] = []
-                self.responses = [invalid, valid]
-
-            def complete(self, system: str, user: str, max_tokens: int) -> dict:
-                self.calls.append((system, user, max_tokens))
-                return self.responses.pop(0)
-
-        client = FakeClient()
-        with patch("builtins.print"):
-            result = self.complete_continuity_with_repair(client, role)
-
-        self.assertEqual(valid, result)
-        self.assertEqual(2, len(client.calls))
+        relationship = normalized["relationships"][0]
+        self.assertEqual(
+            self.groups[0]["current_group_id"], relationship["current_group_id"]
+        )
+        self.assertEqual(self.anchor, relationship["current_anchor"])
+        self.assertEqual(
+            self.candidate["previous_group_id"], relationship["previous_group_id"]
+        )
+        self.assertEqual(
+            self.candidate["previous_issue_number"],
+            relationship["previous_issue_number"],
+        )
+        self.assertEqual(self.candidate["anchor"], relationship["previous_anchor"])
 
     def test_continuity_model_shape_errors_repair_after_binding(self) -> None:
         role = "policy-skeptic"
@@ -14088,9 +14177,6 @@ class CrossHeadContinuityTest(unittest.TestCase):
     ) -> None:
         role = "policy-skeptic"
         cases = {
-            "current_anchor": lambda report: report["relationships"][0].update(
-                {"current_anchor": {"file": "invalid"}}
-            ),
             "previous_anchor": lambda report: report["relationships"][0].update(
                 {"previous_anchor": {"file": "invalid"}}
             ),
