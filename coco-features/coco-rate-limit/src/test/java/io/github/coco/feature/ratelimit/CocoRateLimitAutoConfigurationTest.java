@@ -21,6 +21,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 class CocoRateLimitAutoConfigurationTest {
@@ -104,6 +106,22 @@ class CocoRateLimitAutoConfigurationTest {
         this.contextRunner
                 .withPropertyValues("coco.features.disabled=rate-limit", "coco.rate-limit.enabled=true")
                 .run(this::assertRateLimitInfrastructureIsAbsent);
+    }
+
+    @Test
+    void redisSelectionRequiresTemplateAndBacksOffForCustomStore() {
+        this.contextRunner
+                .withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> assertThat(context).hasSingleBean(RedisCocoRateLimitStore.class));
+        CocoRateLimitStore customStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                permit.resetAt(), true);
+        this.contextRunner
+                .withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .withBean(CocoRateLimitStore.class, () -> customStore)
+                .run(context -> assertThat(context.getBean(CocoRateLimitStore.class)).isSameAs(customStore));
     }
 
     private void assertRateLimitInfrastructure(org.springframework.boot.test.context.assertj.AssertableWebApplicationContext context) {

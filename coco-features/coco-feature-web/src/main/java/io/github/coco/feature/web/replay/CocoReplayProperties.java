@@ -55,6 +55,9 @@ public class CocoReplayProperties {
     @NestedConfigurationProperty
     private JdbcProperties jdbc = new JdbcProperties();
 
+    @NestedConfigurationProperty
+    private RedisProperties redis = new RedisProperties();
+
     private String appIdHeaderName = DEFAULT_APP_ID_HEADER_NAME;
 
     private String appIdParameterName = "appId";
@@ -253,6 +256,26 @@ public class CocoReplayProperties {
      */
     public void setJdbc(JdbcProperties jdbc) {
         this.jdbc = jdbc == null ? new JdbcProperties() : jdbc;
+    }
+
+    /**
+     * <p>
+     * Returns Redis replay store configuration.
+     * </p>
+     * @return Redis replay store configuration
+     */
+    public RedisProperties getRedis() {
+        return this.redis;
+    }
+
+    /**
+     * <p>
+     * Sets Redis replay store configuration.
+     * </p>
+     * @param redis Redis replay store configuration
+     */
+    public void setRedis(RedisProperties redis) {
+        this.redis = redis == null ? new RedisProperties() : redis;
     }
 
     /**
@@ -485,6 +508,20 @@ public class CocoReplayProperties {
          */
         public void setTableName(String tableName) {
             this.tableName = tableName;
+        }
+    }
+
+    /** Redis replay store configuration. */
+    public static class RedisProperties {
+
+        private String keyPrefix = "coco:replay:";
+
+        public String getKeyPrefix() {
+            return this.keyPrefix;
+        }
+
+        public void setKeyPrefix(String keyPrefix) {
+            this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "coco:replay:" : keyPrefix.trim();
         }
     }
 

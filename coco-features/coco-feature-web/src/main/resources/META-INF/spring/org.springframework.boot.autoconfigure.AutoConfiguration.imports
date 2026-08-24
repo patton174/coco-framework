@@ -1,2 +1,3 @@
 io.github.coco.feature.web.CocoWebJdbcReplayAutoConfiguration
+io.github.coco.feature.web.CocoWebRedisReplayAutoConfiguration
 io.github.coco.feature.web.CocoWebAutoConfiguration
