@@ -7,5 +7,5 @@ public enum CocoMessageAsyncShutdownPolicy {
     DRAIN,
 
     /** 停止接收新消息，并立即取消尚未开始的投递。 */
-    CANCEL
+    DISCARD
 }

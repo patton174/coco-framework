@@ -53,6 +53,8 @@ public final class LocalCocoMessageTransport implements CocoMessageTransport {
 
     private final AtomicBoolean accepting = new AtomicBoolean(true);
 
+    private final Object lifecycleMonitor = new Object();
+
     /**
      * 创建本地传输。
      * @param properties 消息配置
@@ -70,27 +72,29 @@ public final class LocalCocoMessageTransport implements CocoMessageTransport {
     @Override
     public void publish(CocoMessageEnvelope envelope) {
         Objects.requireNonNull(envelope, "envelope must not be null");
-        if (!this.accepting.get()) {
-            throw new CocoMessagingException("coco.messaging.error.transport-closed");
-        }
         List<CocoMessageHandler> subscribers = List.copyOf(this.handlers.getOrDefault(envelope.topic(),
                 new CopyOnWriteArrayList<>()));
-        if (subscribers.isEmpty()) {
-            if (this.noSubscriberPolicy == CocoMessageNoSubscriberPolicy.FAIL) {
-                throw new CocoMessagingException("coco.messaging.error.no-subscriber", envelope.topic());
+        synchronized (this.lifecycleMonitor) {
+            if (!this.accepting.get()) {
+                throw new CocoMessagingException("coco.messaging.error.transport-closed");
             }
-            return;
-        }
-        Runnable delivery = () -> deliver(envelope, subscribers);
-        if (this.executor == null) {
-            delivery.run();
-            return;
-        }
-        try {
-            this.executor.execute(delivery);
-        }
-        catch (RejectedExecutionException exception) {
-            throw new CocoMessagingException("coco.messaging.error.async-rejected", exception, envelope.topic());
+            if (subscribers.isEmpty()) {
+                if (this.noSubscriberPolicy == CocoMessageNoSubscriberPolicy.FAIL) {
+                    throw new CocoMessagingException("coco.messaging.error.no-subscriber", envelope.topic());
+                }
+                return;
+            }
+            Runnable delivery = () -> deliver(envelope, subscribers);
+            if (this.executor == null) {
+                delivery.run();
+                return;
+            }
+            try {
+                this.executor.execute(delivery);
+            }
+            catch (RejectedExecutionException exception) {
+                throw new CocoMessagingException("coco.messaging.error.async-rejected", exception, envelope.topic());
+            }
         }
     }
 
@@ -98,12 +102,14 @@ public final class LocalCocoMessageTransport implements CocoMessageTransport {
     public CocoMessageSubscription subscribe(String topic, CocoMessageHandler handler) {
         String checkedTopic = CocoMessageEnvelope.create(topic, null).topic();
         CocoMessageHandler checkedHandler = Objects.requireNonNull(handler, "handler must not be null");
-        if (!this.accepting.get()) {
-            throw new CocoMessagingException("coco.messaging.error.transport-closed");
+        CopyOnWriteArrayList<CocoMessageHandler> topicHandlers;
+        synchronized (this.lifecycleMonitor) {
+            if (!this.accepting.get()) {
+                throw new CocoMessagingException("coco.messaging.error.transport-closed");
+            }
+            topicHandlers = this.handlers.computeIfAbsent(checkedTopic, ignored -> new CopyOnWriteArrayList<>());
+            topicHandlers.add(checkedHandler);
         }
-        CopyOnWriteArrayList<CocoMessageHandler> topicHandlers = this.handlers.computeIfAbsent(checkedTopic,
-                ignored -> new CopyOnWriteArrayList<>());
-        topicHandlers.add(checkedHandler);
         AtomicBoolean subscribed = new AtomicBoolean(true);
         return () -> {
             if (subscribed.compareAndSet(true, false)) {
@@ -115,22 +121,26 @@ public final class LocalCocoMessageTransport implements CocoMessageTransport {
 
     @Override
     public void close() {
-        if (!this.accepting.compareAndSet(true, false) || this.executor == null) {
-            return;
+        ThreadPoolExecutor closingExecutor;
+        synchronized (this.lifecycleMonitor) {
+            if (!this.accepting.compareAndSet(true, false) || this.executor == null) {
+                return;
+            }
+            closingExecutor = this.executor;
+            if (this.shutdownPolicy == CocoMessageAsyncShutdownPolicy.DISCARD) {
+                closingExecutor.shutdownNow();
+                return;
+            }
+            closingExecutor.shutdown();
         }
-        if (this.shutdownPolicy == CocoMessageAsyncShutdownPolicy.CANCEL) {
-            this.executor.shutdownNow();
-            return;
-        }
-        this.executor.shutdown();
         try {
-            if (!this.executor.awaitTermination(this.shutdownAwait.toMillis(), TimeUnit.MILLISECONDS)) {
-                this.executor.shutdownNow();
+            if (!closingExecutor.awaitTermination(Math.max(1L, this.shutdownAwait.toMillis()), TimeUnit.MILLISECONDS)) {
+                throw new CocoMessagingException("coco.messaging.error.drain-timeout", this.shutdownAwait);
             }
         }
         catch (InterruptedException exception) {
-            this.executor.shutdownNow();
             Thread.currentThread().interrupt();
+            throw new CocoMessagingException("coco.messaging.error.drain-interrupted", exception);
         }
     }
 
