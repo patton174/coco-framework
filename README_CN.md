@@ -112,8 +112,6 @@ OrderResponse create(@RequestBody CreateOrderRequest request) {
 }
 ```
 
-单一 starter 默认组合进程内消息能力。声明 `CocoMessageTransport` Bean 可以替换传输实现；该能力不依赖 Web 或 MyBatis 功能。
-
 业务 Controller 仍然是普通 Spring 代码：
 
 ```java
