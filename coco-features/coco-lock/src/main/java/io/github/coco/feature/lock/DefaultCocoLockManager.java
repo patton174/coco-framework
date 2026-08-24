@@ -6,7 +6,9 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -26,6 +28,7 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
     private final Clock clock;
     private final ScheduledExecutorService watchdogExecutor;
     private final ThreadLocal<Map<String, HeldLock>> heldLocks = ThreadLocal.withInitial(HashMap::new);
+    private final Set<HeldLock> activeLocks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     /** 创建管理器。 */
@@ -47,6 +50,7 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
         Map<String, HeldLock> currentLocks = this.heldLocks.get();
         HeldLock existing = currentLocks.get(request.key());
         if (existing != null && !existing.closed.get()) {
+            if (existing.lost.get()) { return new CocoLockResult(CocoLockStore.AcquireResult.UNAVAILABLE, null); }
             existing.reentrancy.incrementAndGet();
             return new CocoLockResult(CocoLockStore.AcquireResult.ACQUIRED, new Handle(existing, true));
         }
@@ -58,6 +62,8 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
             if (result == CocoLockStore.AcquireResult.ACQUIRED) {
                 HeldLock held = new HeldLock(lease, request.lease(), Thread.currentThread());
                 currentLocks.put(request.key(), held);
+                this.activeLocks.add(held);
+                if (this.closed.get()) { markLost(held, "manager-closed", null); }
                 scheduleWatchdog(held);
                 return new CocoLockResult(result, new Handle(held, false));
             }
@@ -70,26 +76,45 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
     }
 
     private void scheduleWatchdog(HeldLock held) {
-        if (!this.properties.isWatchdogEnabled()) { return; }
+        if (!this.properties.isWatchdogEnabled() || held.lost.get() || this.closed.get()) { return; }
         Duration configured = positive(this.properties.getWatchdogInterval(), "coco.lock.watchdog-interval");
         long leaseMillis = Math.max(1L, held.leaseDuration.toMillis());
         long periodMillis = Math.max(1L, Math.min(configured.toMillis(), Math.max(1L, leaseMillis / 3L)));
-        held.watchdog = this.watchdogExecutor.scheduleWithFixedDelay(() -> renew(held), periodMillis, periodMillis,
-                TimeUnit.MILLISECONDS);
+        try {
+            held.watchdog = this.watchdogExecutor.scheduleWithFixedDelay(() -> renew(held), periodMillis, periodMillis,
+                    TimeUnit.MILLISECONDS);
+        }
+        catch (RuntimeException exception) { markLost(held, "watchdog-schedule-failed", exception); }
     }
 
     private void renew(HeldLock held) {
-        if (this.closed.get() || held.closed.get()) { return; }
+        if (this.closed.get() || held.closed.get() || held.lost.get()) { return; }
         CocoLockLease renewal = new CocoLockLease(held.lease.get().key(), held.lease.get().ownerToken(),
                 this.clock.instant().plus(held.leaseDuration));
-        CocoLockStore.RenewResult result = this.store.renew(renewal);
-        if (result == CocoLockStore.RenewResult.RENEWED) {
-            held.lease.set(renewal);
-            return;
+        try {
+            CocoLockStore.RenewResult result = this.store.renew(renewal);
+            if (result == CocoLockStore.RenewResult.RENEWED) {
+                held.lease.set(renewal);
+                return;
+            }
+            markLost(held, result.name(), null);
         }
-        if (held.warnedLost.compareAndSet(false, true)) {
-            LOGGER.warn("Coco lock lease was not renewed; keyHash={}, result={}",
-                    Integer.toUnsignedString(renewal.key().hashCode(), 16), result);
+        catch (Throwable exception) {
+            markLost(held, "renew-threw", exception);
+        }
+    }
+
+    private void markLost(HeldLock held, String reason, Throwable cause) {
+        if (!held.lost.compareAndSet(false, true)) { return; }
+        ScheduledFuture<?> watchdog = held.watchdog;
+        if (watchdog != null) { watchdog.cancel(false); }
+        String keyHash = Integer.toUnsignedString(held.lease.get().key().hashCode(), 16);
+        if (cause == null) {
+            LOGGER.warn("Coco lock lease was lost; keyHash={}, reason={}", keyHash, reason);
+        }
+        else {
+            LOGGER.warn("Coco lock lease was lost; keyHash={}, reason={}, exceptionType={}", keyHash, reason,
+                    cause.getClass().getName());
         }
     }
 
@@ -100,10 +125,13 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
         if (held.reentrancy.decrementAndGet() != 0) { return; }
         if (!held.closed.compareAndSet(false, true)) { return; }
         if (held.watchdog != null) { held.watchdog.cancel(false); }
-        this.store.release(held.lease.get());
-        Map<String, HeldLock> currentLocks = this.heldLocks.get();
-        currentLocks.remove(held.lease.get().key(), held);
-        if (currentLocks.isEmpty()) { this.heldLocks.remove(); }
+        try { this.store.release(held.lease.get()); }
+        finally {
+            this.activeLocks.remove(held);
+            Map<String, HeldLock> currentLocks = this.heldLocks.get();
+            currentLocks.remove(held.lease.get().key(), held);
+            if (currentLocks.isEmpty()) { this.heldLocks.remove(); }
+        }
     }
 
     private static long deadline(Duration wait) {
@@ -131,7 +159,9 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
 
     @Override
     public void close() {
-        if (this.closed.compareAndSet(false, true)) { this.watchdogExecutor.shutdownNow(); }
+        if (!this.closed.compareAndSet(false, true)) { return; }
+        for (HeldLock held : this.activeLocks) { markLost(held, "manager-closed", null); }
+        this.watchdogExecutor.shutdownNow();
     }
 
     private final class Handle implements CocoLockHandle {
@@ -141,6 +171,7 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
         private Handle(HeldLock held, boolean reentrant) { this.held = held; this.reentrant = reentrant; }
         @Override public CocoLockLease lease() { return this.held.lease.get(); }
         @Override public boolean reentrant() { return this.reentrant; }
+        @Override public boolean lost() { return this.held.lost.get() || DefaultCocoLockManager.this.closed.get(); }
         @Override public void close() { if (this.closed.compareAndSet(false, true)) { release(this.held); } }
     }
 
@@ -150,7 +181,7 @@ public final class DefaultCocoLockManager implements CocoLockManager, AutoClosea
         private final Thread ownerThread;
         private final AtomicInteger reentrancy = new AtomicInteger(1);
         private final AtomicBoolean closed = new AtomicBoolean();
-        private final AtomicBoolean warnedLost = new AtomicBoolean();
+        private final AtomicBoolean lost = new AtomicBoolean();
         private volatile ScheduledFuture<?> watchdog;
         private HeldLock(CocoLockLease lease, Duration leaseDuration, Thread ownerThread) {
             this.lease = new AtomicReference<>(lease);

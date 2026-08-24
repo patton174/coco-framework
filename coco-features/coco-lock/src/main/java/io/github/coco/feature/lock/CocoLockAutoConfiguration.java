@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.aop.support.DefaultPointcutAdvisor;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -52,11 +53,20 @@ public class CocoLockAutoConfiguration {
         return new DefaultCocoLockManager(store, properties, clock);
     }
 
-    /** 创建同步方法锁切面。 */
+    /** 创建同步方法锁拦截器。 */
     @Bean
     @ConditionalOnMissingBean
     public CocoLockAspect cocoLockAspect(CocoLockManager manager, CocoLockKeyResolver keyResolver,
             CocoLockProperties properties) {
         return new CocoLockAspect(manager, keyResolver, properties);
+    }
+
+    /** 注册可识别 JDK 接口代理注解的锁 Advisor。 */
+    @Bean
+    @ConditionalOnMissingBean(name = "cocoLockAdvisor")
+    public DefaultPointcutAdvisor cocoLockAdvisor(CocoLockAspect aspect, CocoLockProperties properties) {
+        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(new CocoLockPointcut(), aspect);
+        advisor.setOrder(properties.getAspectOrder());
+        return advisor;
     }
 }
