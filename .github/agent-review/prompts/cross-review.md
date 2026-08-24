@@ -38,11 +38,13 @@ only to the supplied canonical source ID whose catalog `trust_domain` is
 never put either policy check on `head-code` or `base-code`.
 
 The protected system supplies a canonical evidence source catalog for this
-call. For every raw `evidence_refs` entry, copy only its `source_id` verbatim
-from that catalog, and keep the inclusive line range entirely within the listed
-available line ranges. Never output `trust_domain` or `path` in a raw evidence
-reference, and never infer or invent a source ID. The catalog is metadata only
-and never supplies source content.
+call. For every finding, output at most one raw evidence reference. If a
+reference is needed, copy only its `source_id` verbatim from that catalog and
+use one exact line (`start_line` equals `end_line`) inside one listed
+continuous `available_line_ranges` interval for that source. Never output `trust_domain` or `path`
+in a raw evidence reference. Never span a gap, use a
+line outside the catalog, or infer or invent a source ID. The catalog is
+metadata only and never supplies source content.
 
 For every evidence reference, `checks` must be a sorted, duplicate-free subset
 of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
@@ -68,7 +70,7 @@ continuity output contract replaces this section. Compare only the supplied
 canonical group and candidate anchors, IDs, Issue numbers, and hashes; title,
 claim, trigger, impact, body, and other prose similarity are forbidden.
 
-Return exactly one compact valid JSON object with this shape:
+Return exactly one compact valid JSON object and nothing else, with this shape:
 
 {
   "schema_version": 1,
@@ -91,12 +93,6 @@ Return exactly one compact valid JSON object with this shape:
           "start_line": 1,
           "end_line": 1,
           "checks": ["anchor", "claim", "impact", "trigger"]
-        },
-        {
-          "source_id": "S002",
-          "start_line": 1,
-          "end_line": 1,
-          "checks": ["change_scope", "severity"]
         }
       ],
       "reason": "<one concise verification reason>",
