@@ -11,6 +11,8 @@ public enum CocoStorageErrorCode implements CocoErrorCode {
     INVALID_KEY("coco.storage.invalid-key", "对象键不合法。"),
     /** 存储根目录不安全。 */
     INVALID_ROOT("coco.storage.invalid-root", "对象存储根目录不合法。"),
+    /** 存储配置不合法。 */
+    INVALID_CONFIGURATION("coco.storage.invalid-configuration", "对象存储配置不合法。"),
     /** 对象不存在。 */
     OBJECT_NOT_FOUND("coco.storage.object-not-found", "对象不存在。"),
     /** 对象已存在。 */

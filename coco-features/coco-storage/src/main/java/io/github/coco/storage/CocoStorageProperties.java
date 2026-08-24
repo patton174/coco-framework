@@ -1,6 +1,7 @@
 package io.github.coco.storage;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -17,6 +18,12 @@ public class CocoStorageProperties {
 
     /** 默认允许的最大上传字节数。 */
     public static final long DEFAULT_MAX_SIZE_BYTES = 10L * 1024L * 1024L;
+
+    /** 默认孤儿 blob 宽限期。 */
+    public static final Duration DEFAULT_ORPHAN_GRACE_PERIOD = Duration.ofMinutes(5);
+
+    /** 默认本地孤儿回收间隔。 */
+    public static final Duration DEFAULT_GC_INTERVAL = Duration.ofMinutes(5);
 
     private boolean enabled;
 
@@ -101,6 +108,10 @@ public class CocoStorageProperties {
 
         private Path root;
 
+        private Duration orphanGracePeriod = DEFAULT_ORPHAN_GRACE_PERIOD;
+
+        private Duration gcInterval = DEFAULT_GC_INTERVAL;
+
         /** @return 本地对象存储根目录 */
         public Path getRoot() {
             return this.root;
@@ -109,6 +120,26 @@ public class CocoStorageProperties {
         /** @param root 本地对象存储根目录 */
         public void setRoot(Path root) {
             this.root = root;
+        }
+
+        /** @return 不再被 manifest 引用的内部文件回收宽限期 */
+        public Duration getOrphanGracePeriod() {
+            return this.orphanGracePeriod;
+        }
+
+        /** @param orphanGracePeriod 孤儿文件回收宽限期，不能为负数 */
+        public void setOrphanGracePeriod(Duration orphanGracePeriod) {
+            this.orphanGracePeriod = orphanGracePeriod == null ? DEFAULT_ORPHAN_GRACE_PERIOD : orphanGracePeriod;
+        }
+
+        /** @return 后台孤儿回收间隔；{@code ZERO} 表示仅在启动和关闭时回收 */
+        public Duration getGcInterval() {
+            return this.gcInterval;
+        }
+
+        /** @param gcInterval 后台孤儿回收间隔，不能为负数 */
+        public void setGcInterval(Duration gcInterval) {
+            this.gcInterval = gcInterval == null ? DEFAULT_GC_INTERVAL : gcInterval;
         }
     }
 }

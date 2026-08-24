@@ -9,12 +9,19 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import io.github.coco.storage.CocoObjectMetadata;
 import io.github.coco.storage.CocoObjectPutRequest;
+import io.github.coco.storage.CocoObjectResource;
 import io.github.coco.storage.CocoStorageErrorCode;
 import io.github.coco.storage.CocoStorageException;
 import io.github.coco.storage.CocoStorageOverwritePolicy;
@@ -24,7 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * 本地对象存储安全和流式行为测试。
+ * 本地对象存储安全、并发和回收行为测试。
  */
 class LocalCocoObjectStorageTest {
 
@@ -42,7 +49,28 @@ class LocalCocoObjectStorageTest {
         assertThat(metadata.size()).isEqualTo(2L * 1024L * 1024L + 17L);
         assertThat(metadata.sha256()).isEqualTo(sha256(patternBytes((int) metadata.size())));
         assertThat(input.maximumRequestedRead()).isLessThanOrEqualTo(8192);
-        assertThat(storage.open("reports/large.bin").resource().contentLength()).isEqualTo(metadata.size());
+        try (CocoObjectResource resource = storage.open("reports/large.bin")) {
+            assertThat(resource.resource().contentLength()).isEqualTo(metadata.size());
+        }
+    }
+
+    @Test
+    void mapsManifestToFixedHashShardsWithoutUserKeyPath() throws Exception {
+        LocalCocoObjectStorage storage = storage(1024);
+        String key = "customer/42/private-contract.txt";
+        storage.put(CocoObjectPutRequest.of(key, new ByteArrayInputStream(new byte[] { 1 }), 1L, "text/plain"));
+
+        Path manifestRoot = root().resolve("manifests");
+        try (var paths = Files.walk(manifestRoot)) {
+            List<Path> manifests = paths.filter(path -> path.getFileName().toString().endsWith(".properties")).toList();
+            assertThat(manifests).hasSize(1);
+            Path relative = manifestRoot.relativize(manifests.get(0));
+            assertThat(relative.getNameCount()).isEqualTo(3);
+            assertThat(relative.getName(0).toString()).matches("[0-9a-f]{2}");
+            assertThat(relative.getName(1).toString()).matches("[0-9a-f]{2}");
+            assertThat(relative.getFileName().toString()).matches("[0-9a-f]{64}\\.properties");
+            assertThat(manifests.get(0).toString()).doesNotContain("customer").doesNotContain("private-contract");
+        }
     }
 
     @Test
@@ -87,21 +115,50 @@ class LocalCocoObjectStorageTest {
     @Test
     void rejectsSymbolicLinkEscapeWhenSupportedByTheFileSystem() throws Exception {
         LocalCocoObjectStorage storage = storage(1024);
-        Path objectRoot = this.temporaryDirectory.resolve("storage").resolve("objects");
+        Path manifestRoot = root().resolve("manifests");
         Path outside = this.temporaryDirectory.resolve("outside");
         Files.createDirectories(outside);
-        Path link = objectRoot.resolve("linked");
+        Files.delete(manifestRoot);
         try {
-            Files.createSymbolicLink(link, outside);
+            Files.createSymbolicLink(manifestRoot, outside);
         }
         catch (UnsupportedOperationException | IOException exception) {
             Assumptions.assumeTrue(false, "当前文件系统不允许创建符号链接: " + exception.getClass().getSimpleName());
         }
 
-        assertThatThrownBy(() -> storage.put(CocoObjectPutRequest.of("linked/escaped.bin",
-                new ByteArrayInputStream(new byte[] { 1 }), 1L, "application/octet-stream")))
-                .isInstanceOf(CocoStorageException.class);
+        assertStorageCode(() -> storage.put(CocoObjectPutRequest.of("escaped.bin",
+                new ByteArrayInputStream(new byte[] { 1 }), 1L, "application/octet-stream")), CocoStorageErrorCode.INVALID_ROOT);
         try (var paths = Files.list(outside)) {
+            assertThat(paths.toList()).isEmpty();
+        }
+    }
+
+    @Test
+    void rejectsWindowsJunctionAsConfiguredRoot() throws Exception {
+        assumeWindows();
+        Path target = this.temporaryDirectory.resolve("junction-target");
+        Files.createDirectories(target);
+        Path junction = this.temporaryDirectory.resolve("junction-root");
+        createJunction(junction, target);
+        CocoStorageProperties properties = new CocoStorageProperties();
+        properties.getLocal().setRoot(junction);
+
+        assertStorageCode(() -> new LocalCocoObjectStorage(properties), CocoStorageErrorCode.INVALID_ROOT);
+    }
+
+    @Test
+    void rejectsWindowsJunctionInFrameworkInternalDirectory() throws Exception {
+        assumeWindows();
+        LocalCocoObjectStorage storage = storage(1024);
+        Path target = this.temporaryDirectory.resolve("junction-target");
+        Files.createDirectories(target);
+        Path manifestRoot = root().resolve("manifests");
+        Files.delete(manifestRoot);
+        createJunction(manifestRoot, target);
+
+        assertStorageCode(() -> storage.put(CocoObjectPutRequest.of("junction.bin",
+                new ByteArrayInputStream(new byte[] { 1 }), 1L, "application/octet-stream")), CocoStorageErrorCode.INVALID_ROOT);
+        try (var paths = Files.list(target)) {
             assertThat(paths.toList()).isEmpty();
         }
     }
@@ -120,9 +177,84 @@ class LocalCocoObjectStorageTest {
                 CocoStorageOverwritePolicy.REPLACE));
 
         assertThat(replacement.sha256()).isNotEqualTo(first.sha256());
-        try (InputStream input = storage.open("same.bin").resource().getInputStream()) {
+        try (CocoObjectResource resource = storage.open("same.bin");
+                InputStream input = resource.resource().getInputStream()) {
             assertThat(input.readAllBytes()).containsExactly(3, 4, 5);
         }
+    }
+
+    @Test
+    void serializesConcurrentReplaceAndDeleteForTheSameKey() throws Exception {
+        LocalCocoObjectStorage storage = storage(1024);
+        storage.put(CocoObjectPutRequest.of("raced.bin", new ByteArrayInputStream(new byte[] { 0 }), 1L,
+                "application/octet-stream"));
+        ExecutorService executor = Executors.newFixedThreadPool(24);
+        CountDownLatch ready = new CountDownLatch(24);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Object>> results = java.util.stream.IntStream.range(0, 24).mapToObj(index -> executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                if (index % 3 == 0) {
+                    storage.delete("raced.bin");
+                }
+                else {
+                    storage.put(new CocoObjectPutRequest("raced.bin", new ByteArrayInputStream(new byte[] { (byte) index }),
+                            1L, "application/octet-stream", CocoStorageOverwritePolicy.REPLACE));
+                }
+                return null;
+            })).toList();
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            for (Future<?> result : results) {
+                result.get(10, TimeUnit.SECONDS);
+            }
+            if (storage.exists("raced.bin")) {
+                try (CocoObjectResource resource = storage.open("raced.bin");
+                        InputStream input = resource.resource().getInputStream()) {
+                    assertThat(input.readAllBytes()).hasSize(1);
+                }
+            }
+        }
+        finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void garbageCollectionRetainsOpenedSnapshotUntilReleasedAndReclaimsReplacedBlob() throws Exception {
+        LocalCocoObjectStorage storage = storageWithGarbageCollection(Duration.ZERO);
+        storage.put(CocoObjectPutRequest.of("versioned.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "application/octet-stream"));
+        CocoObjectResource snapshot = storage.open("versioned.bin");
+        storage.put(new CocoObjectPutRequest("versioned.bin", new ByteArrayInputStream(new byte[] { 2 }), 1L,
+                "application/octet-stream", CocoStorageOverwritePolicy.REPLACE));
+
+        assertThat(storage.collectGarbage()).isZero();
+        assertThat(blobCount()).isEqualTo(2);
+        try (snapshot; InputStream input = snapshot.resource().getInputStream()) {
+            assertThat(input.readAllBytes()).containsExactly(1);
+        }
+        assertThat(storage.collectGarbage()).isEqualTo(1);
+        assertThat(blobCount()).isEqualTo(1);
+    }
+
+    @Test
+    void startupRecoveryRemovesDeletedBlobAfterTheConfiguredGracePeriod() throws Exception {
+        CocoStorageProperties delayed = properties(1024);
+        delayed.getLocal().setOrphanGracePeriod(Duration.ofDays(1));
+        LocalCocoObjectStorage first = new LocalCocoObjectStorage(delayed);
+        first.put(CocoObjectPutRequest.of("deleted.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "application/octet-stream"));
+        assertThat(first.delete("deleted.bin")).isTrue();
+        first.close();
+        assertThat(blobCount()).isEqualTo(1);
+
+        LocalCocoObjectStorage recovered = storageWithGarbageCollection(Duration.ZERO);
+        assertThat(blobCount()).isZero();
+        recovered.close();
     }
 
     @Test
@@ -132,7 +264,7 @@ class LocalCocoObjectStorageTest {
         assertStorageCode(() -> storage.put(CocoObjectPutRequest.of("broken.bin", new FailingInputStream(), null,
                 "application/octet-stream")), CocoStorageErrorCode.STORAGE_IO_FAILURE);
 
-        try (var paths = Files.walk(this.temporaryDirectory.resolve("storage"))) {
+        try (var paths = Files.walk(root())) {
             assertThat(paths.filter(path -> path.getFileName().toString().startsWith(".coco-")).toList()).isEmpty();
         }
         assertThat(storage.exists("broken.bin")).isFalse();
@@ -145,7 +277,8 @@ class LocalCocoObjectStorageTest {
                 new ByteArrayInputStream("content".getBytes()), 7L, "text/plain"));
 
         assertThat(storage.stat("documents/read.txt")).isEqualTo(written);
-        try (InputStream input = storage.open("documents/read.txt").resource().getInputStream()) {
+        try (CocoObjectResource resource = storage.open("documents/read.txt");
+                InputStream input = resource.resource().getInputStream()) {
             assertThat(input.readAllBytes()).isEqualTo("content".getBytes());
         }
         assertThat(storage.delete("documents/read.txt")).isTrue();
@@ -157,11 +290,40 @@ class LocalCocoObjectStorageTest {
         return new LocalCocoObjectStorage(properties(maxSizeBytes));
     }
 
+    private LocalCocoObjectStorage storageWithGarbageCollection(Duration gracePeriod) {
+        CocoStorageProperties properties = properties(1024);
+        properties.getLocal().setOrphanGracePeriod(gracePeriod);
+        return new LocalCocoObjectStorage(properties);
+    }
+
     private CocoStorageProperties properties(long maxSizeBytes) {
         CocoStorageProperties properties = new CocoStorageProperties();
-        properties.getLocal().setRoot(this.temporaryDirectory.resolve("storage"));
+        properties.getLocal().setRoot(root());
+        properties.getLocal().setGcInterval(Duration.ZERO);
         properties.setMaxSizeBytes(maxSizeBytes);
         return properties;
+    }
+
+    private Path root() {
+        return this.temporaryDirectory.resolve("storage");
+    }
+
+    private long blobCount() throws IOException {
+        try (var paths = Files.list(root().resolve("blobs"))) {
+            return paths.filter(path -> path.getFileName().toString().endsWith(".bin")).count();
+        }
+    }
+
+    private static void assumeWindows() {
+        Assumptions.assumeTrue(System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win"),
+                "Windows junction test only runs on Windows");
+    }
+
+    private static void createJunction(Path link, Path target) throws Exception {
+        String command = "mklink /J \"" + link + "\" \"" + target + "\"";
+        Process process = new ProcessBuilder("cmd.exe", "/c", command).start();
+        assertThat(process.waitFor(10, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).isZero();
     }
 
     private static void assertStorageCode(org.assertj.core.api.ThrowableAssert.ThrowingCallable action,
