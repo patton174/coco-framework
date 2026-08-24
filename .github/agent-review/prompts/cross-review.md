@@ -74,13 +74,18 @@ result and `context_gaps`.
 When protected task metadata is headed `Protected continuity task metadata`, its
 continuity output contract replaces this section. Compare only the supplied
 canonical group and candidate anchors, IDs, Issue numbers, and hashes; title,
-claim, trigger, impact, body, and other prose similarity are forbidden.
+claim, trigger, impact, body, and other prose similarity are forbidden. A
+continuity call is required whenever the supplied `current_groups` array is
+non-empty, including when every actionable group is P2/P3. In that branch,
+always return the complete schema-v2 `relationships` report; a normal verifier
+`NOT_NEEDED` report is invalid. Only an empty `current_groups` array can omit
+relationships under the protected continuity contract.
 
 Return exactly one compact valid JSON object and nothing else, with this shape:
 
 {
   "schema_version": 1,
-  "role": "evidence-verifier|policy-skeptic",
+  "role": "<exact-protected-task-role-id>",
   "head_sha": "<protected-head-sha>",
   "context_sha256": "<protected-context-sha256>",
   "evidence": "<one concise scope summary>",
@@ -110,9 +115,17 @@ Return exactly one compact valid JSON object and nothing else, with this shape:
   ]
 }
 
+Copy `role` verbatim from the protected task metadata. The value must be the
+exact protected role ID for this call. For an `evidence-verifier` task, output
+`evidence-verifier`; for a `policy-skeptic` task, output `policy-skeptic`. Never
+output a role list, union, or alternative such as
+`evidence-verifier|policy-skeptic`.
+
 Use only the listed fields. Keep every string to one sentence and no more than
-240 characters; do not repeat a candidate's prose. The protected coordinator
-does not call you when there are no P0/P1 candidates; it writes the exact-bound
-`NOT_NEEDED` report itself. Use an empty `context_gaps` array when there are no gaps. Do not output
+240 characters; do not repeat a candidate's prose. The ordinary cross-review
+coordinator does not call you when there are no P0/P1 candidates; it writes the
+exact-bound `NOT_NEEDED` report itself. That ordinary rule does not apply to a
+continuity call with any supplied current group. Use an empty `context_gaps`
+array when there are no gaps. Do not output
 Markdown, code fences, comments, prefixes, suffixes, a final verdict, new
 findings, or hidden reasoning.

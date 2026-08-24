@@ -5114,6 +5114,8 @@ def command_continuity(args: argparse.Namespace) -> int:
             "## Protected continuity contract\n"
             "Return only schema-v2 JSON with exactly `schema_version`, `role`, `binding`, and `relationships`. "
             "Emit exactly one relationship per supplied current group in its supplied order. "
+            "A continuity call is required whenever `current_groups` is non-empty, including when every actionable group is P2/P3; never return the ordinary verifier `NOT_NEEDED` report in that branch. "
+            "Only an empty `current_groups` array may omit relationships under this contract. "
             "Each relationship must itself contain exactly these eight fields: numeric `schema_version` 2, `action`, `current_group_id`, `current_anchor`, `candidate_sha256`, `previous_group_id`, `previous_issue_number`, and `previous_anchor`. "
             "The relationship-level schema_version is required even though the report has a schema_version. "
             "Use a JSON integer for previous_issue_number when present and JSON null for absent candidate fields. "
