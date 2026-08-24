@@ -3348,6 +3348,13 @@ class AgentReviewTests(unittest.TestCase):
             normalized_prompt,
         )
         self.assertNotIn('"role": "evidence-verifier|policy-skeptic"', prompt)
+        self.assertIn("`action` is the relationship type", normalized_prompt)
+        self.assertIn(
+            "`candidate_sha256`, `previous_group_id`, `previous_issue_number`, and `previous_anchor` fields must all be JSON `null`",
+            normalized_prompt,
+        )
+        self.assertIn('"candidate_sha256": null', prompt)
+        self.assertIn('"previous_anchor": null', prompt)
 
     def test_cross_review_writes_exact_not_needed_without_model_when_no_findings(
         self,
@@ -14161,6 +14168,62 @@ class CrossHeadContinuityTest(unittest.TestCase):
                     review.validate_continuity_report(
                         report, "evidence-verifier", self.context, self.groups
                     )
+
+    def test_continuity_non_adopt_candidate_error_lists_fields(self) -> None:
+        report = self.report(
+            "evidence-verifier",
+            self.relationship(
+                "REJECT",
+                candidate_sha256=self.candidate["candidate_sha256"],
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            review.ReportShapeError,
+            "candidate_sha256, previous_group_id, previous_issue_number, "
+            "previous_anchor",
+        ):
+            review.validate_continuity_report(
+                report, "evidence-verifier", self.context, self.groups
+            )
+
+    def test_continuity_targeted_correction_repairs_non_adopt_candidate(self) -> None:
+        role = "policy-skeptic"
+        invalid = self.report(
+            role,
+            self.relationship(
+                "INSUFFICIENT",
+                candidate_sha256=self.candidate["candidate_sha256"],
+            ),
+        )
+        valid = self.report(role, self.relationship("INSUFFICIENT"))
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [invalid, valid]
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = self.complete_continuity_with_repair(client, role)
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        correction_system = client.calls[1][0]
+        self.assertIn("Protected continuity relationship correction", correction_system)
+        self.assertIn("Keep `action`", correction_system)
+        self.assertIn("as `REJECT` or `INSUFFICIENT`", correction_system)
+        for field in (
+            "candidate_sha256",
+            "previous_group_id",
+            "previous_issue_number",
+            "previous_anchor",
+        ):
+            self.assertIn(f"`{field}`", correction_system)
 
     def test_continuity_shape_repair_uses_digest_without_previous_response(
         self,
