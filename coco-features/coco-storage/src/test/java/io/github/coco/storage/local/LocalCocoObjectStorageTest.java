@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -140,29 +141,53 @@ class LocalCocoObjectStorageTest {
     }
 
     @Test
-    void rejectsWindowsJunctionAsConfiguredRoot() throws Exception {
-        assumeWindows();
-        Path target = this.temporaryDirectory.resolve("junction-target");
+    void permitsConfiguredRootBelowDirectoryAlias() throws Exception {
+        Path target = this.temporaryDirectory.resolve("alias-target");
         Files.createDirectories(target);
-        Path junction = this.temporaryDirectory.resolve("junction-root");
-        createJunction(junction, target);
-        CocoStorageProperties properties = new CocoStorageProperties();
-        properties.getLocal().setRoot(junction);
+        Path alias = this.temporaryDirectory.resolve("alias");
+        createDirectoryAlias(alias, target);
+        CocoStorageProperties properties = properties(1024);
+        properties.getLocal().setRoot(alias.resolve("storage"));
+
+        LocalCocoObjectStorage storage = new LocalCocoObjectStorage(properties);
+        storage.put(CocoObjectPutRequest.of("through-alias.txt", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "text/plain"));
+        storage.close();
+        LocalCocoObjectStorage reopened = new LocalCocoObjectStorage(properties);
+
+        assertThat(reopened.exists("through-alias.txt")).isTrue();
+        try (CocoObjectResource resource = reopened.open("through-alias.txt");
+                InputStream input = resource.resource().getInputStream()) {
+            assertThat(input.readAllBytes()).containsExactly(1);
+        }
+        assertThat(target.resolve("storage").resolve("manifests")).isDirectory();
+        reopened.close();
+    }
+
+    @Test
+    void rejectsDirectoryAliasAsConfiguredRoot() throws Exception {
+        Path target = this.temporaryDirectory.resolve("alias-target");
+        Files.createDirectories(target);
+        Path alias = this.temporaryDirectory.resolve("alias-root");
+        createDirectoryAlias(alias, target);
+        CocoStorageProperties properties = properties(1024);
+        properties.getLocal().setRoot(alias);
 
         assertStorageCode(() -> new LocalCocoObjectStorage(properties), CocoStorageErrorCode.INVALID_ROOT);
     }
 
     @Test
-    void rejectsWindowsJunctionInFrameworkInternalDirectory() throws Exception {
-        assumeWindows();
+    void rejectsDirectoryAliasInsideNestedManifestPath() throws Exception {
         LocalCocoObjectStorage storage = storage(1024);
-        Path target = this.temporaryDirectory.resolve("junction-target");
+        String key = "nested-alias.bin";
+        String keyHash = sha256(key.getBytes(StandardCharsets.UTF_8));
+        Path target = this.temporaryDirectory.resolve("alias-target");
         Files.createDirectories(target);
-        Path manifestRoot = root().resolve("manifests");
-        Files.delete(manifestRoot);
-        createJunction(manifestRoot, target);
+        Path firstShard = root().resolve("manifests").resolve(keyHash.substring(0, 2));
+        Files.createDirectories(firstShard);
+        createDirectoryAlias(firstShard.resolve(keyHash.substring(2, 4)), target);
 
-        assertStorageCode(() -> storage.put(CocoObjectPutRequest.of("junction.bin",
+        assertStorageCode(() -> storage.put(CocoObjectPutRequest.of(key,
                 new ByteArrayInputStream(new byte[] { 1 }), 1L, "application/octet-stream")), CocoStorageErrorCode.INVALID_ROOT);
         try (var paths = Files.list(target)) {
             assertThat(paths.toList()).isEmpty();
@@ -475,12 +500,17 @@ class LocalCocoObjectStorageTest {
         }
     }
 
-    private static void assumeWindows() {
-        Assumptions.assumeTrue(System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win"),
-                "Windows junction test only runs on Windows");
-    }
-
-    private static void createJunction(Path link, Path target) throws Exception {
+    private static void createDirectoryAlias(Path link, Path target) throws Exception {
+        if (!System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win")) {
+            try {
+                Files.createSymbolicLink(link, target);
+                return;
+            }
+            catch (UnsupportedOperationException | IOException exception) {
+                Assumptions.assumeTrue(false, "当前文件系统不允许创建符号链接: " + exception.getClass().getSimpleName());
+                return;
+            }
+        }
         String command = "mklink /J \"" + link + "\" \"" + target + "\"";
         Process process = new ProcessBuilder("cmd.exe", "/c", command).start();
         assertThat(process.waitFor(10, TimeUnit.SECONDS)).isTrue();

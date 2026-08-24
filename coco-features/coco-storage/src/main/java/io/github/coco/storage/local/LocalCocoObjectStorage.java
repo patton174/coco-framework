@@ -369,10 +369,11 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         if (!SHA256.matcher(keyHash).matches()) {
             throw new CocoStorageException(CocoStorageErrorCode.INVALID_KEY, keyHash);
         }
-        Path firstShard = fixedShardDirectory(internalDirectory(MANIFEST_DIRECTORY), keyHash.substring(0, 2));
-        Path secondShard = fixedShardDirectory(firstShard, keyHash.substring(2, 4));
+        Path firstShard = fixedShardDirectory(internalDirectory(MANIFEST_DIRECTORY), this.root,
+                keyHash.substring(0, 2));
+        Path secondShard = fixedShardDirectory(firstShard, this.root, keyHash.substring(2, 4));
         Path manifest = secondShard.resolve(keyHash + ".properties").normalize();
-        requireContained(manifest, secondShard, CocoStorageErrorCode.INVALID_KEY);
+        requireContained(manifest, this.root, CocoStorageErrorCode.INVALID_KEY);
         return manifest;
     }
 
@@ -382,7 +383,7 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         }
         Path blobs = internalDirectory(BLOB_DIRECTORY);
         Path blob = blobs.resolve(blobId + ".bin").normalize();
-        requireContained(blob, blobs, CocoStorageErrorCode.INVALID_KEY);
+        requireContained(blob, this.root, CocoStorageErrorCode.INVALID_KEY);
         return blob;
     }
 
@@ -392,51 +393,54 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         }
         Path blobs = internalDirectory(BLOB_DIRECTORY);
         Path marker = blobs.resolve(blobId + ORPHAN_MARKER_SUFFIX).normalize();
-        requireContained(marker, blobs, CocoStorageErrorCode.INVALID_KEY);
+        requireContained(marker, this.root, CocoStorageErrorCode.INVALID_KEY);
         return marker;
     }
 
     private Path internalDirectory(String name) {
         Path verifiedRoot = requireSafeDirectory(this.root, this.root, CocoStorageErrorCode.INVALID_ROOT);
         Path directory = verifiedRoot.resolve(name).normalize();
-        requireContained(directory, verifiedRoot, CocoStorageErrorCode.INVALID_ROOT);
-        return createSafeDirectory(directory, verifiedRoot);
+        requireContained(directory, this.root, CocoStorageErrorCode.INVALID_ROOT);
+        return createSafeDirectory(directory, this.root);
     }
 
-    private static Path fixedShardDirectory(Path parent, String shard) {
+    private static Path fixedShardDirectory(Path parent, Path canonicalRoot, String shard) {
         if (!SHARD.matcher(shard).matches()) {
             throw new CocoStorageException(CocoStorageErrorCode.INVALID_KEY, shard);
         }
         Path directory = parent.resolve(shard).normalize();
-        requireContained(directory, parent, CocoStorageErrorCode.INVALID_KEY);
-        return createSafeDirectory(directory, parent);
+        requireContained(directory, canonicalRoot, CocoStorageErrorCode.INVALID_KEY);
+        return createSafeDirectory(directory, canonicalRoot);
     }
 
     private static Path prepareRoot(Path configuredRoot) {
         if (configuredRoot == null) {
             throw new CocoStorageException(CocoStorageErrorCode.INVALID_ROOT);
         }
-        Path root = configuredRoot.toAbsolutePath().normalize();
+        Path configured = configuredRoot.toAbsolutePath().normalize();
         try {
-            ensureSafeExistingDirectories(root);
-            Files.createDirectories(root);
-            ensureSafeExistingDirectories(root);
-            return requireSafeDirectory(root, root, CocoStorageErrorCode.INVALID_ROOT);
+            Path existingAncestor = nearestExistingAncestor(configured);
+            if (existingAncestor.equals(configured)) {
+                verifySafeExistingDirectory(existingAncestor);
+            }
+            Path canonicalRoot = existingAncestor.toRealPath().resolve(existingAncestor.relativize(configured)).normalize();
+            Files.createDirectories(canonicalRoot);
+            return requireSafeDirectory(canonicalRoot, canonicalRoot, CocoStorageErrorCode.INVALID_ROOT);
         }
         catch (CocoStorageException exception) {
             throw exception;
         }
         catch (IOException exception) {
-            throw new CocoStorageException(CocoStorageErrorCode.INVALID_ROOT, exception, root);
+            throw new CocoStorageException(CocoStorageErrorCode.INVALID_ROOT, exception, configured);
         }
     }
 
-    private static Path createSafeDirectory(Path directory, Path expectedRoot) {
+    private static Path createSafeDirectory(Path directory, Path canonicalRoot) {
         try {
-            ensureSafeExistingDirectories(directory);
+            ensureSafeExistingDirectories(directory, canonicalRoot);
             Files.createDirectories(directory);
-            ensureSafeExistingDirectories(directory);
-            return requireSafeDirectory(directory, expectedRoot, CocoStorageErrorCode.INVALID_ROOT);
+            ensureSafeExistingDirectories(directory, canonicalRoot);
+            return requireSafeDirectory(directory, canonicalRoot, CocoStorageErrorCode.INVALID_ROOT);
         }
         catch (CocoStorageException exception) {
             throw exception;
@@ -446,14 +450,15 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         }
     }
 
-    private static Path requireSafeDirectory(Path directory, Path expectedRoot, CocoStorageErrorCode errorCode) {
+    private static Path requireSafeDirectory(Path directory, Path canonicalRoot, CocoStorageErrorCode errorCode) {
+        requireContained(directory, canonicalRoot, errorCode);
         BasicFileAttributes attributes = attributes(directory, errorCode);
         if (attributes.isSymbolicLink() || attributes.isOther() || !attributes.isDirectory()) {
             throw new CocoStorageException(errorCode, directory);
         }
         try {
             Path real = directory.toRealPath();
-            requireContained(real, expectedRoot, errorCode);
+            requireContained(real, canonicalRoot, errorCode);
             return real;
         }
         catch (IOException exception) {
@@ -477,18 +482,35 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         }
     }
 
-    private static void ensureSafeExistingDirectories(Path path) throws IOException {
-        Path absolute = path.toAbsolutePath().normalize();
-        Path current = absolute.getRoot();
-        for (Path part : absolute) {
+    private static Path nearestExistingAncestor(Path path) throws IOException {
+        Path current = path;
+        while (current != null && !Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+            current = current.getParent();
+        }
+        if (current == null) {
+            throw new CocoStorageException(CocoStorageErrorCode.INVALID_ROOT, path);
+        }
+        return current;
+    }
+
+    private static void ensureSafeExistingDirectories(Path directory, Path canonicalRoot) throws IOException {
+        requireContained(directory, canonicalRoot, CocoStorageErrorCode.INVALID_ROOT);
+        Path current = canonicalRoot;
+        verifySafeExistingDirectory(current);
+        for (Path part : canonicalRoot.relativize(directory)) {
             current = current.resolve(part);
-            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
-                BasicFileAttributes attributes = Files.readAttributes(current, BasicFileAttributes.class,
-                        LinkOption.NOFOLLOW_LINKS);
-                if (attributes.isSymbolicLink() || attributes.isOther() || !attributes.isDirectory()) {
-                    throw new CocoStorageException(CocoStorageErrorCode.INVALID_ROOT, current);
-                }
-            }
+            verifySafeExistingDirectory(current);
+        }
+    }
+
+    private static void verifySafeExistingDirectory(Path directory) throws IOException {
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        BasicFileAttributes attributes = Files.readAttributes(directory, BasicFileAttributes.class,
+                LinkOption.NOFOLLOW_LINKS);
+        if (attributes.isSymbolicLink() || attributes.isOther() || !attributes.isDirectory()) {
+            throw new CocoStorageException(CocoStorageErrorCode.INVALID_ROOT, directory);
         }
     }
 
