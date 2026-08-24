@@ -81,11 +81,12 @@ class CocoFeaturesMojoTest {
         CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(
                 Files.newInputStream(output.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION)));
         assertThat(manifest.enabledFeatureIds())
-                .contains("web", "mybatis-plus", "audit", "security", "openapi", "rate-limit", "idempotency", "codegen");
+                .contains("web", "mybatis-plus", "audit", "security", "openapi", "rate-limit", "idempotency", "messaging", "codegen");
         assertThat(manifest.enabledFeatureIds()).doesNotContain("tenant", "data-permission");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
-                .contains(featureCoordinate(CocoFeature.WEB), featureCoordinate(CocoFeature.RATE_LIMIT), featureCoordinate(CocoFeature.IDEMPOTENCY))
+                .contains(featureCoordinate(CocoFeature.WEB), featureCoordinate(CocoFeature.RATE_LIMIT),
+                        featureCoordinate(CocoFeature.IDEMPOTENCY), featureCoordinate(CocoFeature.MESSAGING))
                 .doesNotContain(featureCoordinate(CocoFeature.TENANT));
         assertThat(project.getArtifacts()).isEmpty();
     }
@@ -236,7 +237,7 @@ class CocoFeaturesMojoTest {
                 .hasMessageContaining("Failed to resolve Coco feature selection")
                 .hasRootCauseMessage("Unknown Coco feature id 'wrong-feature' in Maven parameter "
                         + "coco.features.enabled. Valid feature ids: web, mybatis-plus, audit, security, tenant, "
-                        + "data-permission, openapi, rate-limit, idempotency, scheduling, lock, codegen.");
+                        + "data-permission, openapi, rate-limit, idempotency, scheduling, lock, messaging, codegen.");
     }
 
     @Test

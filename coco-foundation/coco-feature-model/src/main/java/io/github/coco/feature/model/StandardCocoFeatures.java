@@ -72,6 +72,8 @@ public final class StandardCocoFeatures {
                     "io.github.coco.scheduling.CocoSchedulingAutoConfiguration"),
             feature(CocoFeature.LOCK, "coco-lock",
                     "io.github.coco.feature.lock.CocoLockAutoConfiguration"),
+            feature(CocoFeature.MESSAGING, "coco-messaging",
+                    "io.github.coco.messaging.CocoMessagingAutoConfiguration"),
             feature(CocoFeature.CODEGEN, "coco-feature-codegen",
                     "io.github.coco.feature.codegen.CocoCodegenAutoConfiguration",
                     Set.of("coco-feature-codegen", "freemarker"),
