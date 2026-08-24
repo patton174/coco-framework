@@ -8,9 +8,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -224,6 +230,52 @@ class LocalCocoObjectStorageTest {
     }
 
     @Test
+    void keepsTheNewManifestWhenDeleteObservedTheOldManifestFirst() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        CountDownLatch deleteObserved = new CountDownLatch(1);
+        CountDownLatch continueDelete = new CountDownLatch(1);
+        LocalCocoObjectStorage storage = storage(properties(1024), clock, key -> {
+            deleteObserved.countDown();
+            awaitLatch(continueDelete);
+        });
+        storage.put(CocoObjectPutRequest.of("linearized.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "application/octet-stream"));
+
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try {
+            Future<Boolean> delete = executor.submit(() -> storage.delete("linearized.bin"));
+            awaitLatch(deleteObserved);
+            CountDownLatch replaceAttempted = new CountDownLatch(1);
+            Future<CocoObjectMetadata> replace = executor.submit(() -> {
+                replaceAttempted.countDown();
+                return storage.put(new CocoObjectPutRequest("linearized.bin", new ByteArrayInputStream(new byte[] { 2 }),
+                        1L, "application/octet-stream", CocoStorageOverwritePolicy.REPLACE));
+            });
+            CountDownLatch gcAttempted = new CountDownLatch(1);
+            Future<Integer> garbageCollection = executor.submit(() -> {
+                gcAttempted.countDown();
+                return storage.collectGarbage();
+            });
+            awaitLatch(replaceAttempted);
+            awaitLatch(gcAttempted);
+            continueDelete.countDown();
+
+            assertThat(delete.get(5, TimeUnit.SECONDS)).isTrue();
+            replace.get(5, TimeUnit.SECONDS);
+            garbageCollection.get(5, TimeUnit.SECONDS);
+            try (CocoObjectResource resource = storage.open("linearized.bin");
+                    InputStream input = resource.resource().getInputStream()) {
+                assertThat(input.readAllBytes()).containsExactly(2);
+            }
+        }
+        finally {
+            continueDelete.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
     void garbageCollectionRetainsOpenedSnapshotUntilReleasedAndReclaimsReplacedBlob() throws Exception {
         LocalCocoObjectStorage storage = storageWithGarbageCollection(Duration.ZERO);
         storage.put(CocoObjectPutRequest.of("versioned.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
@@ -239,6 +291,79 @@ class LocalCocoObjectStorageTest {
         }
         assertThat(storage.collectGarbage()).isEqualTo(1);
         assertThat(blobCount()).isEqualTo(1);
+    }
+
+    @Test
+    void startsReplacementGraceWhenTheManifestStopsReferencingAnOldBlob() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        LocalCocoObjectStorage storage = storageWithGarbageCollection(Duration.ofHours(1), clock);
+        storage.put(CocoObjectPutRequest.of("grace.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "application/octet-stream"));
+        String oldBlobId = blobIds().iterator().next();
+        Files.setLastModifiedTime(blob(oldBlobId), FileTime.from(Instant.EPOCH));
+
+        storage.put(new CocoObjectPutRequest("grace.bin", new ByteArrayInputStream(new byte[] { 2 }), 1L,
+                "application/octet-stream", CocoStorageOverwritePolicy.REPLACE));
+
+        assertThat(marker(oldBlobId)).exists();
+        assertThat(storage.collectGarbage()).isZero();
+        assertThat(blob(oldBlobId)).exists();
+        clock.advance(Duration.ofMinutes(59));
+        assertThat(storage.collectGarbage()).isZero();
+        assertThat(blob(oldBlobId)).exists();
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(storage.collectGarbage()).isEqualTo(1);
+        assertThat(blob(oldBlobId)).doesNotExist();
+    }
+
+    @Test
+    void restartsGraceForMissingOrInvalidOrphanMarkersDuringRecovery() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        CocoStorageProperties properties = properties(1024);
+        properties.getLocal().setOrphanGracePeriod(Duration.ofHours(1));
+        LocalCocoObjectStorage first = storage(properties, clock, LocalStorageTestHook.NONE);
+        first.put(CocoObjectPutRequest.of("missing-marker.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "application/octet-stream"));
+        first.put(CocoObjectPutRequest.of("invalid-marker.bin", new ByteArrayInputStream(new byte[] { 2 }), 1L,
+                "application/octet-stream"));
+        assertThat(first.delete("missing-marker.bin")).isTrue();
+        assertThat(first.delete("invalid-marker.bin")).isTrue();
+        Set<String> orphanedBlobIds = blobIds();
+        for (String blobId : orphanedBlobIds) {
+            Files.setLastModifiedTime(blob(blobId), FileTime.from(Instant.EPOCH));
+        }
+        first.close();
+        String missingMarkerBlobId = orphanedBlobIds.stream().filter(blobId -> Files.exists(marker(blobId))).findFirst()
+                .orElseThrow();
+        String invalidMarkerBlobId = orphanedBlobIds.stream().filter(blobId -> !blobId.equals(missingMarkerBlobId)).findFirst()
+                .orElseThrow();
+        Files.delete(marker(missingMarkerBlobId));
+        Files.writeString(marker(invalidMarkerBlobId), "blob=not-a-blob\norphanedAtEpochMillis=invalid\n");
+        clock.advance(Duration.ofDays(1));
+
+        LocalCocoObjectStorage recovered = storage(properties, clock, LocalStorageTestHook.NONE);
+        assertThat(blobIds()).containsExactlyInAnyOrderElementsOf(orphanedBlobIds);
+        assertThat(marker(missingMarkerBlobId)).exists();
+        assertThat(marker(invalidMarkerBlobId)).exists();
+        clock.advance(Duration.ofMinutes(59));
+        assertThat(recovered.collectGarbage()).isZero();
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(recovered.collectGarbage()).isEqualTo(2);
+        recovered.close();
+    }
+
+    @Test
+    void retainsReferencedBlobAndClearsItsStaleOrphanMarker() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        LocalCocoObjectStorage storage = storageWithGarbageCollection(Duration.ZERO, clock);
+        storage.put(CocoObjectPutRequest.of("referenced.bin", new ByteArrayInputStream(new byte[] { 1 }), 1L,
+                "application/octet-stream"));
+        String blobId = blobIds().iterator().next();
+        Files.writeString(marker(blobId), "blob=" + blobId + "\norphanedAtEpochMillis=0\n");
+
+        assertThat(storage.collectGarbage()).isZero();
+        assertThat(blob(blobId)).exists();
+        assertThat(marker(blobId)).doesNotExist();
     }
 
     @Test
@@ -291,9 +416,17 @@ class LocalCocoObjectStorageTest {
     }
 
     private LocalCocoObjectStorage storageWithGarbageCollection(Duration gracePeriod) {
+        return storageWithGarbageCollection(gracePeriod, Clock.systemUTC());
+    }
+
+    private LocalCocoObjectStorage storageWithGarbageCollection(Duration gracePeriod, Clock clock) {
         CocoStorageProperties properties = properties(1024);
         properties.getLocal().setOrphanGracePeriod(gracePeriod);
-        return new LocalCocoObjectStorage(properties);
+        return storage(properties, clock, LocalStorageTestHook.NONE);
+    }
+
+    private static LocalCocoObjectStorage storage(CocoStorageProperties properties, Clock clock, LocalStorageTestHook hook) {
+        return new LocalCocoObjectStorage(properties, clock, hook);
     }
 
     private CocoStorageProperties properties(long maxSizeBytes) {
@@ -311,6 +444,34 @@ class LocalCocoObjectStorageTest {
     private long blobCount() throws IOException {
         try (var paths = Files.list(root().resolve("blobs"))) {
             return paths.filter(path -> path.getFileName().toString().endsWith(".bin")).count();
+        }
+    }
+
+    private Set<String> blobIds() throws IOException {
+        try (var paths = Files.list(root().resolve("blobs"))) {
+            return paths.filter(path -> path.getFileName().toString().endsWith(".bin"))
+                    .map(path -> path.getFileName().toString().replaceFirst("\\.bin$", ""))
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        }
+    }
+
+    private Path blob(String blobId) {
+        return root().resolve("blobs").resolve(blobId + ".bin");
+    }
+
+    private Path marker(String blobId) {
+        return root().resolve("blobs").resolve(blobId + ".orphan");
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("同步点超时");
+            }
+        }
+        catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("同步点被中断", exception);
         }
     }
 
@@ -398,6 +559,34 @@ class LocalCocoObjectStorageTest {
         @Override
         public int read() throws IOException {
             throw new IOException("expected stream failure");
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return this.instant;
+        }
+
+        private void advance(Duration duration) {
+            this.instant = this.instant.plus(duration);
         }
     }
 }

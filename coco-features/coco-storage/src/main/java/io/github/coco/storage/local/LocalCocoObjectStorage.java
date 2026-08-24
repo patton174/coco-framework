@@ -16,6 +16,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
@@ -67,6 +68,8 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
 
     private static final String BLOB_DIRECTORY = "blobs";
 
+    private static final String ORPHAN_MARKER_SUFFIX = ".orphan";
+
     private static final Pattern BLOB_ID = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
@@ -85,6 +88,10 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
 
     private final Duration orphanGracePeriod;
 
+    private final Clock clock;
+
+    private final LocalStorageTestHook testHook;
+
     private final ReentrantLock[] locks = new ReentrantLock[LOCK_STRIPES];
 
     private final ConcurrentHashMap<String, AtomicInteger> blobLeases = new ConcurrentHashMap<>();
@@ -101,7 +108,13 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
      * @param properties 已绑定的存储配置
      */
     public LocalCocoObjectStorage(CocoStorageProperties properties) {
+        this(properties, Clock.systemUTC(), LocalStorageTestHook.NONE);
+    }
+
+    LocalCocoObjectStorage(CocoStorageProperties properties, Clock clock, LocalStorageTestHook testHook) {
         CocoStorageProperties checked = Objects.requireNonNull(properties, "properties must not be null");
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.testHook = Objects.requireNonNull(testHook, "testHook must not be null");
         if (checked.getMaxSizeBytes() <= 0) {
             throw new CocoStorageException(CocoStorageErrorCode.INVALID_CONFIGURATION);
         }
@@ -226,6 +239,10 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
             writeManifest(temporaryManifest, metadata, blobId);
             publishManifest(temporaryManifest, manifest, key, overwritePolicy);
             published = true;
+            clearOrphanMarkerQuietly(blobId);
+            if (previous != null && !previous.blobId().equals(blobId)) {
+                markOrphanQuietly(previous.blobId());
+            }
             return metadata;
         }
         catch (CocoStorageException exception) {
@@ -248,8 +265,10 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         if (stored == null) {
             return false;
         }
+        this.testHook.afterDeleteManifestObserved(key);
         try {
             Files.deleteIfExists(manifestPath(keyHash));
+            markOrphanQuietly(stored.blobId());
             return true;
         }
         catch (IOException exception) {
@@ -358,10 +377,23 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
     }
 
     private Path blobPath(String blobId) {
+        if (!BLOB_ID.matcher(blobId).matches()) {
+            throw new CocoStorageException(CocoStorageErrorCode.INVALID_KEY, blobId);
+        }
         Path blobs = internalDirectory(BLOB_DIRECTORY);
         Path blob = blobs.resolve(blobId + ".bin").normalize();
         requireContained(blob, blobs, CocoStorageErrorCode.INVALID_KEY);
         return blob;
+    }
+
+    private Path orphanMarkerPath(String blobId) {
+        if (!BLOB_ID.matcher(blobId).matches()) {
+            throw new CocoStorageException(CocoStorageErrorCode.INVALID_KEY, blobId);
+        }
+        Path blobs = internalDirectory(BLOB_DIRECTORY);
+        Path marker = blobs.resolve(blobId + ORPHAN_MARKER_SUFFIX).normalize();
+        requireContained(marker, blobs, CocoStorageErrorCode.INVALID_KEY);
+        return marker;
     }
 
     private Path internalDirectory(String name) {
@@ -467,8 +499,11 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
     }
 
     private int collectGarbageLocked() {
-        Instant cutoff = Instant.now().minus(this.orphanGracePeriod);
+        Instant now = this.clock.instant();
+        Instant cutoff = now.minus(this.orphanGracePeriod);
         Set<String> referencedBlobs = new HashSet<>();
+        Set<String> blobIds = new HashSet<>();
+        Set<String> markerIds = new HashSet<>();
         int deleted = collectManifestState(internalDirectory(MANIFEST_DIRECTORY), 0, referencedBlobs, cutoff);
         Path blobs = internalDirectory(BLOB_DIRECTORY);
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(blobs)) {
@@ -479,11 +514,36 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
                     throw new CocoStorageException(CocoStorageErrorCode.INVALID_ROOT, entry);
                 }
                 boolean temporary = name.startsWith(".coco-") && name.endsWith(".tmp");
-                boolean orphan = name.endsWith(".bin") && !referencedBlobs.contains(name.substring(0, name.length() - 4))
-                        && !hasLease(name.substring(0, name.length() - 4));
-                if (olderThan(entry, cutoff) && (temporary || orphan)) {
+                if (temporary && olderThan(entry, cutoff)) {
                     Files.deleteIfExists(entry);
                     deleted++;
+                }
+                else if (name.endsWith(".bin")) {
+                    blobIds.add(blobIdFromFileName(name, ".bin"));
+                }
+                else if (name.endsWith(ORPHAN_MARKER_SUFFIX)) {
+                    markerIds.add(blobIdFromFileName(name, ORPHAN_MARKER_SUFFIX));
+                }
+                else if (!temporary) {
+                    throw new CocoStorageException(CocoStorageErrorCode.CORRUPT_METADATA, entry);
+                }
+            }
+            for (String blobId : blobIds) {
+                if (referencedBlobs.contains(blobId)) {
+                    clearOrphanMarkerQuietly(blobId);
+                    continue;
+                }
+                java.util.Optional<Instant> orphanedAt = orphanedAtOrRecover(blobId, now);
+                if (hasLease(blobId) || orphanedAt.isEmpty() || orphanedAt.get().isAfter(cutoff)) {
+                    continue;
+                }
+                Files.deleteIfExists(blobPath(blobId));
+                clearOrphanMarkerQuietly(blobId);
+                deleted++;
+            }
+            for (String markerId : markerIds) {
+                if (!blobIds.contains(markerId)) {
+                    clearOrphanMarkerQuietly(markerId);
                 }
             }
             return deleted;
@@ -555,6 +615,92 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
 
     private static boolean olderThan(Path path, Instant cutoff) throws IOException {
         return !Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant().isAfter(cutoff);
+    }
+
+    private static String blobIdFromFileName(String name, String suffix) {
+        String blobId = name.substring(0, name.length() - suffix.length());
+        if (!BLOB_ID.matcher(blobId).matches()) {
+            throw new CocoStorageException(CocoStorageErrorCode.CORRUPT_METADATA, name);
+        }
+        return blobId;
+    }
+
+    private java.util.Optional<Instant> orphanedAtOrRecover(String blobId, Instant now) {
+        java.util.Optional<Instant> orphanedAt = readOrphanedAt(blobId);
+        if (orphanedAt.isPresent()) {
+            return orphanedAt;
+        }
+        try {
+            writeOrphanMarker(blobId, now);
+            return java.util.Optional.of(now);
+        }
+        catch (IOException ignored) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    private java.util.Optional<Instant> readOrphanedAt(String blobId) {
+        Path marker = orphanMarkerPath(blobId);
+        if (!Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+            return java.util.Optional.empty();
+        }
+        requireSafeRegularFile(marker, CocoStorageErrorCode.CORRUPT_METADATA);
+        Properties values = new Properties();
+        try (InputStream input = Files.newInputStream(marker, LinkOption.NOFOLLOW_LINKS)) {
+            values.load(input);
+            if (!blobId.equals(values.getProperty("blob"))) {
+                return java.util.Optional.empty();
+            }
+            long epochMillis = Long.parseLong(values.getProperty("orphanedAtEpochMillis", ""));
+            if (epochMillis < 0) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(Instant.ofEpochMilli(epochMillis));
+        }
+        catch (IOException | IllegalArgumentException exception) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    private void markOrphanQuietly(String blobId) {
+        try {
+            writeOrphanMarker(blobId, this.clock.instant());
+        }
+        catch (IOException | RuntimeException ignored) {
+            // Manifest publication/deletion has already succeeded. GC conservatively recreates a missing marker later.
+        }
+    }
+
+    private void writeOrphanMarker(String blobId, Instant orphanedAt) throws IOException {
+        Path marker = orphanMarkerPath(blobId);
+        Path temporaryMarker = Files.createTempFile(marker.getParent(), ".coco-", ".tmp");
+        try {
+            Properties values = new Properties();
+            values.setProperty("blob", blobId);
+            values.setProperty("orphanedAtEpochMillis", Long.toString(orphanedAt.toEpochMilli()));
+            try (OutputStream output = Files.newOutputStream(temporaryMarker, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING)) {
+                values.store(output, null);
+            }
+            move(temporaryMarker, marker, true);
+            temporaryMarker = null;
+        }
+        finally {
+            deleteQuietly(temporaryMarker);
+        }
+    }
+
+    private void clearOrphanMarkerQuietly(String blobId) {
+        try {
+            Path marker = orphanMarkerPath(blobId);
+            if (Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+                requireSafeRegularFile(marker, CocoStorageErrorCode.CORRUPT_METADATA);
+                Files.deleteIfExists(marker);
+            }
+        }
+        catch (IOException | RuntimeException ignored) {
+            // A stale marker is harmless because a referenced blob is always retained and a later GC pass retries cleanup.
+        }
     }
 
     private BlobLease acquireLease(String blobId) {
@@ -895,4 +1041,17 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
             }
         }
     }
+}
+
+@FunctionalInterface
+interface LocalStorageTestHook {
+
+    LocalStorageTestHook NONE = key -> {
+    };
+
+    /**
+     * 删除操作已经读取到旧 manifest，且仍持有该 key 的条带锁时调用。
+     * @param key 已规范化的对象键
+     */
+    void afterDeleteManifestObserved(String key);
 }
