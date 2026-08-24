@@ -418,9 +418,9 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         }
         Path root = configuredRoot.toAbsolutePath().normalize();
         try {
-            ensureSafeExistingDirectories(root);
+            ensureSafeExistingDirectories(root, root);
             Files.createDirectories(root);
-            ensureSafeExistingDirectories(root);
+            ensureSafeExistingDirectories(root, root);
             return requireSafeDirectory(root, root, CocoStorageErrorCode.INVALID_ROOT);
         }
         catch (CocoStorageException exception) {
@@ -433,9 +433,9 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
 
     private static Path createSafeDirectory(Path directory, Path expectedRoot) {
         try {
-            ensureSafeExistingDirectories(directory);
+            ensureSafeExistingDirectories(directory, expectedRoot);
             Files.createDirectories(directory);
-            ensureSafeExistingDirectories(directory);
+            ensureSafeExistingDirectories(directory, expectedRoot);
             return requireSafeDirectory(directory, expectedRoot, CocoStorageErrorCode.INVALID_ROOT);
         }
         catch (CocoStorageException exception) {
@@ -481,10 +481,12 @@ public final class LocalCocoObjectStorage implements CocoObjectStorage, AutoClos
         }
     }
 
-    private static void ensureSafeExistingDirectories(Path path) throws IOException {
+    private static void ensureSafeExistingDirectories(Path path, Path expectedRoot) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();
-        Path current = absolute.getRoot();
-        for (Path part : absolute) {
+        Path absoluteExpectedRoot = expectedRoot.toAbsolutePath().normalize();
+        requireContained(absolute, absoluteExpectedRoot, CocoStorageErrorCode.INVALID_ROOT);
+        Path current = absoluteExpectedRoot;
+        for (Path part : absoluteExpectedRoot.relativize(absolute)) {
             current = current.resolve(part);
             if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
                 BasicFileAttributes attributes = Files.readAttributes(current, BasicFileAttributes.class,
