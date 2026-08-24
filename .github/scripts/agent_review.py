@@ -5988,8 +5988,9 @@ def validate_continuity_report(
     if (
         type(report.get("schema_version")) is not int
         or report.get("schema_version") != CONTINUITY_SCHEMA_VERSION
-        or report.get("role") != role
     ):
+        raise ReviewError("Continuity verifier report identity is invalid.")
+    if "role" in report and not isinstance(report["role"], str):
         raise ReviewError("Continuity verifier report identity is invalid.")
     expected_binding = {
         "context_sha256": context["binding"]["context_sha256"],
@@ -5998,6 +5999,11 @@ def validate_continuity_report(
     }
     if report.get("binding") != expected_binding:
         raise ReviewError("Continuity verifier report binding is invalid.")
+    # The model cannot choose its verifier seat. The caller role is also the
+    # role placed in protected continuity task metadata, so bind it before
+    # validating the exact report envelope.
+    report = copy.deepcopy(report)
+    report["role"] = role
     if set(report) != required:
         raise ReportShapeError("Continuity verifier report fields are invalid.")
     relationships = report.get("relationships")
@@ -6011,7 +6017,6 @@ def validate_continuity_report(
         item["current_group_id"] for item in groups
     ]:
         raise ReportShapeError("Continuity verifier relationship order is invalid.")
-    report = copy.deepcopy(report)
     report["relationships"] = normalized
     return report
 
