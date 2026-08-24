@@ -3321,6 +3321,34 @@ class AgentReviewTests(unittest.TestCase):
             r"P2/P3(?:(?!chair|非阻断).){0,160}(?:双|两个|2 个)\s*`?AGREE`?",
         )
 
+    def test_cross_review_continuity_role_contract_requires_exact_role_identity(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[2]
+        prompt = (root / ".github/agent-review/prompts/cross-review.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_prompt = " ".join(prompt.split())
+
+        self.assertIn('"role": "<exact-protected-task-role-id>"', prompt)
+        self.assertIn(
+            "Copy `role` verbatim from the protected task metadata.",
+            normalized_prompt,
+        )
+        self.assertIn(
+            "For an `evidence-verifier` task, output `evidence-verifier`",
+            normalized_prompt,
+        )
+        self.assertIn(
+            "for a `policy-skeptic` task, output `policy-skeptic`",
+            normalized_prompt,
+        )
+        self.assertNotIn('"role": "evidence-verifier|policy-skeptic"', prompt)
+        self.assertIn(
+            "Never output a role list, union, or alternative",
+            normalized_prompt,
+        )
+
     def test_cross_review_writes_exact_not_needed_without_model_when_no_findings(
         self,
     ) -> None:
