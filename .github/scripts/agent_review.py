@@ -3364,6 +3364,7 @@ def complete_with_shape_repair(
     validate: Callable[[dict[str, Any]], Any],
     *,
     cross_review_fresh_retry: bool = False,
+    return_validated_report: bool = False,
 ) -> dict[str, Any]:
     original_system = system
     original_user = user
@@ -3446,7 +3447,13 @@ binding contract; no partial response can be published.""",
             continue
         partial_text = ""
         try:
-            validate(report)
+            validated_report = validate(report)
+            if return_validated_report:
+                if not isinstance(validated_report, dict):
+                    raise ReviewError(
+                        "Protected validator did not return a normalized report."
+                    )
+                return validated_report
             return report
         except ReportShapeError as exc:
             if attempt == MODEL_COMPLETION_MAX_ATTEMPTS:
@@ -5156,6 +5163,7 @@ def command_continuity(args: argparse.Namespace) -> int:
             candidate, args.role, context, groups
         ),
         cross_review_fresh_retry=True,
+        return_validated_report=True,
     )
     write_json(args.output, report)
     return 0
@@ -5898,7 +5906,7 @@ def continuity_relationship_contract(
             **relationship,
             **(
                 {
-                    name: relationship.get(name)
+                    name: None
                     for name in (
                         "candidate_sha256",
                         "previous_anchor",

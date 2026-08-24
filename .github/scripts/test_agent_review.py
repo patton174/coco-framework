@@ -14140,6 +14140,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 value, role, self.context, self.groups
             ),
             cross_review_fresh_retry=True,
+            return_validated_report=True,
         )
 
     def test_continuity_max_tokens_retries_from_fresh_complete_task(self) -> None:
@@ -14263,39 +14264,54 @@ class CrossHeadContinuityTest(unittest.TestCase):
                         report, "evidence-verifier", self.context, self.groups
                     )
 
-    def test_continuity_non_adopt_candidate_error_lists_fields(self) -> None:
-        report = self.report(
-            "evidence-verifier",
-            self.relationship(
-                "REJECT",
-                candidate_sha256=self.candidate["candidate_sha256"],
-            ),
-        )
+    def test_continuity_non_adopt_candidate_is_normalized_to_null(self) -> None:
+        for role in ("evidence-verifier", "policy-skeptic"):
+            for action in ("REJECT", "INSUFFICIENT"):
+                with self.subTest(role=role, action=action):
+                    report = self.report(
+                        role,
+                        self.relationship(
+                            action,
+                            candidate_sha256=self.candidate["candidate_sha256"],
+                            previous_group_id=self.candidate["previous_group_id"],
+                            previous_issue_number=self.candidate[
+                                "previous_issue_number"
+                            ],
+                            previous_anchor=self.candidate["anchor"],
+                        ),
+                    )
+                    normalized = review.validate_continuity_report(
+                        report, role, self.context, self.groups
+                    )
+                    relationship = normalized["relationships"][0]
+                    self.assertEqual(action, relationship["action"])
+                    for field in (
+                        "candidate_sha256",
+                        "previous_group_id",
+                        "previous_issue_number",
+                        "previous_anchor",
+                    ):
+                        self.assertIsNone(relationship[field])
 
-        with self.assertRaisesRegex(
-            review.ReportShapeError,
-            "candidate_sha256, previous_group_id, previous_issue_number, "
-            "previous_anchor",
-        ):
-            review.validate_continuity_report(
-                report, "evidence-verifier", self.context, self.groups
-            )
-
-    def test_continuity_targeted_correction_repairs_non_adopt_candidate(self) -> None:
+    def test_continuity_non_adopt_candidate_fixture_normalizes_without_retry(
+        self,
+    ) -> None:
         role = "policy-skeptic"
         invalid = self.report(
             role,
             self.relationship(
-                "INSUFFICIENT",
+                "REJECT",
                 candidate_sha256=self.candidate["candidate_sha256"],
+                previous_group_id=self.candidate["previous_group_id"],
+                previous_issue_number=self.candidate["previous_issue_number"],
+                previous_anchor=self.candidate["anchor"],
             ),
         )
-        valid = self.report(role, self.relationship("INSUFFICIENT"))
 
         class FakeClient:
             def __init__(self) -> None:
                 self.calls: list[tuple[str, str, int]] = []
-                self.responses = [invalid, valid]
+                self.responses = [invalid]
 
             def complete(self, system: str, user: str, max_tokens: int) -> dict:
                 self.calls.append((system, user, max_tokens))
@@ -14305,19 +14321,13 @@ class CrossHeadContinuityTest(unittest.TestCase):
         with patch("builtins.print"):
             result = self.complete_continuity_with_repair(client, role)
 
-        self.assertEqual(valid, result)
-        self.assertEqual(2, len(client.calls))
-        correction_system = client.calls[1][0]
-        self.assertIn("Protected continuity relationship correction", correction_system)
-        self.assertIn("Keep `action`", correction_system)
-        self.assertIn("as `REJECT` or `INSUFFICIENT`", correction_system)
-        for field in (
-            "candidate_sha256",
-            "previous_group_id",
-            "previous_issue_number",
-            "previous_anchor",
-        ):
-            self.assertIn(f"`{field}`", correction_system)
+        self.assertEqual(1, len(client.calls))
+        relationship = result["relationships"][0]
+        self.assertEqual("REJECT", relationship["action"])
+        self.assertIsNone(relationship["candidate_sha256"])
+        self.assertIsNone(relationship["previous_group_id"])
+        self.assertIsNone(relationship["previous_issue_number"])
+        self.assertIsNone(relationship["previous_anchor"])
 
     def test_continuity_shape_repair_uses_digest_without_previous_response(
         self,
