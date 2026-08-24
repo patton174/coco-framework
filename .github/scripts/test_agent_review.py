@@ -2421,7 +2421,7 @@ class AgentReviewTests(unittest.TestCase):
                     MODEL_CONFIG_SHA256,
                 )
 
-    def test_collect_policy_requires_complete_specs_for_both_rename_paths(
+    def test_collect_policy_keeps_complete_specs_when_they_fit(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2448,19 +2448,65 @@ class AgentReviewTests(unittest.TestCase):
                 {item["source"] for item in sources},
             )
             self.assertEqual([], omissions)
-            with self.assertRaisesRegex(review.ReviewError, "exceeds"):
-                review.collect_policy(
-                    root,
-                    config(policy_chars=7)
-                    | {
-                        "context": {
-                            "always": ["AGENTS.md"],
-                            "path_rules": value["context"]["path_rules"],
-                        }
-                    },
-                    ["old/Foo.java"],
-                    [],
-                )
+            omissions = []
+            sources = review.collect_policy(
+                root,
+                config(policy_chars=7)
+                | {
+                    "context": {
+                        "always": ["AGENTS.md"],
+                        "path_rules": value["context"]["path_rules"],
+                    }
+                },
+                ["old/Foo.java"],
+                omissions,
+            )
+            self.assertEqual({"AGENTS.md"}, {item["source"] for item in sources})
+            self.assertEqual(
+                ["trusted policy omitted by budget: docs/old.md"], omissions
+            )
+
+    def test_collect_policy_budget_does_not_drop_messaging_or_storage_specs(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs/history.md").write_text("history" * 3, encoding="utf-8")
+            (root / "docs/messaging.md").write_text("message", encoding="utf-8")
+            (root / "docs/storage.md").write_text("store", encoding="utf-8")
+            value = config(policy_chars=20)
+            value["context"]["path_rules"] = [
+                {"patterns": ["coco-features/**"], "files": ["docs/history.md"]},
+                {
+                    "patterns": ["coco-features/coco-messaging/**"],
+                    "files": ["docs/messaging.md"],
+                },
+                {
+                    "patterns": ["coco-features/coco-storage/**"],
+                    "files": ["docs/storage.md"],
+                },
+            ]
+
+            omissions: list[str] = []
+            sources = review.collect_policy(
+                root,
+                value,
+                [
+                    "coco-features/coco-messaging/pom.xml",
+                    "coco-features/coco-storage/pom.xml",
+                ],
+                omissions,
+            )
+
+        self.assertEqual(
+            {"AGENTS.md", "docs/messaging.md", "docs/storage.md"},
+            {item["source"] for item in sources},
+        )
+        self.assertEqual(
+            ["trusted policy omitted by budget: docs/history.md"], omissions
+        )
 
     def test_build_context_rejects_patch_budget_below_hard_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1317,9 +1317,13 @@ def collect_policy(
     omissions: list[str],
 ) -> list[dict[str, Any]]:
     context_config = config.get("context", {})
+    protected_paths = [
+        str(path)
+        for path in config.get("protected_policy_paths", ["AGENTS.md"])
+    ]
     paths: list[str] = list(
-        context_config.get(
-            "always", config.get("protected_policy_paths", ["AGENTS.md"])
+        dict.fromkeys(
+            [*protected_paths, *context_config.get("always", [])]
         )
     )
     required_paths = set(paths)
@@ -1341,11 +1345,10 @@ def collect_policy(
         ):
             matched_files = [str(item) for item in rule.get("files", [])]
             paths.extend(matched_files)
-            required_paths.update(matched_files)
     unique_paths = list(dict.fromkeys(paths))
     limit = normalized_limits(config)["policy_chars"]
     sources: list[dict[str, Any]] = []
-    protected_paths = {str(path) for path in config.get("protected_policy_paths", [])}
+    protected_path_set = set(protected_paths)
     used = 0
     for relative in unique_paths:
         path = safe_base_file(base_root, str(relative))
@@ -1369,13 +1372,16 @@ def collect_policy(
             raise ReviewError(
                 f"Required trusted policy exceeds the context budget: {relative}"
             )
+        if str(relative) not in required_paths and len(content) > remaining:
+            omissions.append(f"trusted policy omitted by budget: {relative}")
+            continue
         clipped = clip_text(content, remaining, f"trusted policy {relative}", omissions)
         sources.append(
             {
                 "source": str(relative),
                 "trust_domain": (
                     "protected-policy"
-                    if str(relative) in protected_paths
+                    if str(relative) in protected_path_set
                     else "base-spec"
                 ),
                 "line_count": len(content.splitlines()),
