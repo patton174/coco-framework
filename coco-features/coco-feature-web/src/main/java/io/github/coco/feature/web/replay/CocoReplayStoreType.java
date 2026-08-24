@@ -3,7 +3,7 @@ package io.github.coco.feature.web.replay;
 /**
  * Coco Web 防重放存储类型。
  * <p>
- * 控制框架默认注册进程内存储还是基于业务现有 JDBC 基础设施的共享存储。
+ * Controls the built-in process-local, JDBC, or Redis replay store.
  * </p>
  * <p>
  * 项目信息：
@@ -30,5 +30,12 @@ public enum CocoReplayStoreType {
      * 使用业务项目提供的 {@code JdbcOperations} 共享存储。
      * </p>
      */
-    JDBC
+    JDBC,
+
+    /**
+     * <p>
+     * Uses a Spring Data Redis shared store.
+     * </p>
+     */
+    REDIS
 }

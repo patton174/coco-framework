@@ -17,6 +17,8 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 class CocoIdempotencyAutoConfigurationTest {
@@ -64,6 +66,21 @@ class CocoIdempotencyAutoConfigurationTest {
                     assertThat(context.getBean(CocoIdempotencyKeyResolver.class)).isSameAs(context.getBean("customResolver"));
                     assertThat(context.getBean(CocoIdempotencyResponseWriter.class)).isSameAs(context.getBean("customWriter"));
                 });
+    }
+
+    @Test
+    void redisSelectionCreatesRedisStoreAndCustomStoreStillWins() {
+        this.contextRunner
+                .withConfiguration(AutoConfigurations.of(CocoIdempotencyRedisAutoConfiguration.class))
+                .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> assertThat(context).hasSingleBean(RedisCocoIdempotencyStore.class));
+        CocoIdempotencyStore customStore = new OverridesStore();
+        this.contextRunner
+                .withConfiguration(AutoConfigurations.of(CocoIdempotencyRedisAutoConfiguration.class))
+                .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .withBean(CocoIdempotencyStore.class, () -> customStore)
+                .run(context -> assertThat(context.getBean(CocoIdempotencyStore.class)).isSameAs(customStore));
     }
 
     @Configuration(proxyBeanMethods = false)

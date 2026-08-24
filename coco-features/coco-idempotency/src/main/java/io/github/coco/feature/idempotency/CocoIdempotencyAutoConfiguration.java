@@ -39,6 +39,7 @@ public class CocoIdempotencyAutoConfiguration {
     CocoIdempotencyKeyResolver cocoIdempotencyKeyResolver(CocoIdempotencyProperties properties,
             CocoIdempotencyOperationResolver operationResolver) { return new DefaultCocoIdempotencyKeyResolver(properties, operationResolver); }
     @Bean(destroyMethod = "close") @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.idempotency", name = "store-type", havingValue = "in-memory", matchIfMissing = true)
     CocoIdempotencyStore cocoIdempotencyStore(CocoIdempotencyProperties properties, @Qualifier("cocoIdempotencyClock") Clock clock) { return new InMemoryCocoIdempotencyStore(properties, clock, true); }
     @Bean @ConditionalOnMissingBean
     CocoIdempotencyResponseWriter cocoIdempotencyResponseWriter(CocoWebErrorResponseWriter writer) { return new DefaultCocoIdempotencyResponseWriter(writer); }

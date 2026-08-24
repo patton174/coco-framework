@@ -74,6 +74,8 @@ public class CocoRateLimitAutoConfiguration {
      */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.rate-limit", name = "store-type", havingValue = "in-memory",
+            matchIfMissing = true)
     public CocoRateLimitStore cocoRateLimitStore(CocoRateLimitProperties properties,
             @Qualifier("cocoRateLimitClock") Clock clock) {
         return new InMemoryCocoRateLimitStore(properties, clock, true);

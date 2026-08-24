@@ -15,6 +15,8 @@ public class CocoIdempotencyProperties {
     private int maxKeyLength = 128;
     private int maxEntries = 100_000;
     private Duration cleanupInterval = Duration.ofMinutes(1);
+    private CocoIdempotencyStoreType storeType = CocoIdempotencyStoreType.IN_MEMORY;
+    private final Redis redis = new Redis();
     private final List<String> allowedMethods = new ArrayList<>(List.of("POST", "PUT", "PATCH", "DELETE"));
     public boolean isEnabled() { return this.enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -28,6 +30,26 @@ public class CocoIdempotencyProperties {
     public void setMaxEntries(int maxEntries) { this.maxEntries = maxEntries; }
     public Duration getCleanupInterval() { return this.cleanupInterval; }
     public void setCleanupInterval(Duration cleanupInterval) { this.cleanupInterval = cleanupInterval; }
+    public CocoIdempotencyStoreType getStoreType() { return this.storeType; }
+    public void setStoreType(CocoIdempotencyStoreType storeType) {
+        this.storeType = storeType == null ? CocoIdempotencyStoreType.IN_MEMORY : storeType;
+    }
+    public Redis getRedis() { return this.redis; }
+    public void setRedis(Redis redis) { this.redis.setKeyPrefix(Redis.copyOf(redis).getKeyPrefix()); }
     public List<String> getAllowedMethods() { return this.allowedMethods; }
     public void setAllowedMethods(List<String> allowedMethods) { this.allowedMethods.clear(); if (allowedMethods != null) { this.allowedMethods.addAll(allowedMethods); } }
+
+    /** Redis shared store configuration. */
+    public static class Redis {
+        private String keyPrefix = "coco:idempotency:";
+        public String getKeyPrefix() { return this.keyPrefix; }
+        public void setKeyPrefix(String keyPrefix) {
+            this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "coco:idempotency:" : keyPrefix.trim();
+        }
+        static Redis copyOf(Redis source) {
+            Redis copy = new Redis();
+            if (source != null) { copy.setKeyPrefix(source.getKeyPrefix()); }
+            return copy;
+        }
+    }
 }

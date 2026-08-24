@@ -1,1 +1,2 @@
+io.github.coco.feature.idempotency.CocoIdempotencyRedisAutoConfiguration
 io.github.coco.feature.idempotency.CocoIdempotencyAutoConfiguration

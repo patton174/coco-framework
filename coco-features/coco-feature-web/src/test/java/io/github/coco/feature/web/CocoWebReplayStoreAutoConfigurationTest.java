@@ -8,6 +8,7 @@ import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.feature.web.replay.CocoReplayStore;
 import io.github.coco.feature.web.replay.InMemoryCocoReplayStore;
 import io.github.coco.feature.web.replay.JdbcCocoReplayStore;
+import io.github.coco.feature.web.replay.RedisCocoReplayStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -22,6 +23,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 
 class CocoWebReplayStoreAutoConfigurationTest {
 
@@ -29,12 +32,14 @@ class CocoWebReplayStoreAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
                     CocoWebJdbcReplayAutoConfiguration.class,
+                    CocoWebRedisReplayAutoConfiguration.class,
                     CocoWebAutoConfiguration.class));
 
     private final WebApplicationContextRunner webContextRunner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
                     CocoWebJdbcReplayAutoConfiguration.class,
+                    CocoWebRedisReplayAutoConfiguration.class,
                     CocoWebAutoConfiguration.class));
 
     @Test
@@ -56,6 +61,22 @@ class CocoWebReplayStoreAutoConfigurationTest {
                     assertThat(context).hasSingleBean(JdbcCocoReplayStore.class);
                     assertThat(context).doesNotHaveBean(InMemoryCocoReplayStore.class);
                 });
+    }
+
+    @Test
+    void createsRedisStoreOnlyWhenExplicitlySelectedAndTemplateExists() {
+        this.contextRunner
+                .withPropertyValues("coco.web.replay.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> {
+                    assertThat(context).hasSingleBean(RedisCocoReplayStore.class);
+                    assertThat(context).doesNotHaveBean(InMemoryCocoReplayStore.class);
+                });
+        CocoReplayStore customStore = (key, expiresAt) -> true;
+        this.contextRunner
+                .withPropertyValues("coco.web.replay.store-type=redis")
+                .withBean(CocoReplayStore.class, () -> customStore)
+                .run(context -> assertThat(context.getBean(CocoReplayStore.class)).isSameAs(customStore));
     }
 
     @Test
