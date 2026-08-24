@@ -5915,7 +5915,9 @@ def continuity_relationship_contract(
         type(relationship.get("previous_issue_number")) is not int
         or relationship["previous_issue_number"] < 1
     ):
-        raise ReportShapeError("Continuity relationship previous Issue number is invalid.")
+        raise ReportShapeError(
+            "Continuity relationship previous Issue number is invalid."
+        )
     try:
         candidate_hash = require_sha256(
             relationship.get("candidate_sha256"), "Continuity candidate SHA-256"
