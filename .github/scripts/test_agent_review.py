@@ -13804,11 +13804,49 @@ class CrossHeadContinuityTest(unittest.TestCase):
 
         self.assertEqual(valid, result)
         self.assertEqual(2, len(client.calls))
+
         self.assertIn(
             "Protected cross-review fresh completion correction", client.calls[1][0]
         )
         self.assertEqual(original_task, client.calls[1][1])
         self.assertNotIn("partial_response", client.calls[1][1])
+
+    def test_continuity_non_adopt_relationships_normalize_missing_null_fields(
+        self,
+    ) -> None:
+        for action in ("REJECT", "INSUFFICIENT"):
+            with self.subTest(action=action):
+                report = self.report("evidence-verifier", self.relationship(action))
+                for name in (
+                    "candidate_sha256",
+                    "previous_anchor",
+                    "previous_group_id",
+                    "previous_issue_number",
+                ):
+                    del report["relationships"][0][name]
+
+                normalized = review.validate_continuity_report(
+                    report, "evidence-verifier", self.context, self.groups
+                )
+                relationship = normalized["relationships"][0]
+                self.assertEqual(
+                    {
+                        "action",
+                        "candidate_sha256",
+                        "current_anchor",
+                        "current_group_id",
+                        "previous_anchor",
+                        "previous_group_id",
+                        "previous_issue_number",
+                        "schema_version",
+                    },
+                    set(relationship),
+                )
+                self.assertEqual(action, relationship["action"])
+                self.assertIsNone(relationship["candidate_sha256"])
+                self.assertIsNone(relationship["previous_anchor"])
+                self.assertIsNone(relationship["previous_group_id"])
+                self.assertIsNone(relationship["previous_issue_number"])
 
     def test_continuity_shape_repair_uses_digest_without_previous_response(
         self,
