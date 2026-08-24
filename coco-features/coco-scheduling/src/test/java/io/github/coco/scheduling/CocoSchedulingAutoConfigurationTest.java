@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.springframework.aop.framework.ProxyFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -68,6 +69,22 @@ class CocoSchedulingAutoConfigurationTest {
         });
     }
 
+    @Test
+    void registersAnnotatedGenericTargetThroughJdkProxyOnlyOnce() {
+        this.contextRunner.withUserConfiguration(JdkProxyConfiguration.class).run(context -> {
+            ManualTaskScheduler springScheduler = context.getBean(ManualTaskScheduler.class);
+            CocoTaskScheduler scheduler = context.getBean(CocoTaskScheduler.class);
+            GenericScheduledTargetHolder holder = context.getBean(GenericScheduledTargetHolder.class);
+
+            assertThat(scheduler.list()).extracting(CocoTaskStatus::name)
+                    .containsExactly("genericScheduledProxy#run");
+            assertThat(springScheduler.entries()).hasSize(1);
+            springScheduler.latest().run();
+
+            assertThat(holder.target.executions).hasValue(1);
+        });
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class AnnotatedConfiguration {
 
@@ -120,6 +137,27 @@ class CocoSchedulingAutoConfigurationTest {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    static class JdkProxyConfiguration {
+
+        @Bean
+        ManualTaskScheduler taskScheduler() {
+            return new ManualTaskScheduler();
+        }
+
+        @Bean
+        GenericScheduledTargetHolder genericScheduledTargetHolder() {
+            return new GenericScheduledTargetHolder();
+        }
+
+        @Bean
+        GenericScheduledContract<?> genericScheduledProxy(GenericScheduledTargetHolder holder) {
+            ProxyFactory proxyFactory = new ProxyFactory(holder.target);
+            proxyFactory.setInterfaces(GenericScheduledContract.class);
+            return (GenericScheduledContract<?>) proxyFactory.getProxy();
+        }
+    }
+
     static class AnnotatedTasks {
 
         private final AtomicInteger executions = new AtomicInteger();
@@ -135,6 +173,28 @@ class CocoSchedulingAutoConfigurationTest {
         @CocoScheduled(fixedDelay = "1s", fixedRate = "1s")
         void invalid() {
         }
+    }
+
+    interface GenericScheduledContract<T> {
+
+        T run();
+    }
+
+    static final class GenericScheduledTarget implements GenericScheduledContract<String> {
+
+        private final AtomicInteger executions = new AtomicInteger();
+
+        @Override
+        @CocoScheduled(fixedRate = "1s")
+        public String run() {
+            this.executions.incrementAndGet();
+            return "done";
+        }
+    }
+
+    static final class GenericScheduledTargetHolder {
+
+        private final GenericScheduledTarget target = new GenericScheduledTarget();
     }
 
     static final class CountingGuard implements CocoTaskExecutionGuard {

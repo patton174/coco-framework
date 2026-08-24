@@ -157,43 +157,87 @@ public final class DefaultCocoTaskScheduler implements CocoTaskScheduler {
     }
 
     private void execute(Registration registration) {
-        if (this.closed || this.registrations.get(registration.definition.getName()) != registration) {
+        if (!reserveExecution(registration)) {
             return;
         }
-        try (CocoContextScope ignored = CocoTraceContext.restore(registration.traceContext)) {
-            String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
-            if (registration.definition.getOverlapPolicy() == CocoTaskOverlapPolicy.SKIP
-                    && !this.guard.tryAcquire(registration.definition.getName())) {
-                Instant now = Instant.now(this.taskScheduler.getClock());
-                update(registration, CocoTaskExecutionOutcome.SKIPPED, null, now, Duration.ZERO, traceId);
-                publish(new CocoTaskExecutionEvent(registration.definition.getName(), CocoTaskExecutionOutcome.SKIPPED,
-                        now, Duration.ZERO, traceId, null));
-                return;
-            }
-            boolean guarded = registration.definition.getOverlapPolicy() == CocoTaskOverlapPolicy.SKIP;
-            Instant started = Instant.now(this.taskScheduler.getClock());
-            this.activeExecutions.incrementAndGet();
-            update(registration, CocoTaskExecutionOutcome.STARTED, started, null, null, traceId);
-            publish(new CocoTaskExecutionEvent(registration.definition.getName(), CocoTaskExecutionOutcome.STARTED,
-                    started, Duration.ZERO, traceId, null));
-            try {
-                registration.definition.getTask().run();
-                complete(registration, CocoTaskExecutionOutcome.SUCCEEDED, started, traceId, null);
-            }
-            catch (Throwable exception) {
-                complete(registration, CocoTaskExecutionOutcome.FAILED, started, traceId, exception.getClass().getName());
-                LOGGER.error("Coco scheduled task failed: name=" + registration.definition.getName()
-                        + ", failureType=" + exception.getClass().getName());
-            }
-            finally {
-                if (guarded) {
-                    this.guard.release(registration.definition.getName());
-                }
-                if (this.activeExecutions.decrementAndGet() == 0) {
-                    synchronized (this.monitor) {
-                        this.monitor.notifyAll();
+        try {
+            try (CocoContextScope ignored = CocoTraceContext.restore(registration.traceContext)) {
+                String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
+                boolean guarded = false;
+                Throwable failure = null;
+                if (registration.definition.getOverlapPolicy() == CocoTaskOverlapPolicy.SKIP) {
+                    try {
+                        guarded = this.guard.tryAcquire(registration.definition.getName());
+                    }
+                    catch (Throwable exception) {
+                        failure = exception;
+                    }
+                    if (failure == null && !guarded) {
+                        Instant now = Instant.now(this.taskScheduler.getClock());
+                        update(registration, CocoTaskExecutionOutcome.SKIPPED, null, now, Duration.ZERO, traceId);
+                        publish(new CocoTaskExecutionEvent(registration.definition.getName(), CocoTaskExecutionOutcome.SKIPPED,
+                                now, Duration.ZERO, traceId, null));
+                        return;
                     }
                 }
+
+                Instant started = Instant.now(this.taskScheduler.getClock());
+                update(registration, CocoTaskExecutionOutcome.STARTED, started, null, null, traceId);
+                publish(new CocoTaskExecutionEvent(registration.definition.getName(), CocoTaskExecutionOutcome.STARTED,
+                        started, Duration.ZERO, traceId, null));
+                if (failure == null) {
+                    try {
+                        registration.definition.getTask().run();
+                    }
+                    catch (Throwable exception) {
+                        failure = exception;
+                    }
+                }
+                if (guarded) {
+                    try {
+                        this.guard.release(registration.definition.getName());
+                    }
+                    catch (Throwable exception) {
+                        if (failure == null) {
+                            failure = exception;
+                        }
+                        else {
+                            LOGGER.error("Coco scheduled task guard release failed: name="
+                                    + registration.definition.getName() + ", failureType="
+                                    + exception.getClass().getName());
+                        }
+                    }
+                }
+                if (failure == null) {
+                    complete(registration, CocoTaskExecutionOutcome.SUCCEEDED, started, traceId, null);
+                }
+                else {
+                    complete(registration, CocoTaskExecutionOutcome.FAILED, started, traceId,
+                            failure.getClass().getName());
+                    LOGGER.error("Coco scheduled task failed: name=" + registration.definition.getName()
+                            + ", failureType=" + failure.getClass().getName());
+                }
+            }
+        }
+        finally {
+            releaseExecutionReservation();
+        }
+    }
+
+    private boolean reserveExecution(Registration registration) {
+        synchronized (this.monitor) {
+            if (this.closed || this.registrations.get(registration.definition.getName()) != registration) {
+                return false;
+            }
+            this.activeExecutions.incrementAndGet();
+            return true;
+        }
+    }
+
+    private void releaseExecutionReservation() {
+        if (this.activeExecutions.decrementAndGet() == 0) {
+            synchronized (this.monitor) {
+                this.monitor.notifyAll();
             }
         }
     }

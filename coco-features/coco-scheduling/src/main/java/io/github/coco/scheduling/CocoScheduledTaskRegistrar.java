@@ -7,10 +7,15 @@ import java.time.ZoneId;
 import java.time.zone.ZoneRulesException;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
+import org.springframework.aop.framework.AopProxyUtils;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.convert.DurationStyle;
+import org.springframework.core.BridgeMethodResolver;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.util.ReflectionUtils;
 
@@ -35,41 +40,64 @@ public final class CocoScheduledTaskRegistrar implements SmartInitializingSingle
     @Override
     public void afterSingletonsInstantiated() {
         for (String beanName : this.beanFactory.getBeanDefinitionNames()) {
-            Class<?> beanType = this.beanFactory.getType(beanName, false);
-            if (beanType == null) {
+            Object bean = this.beanFactory.getBean(beanName);
+            Class<?> targetClass = AopProxyUtils.ultimateTargetClass(bean);
+            if (targetClass == null) {
                 continue;
             }
-            Object bean = this.beanFactory.getBean(beanName);
-            Arrays.stream(ReflectionUtils.getAllDeclaredMethods(beanType))
+            methods(targetClass).stream()
                     .filter(method -> AnnotatedElementUtils.hasAnnotation(method, CocoScheduled.class))
                     .sorted(Comparator.comparing(Method::toGenericString))
-                    .forEach(method -> register(beanName, bean, method));
+                    .forEach(method -> register(beanName, bean, targetClass, method));
         }
     }
 
-    private void register(String beanName, Object bean, Method method) {
-        CocoScheduled scheduled = AnnotatedElementUtils.findMergedAnnotation(method, CocoScheduled.class);
+    private Set<Method> methods(Class<?> targetClass) {
+        Set<Method> methods = new LinkedHashSet<>();
+        Arrays.stream(ReflectionUtils.getAllDeclaredMethods(targetClass))
+                .filter(method -> !method.isBridge() && !method.isSynthetic())
+                .map(method -> mostSpecificUserMethod(method, targetClass))
+                .filter(method -> !method.isBridge() && !method.isSynthetic())
+                .forEach(methods::add);
+        return methods;
+    }
+
+    private Method mostSpecificUserMethod(Method method, Class<?> targetClass) {
+        Method bridged = BridgeMethodResolver.findBridgedMethod(method);
+        return BridgeMethodResolver.findBridgedMethod(AopUtils.getMostSpecificMethod(bridged, targetClass));
+    }
+
+    private void register(String beanName, Object bean, Class<?> targetClass, Method targetMethod) {
+        CocoScheduled scheduled = AnnotatedElementUtils.findMergedAnnotation(targetMethod, CocoScheduled.class);
         if (scheduled == null) {
             return;
         }
-        if (method.getParameterCount() != 0) {
-            throw this.validator.error(CocoSchedulingMessage.ANNOTATION_METHOD_ARGUMENTS, taskName(beanName, method));
+        String defaultName = taskName(beanName, targetMethod);
+        if (targetMethod.getParameterCount() != 0) {
+            throw this.validator.error(CocoSchedulingMessage.ANNOTATION_METHOD_ARGUMENTS, defaultName);
+        }
+        Method invocableMethod;
+        try {
+            invocableMethod = AopUtils.selectInvocableMethod(targetMethod, bean.getClass());
+        }
+        catch (IllegalStateException exception) {
+            throw this.validator.error(CocoSchedulingMessage.ANNOTATION_METHOD_NOT_INVOCABLE, defaultName);
         }
         String taskName = value(scheduled.name());
         CocoTaskDefinition.Builder builder = CocoTaskDefinition.builder(
-                taskName == null ? taskName(beanName, method) : taskName,
-                () -> invoke(bean, method));
+                taskName == null ? defaultName : taskName,
+                () -> invoke(bean, invocableMethod));
         String cron = value(scheduled.cron());
         if (cron != null) {
             builder.cron(cron);
         }
         String fixedDelay = value(scheduled.fixedDelay());
         if (fixedDelay != null) {
-            builder.fixedDelay(parseDuration(fixedDelay, taskName(beanName, method)));
+            builder.fixedDelay(parseDuration(fixedDelay, defaultName));
         }
         String fixedRate = value(scheduled.fixedRate());
         if (fixedRate != null) {
-            builder.fixedRate(parseDuration(fixedRate, taskName(beanName, method)));
+            builder.fixedRate(parseDuration(fixedRate, defaultName));
         }
         String zone = value(scheduled.zone());
         if (zone != null) {
@@ -77,12 +105,12 @@ public final class CocoScheduledTaskRegistrar implements SmartInitializingSingle
                 builder.zone(ZoneId.of(zone));
             }
             catch (ZoneRulesException exception) {
-                throw this.validator.error(CocoSchedulingMessage.ANNOTATION_ZONE_INVALID, taskName(beanName, method));
+                throw this.validator.error(CocoSchedulingMessage.ANNOTATION_ZONE_INVALID, defaultName);
             }
         }
         String initialDelay = value(scheduled.initialDelay());
         if (initialDelay != null) {
-            builder.initialDelay(parseDuration(initialDelay, taskName(beanName, method)));
+            builder.initialDelay(parseDuration(initialDelay, defaultName));
         }
         builder.overlapPolicy(scheduled.overlapPolicy()).enabled(scheduled.enabled());
         this.scheduler.register(builder.build());
@@ -107,22 +135,17 @@ public final class CocoScheduledTaskRegistrar implements SmartInitializingSingle
     }
 
     private void invoke(Object bean, Method method) {
-        ReflectionUtils.makeAccessible(method);
         try {
-            method.invoke(bean);
+            AopUtils.invokeJoinpointUsingReflection(bean, method, new Object[0]);
         }
-        catch (IllegalAccessException exception) {
-            throw new IllegalStateException("Coco scheduled method is not accessible", exception);
-        }
-        catch (InvocationTargetException exception) {
-            Throwable targetException = exception.getTargetException();
-            if (targetException instanceof RuntimeException runtimeException) {
+        catch (Throwable exception) {
+            if (exception instanceof RuntimeException runtimeException) {
                 throw runtimeException;
             }
-            if (targetException instanceof Error error) {
+            if (exception instanceof Error error) {
                 throw error;
             }
-            throw new IllegalStateException(targetException);
+            throw new IllegalStateException(exception);
         }
     }
 }

@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Delayed;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -84,13 +85,15 @@ final class ManualTaskScheduler implements TaskScheduler {
 
     static final class Future implements ScheduledFuture<Object> {
 
-        private boolean cancelled;
-        private boolean interrupt;
+        private final CountDownLatch cancelledLatch = new CountDownLatch(1);
+        private volatile boolean cancelled;
+        private volatile boolean interrupt;
 
         @Override
         public boolean cancel(boolean mayInterruptIfRunning) {
             this.cancelled = true;
             this.interrupt = mayInterruptIfRunning;
+            this.cancelledLatch.countDown();
             return true;
         }
 
@@ -100,6 +103,10 @@ final class ManualTaskScheduler implements TaskScheduler {
 
         boolean interrupt() {
             return this.interrupt;
+        }
+
+        boolean awaitCancellation(long timeout, TimeUnit unit) throws InterruptedException {
+            return this.cancelledLatch.await(timeout, unit);
         }
 
         @Override
