@@ -14423,9 +14423,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
             with self.subTest(value=value):
                 report = self.report("evidence-verifier")
                 report["role"] = value
-                with self.assertRaisesRegex(
-                    review.ReviewError, "identity is invalid"
-                ):
+                with self.assertRaisesRegex(review.ReviewError, "identity is invalid"):
                     review.validate_continuity_report(
                         report, "evidence-verifier", self.context, self.groups
                     )
