@@ -114,6 +114,8 @@ OrderResponse create(@RequestBody CreateOrderRequest request) {
 
 The single starter composes in-process messaging by default. Declare a `CocoMessageTransport` Bean to replace the transport implementation; the feature does not depend on Web or MyBatis.
 
+The single starter composes local task scheduling by default, with annotation and dynamic task registration support; the feature does not depend on Web or MyBatis.
+
 Business controllers remain ordinary Spring code:
 
 ```java

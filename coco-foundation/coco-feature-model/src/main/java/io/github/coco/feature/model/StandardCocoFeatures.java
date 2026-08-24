@@ -70,6 +70,8 @@ public final class StandardCocoFeatures {
                     CocoFeature.WEB),
             feature(CocoFeature.MESSAGING, "coco-messaging",
                     "io.github.coco.messaging.CocoMessagingAutoConfiguration"),
+            feature(CocoFeature.SCHEDULING, "coco-scheduling",
+                    "io.github.coco.scheduling.CocoSchedulingAutoConfiguration"),
             feature(CocoFeature.CODEGEN, "coco-feature-codegen",
                     "io.github.coco.feature.codegen.CocoCodegenAutoConfiguration",
                     Set.of("coco-feature-codegen", "freemarker"),

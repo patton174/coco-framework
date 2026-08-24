@@ -28,6 +28,7 @@
         <module>coco-rate-limit</module>
         <module>coco-idempotency</module>
         <module>coco-messaging</module>
+        <module>coco-scheduling</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>

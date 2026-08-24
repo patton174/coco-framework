@@ -31,6 +31,7 @@ public enum CocoFeature {
     RATE_LIMIT("rate-limit"),
     IDEMPOTENCY("idempotency"),
     MESSAGING("messaging"),
+    SCHEDULING("scheduling"),
     CODEGEN("codegen");
 
     private final String id;
