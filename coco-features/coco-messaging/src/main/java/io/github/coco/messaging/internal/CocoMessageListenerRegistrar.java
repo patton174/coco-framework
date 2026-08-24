@@ -6,7 +6,9 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import io.github.coco.messaging.CocoMessageEnvelope;
 import io.github.coco.messaging.CocoMessageHandler;
@@ -57,17 +59,83 @@ public final class CocoMessageListenerRegistrar implements SmartInitializingSing
         Class<?> targetType = AopUtils.getTargetClass(bean);
         Method[] methods = targetType.getMethods();
         Arrays.sort(methods, Comparator.comparing(Method::toGenericString));
+        Map<LogicalMethod, ListenerMethod> listenerMethods = new LinkedHashMap<>();
         for (Method method : methods) {
-            CocoMessageListener listener = AnnotatedElementUtils.findMergedAnnotation(method,
-                    CocoMessageListener.class);
+            if (method.isBridge() || method.isSynthetic()) {
+                continue;
+            }
+            Method mostSpecificMethod = AopUtils.getMostSpecificMethod(method, targetType);
+            if (mostSpecificMethod.isBridge() || mostSpecificMethod.isSynthetic()) {
+                continue;
+            }
+            CocoMessageListener listener = findListener(mostSpecificMethod, targetType);
             if (listener == null) {
                 continue;
             }
-            validateMethod(method, listener);
-            if (!method.trySetAccessible()) {
-                throw new CocoMessagingException("coco.messaging.error.listener-signature-invalid", method.toGenericString());
+            validateMethod(mostSpecificMethod, listener);
+            Method invocableMethod = selectInvocableMethod(bean, mostSpecificMethod);
+            if (!invocableMethod.trySetAccessible()) {
+                throw new CocoMessagingException("coco.messaging.error.listener-signature-invalid",
+                        mostSpecificMethod.toGenericString());
             }
-            registrations.add(Registration.method(beanName, listener, bean, method));
+            LogicalMethod logicalMethod = new LogicalMethod(mostSpecificMethod.getName(),
+                    mostSpecificMethod.getParameterTypes());
+            listenerMethods.putIfAbsent(logicalMethod, new ListenerMethod(listener, mostSpecificMethod, invocableMethod));
+        }
+        listenerMethods.values().forEach(listenerMethod -> registrations.add(Registration.method(beanName,
+                listenerMethod.listener(), bean, listenerMethod.discoveryMethod(), listenerMethod.invocableMethod())));
+    }
+
+    private static CocoMessageListener findListener(Method method, Class<?> targetType) {
+        CocoMessageListener listener = AnnotatedElementUtils.findMergedAnnotation(method, CocoMessageListener.class);
+        if (listener != null) {
+            return listener;
+        }
+        return findListenerOnInterfaces(method, targetType);
+    }
+
+    private static CocoMessageListener findListenerOnInterfaces(Method method, Class<?> type) {
+        for (Class<?> interfaceType : type.getInterfaces()) {
+            for (Method interfaceMethod : interfaceType.getMethods()) {
+                if (matchesLogicalMethod(method, interfaceMethod)) {
+                    CocoMessageListener listener = AnnotatedElementUtils.findMergedAnnotation(interfaceMethod,
+                            CocoMessageListener.class);
+                    if (listener != null) {
+                        return listener;
+                    }
+                }
+            }
+            CocoMessageListener inheritedListener = findListenerOnInterfaces(method, interfaceType);
+            if (inheritedListener != null) {
+                return inheritedListener;
+            }
+        }
+        Class<?> superclass = type.getSuperclass();
+        return superclass == null || superclass == Object.class ? null : findListenerOnInterfaces(method, superclass);
+    }
+
+    private static boolean matchesLogicalMethod(Method targetMethod, Method candidateMethod) {
+        if (!targetMethod.getName().equals(candidateMethod.getName())
+                || targetMethod.getParameterCount() != candidateMethod.getParameterCount()) {
+            return false;
+        }
+        Class<?>[] targetParameters = targetMethod.getParameterTypes();
+        Class<?>[] candidateParameters = candidateMethod.getParameterTypes();
+        for (int index = 0; index < targetParameters.length; index++) {
+            if (!candidateParameters[index].isAssignableFrom(targetParameters[index])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Method selectInvocableMethod(Object bean, Method method) {
+        try {
+            return AopUtils.selectInvocableMethod(method, bean.getClass());
+        }
+        catch (IllegalStateException exception) {
+            throw new CocoMessagingException("coco.messaging.error.listener-invocation-failed", exception,
+                    method.toGenericString());
         }
     }
 
@@ -80,6 +148,16 @@ public final class CocoMessageListenerRegistrar implements SmartInitializingSing
         CocoMessageEnvelope.create(listener.topic(), null);
     }
 
+    private record LogicalMethod(String name, List<Class<?>> parameterTypes) {
+
+        private LogicalMethod(String name, Class<?>[] parameterTypes) {
+            this(name, List.of(parameterTypes));
+        }
+    }
+
+    private record ListenerMethod(CocoMessageListener listener, Method discoveryMethod, Method invocableMethod) {
+    }
+
     private record Registration(String topic, int order, String beanName, String signature, CocoMessageHandler handler) {
 
         private static Registration handler(String beanName, CocoMessageHandler handler) {
@@ -87,8 +165,9 @@ public final class CocoMessageListenerRegistrar implements SmartInitializingSing
             return new Registration(topic, 0, beanName, handler.getClass().getName(), handler);
         }
 
-        private static Registration method(String beanName, CocoMessageListener listener, Object bean, Method method) {
-            Class<?> parameterType = method.getParameterTypes()[0];
+        private static Registration method(String beanName, CocoMessageListener listener, Object bean, Method discoveryMethod,
+                Method invocableMethod) {
+            Class<?> parameterType = discoveryMethod.getParameterTypes()[0];
             CocoMessageHandler handler = new CocoMessageHandler() {
                 @Override
                 public String topic() {
@@ -97,10 +176,10 @@ public final class CocoMessageListenerRegistrar implements SmartInitializingSing
 
                 @Override
                 public void handle(CocoMessageEnvelope envelope) {
-                    invoke(bean, method, parameterType, envelope);
+                    invoke(bean, invocableMethod, parameterType, envelope);
                 }
             };
-            return new Registration(listener.topic(), listener.order(), beanName, method.toGenericString(), handler);
+            return new Registration(listener.topic(), listener.order(), beanName, discoveryMethod.toGenericString(), handler);
         }
 
         private static void invoke(Object bean, Method method, Class<?> parameterType, CocoMessageEnvelope envelope) {
@@ -113,6 +192,10 @@ public final class CocoMessageListenerRegistrar implements SmartInitializingSing
                 method.invoke(bean, argument);
             }
             catch (IllegalAccessException exception) {
+                throw new CocoMessagingException("coco.messaging.error.listener-invocation-failed", exception,
+                        method.toGenericString());
+            }
+            catch (IllegalArgumentException exception) {
                 throw new CocoMessagingException("coco.messaging.error.listener-invocation-failed", exception,
                         method.toGenericString());
             }

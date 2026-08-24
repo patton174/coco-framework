@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.aop.framework.ProxyFactory;
 
 class CocoMessagingTest {
 
@@ -97,7 +99,7 @@ class CocoMessagingTest {
 
     @Test
     void rejectsWhenAsyncQueueIsFullAndRejectsPublishingAfterClose() throws Exception {
-        CocoMessagingProperties properties = asyncProperties(1, CocoMessageAsyncShutdownPolicy.CANCEL);
+        CocoMessagingProperties properties = asyncProperties(1, CocoMessageAsyncShutdownPolicy.DISCARD);
         LocalCocoMessageTransport transport = new LocalCocoMessageTransport(properties);
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -133,6 +135,80 @@ class CocoMessagingTest {
     }
 
     @Test
+    void reportsDrainTimeoutWithoutDiscardingAcceptedMessages() throws Exception {
+        CocoMessagingProperties properties = asyncProperties(2, CocoMessageAsyncShutdownPolicy.DRAIN);
+        properties.getAsync().setShutdownAwait(Duration.ofMillis(50));
+        LocalCocoMessageTransport transport = new LocalCocoMessageTransport(properties);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch delivered = new CountDownLatch(2);
+        transport.subscribe("drain.timeout", handler("drain.timeout", envelope -> {
+            started.countDown();
+            await(release);
+            delivered.countDown();
+        }));
+
+        transport.publish(CocoMessageEnvelope.create("drain.timeout", "one"));
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+        transport.publish(CocoMessageEnvelope.create("drain.timeout", "two"));
+
+        CocoMessagingException exception = assertThrows(CocoMessagingException.class, transport::close);
+        assertEquals("coco.messaging.error.drain-timeout", exception.messageCode());
+        release.countDown();
+        assertTrue(delivered.await(2, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void linearizesPublishAndCloseWithoutSilentlyDroppingAcceptedMessages() throws Exception {
+        LocalCocoMessageTransport transport = new LocalCocoMessageTransport(asyncProperties(4,
+                CocoMessageAsyncShutdownPolicy.DRAIN));
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        CountDownLatch delivered = new CountDownLatch(1);
+        AtomicReference<Throwable> publishFailure = new AtomicReference<>();
+        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+        transport.subscribe("close.race", handler("close.race", envelope -> delivered.countDown()));
+        Thread publisher = new Thread(() -> {
+            await(start);
+            try {
+                transport.publish(CocoMessageEnvelope.create("close.race", "payload"));
+            }
+            catch (Throwable exception) {
+                publishFailure.set(exception);
+            }
+            finally {
+                done.countDown();
+            }
+        });
+        Thread closer = new Thread(() -> {
+            await(start);
+            try {
+                transport.close();
+            }
+            catch (Throwable exception) {
+                closeFailure.set(exception);
+            }
+            finally {
+                done.countDown();
+            }
+        });
+
+        publisher.start();
+        closer.start();
+        start.countDown();
+
+        assertTrue(done.await(2, TimeUnit.SECONDS));
+        assertTrue(closeFailure.get() == null);
+        if (publishFailure.get() == null) {
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+        }
+        else {
+            assertInstanceOf(CocoMessagingException.class, publishFailure.get());
+        }
+        assertThrows(CocoMessagingException.class, () -> transport.publish(CocoMessageEnvelope.create("close.race", "later")));
+    }
+
+    @Test
     void restoresEnvelopeTraceContextAroundEachHandler() {
         CocoMessagingProperties properties = new CocoMessagingProperties();
         LocalCocoMessageTransport transport = new LocalCocoMessageTransport(properties);
@@ -149,6 +225,51 @@ class CocoMessagingTest {
 
         assertEquals("publisher-trace", observedTrace.get());
         assertEquals("caller-changed", CocoTraceContext.currentTraceId().orElseThrow());
+    }
+
+    @Test
+    void invokesTargetDiscoveredListenerThroughJdkDynamicProxy() {
+        this.contextRunner.withUserConfiguration(JdkProxyListenerConfiguration.class).run(context -> {
+            ReceivedMessages received = context.getBean(ReceivedMessages.class);
+
+            context.getBean(CocoMessagePublisher.class).publish("proxy.listener", "payload");
+
+            assertEquals(List.of("proxy:payload"), received.values);
+        });
+    }
+
+    @Test
+    void registersGenericInterfaceAndImplementationListenerOnlyOnce() {
+        this.contextRunner.withUserConfiguration(GenericListenerConfiguration.class).run(context -> {
+            GenericReceivedMessages received = context.getBean(GenericReceivedMessages.class);
+
+            context.getBean(CocoMessagePublisher.class).publish("generic.listener", "payload");
+
+            assertEquals(List.of("payload"), received.values);
+        });
+    }
+
+    @Test
+    void clearsTraceBeforeReusedAsyncWorkerDeliversMessageWithoutTrace() throws Exception {
+        LocalCocoMessageTransport transport = new LocalCocoMessageTransport(asyncProperties(2,
+                CocoMessageAsyncShutdownPolicy.DRAIN));
+        List<String> observed = java.util.Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch delivered = new CountDownLatch(2);
+        transport.subscribe("async.trace", handler("async.trace", envelope -> {
+            observed.add(CocoTraceContext.currentTraceId().orElse(null));
+            delivered.countDown();
+        }));
+        CocoTraceContext.setTraceId("first-trace");
+        CocoMessageEnvelope first = CocoMessageEnvelope.create("async.trace", "first");
+        CocoTraceContext.clear();
+        CocoMessageEnvelope second = CocoMessageEnvelope.create("async.trace", "second");
+
+        transport.publish(first);
+        transport.publish(second);
+
+        assertTrue(delivered.await(2, TimeUnit.SECONDS));
+        assertEquals(Arrays.asList("first-trace", null), observed);
+        transport.close();
     }
 
     @Test
@@ -310,6 +431,76 @@ class CocoMessagingTest {
         public String invalid(String payload) {
             return payload;
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class JdkProxyListenerConfiguration {
+        @Bean
+        ReceivedMessages receivedMessages() {
+            return new ReceivedMessages();
+        }
+
+        @Bean
+        JdkProxyListener jdkProxyListener(ReceivedMessages received) {
+            ProxyFactory factory = new ProxyFactory();
+            factory.setTarget(new JdkProxyListenerTarget(received));
+            factory.setInterfaces(JdkProxyListener.class);
+            return (JdkProxyListener) factory.getProxy();
+        }
+    }
+
+    public interface JdkProxyListener {
+        void receive(String payload);
+    }
+
+    public static class JdkProxyListenerTarget implements JdkProxyListener {
+        private final ReceivedMessages received;
+
+        public JdkProxyListenerTarget(ReceivedMessages received) {
+            this.received = received;
+        }
+
+        @Override
+        @CocoMessageListener(topic = "proxy.listener")
+        public void receive(String payload) {
+            this.received.values.add("proxy:" + payload);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class GenericListenerConfiguration {
+        @Bean
+        GenericReceivedMessages genericReceivedMessages() {
+            return new GenericReceivedMessages();
+        }
+
+        @Bean
+        GenericStringListener genericStringListener(GenericReceivedMessages received) {
+            return new GenericStringListener(received);
+        }
+    }
+
+    interface GenericListener<T> {
+        @CocoMessageListener(topic = "generic.listener")
+        void receive(T payload);
+    }
+
+    static class GenericStringListener implements GenericListener<String> {
+        private final GenericReceivedMessages received;
+
+        GenericStringListener(GenericReceivedMessages received) {
+            this.received = received;
+        }
+
+        @Override
+        @CocoMessageListener(topic = "generic.listener")
+        public void receive(String payload) {
+            this.received.values.add(payload);
+        }
+    }
+
+    static class GenericReceivedMessages {
+        private final List<String> values = new ArrayList<>();
     }
 
     @Configuration(proxyBeanMethods = false)
