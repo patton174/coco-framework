@@ -1236,6 +1236,8 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-idempotency/pom.xml",
                 "coco-features/coco-feature-security/pom.xml",
                 "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-lock/pom.xml",
+                "coco-features/coco-scheduling/pom.xml",
             ],
             "web": ["coco-features/coco-feature-web/pom.xml"],
             "audit": ["coco-features/coco-feature-audit/pom.xml"],
@@ -2421,7 +2423,7 @@ class AgentReviewTests(unittest.TestCase):
                     MODEL_CONFIG_SHA256,
                 )
 
-    def test_collect_policy_requires_complete_specs_for_both_rename_paths(
+    def test_collect_policy_keeps_complete_specs_when_they_fit(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2448,19 +2450,92 @@ class AgentReviewTests(unittest.TestCase):
                 {item["source"] for item in sources},
             )
             self.assertEqual([], omissions)
-            with self.assertRaisesRegex(review.ReviewError, "exceeds"):
-                review.collect_policy(
-                    root,
-                    config(policy_chars=7)
-                    | {
-                        "context": {
-                            "always": ["AGENTS.md"],
-                            "path_rules": value["context"]["path_rules"],
-                        }
-                    },
-                    ["old/Foo.java"],
-                    [],
-                )
+            omissions = []
+            sources = review.collect_policy(
+                root,
+                config(policy_chars=7)
+                | {
+                    "context": {
+                        "always": ["AGENTS.md"],
+                        "path_rules": value["context"]["path_rules"],
+                    }
+                },
+                ["old/Foo.java"],
+                omissions,
+            )
+            self.assertEqual({"AGENTS.md"}, {item["source"] for item in sources})
+            self.assertEqual(
+                ["trusted policy omitted by budget: docs/old.md"], omissions
+            )
+
+    def test_collect_policy_budget_does_not_drop_messaging_or_storage_specs(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text("Policy", encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs/history.md").write_text("history" * 3, encoding="utf-8")
+            (root / "docs/messaging.md").write_text("message", encoding="utf-8")
+            (root / "docs/storage.md").write_text("store", encoding="utf-8")
+            value = config(policy_chars=20)
+            value["context"]["path_rules"] = [
+                {"patterns": ["coco-features/**"], "files": ["docs/history.md"]},
+                {
+                    "patterns": ["coco-features/coco-messaging/**"],
+                    "files": ["docs/messaging.md"],
+                },
+                {
+                    "patterns": ["coco-features/coco-storage/**"],
+                    "files": ["docs/storage.md"],
+                },
+            ]
+
+            omissions: list[str] = []
+            sources = review.collect_policy(
+                root,
+                value,
+                [
+                    "coco-features/coco-messaging/pom.xml",
+                    "coco-features/coco-storage/pom.xml",
+                ],
+                omissions,
+            )
+
+        self.assertEqual(
+            {"AGENTS.md", "docs/messaging.md", "docs/storage.md"},
+            {item["source"] for item in sources},
+        )
+        self.assertEqual(
+            ["trusted policy omitted by budget: docs/history.md"], omissions
+        )
+
+    def test_collect_policy_fails_closed_for_oversized_protected_policies(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            value = config(policy_chars=10)
+            value["protected_policy_paths"] = ["AGENTS.md", "policy.md"]
+            value["context"] = {
+                "always": ["AGENTS.md", "policy.md"],
+                "path_rules": [],
+            }
+
+            for oversized in ("AGENTS.md", "policy.md"):
+                with self.subTest(oversized=oversized):
+                    (root / "AGENTS.md").write_text(
+                        "ok" if oversized != "AGENTS.md" else "x" * 11,
+                        encoding="utf-8",
+                    )
+                    (root / "policy.md").write_text(
+                        "ok" if oversized != "policy.md" else "x" * 11,
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(
+                        review.ReviewError, "exceeds the context budget"
+                    ):
+                        review.collect_policy(root, value, [], [])
 
     def test_build_context_rejects_patch_budget_below_hard_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -3194,7 +3269,21 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertIn("every supplied P0/P1 blocker candidate", prompt)
         self.assertIn("P2/P3 candidates are not supplied to verifier calls.", prompt)
-        self.assertIn("does not call you when there are no P0/P1 candidates", prompt)
+        self.assertIn(
+            "A\ncontinuity call is required whenever the supplied `current_groups` array is\nnon-empty",
+            prompt,
+        )
+        self.assertIn(
+            "always return the complete schema-v2 `relationships` report", prompt
+        )
+        self.assertIn(
+            "ordinary cross-review\ncoordinator does not call you when there are no P0/P1 candidates",
+            prompt,
+        )
+        self.assertIn(
+            "That ordinary rule does not apply to a\ncontinuity call with any supplied current group",
+            prompt,
+        )
         self.assertIn("canonical evidence source catalog", prompt)
         self.assertIn("copy only its `source_id`", prompt)
         self.assertIn("Never output `trust_domain` or `path`", prompt)
@@ -12772,6 +12861,122 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("previous_response", correction)
         self.assertNotIn("untrusted-previous-response", client.calls[1][1])
 
+    def test_cross_review_out_of_range_first_response_is_fixed_by_bounded_correction(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["evidence_refs"][0].update(
+            start_line=999, end_line=999
+        )
+        valid = raw_verifier_report("evidence-verifier", context, finding_id)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [invalid, valid]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                '{"task":"cross-review"}',
+                100,
+                lambda value: review.validate_raw_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn("continuous interval", client.calls[1][0])
+        self.assertIn("start_line equal to end_line", client.calls[1][0])
+        correction = json.loads(client.calls[1][1])
+        self.assertIn("canonical line coverage", correction["validator_message"])
+        self.assertNotIn("previous_response", correction)
+
+    def test_cross_review_out_of_range_correction_still_fails_closed(self) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["evidence_refs"][0].update(
+            start_line=999, end_line=999
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(
+                review.ReportShapeError, "canonical line coverage"
+            ):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected cross-review system",
+                    '{"task":"cross-review"}',
+                    100,
+                    lambda value: review.validate_raw_cross_report(
+                        value, "evidence-verifier", context, {finding_id}
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+
+    def test_cross_review_empty_and_non_json_retries_are_bounded_and_json_only(
+        self,
+    ) -> None:
+        for label in ("empty", "non-json"):
+            with self.subTest(response=label):
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        raise review.RetryableModelOutputError(
+                            label,
+                            stop_reason="end_turn",
+                            response_chars=0 if label == "empty" else 12,
+                            accumulated_chars=0 if label == "empty" else 12,
+                        )
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.RetryableModelOutputError):
+                        review.complete_with_shape_repair(
+                            client,
+                            "protected cross-review system",
+                            '{"task":"cross-review"}',
+                            100,
+                            lambda value: value,
+                            cross_review_fresh_retry=True,
+                        )
+
+                self.assertEqual(
+                    review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls)
+                )
+                for system, user, _ in client.calls[1:]:
+                    self.assertIn("one complete replacement JSON object", system)
+                    self.assertIn("no\nMarkdown", system)
+                    self.assertIn("at most one evidence reference", system)
+                    self.assertIn("start_line equal to end_line", system)
+                    self.assertEqual('{"task":"cross-review"}', user)
+
     def test_cross_review_max_tokens_retry_discards_large_partial_response(
         self,
     ) -> None:
@@ -14053,28 +14258,44 @@ class CrossHeadContinuityTest(unittest.TestCase):
             self.assertIn("previous_response_sha256", correction)
             self.assertNotIn("previous_response", correction)
 
-    def test_continuity_current_anchor_shape_repairs_after_binding(self) -> None:
+    def test_continuity_current_anchor_binds_to_supplied_group(self) -> None:
         role = "evidence-verifier"
-        valid = self.report(role)
-        invalid = self.report(
-            role, self.relationship(current_anchor={"file": "invalid"})
+        for value in ({"file": "invalid"}, {**self.anchor, "start_line": 99}):
+            with self.subTest(current_anchor=value):
+                report = self.report(role, self.relationship(current_anchor=value))
+                normalized = review.validate_continuity_report(
+                    report, role, self.context, self.groups
+                )
+
+                self.assertEqual(
+                    self.anchor,
+                    normalized["relationships"][0]["current_anchor"],
+                )
+                self.assertEqual(
+                    self.candidate["candidate_sha256"],
+                    normalized["relationships"][0]["candidate_sha256"],
+                )
+
+    def test_continuity_current_anchor_is_bound_for_normal_relationship(self) -> None:
+        normalized = review.validate_continuity_report(
+            self.report("evidence-verifier"),
+            "evidence-verifier",
+            self.context,
+            self.groups,
         )
-
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str, int]] = []
-                self.responses = [invalid, valid]
-
-            def complete(self, system: str, user: str, max_tokens: int) -> dict:
-                self.calls.append((system, user, max_tokens))
-                return self.responses.pop(0)
-
-        client = FakeClient()
-        with patch("builtins.print"):
-            result = self.complete_continuity_with_repair(client, role)
-
-        self.assertEqual(valid, result)
-        self.assertEqual(2, len(client.calls))
+        relationship = normalized["relationships"][0]
+        self.assertEqual(
+            self.groups[0]["current_group_id"], relationship["current_group_id"]
+        )
+        self.assertEqual(self.anchor, relationship["current_anchor"])
+        self.assertEqual(
+            self.candidate["previous_group_id"], relationship["previous_group_id"]
+        )
+        self.assertEqual(
+            self.candidate["previous_issue_number"],
+            relationship["previous_issue_number"],
+        )
+        self.assertEqual(self.candidate["anchor"], relationship["previous_anchor"])
 
     def test_continuity_model_shape_errors_repair_after_binding(self) -> None:
         role = "policy-skeptic"
@@ -14115,9 +14336,6 @@ class CrossHeadContinuityTest(unittest.TestCase):
     ) -> None:
         role = "policy-skeptic"
         cases = {
-            "current_anchor": lambda report: report["relationships"][0].update(
-                {"current_anchor": {"file": "invalid"}}
-            ),
             "previous_anchor": lambda report: report["relationships"][0].update(
                 {"previous_anchor": {"file": "invalid"}}
             ),
@@ -14184,6 +14402,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
     def test_command_continuity_enables_cross_review_fresh_retry(self) -> None:
         role = "evidence-verifier"
         result = self.report(role)
+        p2_groups = [{**self.groups[0], "severity": "P2"}]
         args = SimpleNamespace(
             config=Path("config.json"),
             context=Path("context.json"),
@@ -14201,7 +14420,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
             patch.object(review, "require_model_configuration_binding"),
             patch.object(review, "load_reports", side_effect=[[], []]),
             patch.object(review, "validate_final_artifact"),
-            patch.object(review, "continuity_groups", return_value=self.groups),
+            patch.object(review, "continuity_groups", return_value=p2_groups),
             patch.object(review, "prompt_text", return_value="strict JSON"),
             patch.object(review, "trusted_policy_text", return_value="policy"),
             patch.object(review, "AgentModelClient", return_value=object()),
@@ -14213,7 +14432,38 @@ class CrossHeadContinuityTest(unittest.TestCase):
             self.assertEqual(0, review.command_continuity(args))
 
         self.assertTrue(complete.call_args.kwargs["cross_review_fresh_retry"])
+        self.assertIn(
+            "including when every actionable group is P2/P3",
+            complete.call_args.args[1],
+        )
+        self.assertIn(
+            "never return the ordinary verifier `NOT_NEEDED` report",
+            complete.call_args.args[1],
+        )
         write_json.assert_called_once_with(args.output, result)
+
+    def test_p2_p3_actionable_continuity_requires_complete_relationships(self) -> None:
+        group = {**self.groups[0], "severity": "P3"}
+        valid = self.report("evidence-verifier")
+        valid["relationships"][0]["current_group_id"] = group["current_group_id"]
+        review.validate_continuity_report(
+            valid, "evidence-verifier", self.context, [group]
+        )
+
+        not_needed = {
+            "schema_version": 1,
+            "role": "evidence-verifier",
+            "head_sha": self.context["binding"]["head_sha"],
+            "context_sha256": self.context["binding"]["context_sha256"],
+            "status": "NOT_NEEDED",
+            "evidence": "No P0/P1 blocker candidates were present.",
+            "reviews": [],
+            "context_gaps": [],
+        }
+        with self.assertRaises(review.ReviewError):
+            review.validate_continuity_report(
+                not_needed, "evidence-verifier", self.context, [group]
+            )
 
     def test_v2_marker_is_canonical_and_v1_remains_legacy(self) -> None:
         marker = review.finding_issue_marker_v2(
