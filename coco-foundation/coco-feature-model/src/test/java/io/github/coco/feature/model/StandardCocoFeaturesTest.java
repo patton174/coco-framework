@@ -66,6 +66,12 @@ class StandardCocoFeaturesTest {
         assertEquals("idempotency", CocoFeature.IDEMPOTENCY.id());
         assertEquals("coco-idempotency", definitions.get(CocoFeature.IDEMPOTENCY).artifactId());
         assertEquals(Set.of(CocoFeature.WEB), definitions.get(CocoFeature.IDEMPOTENCY).dependencies());
+        assertEquals("storage", CocoFeature.STORAGE.id());
+        assertEquals("coco-storage", definitions.get(CocoFeature.STORAGE).artifactId());
+        assertEquals("io.github.coco.storage.CocoStorageAutoConfiguration",
+                definitions.get(CocoFeature.STORAGE).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.STORAGE).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.STORAGE).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
         assertEquals(Set.of("coco-feature-codegen", "freemarker"),
@@ -86,6 +92,7 @@ class StandardCocoFeaturesTest {
         assertTrue(enabled.contains(CocoFeature.OPENAPI));
         assertTrue(enabled.contains(CocoFeature.RATE_LIMIT));
         assertTrue(enabled.contains(CocoFeature.IDEMPOTENCY));
+        assertTrue(enabled.contains(CocoFeature.STORAGE));
     }
 
     @Test
@@ -97,6 +104,7 @@ class StandardCocoFeaturesTest {
         assertFalse(enabled.contains(CocoFeature.OPENAPI));
         assertFalse(enabled.contains(CocoFeature.RATE_LIMIT));
         assertFalse(enabled.contains(CocoFeature.IDEMPOTENCY));
+        assertTrue(enabled.contains(CocoFeature.STORAGE));
     }
 
     @Test
@@ -170,6 +178,7 @@ class StandardCocoFeaturesTest {
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.WEB));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.RATE_LIMIT));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.IDEMPOTENCY));
+        assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.STORAGE));
         CocoFeatureDefinition loadedMybatisPlusDefinition = loadedPlan.definitions().stream()
                 .filter(definition -> definition.feature() == CocoFeature.MYBATIS_PLUS)
                 .findFirst()
