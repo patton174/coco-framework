@@ -1049,6 +1049,22 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertEqual([], tracked_samples.stdout.splitlines())
 
+    def test_security_specialist_has_compact_prompt_and_bounded_output_budget(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        value = review.load_config(root / "agent-review/config.json")
+        security = review.role_map(value, "specialists")["security-isolation"]
+        prompt = (root / "agent-review/prompts/specialist.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(6144, security["max_tokens"])
+        self.assertIn("Compact Output Requirement", prompt)
+        self.assertIn("no more than 160 characters", prompt)
+        self.assertIn("Never repeat the diff", prompt)
+        self.assertIn("do not omit a security finding", prompt)
+
     def test_agent_open_pr_workflow_uses_protected_app_identity(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1] / "workflows/agent-open-pr.yml"
