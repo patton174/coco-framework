@@ -638,7 +638,7 @@ def deferred_workflow_run() -> dict:
         "workflow_id": DEFERRED_WORKFLOW_ID,
         "name": run_title,
         "path": review.DEFERRED_WORKFLOW_PATH,
-        "event": review.DEFERRED_WORKFLOW_EVENT,
+        "event": "pull_request_target",
         "status": "completed",
         "conclusion": "success",
         "display_title": run_title,
@@ -7991,6 +7991,14 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("workflows: [Agent Review Jury]", deferred_workflow)
         self.assertIn("github.ref == 'refs/heads/main'", deferred_workflow)
         self.assertIn(
+            "github.event.workflow_run.event == 'pull_request_target'",
+            deferred_workflow,
+        )
+        self.assertIn(
+            "github.event.workflow_run.event == 'pull_request_review'",
+            deferred_workflow,
+        )
+        self.assertIn(
             "github.event.workflow_run.head_repository.id == fromJSON(github.repository_id)",
             deferred_workflow,
         )
@@ -8998,7 +9006,7 @@ class AgentReviewTests(unittest.TestCase):
             "wrong workflow path",
             run_change=("path", ".github/workflows/reusable-agent-review-jury.yml"),
         )
-        add_case("wrong event", run_change=("event", "pull_request_review"))
+        add_case("wrong event", run_change=("event", "push"))
         add_case("failed run", run_change=("conclusion", "failure"))
         add_case(
             "wrong run repository id",
@@ -11135,6 +11143,56 @@ class AgentReviewTests(unittest.TestCase):
             {"workflow": 2, "run": 2, "pull": 2, "jobs": 2}, client.attempts
         )
         self.assertEqual(4, sleeper.call_count)
+
+    def test_deferred_binding_accepts_only_protected_source_events(self) -> None:
+        self.assertEqual(
+            frozenset({"pull_request_target", "pull_request_review"}),
+            review.DEFERRED_WORKFLOW_EVENTS,
+        )
+
+        class SourceRunClient:
+            def __init__(self, event: str) -> None:
+                self.run = deferred_workflow_run()
+                self.run["event"] = event
+
+            def get_json(self, path: str) -> dict:
+                if path == (
+                    f"repos/{REPOSITORY}/actions/workflows/"
+                    f"{review.DEFERRED_WORKFLOW_FILE}"
+                ):
+                    return deferred_workflow()
+                if path == f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}":
+                    return self.run
+                if path == f"repos/{REPOSITORY}/pulls/{DEFERRED_PR_NUMBER}":
+                    return deferred_pull_request()
+                if path == (
+                    f"repos/{REPOSITORY}/actions/runs/{SOURCE_RUN_ID}/jobs"
+                    "?filter=latest&per_page=100"
+                ):
+                    return deferred_source_jobs()
+                raise AssertionError(f"Unexpected GET path: {path}")
+
+        for event in review.DEFERRED_WORKFLOW_EVENTS:
+            with self.subTest(event=event):
+                binding = review.deferred_review_candidate(
+                    SourceRunClient(event),
+                    REPOSITORY,
+                    REPOSITORY_ID,
+                    SOURCE_RUN_ID,
+                    deferred_config(),
+                )
+                self.assertTrue(binding["eligible"])
+
+        with self.assertRaisesRegex(
+            review.ReviewError, "workflow run binding is invalid"
+        ):
+            review.deferred_review_candidate(
+                SourceRunClient("push"),
+                REPOSITORY,
+                REPOSITORY_ID,
+                SOURCE_RUN_ID,
+                deferred_config(),
+            )
 
     def test_deferred_binding_fails_closed_after_retry_exhaustion(self) -> None:
         class FailingClient:

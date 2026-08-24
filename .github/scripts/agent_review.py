@@ -45,7 +45,12 @@ DEFERRED_REVIEW_EVENT = "workflow_run"
 DEFERRED_WORKFLOW_NAME = "Agent Review Jury"
 DEFERRED_WORKFLOW_FILE = "agent-review.yml"
 DEFERRED_WORKFLOW_PATH = ".github/workflows/agent-review.yml"
-DEFERRED_WORKFLOW_EVENT = "pull_request_target"
+DEFERRED_WORKFLOW_EVENTS = frozenset(
+    {
+        "pull_request_target",
+        "pull_request_review",
+    }
+)
 DEFERRED_ROUTE_JOB_NAME = "Route bound pull request"
 DEFERRED_MARKER_JOB_NAME = "Emit protected no-secret marker"
 FINDING_ISSUE_LABEL = "agent-review"
@@ -2377,7 +2382,7 @@ def deferred_review_candidate(
         run.get("id") != run_id
         or run.get("workflow_id") != workflow_id
         or run.get("path") != DEFERRED_WORKFLOW_PATH
-        or run.get("event") != DEFERRED_WORKFLOW_EVENT
+        or run.get("event") not in DEFERRED_WORKFLOW_EVENTS
         or run.get("status") != "completed"
         or run.get("conclusion") != "success"
         or run_repository.get("id") != repository_id
