@@ -86,7 +86,8 @@ class CocoIdempotencyAutoConfigurationTest {
         CocoIdempotencyStore customStore = new OverridesStore();
         this.contextRunner
                 .withConfiguration(AutoConfigurations.of(CocoIdempotencyRedisAutoConfiguration.class))
-                .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis",
+                        "coco.idempotency.redis.template-bean-name=missingTemplate")
                 .withBean(CocoIdempotencyStore.class, () -> customStore)
                 .run(context -> assertThat(context.getBean(CocoIdempotencyStore.class)).isSameAs(customStore));
     }
@@ -103,12 +104,49 @@ class CocoIdempotencyAutoConfigurationTest {
                     assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
                     assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
                 });
+        this.redisContextRunner.withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis",
+                        "coco.idempotency.redis.template-bean-name=  secondaryTemplate  ")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    CocoIdempotencyKey key = CocoIdempotencyKey.fromRawKey("orders", "POST", "create", "key");
+                    context.getBean(CocoIdempotencyStore.class).acquire(new CocoIdempotencyLease(key, "owner", Instant.now().plusSeconds(60)));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                });
         this.redisContextRunner.withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
                 .withUserConfiguration(NonPrimaryRedisTemplates.class)
-                .run(context -> assertThat(context).doesNotHaveBean(CocoIdempotencyStore.class));
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("candidates=[firstTemplate, secondTemplate]")
+                            .hasStackTraceContaining("coco.idempotency.redis.template-bean-name");
+                });
+        this.redisContextRunner.withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis",
+                        "coco.idempotency.redis.template-bean-name=missingTemplate")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.idempotency.redis.template-bean-name")
+                            .hasStackTraceContaining("missingTemplate");
+                });
+        this.redisContextRunner.withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis",
+                        "coco.idempotency.redis.template-bean-name=notATemplate")
+                .withBean("notATemplate", String.class, () -> "wrong type")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.idempotency.redis.template-bean-name")
+                            .hasStackTraceContaining("notATemplate");
+                });
         this.redisContextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
                 .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
-                .run(context -> assertThat(context).doesNotHaveBean(CocoIdempotencyStore.class));
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(CocoIdempotencyStore.class);
+                });
+        this.contextRunner.withConfiguration(AutoConfigurations.of(CocoIdempotencyRedisAutoConfiguration.class))
+                .withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.idempotency.enabled=true", "coco.idempotency.store-type=redis")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Configuration(proxyBeanMethods = false)

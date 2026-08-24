@@ -69,7 +69,7 @@ class CocoWebReplayStoreAutoConfigurationTest {
 
     @Test
     void createsRedisStoreOnlyWhenExplicitlySelectedAndTemplateExists() {
-        this.contextRunner
+        this.webContextRunner
                 .withPropertyValues("coco.web.replay.store-type=redis")
                 .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
                 .run(context -> {
@@ -77,30 +77,75 @@ class CocoWebReplayStoreAutoConfigurationTest {
                     assertThat(context).doesNotHaveBean(InMemoryCocoReplayStore.class);
                 });
         CocoReplayStore customStore = (key, expiresAt) -> true;
-        this.contextRunner
-                .withPropertyValues("coco.web.replay.store-type=redis")
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=missingTemplate")
                 .withBean(CocoReplayStore.class, () -> customStore)
-                .run(context -> assertThat(context.getBean(CocoReplayStore.class)).isSameAs(customStore));
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(CocoReplayStore.class)).isSameAs(customStore);
+                });
     }
 
     @Test
     void redisStoreUsesSingleOrPrimaryTemplateAndBacksOffOtherwise() {
-        this.contextRunner.withPropertyValues("coco.web.replay.store-type=redis")
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis")
                 .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
                 .run(context -> assertThat(context).hasSingleBean(RedisCocoReplayStore.class));
-        this.contextRunner.withPropertyValues("coco.web.replay.store-type=redis")
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis")
                 .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
                     context.getBean(CocoReplayStore.class).reserve(new io.github.coco.feature.web.replay.CocoReplayKey(
                             "app", null, "1", "nonce", "POST", "/orders"), Instant.now().plusSeconds(60));
                     assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
                     assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
                 });
-        this.contextRunner.withPropertyValues("coco.web.replay.store-type=redis")
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=  secondaryTemplate  ")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    context.getBean(CocoReplayStore.class).reserve(new io.github.coco.feature.web.replay.CocoReplayKey(
+                            "app", null, "1", "nonce", "POST", "/orders"), Instant.now().plusSeconds(60));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                });
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis")
                 .withUserConfiguration(NonPrimaryRedisTemplates.class)
-                .run(context -> assertThat(context).doesNotHaveBean(CocoReplayStore.class));
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("candidates=[firstTemplate, secondTemplate]")
+                            .hasStackTraceContaining("coco.web.replay.redis.template-bean-name");
+                });
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=missingTemplate")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.web.replay.redis.template-bean-name")
+                            .hasStackTraceContaining("missingTemplate");
+                });
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=notATemplate")
+                .withBean("notATemplate", String.class, () -> "wrong type")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.web.replay.redis.template-bean-name")
+                            .hasStackTraceContaining("notATemplate");
+                });
         this.contextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
                 .withPropertyValues("coco.web.replay.store-type=redis")
-                .run(context -> assertThat(context).doesNotHaveBean(CocoReplayStore.class));
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(CocoReplayStore.class);
+                });
+        this.webContextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.web.replay.store-type=redis")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(NoSuchBeanDefinitionException.class)
+                            .hasStackTraceContaining(CocoReplayStore.class.getName());
+                });
     }
 
     @Test
