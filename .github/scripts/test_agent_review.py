@@ -13134,6 +13134,8 @@ class AgentReviewTests(unittest.TestCase):
                 "may cite only canonical source finding IDs",
                 "can never be selected as follow-up work",
                 "one kind, one severity, and one deterministic semantic identity",
+                "Never combine IDs with different kinds or severities",
+                "one group per finding with an empty",
             ):
                 self.assertIn(phrase, calls[0][0][0])
                 self.assertIn(phrase, calls[1][0][0])

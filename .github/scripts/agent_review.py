@@ -5012,8 +5012,12 @@ def command_chair(args: argparse.Namespace) -> int:
             "as follow-up work. A follow-up group may contain only IDs from "
             "`eligible_follow_up_ids` and no confirmed P0/P1 ID. Every group must "
             "contain members of one kind, one severity, and one deterministic "
-            "semantic identity. When there are no eligible follow-up IDs, emit no "
-            "follow-up group; use empty arrays when both protected ID lists are empty.",
+            "semantic identity. Never combine IDs with different kinds or "
+            "severities. When exact duplicate identity, kind, and severity are "
+            "not all proven, emit one group per finding with an empty "
+            "`duplicate_finding_ids` array. When there are no eligible follow-up "
+            "IDs, emit no follow-up group; use empty arrays when both protected "
+            "ID lists are empty.",
         ]
     )
     max_tokens = limits["chair_tokens"]
