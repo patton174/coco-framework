@@ -1236,6 +1236,8 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-idempotency/pom.xml",
                 "coco-features/coco-feature-security/pom.xml",
                 "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-lock/pom.xml",
+                "coco-features/coco-scheduling/pom.xml",
             ],
             "web": ["coco-features/coco-feature-web/pom.xml"],
             "audit": ["coco-features/coco-feature-audit/pom.xml"],
