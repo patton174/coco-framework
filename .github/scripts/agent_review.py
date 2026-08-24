@@ -1318,13 +1318,10 @@ def collect_policy(
 ) -> list[dict[str, Any]]:
     context_config = config.get("context", {})
     protected_paths = [
-        str(path)
-        for path in config.get("protected_policy_paths", ["AGENTS.md"])
+        str(path) for path in config.get("protected_policy_paths", ["AGENTS.md"])
     ]
     paths: list[str] = list(
-        dict.fromkeys(
-            [*protected_paths, *context_config.get("always", [])]
-        )
+        dict.fromkeys([*protected_paths, *context_config.get("always", [])])
     )
     required_paths = set(paths)
     path_rules = list(context_config.get("path_rules", []))
