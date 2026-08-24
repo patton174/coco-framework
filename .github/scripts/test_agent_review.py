@@ -3270,7 +3270,21 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertIn("every supplied P0/P1 blocker candidate", prompt)
         self.assertIn("P2/P3 candidates are not supplied to verifier calls.", prompt)
-        self.assertIn("does not call you when there are no P0/P1 candidates", prompt)
+        self.assertIn(
+            "A\ncontinuity call is required whenever the supplied `current_groups` array is\nnon-empty",
+            prompt,
+        )
+        self.assertIn(
+            "always return the complete schema-v2 `relationships` report", prompt
+        )
+        self.assertIn(
+            "ordinary cross-review\ncoordinator does not call you when there are no P0/P1 candidates",
+            prompt,
+        )
+        self.assertIn(
+            "That ordinary rule does not apply to a\ncontinuity call with any supplied current group",
+            prompt,
+        )
         self.assertIn("canonical evidence source catalog", prompt)
         self.assertIn("copy only its `source_id`", prompt)
         self.assertIn("Never output `trust_domain` or `path`", prompt)
@@ -14361,6 +14375,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
     def test_command_continuity_enables_cross_review_fresh_retry(self) -> None:
         role = "evidence-verifier"
         result = self.report(role)
+        p2_groups = [{**self.groups[0], "severity": "P2"}]
         args = SimpleNamespace(
             config=Path("config.json"),
             context=Path("context.json"),
@@ -14378,7 +14393,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
             patch.object(review, "require_model_configuration_binding"),
             patch.object(review, "load_reports", side_effect=[[], []]),
             patch.object(review, "validate_final_artifact"),
-            patch.object(review, "continuity_groups", return_value=self.groups),
+            patch.object(review, "continuity_groups", return_value=p2_groups),
             patch.object(review, "prompt_text", return_value="strict JSON"),
             patch.object(review, "trusted_policy_text", return_value="policy"),
             patch.object(review, "AgentModelClient", return_value=object()),
@@ -14390,7 +14405,38 @@ class CrossHeadContinuityTest(unittest.TestCase):
             self.assertEqual(0, review.command_continuity(args))
 
         self.assertTrue(complete.call_args.kwargs["cross_review_fresh_retry"])
+        self.assertIn(
+            "including when every actionable group is P2/P3",
+            complete.call_args.args[1],
+        )
+        self.assertIn(
+            "never return the ordinary verifier `NOT_NEEDED` report",
+            complete.call_args.args[1],
+        )
         write_json.assert_called_once_with(args.output, result)
+
+    def test_p2_p3_actionable_continuity_requires_complete_relationships(self) -> None:
+        group = {**self.groups[0], "severity": "P3"}
+        valid = self.report("evidence-verifier")
+        valid["relationships"][0]["current_group_id"] = group["current_group_id"]
+        review.validate_continuity_report(
+            valid, "evidence-verifier", self.context, [group]
+        )
+
+        not_needed = {
+            "schema_version": 1,
+            "role": "evidence-verifier",
+            "head_sha": self.context["binding"]["head_sha"],
+            "context_sha256": self.context["binding"]["context_sha256"],
+            "status": "NOT_NEEDED",
+            "evidence": "No P0/P1 blocker candidates were present.",
+            "reviews": [],
+            "context_gaps": [],
+        }
+        with self.assertRaises(review.ReviewError):
+            review.validate_continuity_report(
+                not_needed, "evidence-verifier", self.context, [group]
+            )
 
     def test_v2_marker_is_canonical_and_v1_remains_legacy(self) -> None:
         marker = review.finding_issue_marker_v2(
