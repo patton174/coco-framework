@@ -30,6 +30,8 @@ public enum CocoFeature {
     OPENAPI("openapi"),
     RATE_LIMIT("rate-limit"),
     IDEMPOTENCY("idempotency"),
+    SCHEDULING("scheduling"),
+    LOCK("lock"),
     CODEGEN("codegen");
 
     private final String id;
