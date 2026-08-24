@@ -3349,6 +3349,13 @@ class AgentReviewTests(unittest.TestCase):
             normalized_prompt,
         )
         self.assertNotIn('"role": "evidence-verifier|policy-skeptic"', prompt)
+        self.assertIn("`action` is the relationship type", normalized_prompt)
+        self.assertIn(
+            "`candidate_sha256`, `previous_group_id`, `previous_issue_number`, and `previous_anchor` fields must all be JSON `null`",
+            normalized_prompt,
+        )
+        self.assertIn('"candidate_sha256": null', prompt)
+        self.assertIn('"previous_anchor": null', prompt)
 
     def test_cross_review_writes_exact_not_needed_without_model_when_no_findings(
         self,
@@ -12937,6 +12944,100 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
 
+    def test_cross_review_contradicted_check_error_names_missing_evidence(self) -> None:
+        checks = {
+            "claim": "CONTRADICTED",
+            "severity": "SUPPORTED",
+            "anchor": "SUPPORTED",
+            "trigger": "SUPPORTED",
+            "impact": "CONTRADICTED",
+            "change_scope": "IN_SCOPE",
+        }
+        evidence_refs = [
+            {
+                "trust_domain": "head-code",
+                "path": "src/Foo.java",
+                "start_line": 1,
+                "end_line": 1,
+                "checks": ["anchor", "trigger"],
+            }
+        ]
+
+        with self.assertRaisesRegex(
+            review.ReportShapeError, r"missing=\['claim', 'impact'\]"
+        ):
+            review.derive_verifier_action(checks, evidence_refs)
+
+    def test_cross_review_contradicted_check_is_repaired_by_bounded_retry(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["claim"] = "CONTRADICTED"
+        invalid["verifications"][0]["evidence_refs"][0]["checks"].remove("claim")
+        valid = raw_verifier_report("evidence-verifier", context, finding_id)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [invalid, valid]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                '{"task":"cross-review"}',
+                100,
+                lambda value: review.validate_raw_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        correction = json.loads(client.calls[1][1])
+        self.assertIn("missing", correction["validator_message"])
+        self.assertIn("claim", correction["validator_message"])
+        self.assertIn("exact check", client.calls[1][0])
+
+    def test_cross_review_contradicted_check_retry_remains_fail_closed(self) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["claim"] = "CONTRADICTED"
+        invalid["verifications"][0]["evidence_refs"][0]["checks"].remove("claim")
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(review.ReportShapeError, "missing"):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected cross-review system",
+                    '{"task":"cross-review"}',
+                    100,
+                    lambda value: review.validate_raw_cross_report(
+                        value, "evidence-verifier", context, {finding_id}
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+
     def test_cross_review_empty_and_non_json_retries_are_bounded_and_json_only(
         self,
     ) -> None:
@@ -14040,6 +14141,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 value, role, self.context, self.groups
             ),
             cross_review_fresh_retry=True,
+            return_validated_report=True,
         )
 
     def test_continuity_max_tokens_retries_from_fresh_complete_task(self) -> None:
@@ -14162,6 +14264,71 @@ class CrossHeadContinuityTest(unittest.TestCase):
                     review.validate_continuity_report(
                         report, "evidence-verifier", self.context, self.groups
                     )
+
+    def test_continuity_non_adopt_candidate_is_normalized_to_null(self) -> None:
+        for role in ("evidence-verifier", "policy-skeptic"):
+            for action in ("REJECT", "INSUFFICIENT"):
+                with self.subTest(role=role, action=action):
+                    report = self.report(
+                        role,
+                        self.relationship(
+                            action,
+                            candidate_sha256=self.candidate["candidate_sha256"],
+                            previous_group_id=self.candidate["previous_group_id"],
+                            previous_issue_number=self.candidate[
+                                "previous_issue_number"
+                            ],
+                            previous_anchor=self.candidate["anchor"],
+                        ),
+                    )
+                    normalized = review.validate_continuity_report(
+                        report, role, self.context, self.groups
+                    )
+                    relationship = normalized["relationships"][0]
+                    self.assertEqual(action, relationship["action"])
+                    for field in (
+                        "candidate_sha256",
+                        "previous_group_id",
+                        "previous_issue_number",
+                        "previous_anchor",
+                    ):
+                        self.assertIsNone(relationship[field])
+
+    def test_continuity_non_adopt_candidate_fixture_normalizes_without_retry(
+        self,
+    ) -> None:
+        role = "policy-skeptic"
+        invalid = self.report(
+            role,
+            self.relationship(
+                "REJECT",
+                candidate_sha256=self.candidate["candidate_sha256"],
+                previous_group_id=self.candidate["previous_group_id"],
+                previous_issue_number=self.candidate["previous_issue_number"],
+                previous_anchor=self.candidate["anchor"],
+            ),
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+                self.responses = [invalid]
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = self.complete_continuity_with_repair(client, role)
+
+        self.assertEqual(1, len(client.calls))
+        relationship = result["relationships"][0]
+        self.assertEqual("REJECT", relationship["action"])
+        self.assertIsNone(relationship["candidate_sha256"])
+        self.assertIsNone(relationship["previous_group_id"])
+        self.assertIsNone(relationship["previous_issue_number"])
+        self.assertIsNone(relationship["previous_anchor"])
 
     def test_continuity_shape_repair_uses_digest_without_previous_response(
         self,

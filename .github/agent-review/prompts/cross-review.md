@@ -48,6 +48,12 @@ metadata only and never supplies source content.
 
 For every evidence reference, `checks` must be a sorted, duplicate-free subset
 of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
+When a check is `CONTRADICTED`, include that exact check name in at least one
+reference's `checks` array; for `OUT_OF_SCOPE`, do the same for
+`change_scope`. A reference that supports another check does not satisfy the
+missing check requirement. Before returning, build the set of contradicted
+fact checks plus `change_scope` when out of scope and confirm every member is
+covered by `checks`.
 
 `evidence-verifier` checks code facts, path and line anchors, realistic trigger
 conditions, actual control/data flow, and observable behavior. It must not
@@ -80,7 +86,27 @@ always return the complete schema-v2 `relationships` report; a normal verifier
 `NOT_NEEDED` report is invalid. Only an empty
 `current_groups` array can omit relationships.
 
-Return exactly one compact valid JSON object and nothing else, with this shape:
+Return exactly one compact valid JSON object and nothing else, with this shape.
+In this schema, `action` is the relationship type. `ADOPT` means the
+relationship adopts exactly one supplied candidate; it requires all four
+candidate fields to be present and to match that same candidate's exact SHA,
+previous group/Issue, and canonical previous anchor. `REJECT` and
+`INSUFFICIENT` are non-adopt types; their `candidate_sha256`,
+`previous_group_id`, `previous_issue_number`, and `previous_anchor` fields must
+all be JSON `null`. A non-adopt relationship must never carry any candidate
+identity, even when the supplied candidate inventory is non-empty.
+
+An ADOPT relationship has candidate identity like this:
+
+{
+  "action": "ADOPT",
+  "candidate_sha256": "<exact-supplied-candidate-sha256>",
+  "previous_group_id": "<exact-supplied-previous-group-id>",
+  "previous_issue_number": "<exact-supplied-previous-issue-number>",
+  "previous_anchor": "<exact-supplied-canonical-previous-anchor>"
+}
+
+A non-adopt relationship has no candidate identity like this:
 
 {
   "schema_version": 2,
@@ -93,13 +119,13 @@ Return exactly one compact valid JSON object and nothing else, with this shape:
   "relationships": [
     {
       "schema_version": 2,
-      "action": "ADOPT|REJECT|INSUFFICIENT",
+      "action": "REJECT",
       "current_group_id": "<supplied-current-group-id>",
       "current_anchor": {"file": "<supplied-file>", "start_line": 1, "end_line": 1},
-      "candidate_sha256": "<supplied-candidate-sha256-or-null>",
-      "previous_group_id": "<supplied-previous-group-id-or-null>",
-      "previous_issue_number": 1,
-      "previous_anchor": {"file": "<supplied-file>", "start_line": 1, "end_line": 1}
+      "candidate_sha256": null,
+      "previous_group_id": null,
+      "previous_issue_number": null,
+      "previous_anchor": null
     }
   ]
 }
