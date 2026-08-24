@@ -32,6 +32,7 @@ public enum CocoFeature {
     IDEMPOTENCY("idempotency"),
     MESSAGING("messaging"),
     SCHEDULING("scheduling"),
+    LOCK("lock"),
     CODEGEN("codegen");
 
     private final String id;

@@ -63,6 +63,8 @@ The single starter composes in-process messaging by default. Declare a `CocoMess
 
 The single starter composes local task scheduling by default, with annotation and dynamic task registration support; the feature does not depend on Web or MyBatis.
 
+The single starter composes method-level distributed locking by default, with a replaceable atomic store; the feature does not depend on Web or MyBatis.
+
 Business controllers remain ordinary Spring code:
 
 ```java

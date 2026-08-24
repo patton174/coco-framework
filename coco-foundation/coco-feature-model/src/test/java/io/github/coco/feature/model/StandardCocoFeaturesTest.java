@@ -78,6 +78,12 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.SCHEDULING).autoConfigurationClassName());
         assertTrue(definitions.get(CocoFeature.SCHEDULING).defaultEnabled());
         assertEquals(Set.of(), definitions.get(CocoFeature.SCHEDULING).dependencies());
+        assertEquals("lock", CocoFeature.LOCK.id());
+        assertEquals("coco-lock", definitions.get(CocoFeature.LOCK).artifactId());
+        assertEquals("io.github.coco.feature.lock.CocoLockAutoConfiguration",
+                definitions.get(CocoFeature.LOCK).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.LOCK).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.LOCK).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
         assertEquals(Set.of("coco-feature-codegen", "freemarker"),
@@ -100,6 +106,7 @@ class StandardCocoFeaturesTest {
         assertTrue(enabled.contains(CocoFeature.IDEMPOTENCY));
         assertTrue(enabled.contains(CocoFeature.MESSAGING));
         assertTrue(enabled.contains(CocoFeature.SCHEDULING));
+        assertTrue(enabled.contains(CocoFeature.LOCK));
     }
 
     @Test
@@ -113,6 +120,7 @@ class StandardCocoFeaturesTest {
         assertFalse(enabled.contains(CocoFeature.IDEMPOTENCY));
         assertTrue(enabled.contains(CocoFeature.MESSAGING));
         assertTrue(enabled.contains(CocoFeature.SCHEDULING));
+        assertTrue(enabled.contains(CocoFeature.LOCK));
     }
 
     @Test
@@ -188,6 +196,7 @@ class StandardCocoFeaturesTest {
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.IDEMPOTENCY));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.MESSAGING));
         assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.SCHEDULING));
+        assertTrue(loadedPlan.enabledFeatures().contains(CocoFeature.LOCK));
         CocoFeatureDefinition loadedMybatisPlusDefinition = loadedPlan.definitions().stream()
                 .filter(definition -> definition.feature() == CocoFeature.MYBATIS_PLUS)
                 .findFirst()
