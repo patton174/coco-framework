@@ -4343,6 +4343,13 @@ def command_cross(args: argparse.Namespace) -> int:
             "inside a raw evidence reference. This catalog is the only canonical "
             "source list and contains no source content.\n"
             f"{canonical_json(context_evidence_catalog(context))}",
+            "## Protected policy evidence routing\n"
+            "For raw `evidence_refs`, `severity` and `change_scope` checks must "
+            "be attached only to a source whose catalog trust_domain is "
+            "`protected-policy` or `base-spec`. The allowed source IDs for those "
+            f"checks are exactly {canonical_json([item['source_id'] for item in context_evidence_catalog(context) if item['trust_domain'] in POLICY_EVIDENCE_DOMAINS])}. "
+            "Never attach either check to `head-code` or `base-code`, even when "
+            "the cited changed lines support another check.",
         ]
     )
     max_tokens = int(

@@ -32,6 +32,11 @@ it supports. The runtime resolves each ID to its protected catalog entry.
 is `base-code`, and neither can be presented as policy. Missing context is
 `UNVERIFIED`; repeating specialist prose is not evidence.
 
+When emitting raw `evidence_refs`, attach `severity` and `change_scope` checks
+only to the supplied canonical source ID whose catalog `trust_domain` is
+`protected-policy` or `base-spec`. Keep code-source IDs limited to code checks;
+never put either policy check on `head-code` or `base-code`.
+
 The protected system supplies a canonical evidence source catalog for this
 call. For every raw `evidence_refs` entry, copy only its `source_id` verbatim
 from that catalog, and keep the inclusive line range entirely within the listed

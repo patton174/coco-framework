@@ -3091,6 +3091,35 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertNotIn("source_id", review.canonical_json(report))
 
+    def test_raw_change_scope_evidence_uses_protected_policy_source(self) -> None:
+        context = bound_context()
+        report = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        catalog = {
+            item["source_id"]: item for item in review.context_evidence_catalog(context)
+        }
+        policy_source_id = next(
+            source_id
+            for source_id, item in catalog.items()
+            if item["trust_domain"] in review.POLICY_EVIDENCE_DOMAINS
+        )
+        code_source_id = next(
+            source_id
+            for source_id, item in catalog.items()
+            if item["trust_domain"] == "head-code"
+        )
+        refs = report["verifications"][0]["evidence_refs"]
+        refs[0]["checks"] = ["anchor", "claim", "impact", "trigger"]
+        refs[1]["source_id"] = policy_source_id
+        refs[1]["checks"] = ["change_scope", "severity"]
+        self.assertNotEqual(policy_source_id, code_source_id)
+        review.validate_raw_cross_report(
+            report, "evidence-verifier", context, {"correctness:f1"}
+        )
+        self.assertEqual(
+            "protected-policy",
+            report["reviews"][0]["evidence_refs"][1]["trust_domain"],
+        )
+
     def test_persisted_normalized_cross_report_revalidates_without_format_change(
         self,
     ) -> None:
