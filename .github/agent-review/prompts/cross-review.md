@@ -48,6 +48,12 @@ metadata only and never supplies source content.
 
 For every evidence reference, `checks` must be a sorted, duplicate-free subset
 of `anchor`, `claim`, `change_scope`, `impact`, `severity`, and `trigger`.
+When a check is `CONTRADICTED`, include that exact check name in at least one
+reference's `checks` array; for `OUT_OF_SCOPE`, do the same for
+`change_scope`. A reference that supports another check does not satisfy the
+missing check requirement. Before returning, build the set of contradicted
+fact checks plus `change_scope` when out of scope and confirm every member is
+covered by `checks`.
 
 `evidence-verifier` checks code facts, path and line anchors, realistic trigger
 conditions, actual control/data flow, and observable behavior. It must not

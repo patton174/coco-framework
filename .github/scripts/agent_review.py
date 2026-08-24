@@ -3485,7 +3485,11 @@ it satisfies every original protected role and binding rule. For each evidence
 reference, re-read the supplied canonical catalog, copy the exact source_id,
 and use one exact line with start_line equal to end_line inside one listed
 continuous interval; never bridge a gap, use an uncovered line, or invent a
-source ID. For continuity
+source ID. For every check reported as `CONTRADICTED`, include that exact check
+name in an evidence reference `checks` array; also include `change_scope` when
+it is `OUT_OF_SCOPE`. The validator message may list missing check names; use
+those names to repair coverage, but still re-read the canonical catalog and
+never weaken a protected rule. For continuity
 relationships, emit exactly these eight fields: schema_version, action,
 current_group_id, current_anchor, candidate_sha256, previous_group_id,
 previous_issue_number, previous_anchor. For REJECT or INSUFFICIENT, the final
@@ -3800,9 +3804,11 @@ def derive_verifier_action(
         required = contradicted | (
             {"change_scope"} if checks["change_scope"] == "OUT_OF_SCOPE" else set()
         )
-        if any(not by_check[field] for field in required):
+        missing = sorted(field for field in required if not by_check[field])
+        if missing:
             raise ReportShapeError(
-                "Cross-review disagreement requires evidence for every contradicted check."
+                "Cross-review disagreement requires evidence for every contradicted "
+                f"check; missing={missing}."
             )
         return "DISAGREE"
     if (
