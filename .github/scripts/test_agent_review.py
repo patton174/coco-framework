@@ -12936,6 +12936,100 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
 
+    def test_cross_review_contradicted_check_error_names_missing_evidence(self) -> None:
+        checks = {
+            "claim": "CONTRADICTED",
+            "severity": "SUPPORTED",
+            "anchor": "SUPPORTED",
+            "trigger": "SUPPORTED",
+            "impact": "CONTRADICTED",
+            "change_scope": "IN_SCOPE",
+        }
+        evidence_refs = [
+            {
+                "trust_domain": "head-code",
+                "path": "src/Foo.java",
+                "start_line": 1,
+                "end_line": 1,
+                "checks": ["anchor", "trigger"],
+            }
+        ]
+
+        with self.assertRaisesRegex(
+            review.ReportShapeError, r"missing=\['claim', 'impact'\]"
+        ):
+            review.derive_verifier_action(checks, evidence_refs)
+
+    def test_cross_review_contradicted_check_is_repaired_by_bounded_retry(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["claim"] = "CONTRADICTED"
+        invalid["verifications"][0]["evidence_refs"][0]["checks"].remove("claim")
+        valid = raw_verifier_report("evidence-verifier", context, finding_id)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [invalid, valid]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                '{"task":"cross-review"}',
+                100,
+                lambda value: review.validate_raw_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        correction = json.loads(client.calls[1][1])
+        self.assertIn("missing", correction["validator_message"])
+        self.assertIn("claim", correction["validator_message"])
+        self.assertIn("exact check", client.calls[1][0])
+
+    def test_cross_review_contradicted_check_retry_remains_fail_closed(self) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["claim"] = "CONTRADICTED"
+        invalid["verifications"][0]["evidence_refs"][0]["checks"].remove("claim")
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(review.ReportShapeError, "missing"):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected cross-review system",
+                    '{"task":"cross-review"}',
+                    100,
+                    lambda value: review.validate_raw_cross_report(
+                        value, "evidence-verifier", context, {finding_id}
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+
     def test_cross_review_empty_and_non_json_retries_are_bounded_and_json_only(
         self,
     ) -> None:
