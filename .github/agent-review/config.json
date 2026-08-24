@@ -42,6 +42,7 @@
         "prompt_path": ".github/agent-review/prompts/specialist.md",
         "lens": "Workflow and secret boundaries, request security, tenant and data-permission isolation, SQL safety, encryption, signatures, and replay protection.",
         "include_pr_intent": true,
+        "max_tokens": 6144,
         "intent_isolation": {
           "enabled": false,
           "excluded_context_sections": [],
