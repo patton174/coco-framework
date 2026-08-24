@@ -51,9 +51,9 @@ coco-support/
 
 `coco-messaging` 是默认由单一 starter 组合的进程内消息能力。业务项目可通过声明 `CocoMessageTransport` Bean 替换传输实现，不依赖 Web 或 MyBatis 能力。
 
-`coco-scheduling` 是默认由单一 starter 组合的本地任务调度能力，支持注解和动态注册任务，不依赖 Web 或 MyBatis 能力。
+`coco-scheduling` 是默认由单一 starter 组合的本地任务调度能力，支持注解和动态注册任务，默认 guard 为进程内实现；需要跨实例互斥时可显式设置 `guard-type=coco-lock`。它对 `coco-lock` 只有可选依赖，不依赖 Web 或 MyBatis 能力，也不提供 exactly-once 保证。
 
-`coco-lock` 是默认由单一 starter 组合的方法级分布式锁能力，可替换原子存储实现，不依赖 Web 或 MyBatis 能力。
+`coco-lock` 是默认由单一 starter 组合的方法级分布式锁能力，默认 Store 为进程内实现；业务可显式选择 Redis 共享 Store 或替换原子存储实现。它不依赖 `coco-scheduling`、Web 或 MyBatis 能力，也不提供 exactly-once 保证。
 
 `coco-storage` 是默认由单一 starter 组合的对象存储 SPI，提供安全本地参考实现，业务项目可替换实现，不依赖 Web 或 MyBatis 能力。
 

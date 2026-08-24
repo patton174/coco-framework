@@ -114,9 +114,9 @@ OrderResponse create(@RequestBody CreateOrderRequest request) {
 
 The single starter composes in-process messaging by default. Declare a `CocoMessageTransport` Bean to replace the transport implementation; the feature does not depend on Web or MyBatis.
 
-The single starter composes local task scheduling by default, with annotation and dynamic task registration support; the feature does not depend on Web or MyBatis.
+The single starter composes local task scheduling by default, with annotation and dynamic task registration support and an in-memory guard by default. For cross-instance exclusion, explicitly set `coco.scheduling.guard-type=coco-lock`. The feature does not depend on Web or MyBatis and does not provide an exactly-once guarantee.
 
-The single starter composes method-level distributed locking by default, with a replaceable atomic store; the feature does not depend on Web or MyBatis.
+The single starter composes method-level distributed locking by default, with an in-memory Store by default. Explicitly set `coco.lock.store-type=redis` to select the Redis shared Store, or replace the atomic Store. The feature does not depend on Web or MyBatis and does not provide an exactly-once guarantee.
 
 The single starter composes object storage by default, with a secure local reference implementation that applications can replace; the feature does not depend on Web or MyBatis.
 

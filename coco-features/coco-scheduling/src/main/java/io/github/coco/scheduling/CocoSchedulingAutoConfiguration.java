@@ -4,9 +4,11 @@ import java.util.Collection;
 
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
 import io.github.coco.i18n.CocoMessageService;
+import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -84,6 +86,7 @@ public class CocoSchedulingAutoConfiguration {
 
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "io.github.coco.feature.lock.CocoLockManager")
+    @ConditionalOnBean(type = "io.github.coco.feature.lock.CocoLockManager")
     @ConditionalOnProperty(prefix = "coco.scheduling", name = "guard-type", havingValue = "coco-lock")
     static class CocoLockTaskExecutionGuardConfiguration {
 
@@ -99,6 +102,19 @@ public class CocoSchedulingAutoConfiguration {
         CocoTaskExecutionGuard cocoLockTaskExecutionGuard(io.github.coco.feature.lock.CocoLockManager manager,
                 CocoSchedulingProperties properties) {
             return new CocoLockTaskExecutionGuard(manager, properties.getGuard());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnMissingBean(type = "io.github.coco.feature.lock.CocoLockManager")
+    @ConditionalOnProperty(prefix = "coco.scheduling", name = "guard-type", havingValue = "coco-lock")
+    static class MissingCocoLockTaskExecutionGuardConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(CocoTaskExecutionGuard.class)
+        CocoTaskExecutionGuard missingCocoLockTaskExecutionGuard() {
+            throw new BeanCreationException("coco.scheduling.guard-type=coco-lock requires coco-lock and a "
+                    + "CocoLockManager bean; enable and configure coco-lock or use guard-type=in-memory");
         }
     }
 

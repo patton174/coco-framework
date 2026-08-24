@@ -61,9 +61,9 @@ OrderResponse create(@RequestBody CreateOrderRequest request) {
 
 单一 starter 默认组合进程内消息能力。声明 `CocoMessageTransport` Bean 可以替换传输实现；该能力不依赖 Web 或 MyBatis 功能。
 
-单一 starter 默认组合本地任务调度能力，支持注解和动态注册任务；该能力不依赖 Web 或 MyBatis 功能。
+单一 starter 默认组合本地任务调度能力，支持注解和动态注册任务，默认 guard 为进程内实现；需要跨实例互斥时可显式设置 `coco.scheduling.guard-type=coco-lock`。该能力不依赖 Web 或 MyBatis 功能，也不提供 exactly-once 保证。
 
-单一 starter 默认组合方法级分布式锁能力，可替换原子存储实现；该能力不依赖 Web 或 MyBatis 功能。
+单一 starter 默认组合方法级分布式锁能力，默认 Store 为进程内实现；可显式设置 `coco.lock.store-type=redis` 选择 Redis 共享 Store，或替换原子存储实现。该能力不依赖 Web 或 MyBatis 功能，也不提供 exactly-once 保证。
 
 单一 starter 默认组合对象存储 SPI，提供安全本地参考实现且业务项目可替换；该能力不依赖 Web 或 MyBatis 功能。
 

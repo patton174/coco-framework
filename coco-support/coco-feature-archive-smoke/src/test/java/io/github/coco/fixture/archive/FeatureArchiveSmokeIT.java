@@ -15,7 +15,13 @@ import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.coco.scheduling.CocoTaskScheduler;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
 
 /**
  * Verifies the reactor-built Spring Boot archive after feature assembly and pruning.
@@ -35,6 +41,15 @@ class FeatureArchiveSmokeIT {
             "mybatis-plus", "tenant", "data-permission", "rate-limit", "idempotency", "codegen");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void startsDefaultStarterWithSchedulingAfterFeatureAssembly() {
+        try (ConfigurableApplicationContext context = new SpringApplicationBuilder(StarterApplication.class)
+                .web(WebApplicationType.NONE)
+                .run()) {
+            assertThat(context.getBean(CocoTaskScheduler.class)).isNotNull();
+        }
+    }
 
     @Test
     void verifiesCurrentReactorArchiveManifestAndPrunedLibraries() throws Exception {
@@ -139,5 +154,10 @@ class FeatureArchiveSmokeIT {
                 || library.startsWith("mybatis-")
                 || library.startsWith("mybatis-plus-")
                 || library.startsWith("freemarker-");
+    }
+
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
+    static class StarterApplication {
     }
 }

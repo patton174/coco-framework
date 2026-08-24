@@ -65,14 +65,17 @@ class CocoSchedulingAutoConfigurationTest {
 
     @Test
     void defaultGuardStillStartsWhenCocoLockIsNotOnTheRuntimeClasspath() {
-        this.contextRunner.withClassLoader(new FilteredClassLoader(CocoLockManager.class)).run(context ->
-                assertThat(context).hasSingleBean(InMemoryCocoTaskExecutionGuard.class));
+        this.contextRunner.withClassLoader(new FilteredClassLoader(CocoLockManager.class)).run(context -> {
+            assertThat(context).hasSingleBean(InMemoryCocoTaskExecutionGuard.class);
+            assertThat(context).hasSingleBean(CocoTaskScheduler.class);
+        });
     }
 
     @Test
     void cocoLockGuardRequiresManagerAndBindsDedicatedLockRequestProperties() {
         this.contextRunner.withPropertyValues("coco.scheduling.guard-type=coco-lock").run(context ->
-                assertThat(context.getStartupFailure()).hasStackTraceContaining("CocoLockManager"));
+                assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                        "coco.scheduling.guard-type=coco-lock requires coco-lock and a CocoLockManager bean"));
         this.contextRunner.withPropertyValues("coco.scheduling.guard-type=coco-lock",
                         "coco.scheduling.guard.lease=12s", "coco.scheduling.guard.wait=0ms",
                         "coco.scheduling.guard.poll-interval=7ms")
@@ -83,6 +86,14 @@ class CocoSchedulingAutoConfigurationTest {
                     assertThat(properties.getGuard().getLease()).isEqualTo(Duration.ofSeconds(12));
                     assertThat(properties.getGuard().getPollInterval()).isEqualTo(Duration.ofMillis(7));
                 });
+    }
+
+    @Test
+    void cocoLockGuardFailsClosedWithDiagnosticWhenCocoLockIsNotOnTheRuntimeClasspath() {
+        this.contextRunner.withClassLoader(new FilteredClassLoader(CocoLockManager.class))
+                .withPropertyValues("coco.scheduling.guard-type=coco-lock")
+                .run(context -> assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                        "coco.scheduling.guard-type=coco-lock requires coco-lock and a CocoLockManager bean"));
     }
 
     @Test

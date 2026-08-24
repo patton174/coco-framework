@@ -175,6 +175,40 @@ class CocoPackagePruneMojoTest {
     }
 
     @Test
+    void removesDisabledLockWithoutPruningSharedRedisDependencies() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("lock"));
+        Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
+        Path classesDirectory = Files.createDirectories(buildDirectory.resolve("classes"));
+        writeManifest(classesDirectory, Set.of(CocoFeature.LOCK));
+        Path archivePath = buildDirectory.resolve("demo.jar");
+        writeLockRedisArchive(archivePath);
+
+        CocoPackagePruneMojo mojo = new CocoPackagePruneMojo();
+        set(mojo, "project", project(baseDir, buildDirectory, classesDirectory));
+        set(mojo, "classesDirectory", classesDirectory.toFile());
+        set(mojo, "buildDirectory", buildDirectory.toFile());
+        set(mojo, "finalName", "demo");
+
+        mojo.execute();
+
+        assertThat(entries(archivePath))
+                .contains(
+                        "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/coco-idempotency-1.0.0-SNAPSHOT.jar",
+                        "BOOT-INF/lib/spring-data-redis-4.0.0.jar")
+                .doesNotContain("BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar");
+        assertThat(readEntry(archivePath, "BOOT-INF/classpath.idx"))
+                .contains("coco-scheduling", "coco-rate-limit", "coco-idempotency", "spring-data-redis")
+                .doesNotContain("coco-lock");
+        assertThat(readEntry(archivePath, "BOOT-INF/layers.idx"))
+                .contains("coco-scheduling", "coco-rate-limit", "coco-idempotency", "spring-data-redis")
+                .doesNotContain("coco-lock");
+        assertRunnableSpringBootArchive(archivePath);
+    }
+
+    @Test
     void rewritesStoredSpringBootIndexesWhenContentChanges() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("stored-index"));
         Path buildDirectory = Files.createDirectories(baseDir.resolve("target"));
@@ -310,6 +344,35 @@ class CocoPackagePruneMojoTest {
             add(outputStream, "BOOT-INF/lib/mybatis-plus-spring-boot4-starter-3.5.16.jar", "mybatis-starter");
             add(outputStream, "BOOT-INF/lib/mybatis-spring-3.0.5.jar", "mybatis-spring");
             add(outputStream, "BOOT-INF/lib/spring-jdbc-7.0.0.jar", "spring-jdbc");
+        }
+    }
+
+    private void writeLockRedisArchive(Path archivePath) throws Exception {
+        try (JarOutputStream outputStream = newBootArchive(archivePath)) {
+            addBootRuntimeEntries(outputStream);
+            add(outputStream, "BOOT-INF/classpath.idx", """
+                    - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/coco-idempotency-1.0.0-SNAPSHOT.jar"
+                    - "BOOT-INF/lib/spring-data-redis-4.0.0.jar"
+                    """);
+            add(outputStream, "BOOT-INF/layers.idx", """
+                    - "dependencies":
+                      - "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/coco-idempotency-1.0.0-SNAPSHOT.jar"
+                      - "BOOT-INF/lib/spring-data-redis-4.0.0.jar"
+                    """);
+            add(outputStream, "BOOT-INF/lib/coco-feature-web-1.0.0-SNAPSHOT.jar", "web");
+            add(outputStream, "BOOT-INF/lib/coco-scheduling-1.0.0-SNAPSHOT.jar", "scheduling");
+            add(outputStream, "BOOT-INF/lib/coco-lock-1.0.0-SNAPSHOT.jar", "lock");
+            add(outputStream, "BOOT-INF/lib/coco-rate-limit-1.0.0-SNAPSHOT.jar", "rate-limit");
+            add(outputStream, "BOOT-INF/lib/coco-idempotency-1.0.0-SNAPSHOT.jar", "idempotency");
+            add(outputStream, "BOOT-INF/lib/spring-data-redis-4.0.0.jar", "redis");
         }
     }
 
