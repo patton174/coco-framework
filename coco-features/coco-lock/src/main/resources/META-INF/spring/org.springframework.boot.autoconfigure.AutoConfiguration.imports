@@ -1,1 +1,2 @@
+io.github.coco.feature.lock.CocoLockRedisAutoConfiguration
 io.github.coco.feature.lock.CocoLockAutoConfiguration

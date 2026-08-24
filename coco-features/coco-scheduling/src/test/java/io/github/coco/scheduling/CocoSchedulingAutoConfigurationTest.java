@@ -8,10 +8,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.github.coco.feature.lock.CocoLockManager;
+import io.github.coco.feature.lock.CocoLockResult;
+import io.github.coco.feature.lock.CocoLockStore;
 import org.springframework.aop.framework.ProxyFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.TaskScheduler;
@@ -57,6 +61,28 @@ class CocoSchedulingAutoConfigurationTest {
             assertThat(context).doesNotHaveBean(CocoTaskExecutionGuard.class);
             assertThat(context).doesNotHaveBean("cocoScheduledTaskRegistrar");
         });
+    }
+
+    @Test
+    void defaultGuardStillStartsWhenCocoLockIsNotOnTheRuntimeClasspath() {
+        this.contextRunner.withClassLoader(new FilteredClassLoader(CocoLockManager.class)).run(context ->
+                assertThat(context).hasSingleBean(InMemoryCocoTaskExecutionGuard.class));
+    }
+
+    @Test
+    void cocoLockGuardRequiresManagerAndBindsDedicatedLockRequestProperties() {
+        this.contextRunner.withPropertyValues("coco.scheduling.guard-type=coco-lock").run(context ->
+                assertThat(context.getStartupFailure()).hasStackTraceContaining("CocoLockManager"));
+        this.contextRunner.withPropertyValues("coco.scheduling.guard-type=coco-lock",
+                        "coco.scheduling.guard.lease=12s", "coco.scheduling.guard.wait=0ms",
+                        "coco.scheduling.guard.poll-interval=7ms")
+                .withUserConfiguration(CocoLockGuardConfiguration.class).run(context -> {
+                    assertThat(context).hasSingleBean(CocoLockTaskExecutionGuard.class);
+                    CocoSchedulingProperties properties = context.getBean(CocoSchedulingProperties.class);
+                    assertThat(properties.getGuardType()).isEqualTo(CocoSchedulingGuardType.COCO_LOCK);
+                    assertThat(properties.getGuard().getLease()).isEqualTo(Duration.ofSeconds(12));
+                    assertThat(properties.getGuard().getPollInterval()).isEqualTo(Duration.ofMillis(7));
+                });
     }
 
     @Test
@@ -155,6 +181,13 @@ class CocoSchedulingAutoConfigurationTest {
             ProxyFactory proxyFactory = new ProxyFactory(holder.target);
             proxyFactory.setInterfaces(GenericScheduledContract.class);
             return (GenericScheduledContract<?>) proxyFactory.getProxy();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CocoLockGuardConfiguration {
+        @Bean CocoLockManager cocoLockManager() {
+            return request -> new CocoLockResult(CocoLockStore.AcquireResult.CONTENDED, null);
         }
     }
 

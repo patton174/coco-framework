@@ -7,10 +7,12 @@ import io.github.coco.i18n.CocoMessageService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
@@ -75,8 +77,29 @@ public class CocoSchedulingAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "coco.scheduling", name = "guard-type", havingValue = "in-memory", matchIfMissing = true)
     public CocoTaskExecutionGuard cocoTaskExecutionGuard() {
         return new InMemoryCocoTaskExecutionGuard();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "io.github.coco.feature.lock.CocoLockManager")
+    @ConditionalOnProperty(prefix = "coco.scheduling", name = "guard-type", havingValue = "coco-lock")
+    static class CocoLockTaskExecutionGuardConfiguration {
+
+        /**
+         * 创建跨实例 CocoLock 任务 guard。
+         *
+         * @param manager CocoLock 管理器
+         * @param properties 调度配置
+         * @return 跨实例任务执行 guard
+         */
+        @Bean
+        @ConditionalOnMissingBean(CocoTaskExecutionGuard.class)
+        CocoTaskExecutionGuard cocoLockTaskExecutionGuard(io.github.coco.feature.lock.CocoLockManager manager,
+                CocoSchedulingProperties properties) {
+            return new CocoLockTaskExecutionGuard(manager, properties.getGuard());
+        }
     }
 
     /**
