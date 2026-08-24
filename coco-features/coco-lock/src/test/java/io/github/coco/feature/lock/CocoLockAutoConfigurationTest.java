@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -96,6 +97,65 @@ class CocoLockAutoConfigurationTest {
         });
     }
 
+    @Test
+    void jdkProxyResolvesInterfaceMethodsTypesBridgesAndMethodPriority() {
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "spring.aop.proxy-target-class=false")
+                .withUserConfiguration(CustomStoreConfiguration.class, JdkProxyServices.class).run(context -> {
+                    context.getBean(InterfaceMethodLock.class).run();
+                    context.getBean(InterfaceTypeLock.class).run();
+                    context.getBean(GenericLock.class).convert("value");
+                    context.getBean(MethodPriorityLock.class).run();
+                    RecordingStore store = context.getBean(RecordingStore.class);
+                    assertThat(store.seenKeys).containsExactly("interface-method", "interface-type", "bridge-method",
+                            "implementation-method");
+                });
+    }
+
+    @Test
+    void jdkProxyCannotBypassAsyncRejectionFromInterfaceMethod() {
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "spring.aop.proxy-target-class=false")
+                .withUserConfiguration(JdkProxyServices.class).run(context -> {
+                    InterfaceAsyncLock.BODY_RAN.set(false);
+                    assertThatThrownBy(() -> context.getBean(InterfaceAsyncLock.class).run()).isInstanceOf(RuntimeException.class);
+                    assertThat(InterfaceAsyncLock.BODY_RAN.get()).isFalse();
+                });
+    }
+
+    @Test
+    void renewFailureBeforeNormalBusinessReturnFailsClosedWithoutSleep() throws Exception {
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.lease=100ms",
+                        "coco.lock.watchdog-interval=1ms")
+                .withUserConfiguration(RenewFailureStoreConfiguration.class, LostReturnServiceConfiguration.class)
+                .run(context -> {
+                    RenewFailureStore store = context.getBean(RenewFailureStore.class);
+                    LostReturnService service = context.getBean(LostReturnService.class);
+                    ExecutorService executor = Executors.newSingleThreadExecutor();
+                    try {
+                        CountDownLatch entered = new CountDownLatch(1);
+                        CountDownLatch allowBusinessReturn = new CountDownLatch(1);
+                        Future<String> result = executor.submit(() -> service.returnNormallyAfterLoss(entered, allowBusinessReturn));
+                        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+                        assertThat(store.renewEntered.await(2, TimeUnit.SECONDS)).isTrue();
+                        store.allowRenew.countDown();
+                        allowBusinessReturn.countDown();
+                        assertThatThrownBy(() -> result.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(RuntimeException.class);
+                    }
+                    finally { executor.shutdownNow(); }
+                });
+    }
+
+    @Test
+    void businessFailureIsPreservedWhenReleaseAlsoFails() {
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true")
+                .withUserConfiguration(ThrowingReleaseStoreConfiguration.class).run(context -> {
+                    assertThatThrownBy(() -> context.getBean(LockService.class).fails())
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessage("business failure")
+                            .satisfies(exception -> assertThat(exception.getSuppressed())
+                                    .anySatisfy(suppressed -> assertThat(suppressed).hasMessage("release failure")));
+                });
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class LockServices {
         @Bean LockService lockService() { return new LockService(); }
@@ -104,6 +164,30 @@ class CocoLockAutoConfigurationTest {
     @Configuration(proxyBeanMethods = false)
     static class CustomStoreConfiguration {
         @Bean RecordingStore recordingStore() { return new RecordingStore(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class JdkProxyServices {
+        @Bean InterfaceMethodLock interfaceMethodLock() { return new InterfaceMethodLockImpl(); }
+        @Bean InterfaceTypeLock interfaceTypeLock() { return new InterfaceTypeLockImpl(); }
+        @Bean GenericLock<String> genericLock() { return new GenericLockImpl(); }
+        @Bean MethodPriorityLock methodPriorityLock() { return new MethodPriorityLockImpl(); }
+        @Bean InterfaceAsyncLock interfaceAsyncLock() { return new InterfaceAsyncLockImpl(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class RenewFailureStoreConfiguration {
+        @Bean RenewFailureStore renewFailureStore() { return new RenewFailureStore(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ThrowingReleaseStoreConfiguration {
+        @Bean CocoLockStore throwingReleaseStore() { return new ThrowingReleaseStore(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class LostReturnServiceConfiguration {
+        @Bean LostReturnService lostReturnService(CocoLockManager manager) { return new LostReturnService(manager); }
     }
 
     @CocoLock(key = "class-key")
@@ -152,6 +236,93 @@ class CocoLockAutoConfigurationTest {
         }
         @Override public boolean release(CocoLockLease lease) {
             return this.entries.remove(lease.key(), lease);
+        }
+    }
+
+    static final class RenewFailureStore implements CocoLockStore {
+        private final CountDownLatch renewEntered = new CountDownLatch(1);
+        private final CountDownLatch allowRenew = new CountDownLatch(1);
+        @Override public AcquireResult acquire(CocoLockLease lease) { return AcquireResult.ACQUIRED; }
+        @Override public RenewResult renew(CocoLockLease lease) {
+            this.renewEntered.countDown();
+            try {
+                if (!this.allowRenew.await(2, TimeUnit.SECONDS)) { throw new AssertionError("renew was not released"); }
+            }
+            catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new AssertionError(exception); }
+            return RenewResult.NOT_OWNER;
+        }
+        @Override public boolean release(CocoLockLease lease) { return true; }
+    }
+
+    static final class ThrowingReleaseStore implements CocoLockStore {
+        @Override public AcquireResult acquire(CocoLockLease lease) { return AcquireResult.ACQUIRED; }
+        @Override public RenewResult renew(CocoLockLease lease) { return RenewResult.RENEWED; }
+        @Override public boolean release(CocoLockLease lease) { throw new IllegalStateException("release failure"); }
+    }
+
+    static class LostReturnService {
+        private final CocoLockManager manager;
+        LostReturnService(CocoLockManager manager) { this.manager = manager; }
+        @CocoLock(key = "lost-return")
+        String returnNormallyAfterLoss(CountDownLatch entered, CountDownLatch allowBusinessReturn) throws InterruptedException {
+            entered.countDown();
+            allowBusinessReturn.await(2, TimeUnit.SECONDS);
+            CocoLockRequest request = new CocoLockRequest("lost-return", java.time.Duration.ofMillis(100),
+                    java.time.Duration.ZERO, java.time.Duration.ofMillis(1));
+            while (true) {
+                CocoLockResult nested = this.manager.tryAcquire(request);
+                if (!nested.acquired()) { return "business value"; }
+                nested.handle().close();
+                Thread.onSpinWait();
+            }
+        }
+    }
+
+    interface InterfaceMethodLock {
+        @CocoLock(key = "interface-method")
+        String run();
+    }
+
+    static final class InterfaceMethodLockImpl implements InterfaceMethodLock {
+        @Override public String run() { return "method"; }
+    }
+
+    @CocoLock(key = "interface-type")
+    interface InterfaceTypeLock {
+        String run();
+    }
+
+    static final class InterfaceTypeLockImpl implements InterfaceTypeLock {
+        @Override public String run() { return "type"; }
+    }
+
+    interface GenericLock<T> {
+        T convert(T value);
+    }
+
+    static final class GenericLockImpl implements GenericLock<String> {
+        @Override @CocoLock(key = "bridge-method") public String convert(String value) { return value; }
+    }
+
+    @CocoLock(key = "interface-priority")
+    interface MethodPriorityLock {
+        String run();
+    }
+
+    static final class MethodPriorityLockImpl implements MethodPriorityLock {
+        @Override @CocoLock(key = "implementation-method") public String run() { return "method"; }
+    }
+
+    interface InterfaceAsyncLock {
+        @CocoLock(key = "interface-async")
+        CompletionStage<String> run();
+        AtomicBoolean BODY_RAN = new AtomicBoolean();
+    }
+
+    static final class InterfaceAsyncLockImpl implements InterfaceAsyncLock {
+        @Override public CompletableFuture<String> run() {
+            BODY_RAN.set(true);
+            return CompletableFuture.completedFuture("not-reached");
         }
     }
 }
