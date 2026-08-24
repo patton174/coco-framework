@@ -12833,6 +12833,122 @@ class AgentReviewTests(unittest.TestCase):
         self.assertNotIn("previous_response", correction)
         self.assertNotIn("untrusted-previous-response", client.calls[1][1])
 
+    def test_cross_review_out_of_range_first_response_is_fixed_by_bounded_correction(
+        self,
+    ) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["evidence_refs"][0].update(
+            start_line=999, end_line=999
+        )
+        valid = raw_verifier_report("evidence-verifier", context, finding_id)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [invalid, valid]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected cross-review system",
+                '{"task":"cross-review"}',
+                100,
+                lambda value: review.validate_raw_cross_report(
+                    value, "evidence-verifier", context, {finding_id}
+                ),
+                cross_review_fresh_retry=True,
+            )
+
+        self.assertEqual(valid, result)
+        self.assertEqual(2, len(client.calls))
+        self.assertIn("continuous interval", client.calls[1][0])
+        self.assertIn("start_line equal to end_line", client.calls[1][0])
+        correction = json.loads(client.calls[1][1])
+        self.assertIn("canonical line coverage", correction["validator_message"])
+        self.assertNotIn("previous_response", correction)
+
+    def test_cross_review_out_of_range_correction_still_fails_closed(self) -> None:
+        context = bound_context()
+        finding_id = "correctness:f1"
+        invalid = raw_verifier_report("evidence-verifier", context, finding_id)
+        invalid["verifications"][0]["evidence_refs"][0].update(
+            start_line=999, end_line=999
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return invalid
+
+        client = FakeClient()
+        with patch("builtins.print"):
+            with self.assertRaisesRegex(
+                review.ReportShapeError, "canonical line coverage"
+            ):
+                review.complete_with_shape_repair(
+                    client,
+                    "protected cross-review system",
+                    '{"task":"cross-review"}',
+                    100,
+                    lambda value: review.validate_raw_cross_report(
+                        value, "evidence-verifier", context, {finding_id}
+                    ),
+                    cross_review_fresh_retry=True,
+                )
+
+        self.assertEqual(review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls))
+
+    def test_cross_review_empty_and_non_json_retries_are_bounded_and_json_only(
+        self,
+    ) -> None:
+        for label in ("empty", "non-json"):
+            with self.subTest(response=label):
+
+                class FakeClient:
+                    def __init__(self) -> None:
+                        self.calls: list[tuple[str, str, int]] = []
+
+                    def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                        self.calls.append((system, user, max_tokens))
+                        raise review.RetryableModelOutputError(
+                            label,
+                            stop_reason="end_turn",
+                            response_chars=0 if label == "empty" else 12,
+                            accumulated_chars=0 if label == "empty" else 12,
+                        )
+
+                client = FakeClient()
+                with patch("builtins.print"):
+                    with self.assertRaises(review.RetryableModelOutputError):
+                        review.complete_with_shape_repair(
+                            client,
+                            "protected cross-review system",
+                            '{"task":"cross-review"}',
+                            100,
+                            lambda value: value,
+                            cross_review_fresh_retry=True,
+                        )
+
+                self.assertEqual(
+                    review.MODEL_COMPLETION_MAX_ATTEMPTS, len(client.calls)
+                )
+                for system, user, _ in client.calls[1:]:
+                    self.assertIn("one complete replacement JSON object", system)
+                    self.assertIn("no\nMarkdown", system)
+                    self.assertIn("at most one evidence reference", system)
+                    self.assertIn("start_line equal to end_line", system)
+                    self.assertEqual('{"task":"cross-review"}', user)
+
     def test_cross_review_max_tokens_retry_discards_large_partial_response(
         self,
     ) -> None:
