@@ -22,6 +22,10 @@ public class CocoRateLimitProperties {
 
     private final InMemory inMemory = new InMemory();
 
+    private CocoRateLimitStoreType storeType = CocoRateLimitStoreType.IN_MEMORY;
+
+    private final Redis redis = new Redis();
+
     private final Filter filter = new Filter();
 
     private final TrustedProxy trustedProxy = new TrustedProxy();
@@ -82,6 +86,25 @@ public class CocoRateLimitProperties {
         InMemory copy = InMemory.copyOf(inMemory);
         this.inMemory.setMaxEntries(copy.getMaxEntries());
         this.inMemory.setCleanupIntervalSeconds(copy.getCleanupIntervalSeconds());
+    }
+
+    public CocoRateLimitStoreType getStoreType() {
+        return this.storeType;
+    }
+
+    public void setStoreType(CocoRateLimitStoreType storeType) {
+        this.storeType = storeType == null ? CocoRateLimitStoreType.IN_MEMORY : storeType;
+    }
+
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring configuration binding requires a live nested property.")
+    public Redis getRedis() {
+        return this.redis;
+    }
+
+    public void setRedis(Redis redis) {
+        Redis copy = Redis.copyOf(redis);
+        this.redis.setKeyPrefix(copy.getKeyPrefix());
+        this.redis.setTemplateBeanName(copy.getTemplateBeanName());
     }
 
     @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "The established JavaBean API intentionally exposes a live nested property; filters take a snapshot at construction.")
@@ -158,6 +181,34 @@ public class CocoRateLimitProperties {
             }
             copy.setMaxEntries(source.getMaxEntries());
             copy.setCleanupIntervalSeconds(source.getCleanupIntervalSeconds());
+            return copy;
+        }
+    }
+
+    /** Redis shared store configuration. */
+    public static class Redis {
+
+        private String keyPrefix = "coco:rate-limit:";
+        private String templateBeanName;
+
+        public String getKeyPrefix() {
+            return this.keyPrefix;
+        }
+
+        public void setKeyPrefix(String keyPrefix) {
+            this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "coco:rate-limit:" : keyPrefix.trim();
+        }
+        public String getTemplateBeanName() { return this.templateBeanName; }
+        public void setTemplateBeanName(String templateBeanName) {
+            this.templateBeanName = templateBeanName == null || templateBeanName.isBlank() ? null : templateBeanName.trim();
+        }
+
+        static Redis copyOf(Redis source) {
+            Redis copy = new Redis();
+            if (source != null) {
+                copy.setKeyPrefix(source.getKeyPrefix());
+                copy.setTemplateBeanName(source.getTemplateBeanName());
+            }
             return copy;
         }
     }

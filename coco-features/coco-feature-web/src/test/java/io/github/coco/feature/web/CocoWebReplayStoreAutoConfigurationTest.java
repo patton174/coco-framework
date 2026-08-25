@@ -3,11 +3,15 @@ package io.github.coco.feature.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import javax.sql.DataSource;
+import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.coco.common.autoconfigure.CocoCommonAutoConfiguration;
 import io.github.coco.feature.web.replay.CocoReplayStore;
 import io.github.coco.feature.web.replay.InMemoryCocoReplayStore;
 import io.github.coco.feature.web.replay.JdbcCocoReplayStore;
+import io.github.coco.feature.web.replay.RedisCocoReplayStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -22,6 +26,9 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.script.RedisScript;
 
 class CocoWebReplayStoreAutoConfigurationTest {
 
@@ -29,12 +36,14 @@ class CocoWebReplayStoreAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
                     CocoWebJdbcReplayAutoConfiguration.class,
+                    CocoWebRedisReplayAutoConfiguration.class,
                     CocoWebAutoConfiguration.class));
 
     private final WebApplicationContextRunner webContextRunner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     CocoCommonAutoConfiguration.class,
                     CocoWebJdbcReplayAutoConfiguration.class,
+                    CocoWebRedisReplayAutoConfiguration.class,
                     CocoWebAutoConfiguration.class));
 
     @Test
@@ -55,6 +64,87 @@ class CocoWebReplayStoreAutoConfigurationTest {
                     assertThat(context).hasSingleBean(CocoReplayStore.class);
                     assertThat(context).hasSingleBean(JdbcCocoReplayStore.class);
                     assertThat(context).doesNotHaveBean(InMemoryCocoReplayStore.class);
+                });
+    }
+
+    @Test
+    void createsRedisStoreOnlyWhenExplicitlySelectedAndTemplateExists() {
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> {
+                    assertThat(context).hasSingleBean(RedisCocoReplayStore.class);
+                    assertThat(context).doesNotHaveBean(InMemoryCocoReplayStore.class);
+                });
+        CocoReplayStore customStore = (key, expiresAt) -> true;
+        this.webContextRunner
+                .withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=missingTemplate")
+                .withBean(CocoReplayStore.class, () -> customStore)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(CocoReplayStore.class)).isSameAs(customStore);
+                });
+    }
+
+    @Test
+    void redisStoreUsesSingleOrPrimaryTemplateAndBacksOffOtherwise() {
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> assertThat(context).hasSingleBean(RedisCocoReplayStore.class));
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    context.getBean(CocoReplayStore.class).reserve(new io.github.coco.feature.web.replay.CocoReplayKey(
+                            "app", null, "1", "nonce", "POST", "/orders"), Instant.now().plusSeconds(60));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                });
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=  secondaryTemplate  ")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    context.getBean(CocoReplayStore.class).reserve(new io.github.coco.feature.web.replay.CocoReplayKey(
+                            "app", null, "1", "nonce", "POST", "/orders"), Instant.now().plusSeconds(60));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                });
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis")
+                .withUserConfiguration(NonPrimaryRedisTemplates.class)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("candidates=[firstTemplate, secondTemplate]")
+                            .hasStackTraceContaining("coco.web.replay.redis.template-bean-name");
+                });
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=missingTemplate")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.web.replay.redis.template-bean-name")
+                            .hasStackTraceContaining("missingTemplate");
+                });
+        this.webContextRunner.withPropertyValues("coco.web.replay.store-type=redis",
+                        "coco.web.replay.redis.template-bean-name=notATemplate")
+                .withBean("notATemplate", String.class, () -> "wrong type")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.web.replay.redis.template-bean-name")
+                            .hasStackTraceContaining("notATemplate");
+                });
+        this.contextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.web.replay.store-type=redis")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(CocoReplayStore.class);
+                });
+        this.webContextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.web.replay.store-type=redis")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(NoSuchBeanDefinitionException.class)
+                            .hasStackTraceContaining(CocoReplayStore.class.getName());
                 });
     }
 
@@ -226,5 +316,24 @@ class CocoWebReplayStoreAutoConfigurationTest {
         JdbcOperations secondJdbcOperations() {
             return jdbcOperations("second");
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class PrimaryRedisTemplates {
+        @Bean @Primary TrackingRedisTemplate primaryTemplate() { return new TrackingRedisTemplate(); }
+        @Bean TrackingRedisTemplate secondaryTemplate() { return new TrackingRedisTemplate(); }
+    }
+    @Configuration(proxyBeanMethods = false)
+    static class NonPrimaryRedisTemplates {
+        @Bean TrackingRedisTemplate firstTemplate() { return new TrackingRedisTemplate(); }
+        @Bean TrackingRedisTemplate secondTemplate() { return new TrackingRedisTemplate(); }
+    }
+    static final class TrackingRedisTemplate extends StringRedisTemplate {
+        private final AtomicInteger calls = new AtomicInteger();
+        TrackingRedisTemplate() { super(new LettuceConnectionFactory()); }
+        @Override @SuppressWarnings("unchecked") public <T> T execute(RedisScript<T> script, List<String> keys, Object... args) {
+            this.calls.incrementAndGet(); return (T) Long.valueOf(1L);
+        }
+        int calls() { return this.calls.get(); }
     }
 }

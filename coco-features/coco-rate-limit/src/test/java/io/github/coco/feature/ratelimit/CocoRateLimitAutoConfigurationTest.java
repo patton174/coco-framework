@@ -6,6 +6,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Locale;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,18 +17,28 @@ import io.github.coco.i18n.CocoMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 class CocoRateLimitAutoConfigurationTest {
 
     private final WebApplicationContextRunner contextRunner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CocoRateLimitAutoConfiguration.class))
+            .withUserConfiguration(RateLimitPrerequisites.class);
+
+    private final ApplicationContextRunner redisContextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
             .withUserConfiguration(RateLimitPrerequisites.class);
 
     @Test
@@ -106,6 +118,80 @@ class CocoRateLimitAutoConfigurationTest {
                 .run(this::assertRateLimitInfrastructureIsAbsent);
     }
 
+    @Test
+    void redisSelectionRequiresTemplateAndBacksOffForCustomStore() {
+        this.contextRunner
+                .withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> assertThat(context).hasSingleBean(RedisCocoRateLimitStore.class));
+        CocoRateLimitStore customStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
+                permit.resetAt(), true);
+        this.contextRunner
+                .withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=missingTemplate")
+                .withBean(CocoRateLimitStore.class, () -> customStore)
+                .run(context -> assertThat(context.getBean(CocoRateLimitStore.class)).isSameAs(customStore));
+    }
+
+    @Test
+    void redisStoreUsesSingleOrPrimaryTemplateAndBacksOffOtherwise() {
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> assertThat(context).hasSingleBean(RedisCocoRateLimitStore.class));
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    context.getBean(CocoRateLimitStore.class).acquire(new CocoRateLimitPermit(
+                            new CocoRateLimitKey("orders", "client"), 1, Instant.now().plusSeconds(60)));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                });
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=  secondaryTemplate  ")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
+                    context.getBean(CocoRateLimitStore.class).acquire(new CocoRateLimitPermit(
+                            new CocoRateLimitKey("orders", "client"), 1, Instant.now().plusSeconds(60)));
+                    assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
+                    assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
+                });
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .withUserConfiguration(NonPrimaryRedisTemplates.class)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("candidates=[firstTemplate, secondTemplate]")
+                            .hasStackTraceContaining("coco.rate-limit.redis.template-bean-name");
+                });
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=missingTemplate")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.rate-limit.redis.template-bean-name")
+                            .hasStackTraceContaining("missingTemplate");
+                });
+        this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
+                        "coco.rate-limit.redis.template-bean-name=notATemplate")
+                .withBean("notATemplate", String.class, () -> "wrong type")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("coco.rate-limit.redis.template-bean-name")
+                            .hasStackTraceContaining("notATemplate");
+                });
+        this.redisContextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(CocoRateLimitStore.class);
+                });
+        this.contextRunner.withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
+                .withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
     private void assertRateLimitInfrastructure(org.springframework.boot.test.context.assertj.AssertableWebApplicationContext context) {
         assertThat(context).hasSingleBean(CocoRateLimitProperties.class);
         assertThat(context).hasSingleBean(CocoRateLimitKeyResolver.class);
@@ -151,6 +237,29 @@ class CocoRateLimitAutoConfigurationTest {
         ObjectMapper objectMapper() {
             return new ObjectMapper();
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class PrimaryRedisTemplates {
+        @Bean @Primary TrackingRedisTemplate primaryTemplate() { return new TrackingRedisTemplate(); }
+        @Bean TrackingRedisTemplate secondaryTemplate() { return new TrackingRedisTemplate(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class NonPrimaryRedisTemplates {
+        @Bean TrackingRedisTemplate firstTemplate() { return new TrackingRedisTemplate(); }
+        @Bean TrackingRedisTemplate secondTemplate() { return new TrackingRedisTemplate(); }
+    }
+
+    static final class TrackingRedisTemplate extends StringRedisTemplate {
+        private final AtomicInteger calls = new AtomicInteger();
+        TrackingRedisTemplate() { super(new LettuceConnectionFactory()); }
+        @Override @SuppressWarnings("unchecked")
+        public <T> T execute(RedisScript<T> script, List<String> keys, Object... args) {
+            this.calls.incrementAndGet();
+            return (T) Long.valueOf(1L);
+        }
+        int calls() { return this.calls.get(); }
     }
 
     private static final class TestMessageService implements CocoMessageService {

@@ -52,6 +52,7 @@ class CocoWebConfigurationMetadataTest {
                 .toList();
         assertEquals(List.of(
                 CocoWebJdbcReplayAutoConfiguration.class.getName(),
+                CocoWebRedisReplayAutoConfiguration.class.getName(),
                 CocoWebAutoConfiguration.class.getName()), autoConfigurations);
     }
 
@@ -130,6 +131,7 @@ class CocoWebConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.web.replay.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.store-type\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.jdbc.table-name\""));
+        assertTrue(content.contains("\"name\": \"coco.web.replay.redis.key-prefix\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.required\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-signed-requests\""));
         assertTrue(content.contains("\"name\": \"coco.web.replay.protect-encrypted-requests\""));
@@ -213,9 +215,10 @@ class CocoWebConfigurationMetadataTest {
                 "header-then-parameter", "parameter-then-header");
         assertHintValues(metadata, "coco.web.replay.metadata-source", "header", "parameter",
                 "header-then-parameter", "parameter-then-header");
-        assertHintValues(metadata, "coco.web.replay.store-type", "in-memory", "jdbc");
+        assertHintValues(metadata, "coco.web.replay.store-type", "in-memory", "jdbc", "redis");
         assertAdditionalProperty(metadata, "coco.web.replay.store-type");
         assertAdditionalProperty(metadata, "coco.web.replay.jdbc.table-name");
+        assertAdditionalProperty(metadata, "coco.web.replay.redis.key-prefix");
         assertHintValues(metadata, "coco.web.encryption.key-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.iv-encoding", "base64", "hex", "utf8", "raw");
         assertHintValues(metadata, "coco.web.encryption.payload-encoding", "base64", "hex", "utf8", "raw");

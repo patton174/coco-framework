@@ -21,7 +21,7 @@
     {
       "name": "coco.web.replay.store-type",
       "type": "io.github.coco.feature.web.replay.CocoReplayStoreType",
-      "description": "防重放存储类型；默认使用进程内存储，只有显式选择 JDBC 时才使用业务现有的 JdbcOperations。",
+      "description": "防重放存储类型；默认使用进程内存储，显式选择 JDBC 或 Redis 时使用对应共享存储。",
       "defaultValue": "in-memory"
     },
     {
@@ -29,6 +29,12 @@
       "type": "java.lang.String",
       "description": "业务预建的 JDBC 防重放键表名；支持普通表名或单层 schema-qualified 表名，框架不会执行 DDL。",
       "defaultValue": "coco_replay_key"
+    },
+    {
+      "name": "coco.web.replay.redis.key-prefix",
+      "type": "java.lang.String",
+      "description": "Redis 防重放键前缀；框架只将防重放键的 SHA-256 摘要写入 Redis。",
+      "defaultValue": "coco:replay:"
     },
     {
       "name": "coco.web.signature.matcher.required[].methods",
@@ -102,6 +108,10 @@
         {
           "value": "jdbc",
           "description": "使用业务项目提供的单候选 JdbcOperations 和预建表共享防重放键。"
+        },
+        {
+          "value": "redis",
+          "description": "使用 Spring Data Redis 和 Lua 原子占用共享防重放键。"
         }
       ]
     },

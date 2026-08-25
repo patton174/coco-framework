@@ -19,10 +19,11 @@ import org.w3c.dom.NodeList;
 class CocoRateLimitStarterDependencyContractTest {
 
     @Test
-    void composesRateLimitModule() throws Exception {
+    void delegatesOptionalFeatureModulesToFeatureAssembly() throws Exception {
         Path starterPom = Path.of(System.getProperty("basedir", ".")).toAbsolutePath().resolve("pom.xml");
 
-        assertThat(directDependencyArtifactIds(starterPom)).contains("coco-rate-limit");
+        assertThat(directDependencyArtifactIds(starterPom))
+                .doesNotContain("coco-rate-limit", "coco-idempotency");
     }
 
     private Set<String> directDependencyArtifactIds(Path pom) throws Exception {
