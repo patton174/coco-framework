@@ -37,6 +37,12 @@ only to the supplied canonical source ID whose catalog `trust_domain` is
 `protected-policy` or `base-spec`. Keep code-source IDs limited to code checks;
 never put either policy check on `head-code` or `base-code`.
 
+For `evidence-verifier`, this is a field-level rule for every
+`verifications[].evidence_refs[].checks` entry: an entry that lists
+`change_scope` must use only a `protected-policy` or `base-spec` source ID.
+Never attach `change_scope` to head code, a PR diff, comparison code, or any
+other evidence type, even when that evidence supports a code-fact check.
+
 The protected system supplies a canonical evidence source catalog for this
 call. For every finding, output at most one raw evidence reference. If a
 reference is needed, copy only its `source_id` verbatim from that catalog and

@@ -3556,6 +3556,72 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("schema fields mismatch", correction["validator_message"])
         self.assertEqual(expected, output)
 
+    def test_command_cross_repairs_evidence_verifier_change_scope_domain(self) -> None:
+        context = bound_context()
+        invalid = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        invalid_refs = invalid["verifications"][0]["evidence_refs"]
+        invalid_refs[0]["checks"].append("change_scope")
+        invalid_refs[1]["checks"].remove("change_scope")
+        valid = raw_verifier_report("evidence-verifier", context, "correctness:f1")
+        expected = verifier_report("evidence-verifier", context, "correctness:f1")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports = root / "specialists"
+            prompt_root = root / "prompts-root"
+            reports.mkdir()
+            (prompt_root / "prompts").mkdir(parents=True)
+            (prompt_root / "prompts/cross-review.md").write_text(
+                "Return strict JSON.", encoding="utf-8"
+            )
+            for role in review.role_map(config(), "specialists"):
+                report = specialist_report(role, context)
+                if role != "correctness":
+                    report["findings"] = []
+                review.write_json(reports / f"{role}.json", report)
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_path = root / "verifier.json"
+            review.write_json(config_path, config())
+            review.write_json(context_path, context)
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict("os.environ", model_env("openai-responses"), clear=True),
+                patch("builtins.print"),
+            ):
+                client_class.return_value.complete.side_effect = [invalid, valid]
+                self.assertEqual(
+                    0,
+                    review.command_cross(
+                        SimpleNamespace(
+                            role="evidence-verifier",
+                            config=config_path,
+                            prompt_root=prompt_root,
+                            context=context_path,
+                            reports=reports,
+                            output=output_path,
+                        )
+                    ),
+                )
+                calls = client_class.return_value.complete.call_args_list
+                output = review.read_json(output_path)
+
+        self.assertEqual(2, len(calls))
+        self.assertIn("verifications[].evidence_refs[].checks", calls[0].args[0])
+        correction_system = calls[1].args[0]
+        self.assertIn("evidence-verifier", correction_system)
+        self.assertIn("verifications[].evidence_refs[].checks", correction_system)
+        self.assertIn("protected-policy", correction_system)
+        self.assertIn("base-spec", correction_system)
+        self.assertIn("head-code", correction_system)
+        self.assertIn("base-code", correction_system)
+        self.assertIn("PR diff", correction_system)
+        correction = json.loads(calls[1].args[1])
+        self.assertEqual(
+            "Cross-review evidence-verifier change_scope evidence must be protected policy or a base specification.",
+            correction["validator_message"],
+        )
+        self.assertEqual(expected, output)
+
     def test_command_cross_rejects_three_normalized_envelopes(self) -> None:
         context = bound_context()
         normalized = verifier_report("evidence-verifier", context, "correctness:f1")
