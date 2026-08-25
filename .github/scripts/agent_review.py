@@ -3492,6 +3492,18 @@ as `REJECT` or `INSUFFICIENT` and set all four candidate fields to JSON null:
 `previous_anchor`. Keep `current_group_id` and `current_anchor` bound to the
 supplied current group. Do not change the relationship to `ADOPT`; ADOPT alone
 requires all four candidate fields to match one supplied candidate exactly."""
+                elif (
+                    str(exc)
+                    == "Cross-review evidence-verifier change_scope evidence must be protected policy or a base specification."
+                ):
+                    targeted_correction = """## Protected evidence-verifier change_scope correction
+For `evidence-verifier`, every `verifications[].evidence_refs[].checks` entry
+that lists `change_scope` must cite only a canonical catalog source whose
+`trust_domain` is `protected-policy` or `base-spec`. Re-read the original
+catalog and select an allowed source ID for that field. Never attach
+`change_scope` to `head-code`, `base-code`, a PR diff, or any other evidence
+domain, even when that source supports a code-fact check. Generate a complete
+replacement JSON object that satisfies this field-level routing rule."""
                 correction_sections = [
                     original_system,
                     """## Protected cross-review fresh protocol correction
@@ -3856,7 +3868,12 @@ def validate_verifier_evidence_domains(
                 check in {"severity", "change_scope"}
                 and domain not in POLICY_EVIDENCE_DOMAINS
             ):
-                raise ReviewError(
+                error_type = (
+                    ReportShapeError
+                    if role == "evidence-verifier" and check == "change_scope"
+                    else ReviewError
+                )
+                raise error_type(
                     f"Cross-review {role} {check} evidence must be protected policy or a base specification."
                 )
             if checks[check] == "CONTRADICTED" and domain not in (
@@ -4393,7 +4410,11 @@ def command_cross(args: argparse.Namespace) -> int:
             "`protected-policy` or `base-spec`. The allowed source IDs for those "
             f"checks are exactly {canonical_json([item['source_id'] for item in context_evidence_catalog(context) if item['trust_domain'] in POLICY_EVIDENCE_DOMAINS])}. "
             "Never attach either check to `head-code` or `base-code`, even when "
-            "the cited changed lines support another check.",
+            "the cited changed lines support another check. For `evidence-verifier`, "
+            "this applies to every `verifications[].evidence_refs[].checks` entry "
+            "that lists `change_scope`: it must use only a `protected-policy` or "
+            "`base-spec` source ID, never head code, a PR diff, or another evidence "
+            "domain.",
         ]
     )
     max_tokens = int(
