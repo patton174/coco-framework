@@ -91,6 +91,37 @@ class CocoFeaturesMojoTest {
     }
 
     @Test
+    void doesNotInjectDisabledRateLimitAndIdempotencyDependencies() throws Exception {
+        Path baseDir = Files.createDirectories(this.tempDir.resolve("without-rate-limit-and-idempotency"));
+        Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
+        Path output = Files.createDirectories(baseDir.resolve("target/classes"));
+        Files.writeString(resources.resolve("application.yml"), """
+                coco:
+                  features:
+                    disabled:
+                      - rate-limit
+                      - idempotency
+                """, StandardCharsets.UTF_8);
+
+        MavenProject project = project(baseDir, output);
+        CocoFeaturesMojo mojo = new CocoFeaturesMojo();
+        set(mojo, "project", project);
+        set(mojo, "outputDirectory", output.toFile());
+        set(mojo, "classesDirectory", output.toFile());
+        set(mojo, "featureGroupId", "io.github.patton174");
+        set(mojo, "featureVersion", "1.0.0-SNAPSHOT");
+
+        mojo.execute();
+
+        CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(
+                Files.newInputStream(output.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION)));
+        assertThat(manifest.enabledFeatureIds()).doesNotContain("rate-limit", "idempotency");
+        assertThat(project.getModel().getDependencies())
+                .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
+                .doesNotContain(featureCoordinate(CocoFeature.RATE_LIMIT), featureCoordinate(CocoFeature.IDEMPOTENCY));
+    }
+
+    @Test
     void keepsAuditEnabledAndAddsDependencyWhenWebIsDisabled() throws Exception {
         Path baseDir = Files.createDirectories(this.tempDir.resolve("without-web"));
         Path resources = Files.createDirectories(baseDir.resolve("src/main/resources"));
