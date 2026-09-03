@@ -65,6 +65,6 @@ public record CocoResponseMetadata(String traceId, String path) {
     }
 
     private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return io.github.coco.context.CocoStrings.blankToNull(value);
     }
 }
