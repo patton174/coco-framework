@@ -7,6 +7,7 @@ import io.github.coco.feature.security.context.CocoSecurityContextResolver;
 import io.github.coco.feature.security.context.HolderCocoSecurityContextResolver;
 import io.github.coco.feature.security.web.CocoSecurityWebFilter;
 import io.github.coco.feature.security.web.CocoWebSecurityContextResolver;
+import io.github.coco.feature.security.web.CocoSecurityWebHeaderProperties;
 import io.github.coco.feature.security.web.HeaderCocoWebSecurityContextResolver;
 import jakarta.servlet.Filter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -17,6 +18,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 
 /**
@@ -39,6 +42,8 @@ import org.springframework.core.Ordered;
 @ConditionalOnCocoFeature(CocoFeature.SECURITY)
 @EnableConfigurationProperties(CocoSecurityProperties.class)
 public class CocoSecurityAutoConfiguration {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CocoSecurityAutoConfiguration.class);
 
     /**
      * <p>
@@ -76,7 +81,15 @@ public class CocoSecurityAutoConfiguration {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnMissingBean
     public CocoWebSecurityContextResolver cocoWebSecurityContextResolver(CocoSecurityProperties properties) {
-        return new HeaderCocoWebSecurityContextResolver(properties.getWeb().getHeader());
+        CocoSecurityWebHeaderProperties headerProperties = properties.getWeb().getHeader();
+        if (headerProperties.isEnabled()) {
+            LOGGER.warn("Coco security is using HeaderCocoWebSecurityContextResolver, which trusts "
+                    + "upstream HTTP headers to build the security context. "
+                    + "This resolver MUST NOT be exposed directly to the internet without a trusted "
+                    + "gateway that sets these headers. "
+                    + "Provide a custom CocoWebSecurityContextResolver bean to suppress this warning.");
+        }
+        return new HeaderCocoWebSecurityContextResolver(headerProperties);
     }
 
     /**
