@@ -1,30 +1,111 @@
 /**
- * Any CSS included here will be global. The classic template
- * bundles Infima by default. Infima is a CSS framework designed to
- * work well for content-centric websites.
+ * Coco Framework — warm cocoa / terracotta editorial-technical theme.
  */
 
-/* You can override the default Infima variables here. */
 :root {
-  --ifm-color-primary: #2e8555;
-  --ifm-color-primary-dark: #29784c;
-  --ifm-color-primary-darker: #277148;
-  --ifm-color-primary-darkest: #205d3b;
-  --ifm-color-primary-light: #33925d;
-  --ifm-color-primary-lighter: #359962;
-  --ifm-color-primary-lightest: #3cad6e;
-  --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  /* Terracotta accent — deliberately not the default blue/purple dev-docs palette. */
+  --ifm-color-primary: #b4441f;
+  --ifm-color-primary-dark: #a23d1c;
+  --ifm-color-primary-darker: #993a1a;
+  --ifm-color-primary-darkest: #7e3016;
+  --ifm-color-primary-light: #c64b22;
+  --ifm-color-primary-lighter: #d15026;
+  --ifm-color-primary-lightest: #e0693d;
+
+  --coco-cream: #faf6f0;
+  --coco-cream-deep: #f3ece1;
+  --coco-espresso: #2b1d16;
+  --coco-espresso-soft: #4a3529;
+  --coco-amber: #e08a1e;
+  --coco-border: rgba(43, 29, 22, 0.12);
+
+  --ifm-background-color: var(--coco-cream);
+  --ifm-background-surface-color: #ffffff;
+  --ifm-font-color-base: var(--coco-espresso);
+  --ifm-heading-color: var(--coco-espresso);
+
+  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC',
+    Helvetica, Arial, sans-serif;
+  --ifm-heading-font-family: 'Bricolage Grotesque', var(--ifm-font-family-base);
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular,
+    Menlo, Consolas, monospace;
+
+  --ifm-code-font-size: 92%;
+  --ifm-heading-font-weight: 700;
+  --ifm-h1-font-size: 2.6rem;
+  --ifm-global-radius: 10px;
+  --docusaurus-highlighted-code-line-bg: rgba(180, 68, 31, 0.12);
 }
 
-/* For readability concerns, you should choose a lighter palette in dark mode. */
 [data-theme='dark'] {
-  --ifm-color-primary: #25c2a0;
-  --ifm-color-primary-dark: #21af90;
-  --ifm-color-primary-darker: #1fa588;
-  --ifm-color-primary-darkest: #1a8870;
-  --ifm-color-primary-light: #29d5b0;
-  --ifm-color-primary-lighter: #32d8b4;
-  --ifm-color-primary-lightest: #4fddbf;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --ifm-color-primary: #f0873a;
+  --ifm-color-primary-dark: #ed7620;
+  --ifm-color-primary-darker: #e46d18;
+  --ifm-color-primary-darkest: #bc5914;
+  --ifm-color-primary-light: #f39854;
+  --ifm-color-primary-lighter: #f5a162;
+  --ifm-color-primary-lightest: #f8bd91;
+
+  --coco-cream: #1c1512;
+  --coco-cream-deep: #241a15;
+  --coco-espresso: #f3e9df;
+  --coco-espresso-soft: #cdbcae;
+  --coco-border: rgba(243, 233, 223, 0.12);
+
+  --ifm-background-color: #1c1512;
+  --ifm-background-surface-color: #241a15;
+  --ifm-font-color-base: #f3e9df;
+  --ifm-heading-color: #f8f2ea;
+  --docusaurus-highlighted-code-line-bg: rgba(240, 135, 58, 0.16);
 }
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Grain overlay for atmosphere and depth. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.navbar {
+  backdrop-filter: saturate(150%) blur(10px);
+  background-color: color-mix(in srgb, var(--ifm-background-color) 82%, transparent);
+  border-bottom: 1px solid var(--coco-border);
+  box-shadow: none;
+}
+
+.navbar__title {
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Section headings get a small terracotta tick for editorial rhythm. */
+.markdown > h2 {
+  padding-left: 0.85rem;
+  border-left: 4px solid var(--ifm-color-primary);
+  line-height: 1.25;
+}
+
+article a {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.menu__link--active {
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation: none !important; transition: none !important; }
+}
+

@@ -1,23 +1,180 @@
-/**
- * CSS files with the .module.css suffix will be treated as CSS modules
- * and scoped locally.
- */
-
 .heroBanner {
-  padding: 4rem 0;
-  text-align: center;
   position: relative;
   overflow: hidden;
+  padding: 7rem 0 6rem;
+  text-align: center;
+  background:
+    radial-gradient(60% 120% at 15% 10%, rgba(224, 138, 30, 0.22), transparent 60%),
+    radial-gradient(50% 100% at 85% 20%, rgba(180, 68, 31, 0.20), transparent 55%),
+    radial-gradient(80% 120% at 50% 100%, rgba(224, 138, 30, 0.10), transparent 60%);
 }
 
-@media screen and (max-width: 996px) {
-  .heroBanner {
-    padding: 2rem;
-  }
+.heroBanner::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  z-index: 0;
+  background:
+    conic-gradient(from 120deg at 50% 50%,
+      rgba(224, 138, 30, 0.08),
+      rgba(180, 68, 31, 0.10),
+      rgba(224, 138, 30, 0.06),
+      rgba(180, 68, 31, 0.10));
+  filter: blur(60px);
+  animation: heroDrift 22s linear infinite;
+}
+
+@keyframes heroDrift {
+  from { transform: rotate(0deg) scale(1.1); }
+  to { transform: rotate(360deg) scale(1.1); }
+}
+
+.heroInner {
+  position: relative;
+  z-index: 1;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.9rem;
+  margin-bottom: 1.6rem;
+  border: 1px solid var(--coco-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ifm-background-surface-color) 70%, transparent);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--coco-espresso-soft);
+  opacity: 0;
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.05s forwards;
+}
+
+.badgeDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ifm-color-primary) 25%, transparent);
+}
+
+.heroTitle {
+  font-family: var(--ifm-heading-font-family);
+  font-size: clamp(2.8rem, 7vw, 5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  margin: 0;
+  background: linear-gradient(100deg, var(--coco-espresso) 30%, var(--ifm-color-primary) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  opacity: 0;
+  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.12s forwards;
+}
+
+[data-theme='dark'] .heroTitle {
+  background: linear-gradient(100deg, #f8f2ea 30%, var(--ifm-color-primary) 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.heroSubtitle {
+  max-width: 34rem;
+  margin: 1.4rem auto 0;
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: var(--coco-espresso-soft);
+  opacity: 0;
+  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.22s forwards;
 }
 
 .buttons {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 1rem;
+  margin-top: 2.2rem;
+  flex-wrap: wrap;
+  opacity: 0;
+  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.32s forwards;
+}
+
+.primaryBtn,
+.ghostBtn {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.primaryBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px -8px var(--ifm-color-primary);
+}
+
+.ghostBtn:hover {
+  transform: translateY(-2px);
+}
+
+.install {
+  max-width: 30rem;
+  margin: 3rem auto 0;
+  padding: 0;
+  border: 1px solid var(--coco-border);
+  border-radius: 12px;
+  background: var(--ifm-background-surface-color);
+  overflow: hidden;
+  text-align: left;
+  box-shadow: 0 24px 60px -30px rgba(43, 29, 22, 0.4);
+  opacity: 0;
+  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.44s forwards;
+}
+
+.installBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.95rem;
+  border-bottom: 1px solid var(--coco-border);
+  background: color-mix(in srgb, var(--ifm-color-primary) 8%, transparent);
+}
+
+.dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--coco-border);
+}
+
+.installLabel {
+  margin-left: auto;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  color: var(--coco-espresso-soft);
+}
+
+.install pre {
+  margin: 0;
+  padding: 1rem 1.15rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--coco-espresso);
+  background: transparent;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.install .tok {
+  color: var(--ifm-color-primary);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner { padding: 4.5rem 1.25rem 4rem; }
 }
