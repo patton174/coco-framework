@@ -53,7 +53,11 @@ class CocoWebConfigurationMetadataTest {
         assertEquals(List.of(
                 CocoWebJdbcReplayAutoConfiguration.class.getName(),
                 CocoWebRedisReplayAutoConfiguration.class.getName(),
-                CocoWebAutoConfiguration.class.getName()), autoConfigurations);
+                CocoWebAutoConfiguration.class.getName(),
+                io.github.coco.feature.web.cors.CocoCorsAutoConfiguration.class.getName(),
+                io.github.coco.feature.web.page.CocoPageAutoConfiguration.class.getName(),
+                io.github.coco.feature.web.headers.CocoSecurityHeadersAutoConfiguration.class.getName()),
+                autoConfigurations);
     }
 
     @Test
