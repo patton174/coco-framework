@@ -10,22 +10,20 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: docs-pages
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build Docusaurus site
+  build-and-deploy:
+    name: Build and publish Docusaurus site
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
@@ -42,23 +40,24 @@ jobs:
         working-directory: website
         run: npm run build
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
-        with:
-          path: website/build
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+      - name: Publish to gh-pages
+        env:
+          # Scoped to this step only; the published tree is static HTML with no secrets.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          publish_dir="$(mktemp -d)"
+          cp -r website/build/. "$publish_dir"/
+          touch "$publish_dir/.nojekyll"
+          cd "$publish_dir"
+          git init -q
+          git checkout -q -b gh-pages
+          git add -A
+          git commit -q -m "deploy: docs from ${GITHUB_SHA}"
+          git push -q --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            gh-pages
