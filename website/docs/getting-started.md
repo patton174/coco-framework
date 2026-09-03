@@ -33,7 +33,7 @@ title: 快速开始
 </dependencies>
 ```
 
-:::info 版本
+:::info[版本]
 在 [Maven Central](https://central.sonatype.com/artifact/io.github.patton174/coco-framework) 查看最新发布版本，替换 `${coco.version}`。
 :::
 
