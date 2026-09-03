@@ -3,6 +3,7 @@ package io.github.coco.spring.boot.logging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
@@ -125,6 +126,27 @@ class CocoNodeLogRendererBootstrapTest {
         Files.writeString(script, "console.log('coco');");
 
         assertEquals(script, CocoNodeLogRendererBootstrap.findLocalRendererScript(tempDir));
+    }
+
+    @Test
+    void acceptsValidNodeCommands() {
+        for (String command : List.of("node", "/usr/local/bin/node", "C:\\nodejs\\node.exe",
+                "node-18", "C:\\Program Files\\nodejs\\node.exe")) {
+            MockEnvironment environment = new MockEnvironment()
+                    .withProperty("coco.logging.node-renderer.command", command);
+            List<String> result = CocoNodeLogRendererBootstrap.rendererCommand(environment, Path.of("renderer.mjs"));
+            assertEquals(command, result.get(0));
+        }
+    }
+
+    @Test
+    void rejectsCommandsWithShellMetacharacters() {
+        for (String command : List.of("node; rm -rf /", "$(whoami)", "node | cat", "node && echo")) {
+            MockEnvironment environment = new MockEnvironment()
+                    .withProperty("coco.logging.node-renderer.command", command);
+            assertThrows(IllegalArgumentException.class,
+                    () -> CocoNodeLogRendererBootstrap.rendererCommand(environment, Path.of("renderer.mjs")));
+        }
     }
 
     private static Path findWorkspaceCliRendererScript() {

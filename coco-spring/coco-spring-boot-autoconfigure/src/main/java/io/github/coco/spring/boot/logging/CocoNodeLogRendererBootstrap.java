@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 import org.springframework.core.env.Environment;
 
@@ -45,6 +46,9 @@ public final class CocoNodeLogRendererBootstrap {
             "coco-spring/coco-spring-boot-autoconfigure/src/main/resources/META-INF/coco/coco-log-renderer.mjs";
 
     private static final AtomicBoolean INSTALLED = new AtomicBoolean();
+
+    private static final Pattern SAFE_COMMAND_PATTERN = Pattern.compile(
+            "[A-Za-z0-9._/\\\\][A-Za-z0-9._/\\\\: -]*");
 
     private CocoNodeLogRendererBootstrap() {
     }
@@ -121,7 +125,18 @@ public final class CocoNodeLogRendererBootstrap {
 
     private static String nodeCommand(Environment environment) {
         String command = environment.getProperty("coco.logging.node-renderer.command", "node");
-        return command == null || command.isBlank() ? "node" : command.trim();
+        String resolved = command == null || command.isBlank() ? "node" : command.trim();
+        validateNodeCommand(resolved);
+        return resolved;
+    }
+
+    private static void validateNodeCommand(String command) {
+        if (!SAFE_COMMAND_PATTERN.matcher(command).matches()) {
+            throw new IllegalArgumentException(
+                    "coco.logging.node-renderer.command contains invalid characters: " + command
+                    + ". Only alphanumeric characters, dots, hyphens, underscores, slashes, "
+                    + "backslashes, colons, and spaces are allowed.");
+        }
     }
 
     private static String colorMode(Environment environment) {

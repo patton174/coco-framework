@@ -172,7 +172,7 @@ public final class DefaultCocoRequestHeaderResolver implements CocoRequestHeader
     }
 
     private static String normalizeString(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return io.github.coco.context.CocoStrings.blankToNull(value);
     }
 
     private static String trimValue(String value, int maxLength) {

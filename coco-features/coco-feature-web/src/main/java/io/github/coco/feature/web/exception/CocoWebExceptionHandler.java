@@ -1,5 +1,6 @@
 package io.github.coco.feature.web.exception;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -100,7 +101,9 @@ public class CocoWebExceptionHandler {
      * @param httpStatusResolver 异常 HTTP 状态解析器
      * @param codeProvider 系统响应码提供器
      * @param responseProperties 统一响应配置
+     * @deprecated 使用 {@link #builder(CocoMessageService, CocoExceptionHttpStatusResolver, CocoSystemCodeProvider)} 替代
      */
+    @Deprecated(since = "1.1.0")
     public CocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties) {
@@ -118,7 +121,9 @@ public class CocoWebExceptionHandler {
      * @param codeProvider 系统响应码提供器
      * @param responseProperties 统一响应配置
      * @param traceProperties Trace 配置
+     * @deprecated 使用 {@link #builder(CocoMessageService, CocoExceptionHttpStatusResolver, CocoSystemCodeProvider)} 替代
      */
+    @Deprecated(since = "1.1.0")
     public CocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties, CocoTraceProperties traceProperties) {
@@ -135,7 +140,9 @@ public class CocoWebExceptionHandler {
      * @param codeProvider 系统响应码提供器
      * @param responseProperties 统一响应配置
      * @param responseBodyFactory 响应体工厂
+     * @deprecated 使用 {@link #builder(CocoMessageService, CocoExceptionHttpStatusResolver, CocoSystemCodeProvider)} 替代
      */
+    @Deprecated(since = "1.1.0")
     public CocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
@@ -155,7 +162,9 @@ public class CocoWebExceptionHandler {
      * @param traceProperties Trace 配置
      * @param responseBodyFactory 响应体工厂
      * @param logManager Coco 日志管理器；为空时不输出异常日志
+     * @deprecated 使用 {@link #builder(CocoMessageService, CocoExceptionHttpStatusResolver, CocoSystemCodeProvider)} 替代
      */
+    @Deprecated(since = "1.1.0")
     public CocoWebExceptionHandler(CocoMessageService messageService,
             CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider,
             CocoResponseProperties responseProperties, CocoTraceProperties traceProperties,
@@ -272,7 +281,11 @@ public class CocoWebExceptionHandler {
         String message = this.messageService.getMessage(BAD_REQUEST_MESSAGE_CODE);
         int code = this.codeProvider.invalidArgument();
         logException(exception, HttpStatus.BAD_REQUEST, code, request);
-        return error(HttpStatus.BAD_REQUEST, code, message, request);
+        List<CocoFieldError> fieldErrors = extractFieldErrors(exception);
+        if (fieldErrors.isEmpty()) {
+            return error(HttpStatus.BAD_REQUEST, code, message, request);
+        }
+        return errorWithData(HttpStatus.BAD_REQUEST, code, message, fieldErrors, request);
     }
 
     /**
@@ -417,14 +430,14 @@ public class CocoWebExceptionHandler {
         if (exception instanceof CocoNotFoundException) {
             return new CocoNotFoundException(code, message, cause, args);
         }
-        if (exception instanceof CocoPayloadTooLargeException || exception instanceof CocoRequestException) {
-            return new CocoRequestException(code, message, cause, args);
+        if (exception instanceof CocoUnauthorizedException) {
+            return new CocoUnauthorizedException(code, message, cause, args);
         }
         if (exception instanceof CocoSystemException) {
             return new CocoSystemException(code, message, cause, args);
         }
-        if (exception instanceof CocoUnauthorizedException) {
-            return new CocoUnauthorizedException(code, message, cause, args);
+        if (exception instanceof CocoRequestException) {
+            return new CocoRequestException(code, message, cause, args);
         }
         return new CocoException(code, message, cause, args);
     }
@@ -436,6 +449,26 @@ public class CocoWebExceptionHandler {
         ResponseEntity.BodyBuilder builder = ResponseEntity.status(statusCode);
         applyTraceCookie(builder);
         return builder.body(response);
+    }
+
+    private ResponseEntity<Object> errorWithData(HttpStatusCode statusCode, int code, String message,
+            Object data, WebRequest request) {
+        CocoResponseMetadata metadata = CocoResponseMetadata.from(this.responseProperties,
+                resolveTraceIdForBody(), resolvePath(request));
+        Object response = this.responseBodyFactory.error(
+                new CocoResponsePayload<>(false, code, message, data, metadata));
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(statusCode);
+        applyTraceCookie(builder);
+        return builder.body(response);
+    }
+
+    private static List<CocoFieldError> extractFieldErrors(Exception exception) {
+        if (exception instanceof org.springframework.validation.BindException bindException) {
+            return bindException.getFieldErrors().stream()
+                    .map(fieldError -> new CocoFieldError(fieldError.getField(), fieldError.getDefaultMessage()))
+                    .toList();
+        }
+        return List.of();
     }
 
     /**
@@ -518,23 +551,27 @@ public class CocoWebExceptionHandler {
      * @return 系统响应码
      */
     private int resolveSystemCodeByHttpStatus(HttpStatusCode statusCode) {
-        if (statusCode != null && statusCode.value() == 400) {
+        if (statusCode == null) {
+            return this.codeProvider.internalError();
+        }
+        int value = statusCode.value();
+        if (value == 400) {
             return this.codeProvider.invalidArgument();
         }
-        if (statusCode != null && statusCode.value() == 401) {
+        if (value == 401) {
             return this.codeProvider.unauthorized();
         }
-        if (statusCode != null && statusCode.value() == 403) {
+        if (value == 403) {
             return this.codeProvider.forbidden();
         }
-        if (statusCode != null && statusCode.value() == 404) {
+        if (value == 404) {
             return this.codeProvider.notFound();
         }
-        if (statusCode != null && statusCode.value() == 409) {
+        if (value == 409) {
             return this.codeProvider.conflict();
         }
-        if (statusCode != null && statusCode.value() == 413) {
-            return statusCode.value();
+        if (value == 413) {
+            return value;
         }
         return this.codeProvider.internalError();
     }
@@ -582,5 +619,85 @@ public class CocoWebExceptionHandler {
             cookieBuilder.sameSite(this.traceProperties.getCookieSameSite());
         }
         builder.header(HttpHeaders.SET_COOKIE, cookieBuilder.build().toString());
+    }
+
+    /**
+     * <p>
+     * 创建 Coco Web 全局异常处理器构建器。
+     * </p>
+     * @param messageService Coco 消息服务
+     * @param httpStatusResolver 异常 HTTP 状态解析器
+     * @param codeProvider 系统响应码提供器
+     * @return 构建器
+     * @since 1.1.0
+     */
+    public static Builder builder(CocoMessageService messageService,
+            CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider) {
+        return new Builder(messageService, httpStatusResolver, codeProvider);
+    }
+
+    /**
+     * Coco Web 全局异常处理器构建器。
+     *
+     * @since 1.1.0
+     */
+    public static final class Builder {
+
+        private final CocoMessageService messageService;
+
+        private final CocoExceptionHttpStatusResolver httpStatusResolver;
+
+        private final CocoSystemCodeProvider codeProvider;
+
+        private CocoResponseProperties responseProperties;
+
+        private CocoTraceProperties traceProperties;
+
+        private CocoResponseBodyFactory responseBodyFactory;
+
+        private CocoLogManager logManager;
+
+        private Locale defaultLocale;
+
+        private Builder(CocoMessageService messageService,
+                CocoExceptionHttpStatusResolver httpStatusResolver, CocoSystemCodeProvider codeProvider) {
+            this.messageService = Objects.requireNonNull(messageService, "messageService must not be null");
+            this.httpStatusResolver = Objects.requireNonNull(httpStatusResolver,
+                    "httpStatusResolver must not be null");
+            this.codeProvider = Objects.requireNonNull(codeProvider, "codeProvider must not be null");
+        }
+
+        public Builder responseProperties(CocoResponseProperties responseProperties) {
+            this.responseProperties = responseProperties;
+            return this;
+        }
+
+        public Builder traceProperties(CocoTraceProperties traceProperties) {
+            this.traceProperties = traceProperties;
+            return this;
+        }
+
+        public Builder responseBodyFactory(CocoResponseBodyFactory responseBodyFactory) {
+            this.responseBodyFactory = responseBodyFactory;
+            return this;
+        }
+
+        public Builder logManager(CocoLogManager logManager) {
+            this.logManager = logManager;
+            return this;
+        }
+
+        public Builder defaultLocale(Locale defaultLocale) {
+            this.defaultLocale = defaultLocale;
+            return this;
+        }
+
+        public CocoWebExceptionHandler build() {
+            return new CocoWebExceptionHandler(this.messageService, this.httpStatusResolver, this.codeProvider,
+                    this.responseProperties,
+                    this.traceProperties,
+                    this.responseBodyFactory == null ? new DefaultCocoResponseBodyFactory() : this.responseBodyFactory,
+                    this.logManager, this.defaultLocale);
+        }
     }
 }
