@@ -14,7 +14,7 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -387,22 +387,29 @@ async function main() {
   }
 }
 
-// Compare resolved real paths, not raw URL strings. Under nvm-for-windows the
-// global bin lives behind a symlink (…/nodejs → …/nvm/vX): Node resolves ESM
-// import.meta.url to the real path but leaves process.argv[1] as the symlink,
-// so a plain href compare is always false and main() never runs. realpathSync
-// collapses both to the same target; fall back to the raw compare if either
-// path can't be stat'd (e.g. piped from stdin).
+// Decide whether this module is the entry point node was told to run, resolving
+// BOTH sides to real filesystem paths in the SAME form before comparing.
+// Under nvm-for-windows the global bin sits behind a symlink (…/nodejs →
+// …/nvm/vX): Node resolves ESM import.meta.url to the real path but leaves
+// process.argv[1] as the symlink, so a raw href compare is always false and
+// main() never runs. Normalising a file: URL to a path, then realpathSync (with
+// the raw path as fallback when it can't be stat'd), keeps the two operands in
+// one representation, so the compare can't drift between a path and a URL.
+function toRealPath(value) {
+  const asPath = value.startsWith('file:') ? fileURLToPath(value) : value;
+  try {
+    return realpathSync(asPath);
+  } catch {
+    return asPath;
+  }
+}
+
 function isInvokedDirectly() {
   const entry = process.argv[1];
   if (!entry) {
     return false;
   }
-  try {
-    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry);
-  } catch {
-    return import.meta.url === pathToFileURL(entry).href;
-  }
+  return toRealPath(import.meta.url) === toRealPath(entry);
 }
 
 if (isInvokedDirectly()) {
