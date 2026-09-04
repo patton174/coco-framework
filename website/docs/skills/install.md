@@ -47,7 +47,15 @@ npx @patton174/coco-agent-skills install --agent cursor --target ./my-service
 - **Cursor**:在设置里确认 MCP 服务器已启用。
 - **Codex**:下次启动读取 `.codex/config.toml`。
 
-首次调用检索类工具时会下载本地嵌入模型(~23MB),之后离线可用。
+首次调用检索类工具时会下载本地嵌入模型(q8 量化权重,约 95MB),之后离线可用。
+
+:::tip[国内网络]
+若直连 huggingface.co 缓慢或失败,设置镜像后再调用:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+:::
 
 ## 下一步
 

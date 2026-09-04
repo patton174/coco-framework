@@ -20,19 +20,23 @@
 </p>
 
 <p>
-  <a href="#引入方式">引入方式</a>
+  <a href="https://patton174.github.io/coco-framework/"><strong>📖 文档</strong></a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/getting-started">快速开始</a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/features/web-runtime">能力参考</a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/skills">Agent 技能</a>
+</p>
+
+<p>
+  <a href="#安装">安装</a>
   ·
   <a href="#能力范围">能力范围</a>
   ·
-  <a href="#生产-sql-防护">SQL 防护</a>
-  ·
   <a href="#边界">边界</a>
   ·
-  <a href="#扩展边界">扩展边界</a>
-  ·
-  <a href="#framework-验收">框架验收</a>
-  ·
-  <a href="#星标历史">星星趋势</a>
+  <a href="#生产注意事项">生产注意事项</a>
   ·
   <a href="#贡献者">贡献者</a>
 </p>
