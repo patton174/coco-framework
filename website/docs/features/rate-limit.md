@@ -10,7 +10,7 @@ Coco 限流（`coco-rate-limit`）在 Servlet 入口处对显式声明的路由�
 
 ## 功能简介
 
-- **固定窗口计数**：以 `windowSeconds` 为周期对齐窗口边界，窗口内允许 `limit` 次请求，超出返回 HTTP 429。
+- **三种限流算法**：每条路由用 `algorithm` 选择固定窗口、滑动窗口或令牌桶,三者共用"`windowSeconds` 秒内允许 `limit` 次"的配置心智,默认固定窗口。详见[算法选择](#选择限流算法)。
 - **两条执行路径共享同一计数语义**：路径匹配的 Servlet 过滤器（Filter）在最靠前的位置执行；`@CocoRateLimited` 注解走 MVC 拦截器后备路径。当 Filter 已按路径匹配并占用了配额时，注解拦截器不会重复扣减，避免同一请求被计两次。
 - **fail-closed（失败即拒绝）**：键解析或存储发生异常、存储容量耗尽时按拒绝处理，返回 HTTP 503，而不是放行。
 - **标准限流响应头**：无论放行还是拒绝，都会写出配额相关响应头，便于客户端自适应退避。
@@ -61,6 +61,36 @@ public class AuthController {
 ```
 
 `@CocoRateLimited` 只表达"该处理方法预期由某条路由保护"的意图，它**不会创建隐式路由**，也不读取用户、角色或事务状态。实际拦截规则仍由 `coco.rate-limit.routes` 显式配置。`value` 与 `route` 互为别名，可标注在类型或方法上。
+
+## 选择限流算法
+
+每条路由用 `algorithm` 指定算法,默认 `fixed-window`。三者共用同一份 `limit` / `window-seconds` 配置,区别只在如何在时间上分摊额度:
+
+```yaml
+coco:
+  rate-limit:
+    enabled: true
+    routes:
+      - id: payment
+        algorithm: sliding-window   # fixed-window（默认）| sliding-window | token-bucket
+        limit: 100
+        window-seconds: 60
+        matcher:
+          path-patterns:
+            - /api/payment/**
+```
+
+| 算法 | 行为 | 适用 | 代价 |
+|------|------|------|------|
+| `fixed-window` | 按 `window-seconds` 对齐时间轴,每窗独立计数 | 通用、日志类,对瞬时峰值不敏感 | 两窗交界处最多放行 **2×limit**(前窗末尾 + 后窗开头) |
+| `sliding-window` | 当前窗口计数 + 上一窗口计数按时间加权,近似连续滑动 | **支付、秒杀**等对突发敏感的场景 | 略高(需保留上一窗口计数) |
+| `token-bucket` | 桶容量 `limit`,以 `limit/window-seconds` 个/秒匀速补充,每请求耗一个 | 允许可控突发、长期均速受限(如"平时低峰偶尔成组") | 与滑动窗口相当 |
+
+:::tip[固定窗口的 2× 突发]
+固定窗口在窗口交界处存在放行 2 倍额度的固有缺陷:窗口 N 的最后一刻放行 `limit` 个,越过边界后窗口 N+1 立即又放行 `limit` 个,约 1 秒内实际放行 `2×limit`。支付、秒杀这类场景应选 `sliding-window` 或 `token-bucket`。
+:::
+
+Redis 存储下三种算法各由一段 Lua 脚本原子执行,计数使用 Redis 服务器时间,避免多实例时钟漂移。
 
 ## 使用示例
 
@@ -129,8 +159,9 @@ coco:
 | `enabled` | boolean | `false` | 是否启用限流。 |
 | `routes` | list | 空 | 显式限流路由列表；只有列表内路由被拦截。 |
 | `routes[].id` | string | — | 路由标识，与 `@CocoRateLimited` 的 `route` 对应。 |
-| `routes[].limit` | long | `100` | 单个窗口内允许的请求数。 |
-| `routes[].window-seconds` | long | `60` | 固定窗口时长（秒），范围 1 至 366 天。 |
+| `routes[].algorithm` | enum | `fixed-window` | 限流算法：`fixed-window` / `sliding-window` / `token-bucket`。 |
+| `routes[].limit` | long | `100` | 窗口内允许的请求数（令牌桶下即桶容量）。 |
+| `routes[].window-seconds` | long | `60` | 窗口时长（秒），范围 1 至 366 天（令牌桶下即补满一桶所需秒数）。 |
 | `routes[].matcher.methods` | list | 空（全部方法） | 匹配的 HTTP 方法。 |
 | `routes[].matcher.path-patterns` | list | 空 | Ant 风格路径模式，至少一个非空才有效。 |
 | `store-type` | enum | `in-memory` | 存储类型，可选 `in-memory` / `redis`。 |
