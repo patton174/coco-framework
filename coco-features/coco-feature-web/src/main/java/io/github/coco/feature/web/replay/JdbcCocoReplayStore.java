@@ -7,11 +7,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
@@ -46,8 +41,6 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
 
     private final JdbcOperations jdbcOperations;
 
-    private final long cleanupIntervalSeconds;
-
     private final Clock clock;
 
     private final String insertSql;
@@ -56,11 +49,7 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
 
     private final String cleanupSql;
 
-    private final ScheduledExecutorService cleanupExecutor;
-
-    private final AtomicBoolean cleanupStarted = new AtomicBoolean();
-
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CocoReplayCleanupLifecycle cleanupLifecycle;
 
     /**
      * <p>
@@ -77,7 +66,6 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
             boolean backgroundCleanupEnabled) {
         this.jdbcOperations = Objects.requireNonNull(jdbcOperations, "jdbcOperations must not be null");
         CocoReplayProperties replayProperties = properties == null ? new CocoReplayProperties() : properties;
-        this.cleanupIntervalSeconds = replayProperties.getCleanupIntervalSeconds();
         this.clock = clock == null ? Clock.systemUTC() : clock;
         String tableName = validateTableName(replayProperties.getJdbc().getTableName());
         this.insertSql = "INSERT INTO " + tableName
@@ -86,9 +74,9 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
                 + " SET expires_at_epoch_millis = ?"
                 + " WHERE replay_key_hash = ? AND expires_at_epoch_millis <= ?";
         this.cleanupSql = "DELETE FROM " + tableName + " WHERE expires_at_epoch_millis <= ?";
-        this.cleanupExecutor = backgroundCleanupEnabled
-                ? Executors.newSingleThreadScheduledExecutor(new CleanupThreadFactory())
-                : null;
+        this.cleanupLifecycle = new CocoReplayCleanupLifecycle(this::cleanupExpiredKeys,
+                replayProperties.getCleanupIntervalSeconds(), "coco-replay-jdbc-cleanup",
+                LOGGER, backgroundCleanupEnabled);
     }
 
     /**
@@ -119,7 +107,7 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
                 reserved = false;
             }
         }
-        startCleanupTaskIfNecessary();
+        this.cleanupLifecycle.startCleanupTaskIfNecessary();
         return reserved;
     }
 
@@ -128,9 +116,7 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
      */
     @Override
     public void close() {
-        if (this.cleanupExecutor != null && this.closed.compareAndSet(false, true)) {
-            this.cleanupExecutor.shutdownNow();
-        }
+        this.cleanupLifecycle.close();
     }
 
     int cleanupExpiredKeys() {
@@ -138,31 +124,13 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
     }
 
     boolean cleanupStarted() {
-        return this.cleanupStarted.get();
+        return this.cleanupLifecycle.cleanupStarted();
     }
 
     private void insert(String replayKeyHash, long expiresAtEpochMillis) {
         int inserted = this.jdbcOperations.update(this.insertSql, replayKeyHash, expiresAtEpochMillis);
         if (inserted != 1) {
             throw new IllegalStateException("Coco replay reservation insert affected " + inserted + " rows");
-        }
-    }
-
-    private void startCleanupTaskIfNecessary() {
-        if (this.cleanupExecutor == null || this.closed.get()
-                || !this.cleanupStarted.compareAndSet(false, true)) {
-            return;
-        }
-        this.cleanupExecutor.scheduleWithFixedDelay(this::cleanupExpiredKeysSafely,
-                this.cleanupIntervalSeconds, this.cleanupIntervalSeconds, TimeUnit.SECONDS);
-    }
-
-    private void cleanupExpiredKeysSafely() {
-        try {
-            cleanupExpiredKeys();
-        }
-        catch (RuntimeException ex) {
-            LOGGER.warn("Coco JDBC replay cleanup failed; expired replay keys will be retried later.", ex);
         }
     }
 
@@ -182,16 +150,6 @@ public final class JdbcCocoReplayStore implements CocoReplayStore, AutoCloseable
         }
         catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 algorithm is not available", ex);
-        }
-    }
-
-    private static final class CleanupThreadFactory implements ThreadFactory {
-
-        @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "coco-replay-jdbc-cleanup");
-            thread.setDaemon(true);
-            return thread;
         }
     }
 }

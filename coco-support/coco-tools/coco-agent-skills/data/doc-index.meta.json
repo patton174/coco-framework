@@ -1,0 +1,19 @@
+{
+  "model": "Xenova/bge-small-zh-v1.5",
+  "dimension": 512,
+  "chunkCount": 508,
+  "totalChunksDiscovered": 508,
+  "locales": {
+    "zh-Hans": {
+      "files": 22,
+      "chunks": 224
+    },
+    "en": {
+      "files": 19,
+      "chunks": 284
+    }
+  },
+  "builtAt": "2026-09-04T06:21:23.947Z",
+  "frameworkDocsCommit": "d280ba31",
+  "placeholder": false
+}

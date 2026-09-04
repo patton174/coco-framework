@@ -22,19 +22,23 @@
 </p>
 
 <p>
+  <a href="https://patton174.github.io/coco-framework/"><strong>📖 Documentation</strong></a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/getting-started">Getting started</a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/features/web-runtime">Capabilities</a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/skills">Agent skills</a>
+</p>
+
+<p>
   <a href="#install">Install</a>
   ·
-  <a href="#what-coco-provides">Capabilities</a>
-  ·
-  <a href="#production-sql-guard">SQL Guard</a>
+  <a href="#what-coco-provides">What you get</a>
   ·
   <a href="#boundary">Boundary</a>
   ·
-  <a href="#extension-boundaries">Extension Boundaries</a>
-  ·
-  <a href="#framework-acceptance">Acceptance</a>
-  ·
-  <a href="#star-history">Stars</a>
+  <a href="#production-notes">Production notes</a>
   ·
   <a href="#contributors">Contributors</a>
 </p>
@@ -71,7 +75,9 @@ Use `coco-parent` as the application parent and add the single starter dependenc
 </dependencies>
 ```
 
-Optional feature selection remains declarative:
+That is the whole setup. Unified responses, global exception handling, and TraceId propagation are on by default; business controllers stay ordinary Spring code.
+
+Capabilities are selected declaratively, in YAML or with `@CocoFeatures`:
 
 ```yaml
 coco:
@@ -79,139 +85,28 @@ coco:
     disabled:
       - mybatis-plus
       - tenant
-      - data-permission
 ```
 
-Or Java-based:
+**→ [Getting started](https://patton174.github.io/coco-framework/getting-started)** walks through a first service end to end.
+**→ [Feature toggles](https://patton174.github.io/coco-framework/feature-toggles)** lists every switch and its default.
 
-```java
-@CocoFeatures(disabled = {
-        CocoFeature.TENANT,
-        CocoFeature.DATA_PERMISSION
-})
-@Configuration(proxyBeanMethods = false)
-class ApplicationCocoConfiguration {
-}
-```
+## CRUD source generation
 
-Prefer YAML or `@CocoFeatures` for feature selection. The older `CocoConfigurer` Java hook is kept for compatibility but is deprecated.
+Standard CRUD scaffolding lives in the standalone [coco-generate](https://github.com/patton174/coco-generate) tool. It generates business-owned ordinary source during development — Controller, DTO, application service, domain repository, MyBatis-Plus infrastructure — and is not an application runtime dependency. It writes to `src/main/java` and refuses to overwrite existing files, so entities are never exposed automatically at runtime.
 
-To protect a write request, explicitly enable idempotency and annotate the Controller class or method with `@CocoIdempotent`. Clients send an `Idempotency-Key` for the first submission; only a normally completed `2xx/3xx` response retains the key for its TTL and returns `409` on repeats; an exception or any `4xx/5xx` releases the lease for retry.
+**→ [Code generation](https://patton174.github.io/coco-framework/features/codegen)** covers the config format and templates.
 
-```yaml
-coco:
-  idempotency:
-    enabled: true
-```
+## Production notes
 
-```java
-@PostMapping
-@CocoIdempotent(namespace = "orders")
-OrderResponse create(@RequestBody CreateOrderRequest request) {
-    return this.orderService.create(request);
-}
-```
+A few defaults are deliberately conservative, because the safe choice for a first adoption is not the right choice for a cluster. Each is off or process-local until you opt in:
 
-Business controllers remain ordinary Spring code:
+| Concern | Default | For production |
+|---------|---------|----------------|
+| **SQL guard** | Disabled, so existing maintenance SQL keeps working | Review your SQL, then enable `block-attack` / `illegal-sql` — the guard may reject legitimate statements it cannot validate |
+| **Replay protection** | `InMemoryCocoReplayStore`, process-local | Switch to the JDBC store (or your own) so reservations are atomic across instances. Coco runs no migrations — you own the schema |
+| **Async logging** | Bounded queue; `ERROR` and exceptions always synchronous | Replace `CocoAsyncLogDropListener` to feed drop counts into your metrics. This is overload observability, not durable delivery |
 
-```java
-@RestController
-@RequestMapping("/orders")
-class OrderController {
-
-    private final OrderService orderService;
-
-    OrderController(OrderService orderService) {
-        this.orderService = orderService;
-    }
-
-    @PostMapping
-    OrderResponse create(@RequestBody CreateOrderRequest request) {
-        return this.orderService.create(request);
-    }
-}
-```
-
-## Explicit CRUD Source Generation
-
-When a project needs standard CRUD scaffolding, use the standalone [coco-generate](https://github.com/patton174/coco-generate). It generates business-owned ordinary source during development and is not an application runtime dependency. Add `coco-generate.yml` at the project root:
-
-```yaml
-base-package: com.example.catalog
-resources:
-  - name: Product
-    table: catalog_product
-    api-path: /products
-    id: { name: id, column: id, type: Long, strategy: AUTO }
-    fields:
-      - { name: sku, column: sku, type: String, required: true }
-      - { name: unitPrice, column: unit_price, type: BigDecimal, required: true }
-```
-
-`coco-generate` writes to `src/main/java` by default and refuses to overwrite existing files. It produces ordinary Controller, DTO, application-service, domain-repository, and MyBatis-Plus infrastructure source owned by the business project, and never exposes entities automatically at runtime. Existing 2.x projects using `mvn coco:generate` remain supported as a framework compatibility surface, but new capabilities and template extensions evolve only in `coco-generate`.
-
-## Production SQL Guard
-
-Coco keeps MyBatis-Plus SQL guard disabled by default so first adoption does not break existing maintenance SQL. For production services, replay or review application SQL first, then enable the guard explicitly:
-
-```yaml
-coco:
-  mybatis-plus:
-    sql-guard:
-      block-attack-enabled: true
-      illegal-sql-enabled: true
-```
-
-When enabled, MyBatis-Plus may reject legitimate SQL that should be rewritten, reviewed, or explicitly ignored only for controlled maintenance statements:
-
-- `UPDATE` or `DELETE` without a selective `WHERE`, or with tautological conditions such as `1 = 1`.
-- `SELECT`, `UPDATE`, or `DELETE` without `WHERE` when `IllegalSQLInnerInterceptor` is enabled.
-- predicates using `OR`, `!=`, functions on the checked column side, or parser-detected subquery patterns.
-- predicates or join conditions whose first checked column is not covered by index metadata.
-- complex join, schema-qualified, vendor-specific, or dynamically generated SQL that the JSQLParser-based guard cannot validate reliably.
-
-## Cluster Replay Protection
-
-The default `InMemoryCocoReplayStore` is intentionally process-local. It is suitable for one application instance and local development, but clustered services must use a shared store. When the application already provides Spring `JdbcOperations`, select the built-in JDBC reference implementation explicitly:
-
-```yaml
-coco:
-  web:
-    replay:
-      store-type: jdbc
-      jdbc:
-        table-name: coco_replay_key
-```
-
-Coco does not execute database migrations. Create the equivalent structure through the application's existing migration process, adapting this baseline DDL to the selected database:
-
-```sql
-CREATE TABLE coco_replay_key (
-    replay_key_hash VARCHAR(64) NOT NULL,
-    expires_at_epoch_millis BIGINT NOT NULL,
-    PRIMARY KEY (replay_key_hash)
-);
-CREATE INDEX idx_coco_replay_key_expires_at
-    ON coco_replay_key (expires_at_epoch_millis);
-```
-
-The unique key provides cross-instance atomic reservation, while Coco stores only a SHA-256 digest and cleans expired rows in the background. Reservation-path database failures fail protected requests closed; asynchronous cleanup failures are logged and retried. The Servlet filter reserves before normal Controller transaction boundaries. Schema lifecycle, database availability, clock synchronization, direct-call transaction use, and exactly-once side effects remain application responsibilities. With multiple `JdbcOperations` Beans, mark the intended candidate `@Primary` or provide a custom `CocoReplayStore`, which still replaces both built-in stores.
-
-## Async Logging Backpressure
-
-Coco logging uses a bounded asynchronous queue by default. `ERROR` records and records carrying an exception are always written synchronously; when the queue is full, `WARN` also falls back to synchronous output. Rejected `TRACE`, `DEBUG`, and `INFO` records remain intentionally droppable so queue submission never waits for capacity.
-
-Every actual drop increments an in-process counter, while each non-reentrant drop notifies `CocoAsyncLogDropListener`. The default listener writes a direct SLF4J warning for the first drop and then at power-of-two totals, providing a low-noise overload signal without feeding diagnostics back into the full Coco queue. Applications can replace it with one Bean:
-
-```java
-@Bean
-CocoAsyncLogDropListener cocoAsyncLogDropListener(MeterRegistry registry) {
-    Counter counter = registry.counter("coco.logging.async.dropped");
-    return (level, handleName, totalDropped) -> counter.increment();
-}
-```
-
-The callback receives only the level, log handle name, and cumulative count; message text and exceptions are not exposed. It runs on the submitting thread and must remain fast and avoid blocking. Concurrent callbacks receive unique cumulative values but are not ordered across threads; listener re-entry is suppressed while nested drops are still counted. This mechanism is overload observability, not durable log delivery; applications requiring delivery guarantees should provide their own `CocoLogSink` or audit recorder.
+**→ [SQL guard](https://patton174.github.io/coco-framework/features/mybatis-plus)** · **[Replay protection](https://patton174.github.io/coco-framework/features/request-security)** · **[Logging and infrastructure](https://patton174.github.io/coco-framework/features/infra)**
 
 ## What Coco Provides
 
@@ -220,7 +115,7 @@ The callback receives only the level, log handle name, and cumulative count; mes
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
       <strong>Web Runtime</strong><br/>
-      Unified responses, exception responses, trace headers, request context, access logs, request signatures, encryption, and process-local or shared JDBC replay protection.
+      Unified responses, exception responses, trace headers, request context, access logs, request signatures, encryption, and replay protection.
     </td>
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
@@ -230,102 +125,39 @@ The callback receives only the level, log handle name, and cumulative count; mes
     <td width="33%">
       <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
       <strong>Data Integration</strong><br/>
-      MyBatis-Plus interceptor assembly, pagination, SQL guard, tenant SQL isolation, and data-permission SQL predicates.
+      MyBatis-Plus interceptor assembly, pagination, SQL guard, tenant SQL isolation, and data-permission predicates.
     </td>
   </tr>
   <tr>
     <td width="33%">
+      <p><img src="https://img.shields.io/badge/Reliability-Flow%20Control-be123c?style=flat-square" alt="Reliability"/></p>
+      <strong>Reliability</strong><br/>
+      Rate limiting, idempotency, distributed locks, and scheduling — each with a process-local default and a replaceable store SPI.
+    </td>
+    <td width="33%">
+      <p><img src="https://img.shields.io/badge/Platform-Storage%20%26%20Audit-16a34a?style=flat-square" alt="Platform"/></p>
+      <strong>Platform</strong><br/>
+      Object storage SPI with content-addressed local reference implementation, structured audit pipeline, and OpenAPI metadata.
+    </td>
+    <td width="33%">
       <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
       <strong>Feature Control</strong><br/>
-      Parent POM, BOM, one starter, declarative feature selection, dependency-aware feature plans, and runtime feature conditions.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Audit-Event%20Pipeline-16a34a?style=flat-square" alt="Audit"/></p>
-      <strong>Audit Pipeline</strong><br/>
-      Structured audit logging by default, plus formatter and recorder SPI, publisher, failure policy, and access-log adaptation.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Codegen-Source%20Generation-475569?style=flat-square" alt="Codegen"/></p>
-      <strong>Explicit Source Generation</strong><br/>
-      Replaceable templates, built-in CRUD source scaffolding, and safe writes. Hidden runtime CRUD controllers remain out of scope.
+      Parent POM, BOM, one starter, declarative feature selection, dependency-aware plans, and runtime feature conditions.
     </td>
   </tr>
 </table>
 
+**→ [Capability reference](https://patton174.github.io/coco-framework/features/web-runtime)** — every feature, its config keys, and its SPI.
+
 ## Boundary
 
-<table>
-  <thead>
-    <tr>
-      <th width="50%">Coco Encapsulates</th>
-      <th width="50%">Application Owns</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>Starter wiring and auto-configuration composition</td>
-      <td>Domain model and API semantics</td>
-    </tr>
-    <tr>
-      <td>Feature activation, dependency propagation, and runtime feature gating</td>
-      <td>Controller shape and service orchestration</td>
-    </tr>
-    <tr>
-      <td>Unified response, typed exceptions, i18n, trace context, and access logs</td>
-      <td>Transaction boundaries and custom persistence decisions</td>
-    </tr>
-    <tr>
-      <td>Request signatures, encryption, replay protection, security context lifecycle bridge, audit hooks, tenant SQL, and data-permission SQL</td>
-      <td>Authentication provider, user model, organization model, role model, and generated CRUD code</td>
-    </tr>
-  </tbody>
-</table>
+Coco owns **infrastructure**. Your application owns the **domain model, API semantics, authentication provider, and user/role/organization models**.
 
-CRUD belongs to code generation, not runtime entity exposure. Generated code should be readable Java source that the business project can keep, edit, delete, or replace.
+That line is deliberate: the framework does not guess your business, it only turns the repetitive, cross-project infrastructure into replaceable black boxes. Every SPI can be overridden with a single `@Bean`.
 
-## Extension Boundaries
+CRUD belongs to code generation, not runtime entity exposure — generated code is readable Java source your project keeps, edits, or deletes.
 
-<table>
-  <thead>
-    <tr>
-      <th width="25%">Area</th>
-      <th width="38%">Delivered Boundary</th>
-      <th width="37%">Application or Roadmap</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>Replay</td>
-      <td>Process-local default, explicit shared JDBC reference store, atomic key reservation, expiry cleanup, and replaceable store SPI.</td>
-      <td>Database migration and availability, cluster clock synchronization, business transactions, and exactly-once semantics.</td>
-    </tr>
-    <tr>
-      <td>Idempotency</td>
-      <td><code>@CocoIdempotent</code>, <code>Idempotency-Key</code>, atomic leases, TTL, and a replaceable store SPI; successful requests are not replayed and failures or 5xx responses may retry.</td>
-      <td>Shared-store implementations, business transactions, and cross-system exactly-once semantics.</td>
-    </tr>
-    <tr>
-      <td>Security</td>
-      <td>Context facade, resolver SPI, Servlet context bridge, trusted-header adapter, assertions, and propagation primitives.</td>
-      <td>Authentication provider, RBAC/ABAC model, sessions, tokens, and user storage.</td>
-    </tr>
-    <tr>
-      <td>Audit</td>
-      <td>Event contract, publisher, default best-effort structured logging, formatter and recorder SPI, failure policy, and access-log adapter.</td>
-      <td>Database persistence, MQ delivery, compliance reports, and retention policy.</td>
-    </tr>
-    <tr>
-      <td>OpenAPI</td>
-      <td>Metadata provider, configuration boundary, and optional SpringDoc metadata customizer when SpringDoc is already on the application classpath.</td>
-      <td>Document renderer, UI integration, and endpoint-specific documentation strategy.</td>
-    </tr>
-    <tr>
-      <td>Codegen</td>
-      <td>Generator SPI, built-in CRUD templates, an explicit Maven goal, overwrite protection, and custom template locations.</td>
-      <td>Project-specific templates, business rules, and ongoing ownership of generated CRUD source.</td>
-    </tr>
-  </tbody>
-</table>
+**→ [Boundary and design philosophy](https://patton174.github.io/coco-framework/overview)** — what each side is responsible for, and what stays out of scope.
 
 ## Framework Acceptance
 

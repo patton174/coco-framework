@@ -1,0 +1,93 @@
+.features {
+  position: relative;
+  padding: 4rem 0 5.5rem;
+  width: 100%;
+  background: var(--coco-cream-deep);
+}
+
+.sectionHead {
+  text-align: center;
+  max-width: 40rem;
+  margin: 0 auto 3rem;
+}
+
+.eyebrow {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ifm-color-primary);
+}
+
+.sectionTitle {
+  font-family: var(--ifm-heading-font-family);
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0.5rem 0 0;
+}
+
+.card {
+  height: 100%;
+  padding: 2rem 1.75rem;
+  border: 1px solid var(--coco-border);
+  border-radius: 14px;
+  background: var(--ifm-background-surface-color);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s ease, border-color 0.3s ease;
+  opacity: 0;
+  transform: translateY(26px);
+}
+
+.card.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  border-color: color-mix(in srgb, var(--ifm-color-primary) 45%, var(--coco-border));
+  box-shadow: 0 22px 50px -26px rgba(43, 29, 22, 0.45);
+}
+
+/* The reveal depends on JS adding .visible (IntersectionObserver). Anyone who
+   asked for reduced motion doesn't want the slide-in anyway, so show the cards
+   outright — this also keeps them readable if the observer never fires. */
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.iconBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 1.2rem;
+  border-radius: 14px;
+  color: #fff;
+  background: linear-gradient(140deg, var(--ifm-color-primary), var(--coco-amber));
+  box-shadow: 0 10px 24px -12px var(--ifm-color-primary);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card:hover .iconBadge {
+  transform: rotate(-6deg) scale(1.08);
+}
+
+.cardTitle {
+  font-family: var(--ifm-heading-font-family);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 0.6rem;
+}
+
+.cardText {
+  font-size: 0.94rem;
+  line-height: 1.65;
+  color: var(--coco-espresso-soft);
+  margin: 0;
+}

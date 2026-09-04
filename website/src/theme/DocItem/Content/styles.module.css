@@ -1,0 +1,44 @@
+.copyBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.4rem;
+}
+
+.copyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.32rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--ifm-font-family-monospace);
+  color: var(--coco-espresso-soft);
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--coco-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease,
+    background 0.2s ease, transform 0.2s ease;
+}
+
+.copyBtn:hover {
+  color: var(--ifm-color-primary-darkest);
+  border-color: color-mix(in srgb, var(--ifm-color-primary) 45%, var(--coco-border));
+  background: color-mix(in srgb, var(--ifm-color-primary) 8%, var(--ifm-background-surface-color));
+  transform: translateY(-1px);
+}
+
+.copyBtn[data-state='copied'] {
+  color: #1a8870;
+  border-color: color-mix(in srgb, #1a8870 45%, var(--coco-border));
+  background: color-mix(in srgb, #1a8870 10%, var(--ifm-background-surface-color));
+}
+
+.copyBtn[data-state='error'] {
+  color: var(--ifm-color-primary-darkest);
+  border-color: var(--ifm-color-primary);
+}
+
+[data-theme='dark'] .copyBtn[data-state='copied'] {
+  color: #4fddbf;
+}

@@ -1,0 +1,56 @@
+{
+  "name": "@patton174/coco-agent-skills",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Let AI coding agents use the Coco Framework: semantic docs search, latest-version detection, and one-command MCP install.",
+  "bin": {
+    "coco-agent-skills": "bin/cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "data/",
+    "skills/",
+    "README.md"
+  ],
+  "keywords": [
+    "coco-framework",
+    "spring-boot",
+    "mcp",
+    "model-context-protocol",
+    "agent",
+    "semantic-search",
+    "documentation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/patton174/coco-framework.git",
+    "directory": "coco-support/coco-tools/coco-agent-skills"
+  },
+  "homepage": "https://patton174.github.io/coco-framework/skills",
+  "bugs": {
+    "url": "https://github.com/patton174/coco-framework/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build-index": "node scripts/build-index.mjs",
+    "test": "node --test",
+    "mcp": "node src/mcp-server.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/sdk": "^1.19.1"
+  },
+  "overrides": {
+    "sharp": "^0.35.4",
+    "adm-zip": "^0.6.0"
+  },
+  "author": "patton174",
+  "license": "Apache-2.0"
+}

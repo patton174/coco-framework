@@ -133,6 +133,6 @@ public final class DefaultCocoRequestCookieResolver implements CocoRequestCookie
     }
 
     private static String normalizeString(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return io.github.coco.context.CocoStrings.blankToNull(value);
     }
 }
