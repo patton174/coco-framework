@@ -14,7 +14,7 @@ MCP 服务器名为 `coco`,通过 stdio 暴露以下工具:
 
 | 工具 | 入参 | 返回 |
 |------|------|------|
-| `coco_search_docs` | `{ query, topK? }` | 语义检索,返回排序后的文档片段 + 标题 + 文档站 URL |
+| `coco_search_docs` | `{ query, topK?, locale? }` | 语义检索,返回排序后的文档片段 + 标题 + 语言 + 文档站 URL |
 | `coco_get_doc` | `{ docPath }` | 单页文档全文(如 `features/idempotency`) |
 | `coco_list_docs` | — | 全部文档页(路径、标题、URL) |
 | `coco_dependency_snippet` | `{ style?, version? }` | Maven/Gradle 依赖片段,版本自动填最新发布版 |
@@ -37,8 +37,12 @@ MCP 服务器名为 `coco`,通过 stdio 暴露以下工具:
 无需 MCP 也可直接命令行使用:
 
 ```bash
-# 语义检索
+# 语义检索(中英文都可以问)
 npx @patton174/coco-agent-skills search "如何开启幂等" --topK 5
+npx @patton174/coco-agent-skills search "how to enable idempotency"
+
+# 只要某种语言的结果
+npx @patton174/coco-agent-skills search "幂等" --locale zh-Hans
 
 # 列出全部文档页 / 打印整页
 npx @patton174/coco-agent-skills list

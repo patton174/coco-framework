@@ -50,6 +50,16 @@
   box-shadow: 0 22px 50px -26px rgba(43, 29, 22, 0.45);
 }
 
+/* The reveal depends on JS adding .visible (IntersectionObserver). Anyone who
+   asked for reduced motion doesn't want the slide-in anyway, so show the cards
+   outright — this also keeps them readable if the observer never fires. */
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .iconBadge {
   display: inline-flex;
   align-items: center;

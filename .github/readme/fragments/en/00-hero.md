@@ -20,19 +20,23 @@
 </p>
 
 <p>
+  <a href="https://patton174.github.io/coco-framework/"><strong>📖 Documentation</strong></a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/getting-started">Getting started</a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/features/web-runtime">Capabilities</a>
+  ·
+  <a href="https://patton174.github.io/coco-framework/skills">Agent skills</a>
+</p>
+
+<p>
   <a href="#install">Install</a>
   ·
-  <a href="#what-coco-provides">Capabilities</a>
-  ·
-  <a href="#production-sql-guard">SQL Guard</a>
+  <a href="#what-coco-provides">What you get</a>
   ·
   <a href="#boundary">Boundary</a>
   ·
-  <a href="#extension-boundaries">Extension Boundaries</a>
-  ·
-  <a href="#framework-acceptance">Acceptance</a>
-  ·
-  <a href="#star-history">Stars</a>
+  <a href="#production-notes">Production notes</a>
   ·
   <a href="#contributors">Contributors</a>
 </p>
