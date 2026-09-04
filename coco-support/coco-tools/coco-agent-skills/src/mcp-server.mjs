@@ -22,7 +22,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { search } from './search.mjs';
+import { search, LOCALES } from './search.mjs';
 import { fetchLatestVersion, checkVersion } from './version.mjs';
 import { getDoc, listDocs } from './docs.mjs';
 import { dependencySnippet } from './deps.mjs';
@@ -64,7 +64,9 @@ function formatSearchResults(results) {
       const snippet = r.text.length > 500 ? `${r.text.slice(0, 500)}…` : r.text;
       return [
         `#${i + 1} [${score}] ${r.title} › ${r.heading}`,
-        `doc: ${r.docPath}`,
+        // The same page exists in both locales, so the language has to be shown
+        // or two hits look like duplicates of one doc.
+        `doc: ${r.docPath} (${r.locale})`,
         `url: ${r.url}`,
         '',
         snippet,
@@ -86,15 +88,21 @@ export async function createServer() {
     {
       title: 'Search Coco Framework docs',
       description:
-        'Semantic search over the Coco Framework documentation. Returns ranked snippets with doc paths and doc-site URLs. Use this to answer how to enable/configure a feature (idempotency, tenant, rate-limit, storage, etc.).',
+        'Semantic search over the Coco Framework documentation. Returns ranked snippets with doc paths and doc-site URLs. Use this to answer how to enable/configure a feature (idempotency, tenant, rate-limit, storage, etc.). The index holds both Chinese and English docs and the embedding model is bilingual, so ask in whichever language you prefer; pass locale only when you specifically need snippets in one language.',
       inputSchema: {
         query: z.string().describe('Natural-language question or keywords'),
         topK: z.number().int().min(1).max(20).optional().describe('Number of results (default 5)'),
+        locale: z
+          .enum(LOCALES)
+          .optional()
+          .describe(
+            'Restrict results to one language ("zh-Hans" or "en"). Omit to search all languages.',
+          ),
       },
     },
-    async ({ query, topK }) => {
+    async ({ query, topK, locale }) => {
       try {
-        const results = await search(query, topK ?? 5);
+        const results = await search(query, topK ?? 5, { locale });
         return textResult(formatSearchResults(results));
       } catch (error) {
         return errorResult(`search failed: ${error.message}`);

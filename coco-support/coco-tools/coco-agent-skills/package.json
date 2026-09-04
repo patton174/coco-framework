@@ -1,6 +1,6 @@
 {
   "name": "@patton174/coco-agent-skills",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "Let AI coding agents use the Coco Framework: semantic docs search, latest-version detection, and one-command MCP install.",
   "bin": {
@@ -35,7 +35,8 @@
     "url": "https://github.com/patton174/coco-framework/issues"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build-index": "node scripts/build-index.mjs",

@@ -57,6 +57,10 @@ export function evaluateStatus(meta, options = {}) {
     stale,
     healthy,
     model: meta?.model ?? null,
+    dimension: meta?.dimension ?? null,
+    // Per-locale file/chunk counts; absent on indexes built before the index
+    // became bilingual.
+    locales: meta?.locales ?? null,
     docsCommit: meta?.frameworkDocsCommit ?? null,
     recommendation,
   };

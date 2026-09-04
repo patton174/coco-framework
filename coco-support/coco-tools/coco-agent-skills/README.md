@@ -14,7 +14,9 @@ Coco is a high-convention framework for Spring Boot Web services (Java 17+, Spri
 npm install
 ```
 
-The first `build-index` (or first `search`) downloads the local embedding model `Xenova/all-MiniLM-L6-v2` (~23 MB) to your Transformers.js cache. No API keys, no network at query time once cached.
+The first `build-index` (or first `search`) downloads the local embedding model `Xenova/bge-small-zh-v1.5` (q8 weights, ~95 MB) to your Transformers.js cache. No API keys, no network at query time once cached. Behind a slow link to huggingface.co, set `HF_ENDPOINT=https://hf-mirror.com` to pull from a mirror.
+
+The model is bilingual by design. The docs are ~95% Chinese, and an English-only model scored 0/4 on Chinese queries in testing (asking 「如何开启分布式锁」 ranked the correct page 26th and returned generic overview prose instead). `bge-small-zh-v1.5` hits rank 1 on both Chinese and English queries, so one index serves both languages.
 
 ## MCP tools
 
@@ -22,7 +24,7 @@ The MCP server (`src/mcp-server.mjs`, stdio) exposes:
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `coco_search_docs` | `{ query: string, topK?: number }` | Ranked doc snippets with title, heading, doc path, and a doc-site URL. |
+| `coco_search_docs` | `{ query: string, topK?: number, locale?: "zh-Hans" \| "en" }` | Ranked doc snippets with title, heading, doc path, locale, and a doc-site URL. Ask in either language; pass `locale` only to pin the result language. |
 | `coco_get_doc` | `{ docPath: string }` | Full text of one doc page, reassembled from the index. |
 | `coco_list_docs` | — | Every doc page (path, title, URL). |
 | `coco_dependency_snippet` | `{ style?: parent\|bom\|gradle, version? }` | Ready-to-paste build snippet with the latest version auto-filled. |
@@ -41,6 +43,8 @@ npm run mcp
 ```bash
 # semantic search over the docs
 node bin/cli.mjs search "how do I enable idempotency" --topK 5
+node bin/cli.mjs search "怎么开启幂等" --topK 3
+node bin/cli.mjs search "idempotency" --locale en    # pin the result language
 
 # list all doc pages, or print one in full
 node bin/cli.mjs list
@@ -88,7 +92,7 @@ The search index is committed at `data/doc-index.json` (with `data/doc-index.met
 npm run build-index
 ```
 
-It reads every Markdown file under `../../../website/docs`, strips frontmatter, chunks by heading/paragraph (~400–800 chars), embeds each chunk with `Xenova/all-MiniLM-L6-v2` (mean-pooling + L2 normalize), and writes 384-dim vectors. If the model download fails, it writes a clearly-marked empty placeholder index and sets `placeholder: true` in the meta so CI can rebuild.
+It reads every Markdown file for both locales — Chinese from `../../../website/docs` and English from `../../../website/i18n/en/docusaurus-plugin-content-docs/current` — strips frontmatter, chunks by heading/paragraph (~400–800 chars), embeds each chunk with `Xenova/bge-small-zh-v1.5` (mean-pooling + L2 normalize), and writes 512-dim vectors. Both languages land in one index; every entry carries a `locale` field, and chunk ids are prefixed with it (`en:features/lock.md#0`) so the two versions of a page don't collide. A missing translation directory is a warning, not an error. If the model download fails, it writes a clearly-marked empty placeholder index and sets `placeholder: true` in the meta so CI can rebuild.
 
 ## Tests
 
