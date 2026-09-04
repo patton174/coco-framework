@@ -15,7 +15,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -255,20 +255,29 @@ async function main() {
   process.stderr.write('coco-agent-skills MCP server running on stdio\n');
 }
 
-// Compare resolved real paths, not raw URL strings. Under nvm-for-windows the
-// global bin lives behind a symlink (…/nodejs → …/nvm/vX): Node resolves ESM
-// import.meta.url to the real path but leaves process.argv[1] as the symlink,
-// so a plain href compare is always false and the server never starts.
+// Decide whether this module is the entry point node was told to run, resolving
+// BOTH sides to real filesystem paths in the SAME form before comparing.
+// Under nvm-for-windows the global bin sits behind a symlink (…/nodejs →
+// …/nvm/vX): Node resolves ESM import.meta.url to the real path but leaves
+// process.argv[1] as the symlink, so a raw href compare is always false and the
+// server never starts. Normalising a file: URL to a path, then realpathSync
+// (with the raw path as fallback when it can't be stat'd), keeps the two
+// operands in one representation, so the compare can't drift path-vs-URL.
+function toRealPath(value) {
+  const asPath = value.startsWith('file:') ? fileURLToPath(value) : value;
+  try {
+    return realpathSync(asPath);
+  } catch {
+    return asPath;
+  }
+}
+
 function isInvokedDirectly() {
   const entry = process.argv[1];
   if (!entry) {
     return false;
   }
-  try {
-    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry);
-  } catch {
-    return import.meta.url === pathToFileURL(entry).href;
-  }
+  return toRealPath(import.meta.url) === toRealPath(entry);
 }
 
 if (isInvokedDirectly()) {
