@@ -267,7 +267,8 @@ class CocoFeaturesMojoTest {
                 .hasMessageContaining("Failed to resolve Coco feature selection")
                 .hasRootCauseMessage("Unknown Coco feature id 'wrong-feature' in Maven parameter "
                         + "coco.features.enabled. Valid feature ids: web, mybatis-plus, audit, security, tenant, "
-                        + "data-permission, openapi, rate-limit, idempotency, scheduling, lock, storage, codegen.");
+                        + "data-permission, openapi, rate-limit, idempotency, scheduling, lock, storage, "
+                        + "messaging, codegen.");
     }
 
     @Test
