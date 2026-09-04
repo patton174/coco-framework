@@ -16,7 +16,7 @@ Coco 分布式锁（`coco-lock`）通过 `@CocoLock` 注解为同步业务方法
 - **同线程可重入**：同一线程对同一锁键的嵌套获取会复用已持有的租约，通过重入计数管理，最外层释放时才真正释放锁。
 - **租约与看门狗续期**：持锁期间后台线程按锁租约的约 1/3 周期自动续期；续期失败（非本 owner、存储不可用、抛异常）会将该持有标记为"丢失"（lost），后续操作按不可用处理。
 - **owner token 保护**：续期与释放仅在 owner token 仍匹配时生效，防止误释放他人的锁。
-- **SPI 可替换存储**：`CocoLockStore` 是原子存储 SPI，默认进程内实现仅适合单实例；集群必须替换为分布式实现（如基于 Redis）。
+- **SPI 可替换存储**：`CocoLockStore` 是原子存储 SPI。默认进程内实现仅适合单实例；集群把 `store-type` 切到 `redis` 即用内置的 Lua 原子实现，也可提供自定义 Bean 接入其它存储。
 
 ## 如何启用接入
 
@@ -57,18 +57,46 @@ public class InventoryService {
 
 `key` 以 `#` 开头视为 SpEL 表达式，支持 `#{...}` 包裹形式；可引用方法参数名、`#p0` 位置参数以及 `#target`。`leaseMillis`、`waitMillis`、`pollIntervalMillis` 为负数时回退到全局配置。锁键为空、无法求值或超过 `max-key-length` 时抛出无效键错误。
 
-### 3. 集群部署替换 CocoLockStore
+### 3. 集群部署切换到 Redis 存储
 
-进程内 `InMemoryCocoLockStore` 的状态只存在于当前 JVM，多实例部署下各实例互不感知，无法实现跨实例互斥；构造时会输出多实例风险警告。集群环境需实现并注册自定义 `CocoLockStore`（例如基于 Redis），要求：按 key 原子获取，且只允许当前 owner token 续期或释放：
+进程内 `InMemoryCocoLockStore` 的状态只存在于当前 JVM，多实例部署下各实例互不感知，无法实现跨实例互斥；构造时会输出多实例风险警告。
+
+集群环境改用内置的 Redis 存储，只需声明 `store-type`：
+
+```yaml
+coco:
+  lock:
+    enabled: true
+    store-type: redis          # 默认 in-memory
+    redis:
+      key-prefix: "coco:lock:"  # 可选
+```
+
+再引入 Spring Data Redis：
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+```
+
+`RedisCocoLockStore` 用 Lua 脚本保证获取、续期、释放三步各自原子，且续期与释放都校验 owner token，不会误释放他人的锁。
+
+:::tip[依赖缺失时明确失败]
+若设了 `store-type: redis` 但 classpath 上没有 Spring Data Redis，启动会直接失败并说明原因，**不会静默回落到进程内存储**。这一点对锁尤其重要——静默回落意味着集群里多个节点同时认为自己持有锁。
+:::
+
+**多个 `StringRedisTemplate` Bean 时**，用 `coco.lock.redis.template-bean-name` 显式指定，或把目标 Bean 标记 `@Primary`；否则启动失败并列出候选，不会随机挑一个。
+
+仍可提供自定义 `CocoLockStore` Bean 覆盖内置实现（两种 store-type 下都生效）：
 
 ```java
 @Bean
 public CocoLockStore cocoLockStore() {
-    return new RedisCocoLockStore(/* ... */);
+    return new MyOwnLockStore(/* ... */);
 }
 ```
-
-自定义 Bean 存在时会自动覆盖默认进程内实现。
 
 ## 使用示例
 

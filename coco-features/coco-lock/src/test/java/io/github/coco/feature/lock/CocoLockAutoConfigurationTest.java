@@ -20,13 +20,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.aop.AopAutoConfiguration;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 class CocoLockAutoConfigurationTest {
+    // All three lock auto-configurations are registered in the same order as the
+    // AutoConfiguration.imports file, so the tests exercise the real assembly:
+    // the Redis config runs before the main one and the in-memory store only
+    // applies when store-type is absent or in-memory.
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(AopAutoConfiguration.class, CocoLockAutoConfiguration.class))
+            .withConfiguration(AutoConfigurations.of(AopAutoConfiguration.class, CocoLockRedisAutoConfiguration.class,
+                    CocoLockRedisMissingDependencyAutoConfiguration.class, CocoLockAutoConfiguration.class))
             .withUserConfiguration(LockServices.class);
 
     @Test
@@ -156,6 +165,60 @@ class CocoLockAutoConfigurationTest {
                 });
     }
 
+    @Test
+    void redisStoreIsOptInAndUsesTheConfiguredStoreProperties() {
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis",
+                        "coco.lock.redis.key-prefix=private:lock:")
+                .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
+                .run(context -> {
+                    assertThat(context).hasSingleBean(RedisCocoLockStore.class);
+                    CocoLockProperties properties = context.getBean(CocoLockProperties.class);
+                    assertThat(properties.getStoreType()).isEqualTo(CocoLockStoreType.REDIS);
+                    assertThat(properties.getRedis().getKeyPrefix()).isEqualTo("private:lock:");
+                });
+    }
+
+    @Test
+    void redisStoreBacksOffForApplicationStoreAndStrictlyResolvesTemplates() {
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis")
+                .withUserConfiguration(CustomStoreConfiguration.class).run(context ->
+                        assertThat(context).getBean(CocoLockStore.class).isInstanceOf(RecordingStore.class));
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis",
+                        "coco.lock.redis.template-bean-name=missingTemplate")
+                .run(context -> assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                        "coco.lock.redis.template-bean-name"));
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis")
+                .run(context -> assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                        "coco.lock.redis.template-bean-name"));
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis",
+                        "coco.lock.redis.template-bean-name=notATemplate")
+                .withUserConfiguration(WrongTypeRedisTemplate.class).run(context ->
+                        assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                                "coco.lock.redis.template-bean-name"));
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis")
+                .withUserConfiguration(NonPrimaryRedisTemplates.class).run(context ->
+                        assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                                "coco.lock.redis.template-bean-name"));
+        this.contextRunner.withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis")
+                .withUserConfiguration(PrimaryRedisTemplates.class).run(context ->
+                        assertThat(context).hasSingleBean(RedisCocoLockStore.class));
+    }
+
+    @Test
+    void redisStoreFailsClearlyWhenRedisIsNotOnTheRuntimeClasspath() {
+        this.contextRunner.withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis")
+                .run(context -> assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                        "coco.lock.store-type=redis requires"));
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(CocoLockRedisMissingDependencyAutoConfiguration.class,
+                        CocoLockAutoConfiguration.class))
+                .withClassLoader(new FilteredClassLoader(StringRedisTemplate.class))
+                .withPropertyValues("coco.lock.enabled=true", "coco.lock.store-type=redis")
+                .withUserConfiguration(CustomStoreConfiguration.class)
+                .run(context -> assertThat(context).getBean(CocoLockStore.class).isInstanceOf(RecordingStore.class));
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class LockServices {
         @Bean LockService lockService() { return new LockService(); }
@@ -164,6 +227,23 @@ class CocoLockAutoConfigurationTest {
     @Configuration(proxyBeanMethods = false)
     static class CustomStoreConfiguration {
         @Bean RecordingStore recordingStore() { return new RecordingStore(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class PrimaryRedisTemplates {
+        @Bean @Primary StringRedisTemplate primaryTemplate() { return new StringRedisTemplate(new LettuceConnectionFactory()); }
+        @Bean StringRedisTemplate secondaryTemplate() { return new StringRedisTemplate(new LettuceConnectionFactory()); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class NonPrimaryRedisTemplates {
+        @Bean StringRedisTemplate firstTemplate() { return new StringRedisTemplate(new LettuceConnectionFactory()); }
+        @Bean StringRedisTemplate secondTemplate() { return new StringRedisTemplate(new LettuceConnectionFactory()); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class WrongTypeRedisTemplate {
+        @Bean String notATemplate() { return "not a redis template"; }
     }
 
     @Configuration(proxyBeanMethods = false)
