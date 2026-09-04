@@ -60,6 +60,7 @@ For example, disabling `mybatis-plus` cascades to disable `tenant`, `data-permis
 | `messaging` | Messaging and events | — |
 | `cache` | Two-level cache | — |
 | `notification` | Notification channels | — |
+| `captcha` | Captcha | — |
 | `codegen` | Code generation | `mybatis-plus` |
 
 ## Relationship to module-level switches
