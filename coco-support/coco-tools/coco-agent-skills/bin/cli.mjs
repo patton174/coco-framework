@@ -13,7 +13,7 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -387,8 +387,25 @@ async function main() {
   }
 }
 
-const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (invokedDirectly) {
+// Compare resolved real paths, not raw URL strings. Under nvm-for-windows the
+// global bin lives behind a symlink (…/nodejs → …/nvm/vX): Node resolves ESM
+// import.meta.url to the real path but leaves process.argv[1] as the symlink,
+// so a plain href compare is always false and main() never runs. realpathSync
+// collapses both to the same target; fall back to the raw compare if either
+// path can't be stat'd (e.g. piped from stdin).
+function isInvokedDirectly() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry);
+  } catch {
+    return import.meta.url === pathToFileURL(entry).href;
+  }
+}
+
+if (isInvokedDirectly()) {
   main().catch((error) => {
     process.stderr.write(`${error.stack ?? error.message}\n`);
     process.exitCode = 1;

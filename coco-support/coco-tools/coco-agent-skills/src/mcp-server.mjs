@@ -14,6 +14,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -254,9 +255,23 @@ async function main() {
   process.stderr.write('coco-agent-skills MCP server running on stdio\n');
 }
 
-const invokedDirectly =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (invokedDirectly) {
+// Compare resolved real paths, not raw URL strings. Under nvm-for-windows the
+// global bin lives behind a symlink (…/nodejs → …/nvm/vX): Node resolves ESM
+// import.meta.url to the real path but leaves process.argv[1] as the symlink,
+// so a plain href compare is always false and the server never starts.
+function isInvokedDirectly() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry);
+  } catch {
+    return import.meta.url === pathToFileURL(entry).href;
+  }
+}
+
+if (isInvokedDirectly()) {
   main().catch((error) => {
     process.stderr.write(`fatal: ${error.stack ?? error.message}\n`);
     process.exitCode = 1;
