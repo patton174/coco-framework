@@ -83,13 +83,21 @@ function mcpServerEntry() {
 // ---- command: search ----
 async function cmdSearch(query, flags) {
   if (!query) {
-    process.stderr.write('Usage: coco-agent-skills search <query> [--topK N]\n');
+    process.stderr.write(
+      'Usage: coco-agent-skills search <query> [--topK N] [--locale zh-Hans|en]\n',
+    );
     process.exitCode = 1;
     return;
   }
-  const { search } = await import('../src/search.mjs');
+  const { search, LOCALES } = await import('../src/search.mjs');
   const topK = flags.topK ? Number.parseInt(flags.topK, 10) : 5;
-  const results = await search(query, topK);
+  const locale = flags.locale;
+  if (locale && !LOCALES.includes(locale)) {
+    process.stderr.write(`Unknown locale "${locale}". Expected one of: ${LOCALES.join(', ')}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const results = await search(query, topK, { locale });
   if (!results.length) {
     process.stdout.write('No results. Index may be empty; run `npm run build-index`.\n');
     return;
@@ -97,7 +105,7 @@ async function cmdSearch(query, flags) {
   for (const [i, r] of results.entries()) {
     const snippet = r.text.length > 300 ? `${r.text.slice(0, 300)}…` : r.text;
     process.stdout.write(
-      `#${i + 1} [${r.score.toFixed(3)}] ${r.title} › ${r.heading}\n` +
+      `#${i + 1} [${r.score.toFixed(3)}] ${r.title} › ${r.heading}  (${r.locale})\n` +
         `  ${r.url}\n` +
         `  ${snippet.replace(/\n+/g, ' ')}\n\n`,
     );
@@ -327,7 +335,9 @@ Usage:
   coco-agent-skills <command> [options]
 
 Commands:
-  search <query> [--topK N]        Semantic search over Coco Framework docs.
+  search <query> [--topK N] [--locale zh-Hans|en]
+                                   Semantic search over Coco Framework docs
+                                   (Chinese + English; ask in either language).
   list                             List all indexed doc pages (path, title, URL).
   doc <path>                       Print a full doc page, e.g. features/idempotency.
   deps [--style parent|bom|gradle] [--version X]

@@ -7,6 +7,7 @@ import {
   docPathToUrl,
   search,
   DOCS_BASE_URL,
+  LOCALES,
 } from '../src/search.mjs';
 
 test('cosineSimilarity returns 1 for identical vectors and 0 for orthogonal', () => {
@@ -28,12 +29,71 @@ test('docPathToUrl maps doc paths to the doc site', () => {
   assert.equal(docPathToUrl('features\\tenant.md'), `${DOCS_BASE_URL}features/tenant`);
 });
 
+test('docPathToUrl prefixes non-default locales and leaves the default bare', () => {
+  // Docusaurus serves the default locale at the root and others under /<locale>/.
+  assert.equal(
+    docPathToUrl('features/idempotency.md', 'zh-Hans'),
+    `${DOCS_BASE_URL}features/idempotency`,
+  );
+  assert.equal(
+    docPathToUrl('features/idempotency.md', 'en'),
+    `${DOCS_BASE_URL}en/features/idempotency`,
+  );
+  // Omitting the locale must behave exactly like passing the default one.
+  assert.equal(docPathToUrl('overview.md'), docPathToUrl('overview.md', LOCALES[0]));
+});
+
 // 用可控的伪向量索引验证排序逻辑（不下载模型、不触网）。
 const fakeIndex = [
   { id: 'a', docPath: 'features/idempotency.md', title: '幂等', heading: '启用', text: 'idempotency', embedding: [1, 0, 0] },
   { id: 'b', docPath: 'features/tenant.md', title: '多租户', heading: '接入', text: 'tenant', embedding: [0, 1, 0] },
   { id: 'c', docPath: 'features/lock.md', title: '锁', heading: '用法', text: 'lock', embedding: [0.9, 0.1, 0] },
 ];
+
+// Bilingual index: the same page appears once per locale, so filtering has to
+// pick the right one rather than collapsing them.
+const bilingualIndex = [
+  { id: 'zh-Hans:features/lock.md#0', docPath: 'features/lock.md', locale: 'zh-Hans', title: '分布式锁', heading: '如何启用接入', text: '打开 coco.lock.enabled', embedding: [1, 0, 0] },
+  { id: 'en:features/lock.md#0', docPath: 'features/lock.md', locale: 'en', title: 'Distributed Lock', heading: 'How to enable', text: 'set coco.lock.enabled', embedding: [0.98, 0.02, 0] },
+  { id: 'zh-Hans:features/tenant.md#0', docPath: 'features/tenant.md', locale: 'zh-Hans', title: '多租户', heading: '接入', text: '租户隔离', embedding: [0, 1, 0] },
+];
+
+test('rankIndex without a locale searches every language', () => {
+  const ranked = rankIndex([1, 0, 0], bilingualIndex, 5);
+  assert.equal(ranked.length, 3);
+  // Both locales of the lock page outrank the unrelated tenant page.
+  assert.deepEqual(
+    ranked.slice(0, 2).map((r) => r.locale).sort(),
+    ['en', 'zh-Hans'],
+  );
+});
+
+test('rankIndex with a locale returns only that language', () => {
+  const en = rankIndex([1, 0, 0], bilingualIndex, 5, { locale: 'en' });
+  assert.equal(en.length, 1);
+  assert.equal(en[0].locale, 'en');
+  assert.equal(en[0].url, `${DOCS_BASE_URL}en/features/lock`);
+
+  const zh = rankIndex([1, 0, 0], bilingualIndex, 5, { locale: 'zh-Hans' });
+  assert.equal(zh.length, 2);
+  assert.ok(zh.every((r) => r.locale === 'zh-Hans'));
+  assert.equal(zh[0].url, `${DOCS_BASE_URL}features/lock`);
+});
+
+test('rankIndex treats a locale-less entry as the default locale', () => {
+  // Indexes built before the bilingual change carry no locale field; a
+  // locale-filtered query must still find them under the default locale
+  // instead of silently returning nothing.
+  const legacy = [
+    { id: 'a', docPath: 'overview.md', title: '概览', heading: '边界', text: 'x', embedding: [1, 0, 0] },
+  ];
+  const asDefault = rankIndex([1, 0, 0], legacy, 5, { locale: LOCALES[0] });
+  assert.equal(asDefault.length, 1);
+  assert.equal(asDefault[0].locale, LOCALES[0]);
+
+  const asEnglish = rankIndex([1, 0, 0], legacy, 5, { locale: 'en' });
+  assert.equal(asEnglish.length, 0);
+});
 
 test('rankIndex sorts by cosine similarity descending and respects topK', () => {
   const query = [1, 0, 0];

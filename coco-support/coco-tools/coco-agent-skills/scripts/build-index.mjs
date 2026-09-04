@@ -1,12 +1,14 @@
 /**
  * Coco 文档索引构建器（构建期运行）。
  * <p>
- * 读取 {@code website/docs} 下全部 Markdown，剥离 frontmatter，按标题/段落切成
- * ~400-800 字符的块，用 {@code Xenova/all-MiniLM-L6-v2} 嵌入每个块，写出
- * {@code data/doc-index.json} 与 {@code data/doc-index.meta.json}。
+ * 读取中文（{@code website/docs}）与英文（{@code website/i18n/en/...}）两套
+ * Markdown，剥离 frontmatter，按标题/段落切成 ~400-800 字符的块，用
+ * {@link EMBEDDING_MODEL} 嵌入每个块，写出 {@code data/doc-index.json} 与
+ * {@code data/doc-index.meta.json}。两种语言共用一个索引，每条带 {@code locale}。
  * </p>
  * <p>
- * 模型首次运行会下载（~23MB），可能较慢；网络失败时写出占位索引并给出提示。
+ * 模型首次运行会下载（q8 量化权重，~95MB），可能较慢；网络失败时写出占位索引
+ * 并给出提示。国内网络可设 {@code HF_ENDPOINT=https://hf-mirror.com} 加速。
  * </p>
  * @author patton174
  * @since 0.1.0
@@ -17,15 +19,32 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve, relative, join } from 'node:path';
 import { execSync } from 'node:child_process';
 
-import { EMBEDDING_MODEL } from '../src/search.mjs';
+import { EMBEDDING_MODEL, EMBEDDING_DIMENSION } from '../src/search.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(HERE, '..');
-const DOCS_ROOT = resolve(PKG_ROOT, '..', '..', '..', 'website', 'docs');
+const WEBSITE_ROOT = resolve(PKG_ROOT, '..', '..', '..', 'website');
+/**
+ * 每种语言的文档根目录。中文是 Docusaurus 默认语言，正文直接放 {@code docs/}；
+ * 英文译文放在 {@code i18n/en/...} 下。两者进同一个索引（同模型、分数可比），
+ * 每条 chunk 带 {@code locale} 区分。缺译的页面只会少一条英文记录，中文仍可命中。
+ */
+const DOC_SOURCES = [
+  { locale: 'zh-Hans', root: resolve(WEBSITE_ROOT, 'docs') },
+  {
+    locale: 'en',
+    root: resolve(
+      WEBSITE_ROOT,
+      'i18n',
+      'en',
+      'docusaurus-plugin-content-docs',
+      'current',
+    ),
+  },
+];
 const DATA_DIR = resolve(PKG_ROOT, 'data');
 const INDEX_PATH = join(DATA_DIR, 'doc-index.json');
 const META_PATH = join(DATA_DIR, 'doc-index.meta.json');
-const DIMENSION = 384;
 
 /**
  * 递归收集目录下所有 .md 文件。
@@ -128,7 +147,7 @@ function chunkBody(body, docTitle) {
 function tryGitCommit() {
   try {
     return execSync('git rev-parse --short HEAD', {
-      cwd: DOCS_ROOT,
+      cwd: WEBSITE_ROOT,
       stdio: ['ignore', 'pipe', 'ignore'],
     })
       .toString()
@@ -140,33 +159,53 @@ function tryGitCommit() {
 
 async function main() {
   await mkdir(DATA_DIR, { recursive: true });
-  try {
-    await stat(DOCS_ROOT);
-  } catch {
-    throw new Error(`Docs root not found at ${DOCS_ROOT}`);
-  }
 
-  const files = await collectMarkdown(DOCS_ROOT);
-  console.error(`[build-index] found ${files.length} markdown files under ${DOCS_ROOT}`);
+  // The default locale must exist; a missing translation directory is only a
+  // warning, so the index still builds on a checkout without translations.
+  const sources = [];
+  for (const source of DOC_SOURCES) {
+    try {
+      await stat(source.root);
+      sources.push(source);
+    } catch {
+      if (source.locale === DOC_SOURCES[0].locale) {
+        throw new Error(`Docs root not found at ${source.root}`);
+      }
+      console.error(
+        `[build-index] WARNING: no docs for locale ${source.locale} at ${source.root}; skipping`,
+      );
+    }
+  }
 
   const rawChunks = [];
-  for (const file of files) {
-    const raw = await readFile(file, 'utf8');
-    const { frontmatter, body } = stripFrontmatter(raw);
-    const docPath = relative(DOCS_ROOT, file).replace(/\\/g, '/');
-    const title = frontmatter.title || docPath.replace(/\.md$/i, '');
-    const chunks = chunkBody(body, title);
-    chunks.forEach((chunk, i) => {
-      rawChunks.push({
-        id: `${docPath}#${i}`,
-        docPath,
-        title,
-        heading: chunk.heading,
-        text: chunk.text,
+  const perLocale = {};
+  for (const { locale, root } of sources) {
+    const files = await collectMarkdown(root);
+    console.error(`[build-index] locale ${locale}: ${files.length} markdown files under ${root}`);
+    let localeChunks = 0;
+    for (const file of files) {
+      const raw = await readFile(file, 'utf8');
+      const { frontmatter, body } = stripFrontmatter(raw);
+      const docPath = relative(root, file).replace(/\\/g, '/');
+      const title = frontmatter.title || docPath.replace(/\.md$/i, '');
+      const chunks = chunkBody(body, title);
+      chunks.forEach((chunk, i) => {
+        rawChunks.push({
+          // docPath repeats across locales, so the locale has to be part of the
+          // id or zh/en chunks of the same page would collide.
+          id: `${locale}:${docPath}#${i}`,
+          docPath,
+          locale,
+          title,
+          heading: chunk.heading,
+          text: chunk.text,
+        });
+        localeChunks += 1;
       });
-    });
+    }
+    perLocale[locale] = { files: files.length, chunks: localeChunks };
   }
-  console.error(`[build-index] produced ${rawChunks.length} chunks; embedding...`);
+  console.error(`[build-index] produced ${rawChunks.length} chunks total; embedding...`);
 
   const commit = tryGitCommit();
   let embedded;
@@ -178,7 +217,14 @@ async function main() {
     for (let i = 0; i < rawChunks.length; i += 1) {
       const chunk = rawChunks[i];
       const output = await extractor(chunk.text, { pooling: 'mean', normalize: true });
-      embedded.push({ ...chunk, embedding: Array.from(output.data) });
+      embedded.push({
+        ...chunk,
+        // Full float64 serialises to ~20 chars per value ("0.051884498447179794"),
+        // which is 5 MB of JSON for 508x512 values. Six decimals shifts cosine
+        // similarity by ~2e-7 — far below any ranking effect — and cuts the
+        // shipped index to roughly a third.
+        embedding: Array.from(output.data, (v) => Number(v.toFixed(6))),
+      });
       if ((i + 1) % 10 === 0 || i + 1 === rawChunks.length) {
         console.error(`[build-index] embedded ${i + 1}/${rawChunks.length}`);
       }
@@ -193,9 +239,10 @@ async function main() {
   await writeFile(INDEX_PATH, JSON.stringify(embedded, null, 0));
   const meta = {
     model: EMBEDDING_MODEL,
-    dimension: DIMENSION,
+    dimension: EMBEDDING_DIMENSION,
     chunkCount: embedded.length,
     totalChunksDiscovered: rawChunks.length,
+    locales: perLocale,
     builtAt: new Date().toISOString(),
     frameworkDocsCommit: commit,
     placeholder: fellBack,
