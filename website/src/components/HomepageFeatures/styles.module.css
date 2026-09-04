@@ -1,9 +1,8 @@
 .features {
   position: relative;
-  padding: 5rem 0 5.5rem;
+  padding: 4rem 0 5.5rem;
   width: 100%;
   background: var(--coco-cream-deep);
-  border-top: 1px solid var(--coco-border);
 }
 
 .sectionHead {
@@ -67,11 +66,6 @@
 
 .card:hover .iconBadge {
   transform: rotate(-6deg) scale(1.08);
-}
-
-.iconBadge svg {
-  width: 26px;
-  height: 26px;
 }
 
 .cardTitle {

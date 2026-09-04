@@ -1,0 +1,9 @@
+{
+  "model": "Xenova/all-MiniLM-L6-v2",
+  "dimension": 384,
+  "chunkCount": 224,
+  "totalChunksDiscovered": 224,
+  "builtAt": "2026-09-04T03:42:04.199Z",
+  "frameworkDocsCommit": "380306a4",
+  "placeholder": false
+}
