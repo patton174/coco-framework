@@ -1,0 +1,54 @@
+---
+description: Use the Coco Framework (io.github.patton174) in Spring Boot Web services — add the starter, toggle features via coco.features.disabled, look up config via the coco MCP tools. Docs: https://patton174.github.io/coco-framework/
+globs: ["**/pom.xml", "**/application*.yml", "**/application*.yaml", "**/*.java"]
+alwaysApply: false
+---
+
+# Coco Framework
+
+High-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1). Ships replaceable black-box infrastructure; business code stays plain Spring. Docs: https://patton174.github.io/coco-framework/
+
+## Install
+
+Parent POM `io.github.patton174:coco-parent` + starter `io.github.patton174:coco-spring-boot-starter`. Or import BOM `io.github.patton174:coco-dependencies` (pom/import). Resolve `${coco.version}` to the newest release via the `coco_get_latest_version` MCP tool — never hardcode a guess.
+
+```xml
+<parent>
+  <groupId>io.github.patton174</groupId>
+  <artifactId>coco-parent</artifactId>
+  <version>${coco.version}</version>
+  <relativePath/>
+</parent>
+<dependency>
+  <groupId>io.github.patton174</groupId>
+  <artifactId>coco-spring-boot-starter</artifactId>
+</dependency>
+```
+
+## Feature toggles
+
+Disable modules in `application.yml`:
+
+```yaml
+coco:
+  features:
+    disabled: [mybatis-plus, tenant]   # disabling a dep cascades to dependents
+```
+
+Or `@CocoFeatures(disabled = { CocoFeature.TENANT })`. Feature ids: `web`, `mybatis-plus`, `audit`, `security`, `tenant`, `data-permission`, `openapi`, `rate-limit`, `idempotency`, `scheduling`, `lock`, `storage`, `codegen`. `coco.features.disabled` controls assembly; per-module `coco.<x>.enabled` controls behavior (e.g. `coco.idempotency.enabled: true`).
+
+## MCP tools (server name `coco`)
+
+- `coco_search_docs { query, topK? }` — semantic docs search; returns snippets + URLs.
+- `coco_get_doc { docPath }` — full text of one doc page (e.g. `features/tenant`).
+- `coco_list_docs` — list every doc page (path, title, URL).
+- `coco_dependency_snippet { style?, version? }` — Maven/Gradle snippet, latest version auto-filled (parent | bom | gradle).
+- `coco_get_latest_version` — latest Maven Central release.
+- `coco_check_version { current }` — is an update available.
+- `coco_index_status` — doc-index freshness / rebuild recommendation.
+
+## Conventions
+
+- Controllers stay ordinary Spring; responses auto-wrap to `{ success, code, message, data }`.
+- Infra automated; domain model / auth / user-role-org owned by the app. Every SPI overridable with one `@Bean`.
+- Before answering a Coco config question, call `coco_search_docs` — do not invent property names.

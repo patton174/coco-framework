@@ -52,6 +52,11 @@ const sidebars: SidebarsConfig = {
       ],
     },
   ],
+  skillsSidebar: [
+    'skills/overview',
+    'skills/install',
+    'skills/usage',
+  ],
 };
 
 export default sidebars;

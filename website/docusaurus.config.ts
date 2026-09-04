@@ -47,7 +47,11 @@ const config: Config = {
 
   i18n: {
     defaultLocale: 'zh-Hans',
-    locales: ['zh-Hans'],
+    locales: ['zh-Hans', 'en'],
+    localeConfigs: {
+      'zh-Hans': {label: '简体中文', htmlLang: 'zh-Hans'},
+      en: {label: 'English', htmlLang: 'en'},
+    },
   },
 
   presets: [
@@ -87,9 +91,21 @@ const config: Config = {
           label: '文档',
         },
         {
-          href: 'https://github.com/patton174/coco-framework',
-          label: 'GitHub',
+          type: 'docSidebar',
+          sidebarId: 'skillsSidebar',
+          position: 'left',
+          label: '技能',
+        },
+        {
+          // Icon-only 文A / A文 switch — see src/theme/NavbarItem/ComponentTypes.
+          type: 'custom-localeToggle',
           position: 'right',
+        },
+        {
+          href: 'https://github.com/patton174/coco-framework',
+          position: 'right',
+          className: 'navbar-github-link',
+          'aria-label': 'GitHub repository',
         },
       ],
     },
@@ -99,19 +115,39 @@ const config: Config = {
         {
           title: '文档',
           items: [
+            {label: '概览', to: '/overview'},
             {label: '快速开始', to: '/getting-started'},
+            {label: '特性开关', to: '/feature-toggles'},
             {label: '功能总览', to: '/features/web-runtime'},
           ],
         },
         {
-          title: '更多',
+          title: '技能',
+          items: [
+            {label: '技能概览', to: '/skills'},
+            {label: '快捷安装', to: '/skills/install'},
+            {label: '使用指南', to: '/skills/usage'},
+          ],
+        },
+        {
+          title: '能力',
+          items: [
+            {label: '核心 Web', to: '/features/web-runtime'},
+            {label: '数据访问', to: '/features/mybatis-plus'},
+            {label: '流控与可靠性', to: '/features/rate-limit'},
+            {label: '对象存储', to: '/features/storage'},
+          ],
+        },
+        {
+          title: '资源',
           items: [
             {label: 'GitHub', href: 'https://github.com/patton174/coco-framework'},
             {label: 'Maven Central', href: 'https://central.sonatype.com/artifact/io.github.patton174/coco-framework'},
+            {label: 'npm · 技能包', href: 'https://www.npmjs.com/package/@patton174/coco-agent-skills'},
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Coco Framework. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Coco Framework · Apache-2.0 · Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,

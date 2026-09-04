@@ -1,0 +1,28 @@
+{
+  "name": "@patton174/coco-agent-skills",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Let AI coding agents use the Coco Framework: semantic docs search, latest-version detection, and one-command MCP install.",
+  "bin": {
+    "coco-agent-skills": "bin/cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build-index": "node scripts/build-index.mjs",
+    "test": "node --test",
+    "mcp": "node src/mcp-server.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/sdk": "^1.19.1"
+  },
+  "overrides": {
+    "sharp": "^0.35.4",
+    "adm-zip": "^0.6.0"
+  },
+  "author": "patton174",
+  "license": "Apache-2.0"
+}

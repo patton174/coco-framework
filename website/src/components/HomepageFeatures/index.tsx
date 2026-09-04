@@ -2,70 +2,47 @@ import type {ReactNode} from 'react';
 import {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Heading from '@theme/Heading';
+import Translate from '@docusaurus/Translate';
+import {Zap, Blocks, ShieldCheck, type LucideIcon} from 'lucide-react';
 import styles from './styles.module.css';
 
 type FeatureItem = {
-  title: string;
-  icon: ReactNode;
+  title: ReactNode;
+  Icon: LucideIcon;
   description: ReactNode;
 };
 
-const BoltIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
-  </svg>
-);
-
-const PlugIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v5" />
-  </svg>
-);
-
-const ShieldIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" />
-    <path d="M9 12l2 2 4-4" />
-  </svg>
-);
-
 const FeatureList: FeatureItem[] = [
   {
-    title: '高约定，开箱即用',
-    icon: BoltIcon,
+    title: <Translate id="home.feature.convention.title">高约定，开箱即用</Translate>,
+    Icon: Zap,
     description: (
-      <>
-        引入一个 starter 即可获得统一响应、全局异常处理、TraceId 链路等生产基础设施。
-        业务代码继续使用普通的 Java / Spring 编程模型。
-      </>
+      <Translate id="home.feature.convention.desc">
+        引入一个 starter 即可获得统一响应、全局异常处理、TraceId 链路等生产基础设施，业务代码继续使用普通的 Java / Spring 编程模型。
+      </Translate>
     ),
   },
   {
-    title: '可插拔，可替换',
-    icon: PlugIcon,
+    title: <Translate id="home.feature.pluggable.title">可插拔，可替换</Translate>,
+    Icon: Blocks,
     description: (
-      <>
-        每项能力通过特性开关声明式启停，每个 SPI 都能用一个 <code>@Bean</code> 覆盖为自己的实现。
-        限流、幂等、锁、存储的默认实现都可替换为分布式版本。
-      </>
+      <Translate id="home.feature.pluggable.desc">
+        每项能力通过特性开关声明式启停，每个 SPI 都能用一个 @Bean 覆盖为自己的实现。限流、幂等、锁、存储的默认实现都可替换为分布式版本。
+      </Translate>
     ),
   },
   {
-    title: '安全默认，边界清晰',
-    icon: ShieldIcon,
+    title: <Translate id="home.feature.secure.title">安全默认，边界清晰</Translate>,
+    Icon: ShieldCheck,
     description: (
-      <>
-        请求加解密、签名、防重放、安全响应头、SQL 防护、文件魔数校验内置且默认安全。
-        框架负责基础设施，业务持有领域模型与认证。
-      </>
+      <Translate id="home.feature.secure.desc">
+        请求加解密、签名、防重放、安全响应头、SQL 防护、文件魔数校验内置且默认安全。框架负责基础设施，业务持有领域模型与认证。
+      </Translate>
     ),
   },
 ];
 
-function Feature({title, icon, description, index}: FeatureItem & {index: number}) {
+function Feature({title, Icon, description, index}: FeatureItem & {index: number}) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
 
@@ -91,7 +68,9 @@ function Feature({title, icon, description, index}: FeatureItem & {index: number
         ref={ref}
         className={clsx(styles.card, visible && styles.visible)}
         style={{transitionDelay: `${index * 0.12}s`}}>
-        <span className={styles.iconBadge}>{icon}</span>
+        <span className={styles.iconBadge}>
+          <Icon size={26} strokeWidth={2} aria-hidden="true" />
+        </span>
         <Heading as="h3" className={styles.cardTitle}>
           {title}
         </Heading>
@@ -108,7 +87,7 @@ export default function HomepageFeatures(): ReactNode {
         <div className={styles.sectionHead}>
           <span className={styles.eyebrow}>Why Coco</span>
           <Heading as="h2" className={styles.sectionTitle}>
-            为什么选择 Coco
+            <Translate id="home.features.heading">为什么选择 Coco</Translate>
           </Heading>
         </div>
         <div className="row">

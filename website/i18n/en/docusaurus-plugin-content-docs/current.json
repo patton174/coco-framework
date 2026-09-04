@@ -1,0 +1,26 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.docsSidebar.category.核心 Web": {
+    "message": "Core Web",
+    "description": "The label for category '核心 Web' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.数据访问": {
+    "message": "Data Access",
+    "description": "The label for category '数据访问' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.多租户与权限": {
+    "message": "Multi-tenancy & Permissions",
+    "description": "The label for category '多租户与权限' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.流控与可靠性": {
+    "message": "Rate Limiting & Reliability",
+    "description": "The label for category '流控与可靠性' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.平台能力": {
+    "message": "Platform Capabilities",
+    "description": "The label for category '平台能力' in sidebar 'docsSidebar'"
+  }
+}

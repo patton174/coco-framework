@@ -1,19 +1,51 @@
+/* The hero owns the full-bleed background for the top of the page and has to
+   hand off to .features (a flat --coco-cream-deep block) with no visible seam.
+   Strategy: the *base* layer is a plain vertical ramp that lands exactly on
+   --coco-cream-deep at 100%, and every decorative layer is kept clear of the
+   bottom edge so the handoff is a pure colour match rather than a blend of
+   translucent washes. `isolation` keeps the negative z-index layers inside the
+   hero instead of falling behind the page background. */
 .heroBanner {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
-  padding: 7rem 0 6rem;
+  /* Fill the first screen so nothing below it is visible at scroll-top. The
+     navbar is sticky and sits in the flow above, so its height comes off the
+     viewport. min-height (not height) lets the content push the section taller
+     on short or zoomed-in viewports instead of being clipped. */
+  min-height: calc(100vh - var(--ifm-navbar-height));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 4rem 0;
   text-align: center;
-  background:
-    radial-gradient(60% 120% at 15% 10%, rgba(224, 138, 30, 0.22), transparent 60%),
-    radial-gradient(50% 100% at 85% 20%, rgba(180, 68, 31, 0.20), transparent 55%),
-    radial-gradient(80% 120% at 50% 100%, rgba(224, 138, 30, 0.10), transparent 60%);
+  background: linear-gradient(
+    180deg,
+    var(--coco-cream) 0%,
+    var(--coco-cream) 52%,
+    var(--coco-cream-deep) 100%
+  );
 }
 
+/* Static warm washes, top-weighted. */
+.heroBanner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(60% 110% at 15% 8%, rgba(224, 138, 30, 0.22), transparent 60%),
+    radial-gradient(50% 95% at 85% 18%, rgba(180, 68, 31, 0.20), transparent 55%);
+}
+
+/* Slow-drifting conic sheen. `bottom: 45%` keeps the rotating square — and the
+   soft edge its blur leaves behind — well above the seam, so the bottom of the
+   hero is nothing but the base ramp. */
 .heroBanner::after {
   content: '';
   position: absolute;
-  inset: -40%;
-  z-index: 0;
+  inset: -40% -40% 45% -40%;
+  z-index: -1;
   background:
     conic-gradient(from 120deg at 50% 50%,
       rgba(224, 138, 30, 0.08),
@@ -176,5 +208,16 @@
 }
 
 @media screen and (max-width: 996px) {
-  .heroBanner { padding: 4.5rem 1.25rem 4rem; }
+  .heroBanner {
+    padding: 3rem 1.25rem;
+  }
+}
+
+/* Landscape phones and other very short viewports: a full-height hero would be
+   nothing but padding, so let it size to its content instead. */
+@media screen and (max-height: 560px) {
+  .heroBanner {
+    min-height: 0;
+    padding: 3rem 0;
+  }
 }
