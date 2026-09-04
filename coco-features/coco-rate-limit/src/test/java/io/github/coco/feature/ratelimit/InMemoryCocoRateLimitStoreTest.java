@@ -40,7 +40,7 @@ class InMemoryCocoRateLimitStoreTest {
     void acquiresAtMostTheConfiguredLimitUnderConcurrency() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         CocoRateLimitProperties properties = properties(100, 60);
-        CocoRateLimitPermit permit = permit("api", "203.0.113.10", 20, clock.instant().plusSeconds(60));
+        CocoRateLimitPermit permit = permit("api", "203.0.113.10", 20, 60);
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties, clock, false)) {
             ExecutorService executor = Executors.newFixedThreadPool(16);
             try {
@@ -74,7 +74,7 @@ class InMemoryCocoRateLimitStoreTest {
                     results.add(executor.submit(() -> {
                         start.await();
                         return store.acquire(permit("api", "203.0.113." + key, 1,
-                                clock.instant().plusSeconds(60)));
+                                60));
                     }));
                 }
                 start.countDown();
@@ -94,7 +94,7 @@ class InMemoryCocoRateLimitStoreTest {
     void distinctNewKeysCannotExceedCapacityWhileTheFirstMapCommitIsBlocked() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         BlockingComputeMap entries = new BlockingComputeMap();
-        CocoRateLimitPermit first = permit("api", "203.0.113.0", 1, clock.instant().plusSeconds(60));
+        CocoRateLimitPermit first = permit("api", "203.0.113.0", 1, 60);
         entries.blockNext(first.key());
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(
                 properties(1, 60), clock, false, entries)) {
@@ -114,7 +114,7 @@ class InMemoryCocoRateLimitStoreTest {
                         competingStarted.countDown();
                         acquireCompeting.await();
                         return store.acquire(permit("api", "203.0.113." + key, 1,
-                                clock.instant().plusSeconds(60)));
+                                60));
                     }));
                 }
                 assertThat(competingStarted.await(COORDINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
@@ -148,15 +148,15 @@ class InMemoryCocoRateLimitStoreTest {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         CocoRateLimitProperties properties = properties(1, 60);
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties, clock, false)) {
-            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(5));
-            CocoRateLimitPermit second = permit("api", "203.0.113.11", 1, clock.instant().plusSeconds(5));
+            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, 5);
+            CocoRateLimitPermit second = permit("api", "203.0.113.11", 1, 5);
 
             assertThat(store.acquire(first).allowed()).isTrue();
             assertThat(store.acquire(second)).isEqualTo(new CocoRateLimitDecision(false, 1, 0,
                     clock.instant().plusSeconds(5), true));
 
             clock.advanceSeconds(5);
-            CocoRateLimitPermit nextWindow = permit("api", "203.0.113.11", 1, clock.instant().plusSeconds(5));
+            CocoRateLimitPermit nextWindow = permit("api", "203.0.113.11", 1, 5);
             assertThat(store.acquire(nextWindow).allowed()).isTrue();
             assertThat(store.size()).isEqualTo(1);
         }
@@ -168,8 +168,8 @@ class InMemoryCocoRateLimitStoreTest {
         CocoRateLimitProperties properties = properties(1, 60);
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties, clock, false)) {
             properties.getInMemory().setMaxEntries(2);
-            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(60));
-            CocoRateLimitPermit second = permit("api", "203.0.113.11", 1, clock.instant().plusSeconds(60));
+            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, 60);
+            CocoRateLimitPermit second = permit("api", "203.0.113.11", 1, 60);
 
             assertThat(store.acquire(first).allowed()).isTrue();
             assertThat(store.acquire(second).capacityExhausted()).isTrue();
@@ -185,7 +185,7 @@ class InMemoryCocoRateLimitStoreTest {
                 List<Callable<CocoRateLimitDecision>> tasks = new ArrayList<>();
                 for (int key = 0; key < 3; key++) {
                     CocoRateLimitPermit permit = permit("api", "203.0.113." + key, 10,
-                            clock.instant().plusSeconds(60));
+                            60);
                     for (int request = 0; request < 40; request++) {
                         tasks.add(() -> store.acquire(permit));
                     }
@@ -208,9 +208,9 @@ class InMemoryCocoRateLimitStoreTest {
                 properties(2, 60), clock, false, entries)) {
             ExecutorService executor = Executors.newFixedThreadPool(2);
             CocoRateLimitPermit blocked = permit("api", "203.0.113.10", 1,
-                    clock.instant().plusSeconds(60));
+                    60);
             CocoRateLimitPermit independent = permit("api", "203.0.113.11", 1,
-                    clock.instant().plusSeconds(60));
+                    60);
             entries.blockNext(blocked.key());
             try {
                 Future<CocoRateLimitDecision> blockedResult = executor.submit(() -> store.acquire(blocked));
@@ -235,25 +235,87 @@ class InMemoryCocoRateLimitStoreTest {
     void reusesTheSameKeyAfterItsWindowExpires() {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false)) {
-            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(2));
+            CocoRateLimitPermit first = permit("api", "203.0.113.10", 1, 2);
             assertThat(store.acquire(first).allowed()).isTrue();
             assertThat(store.acquire(first).allowed()).isFalse();
 
             clock.advanceSeconds(2);
-            CocoRateLimitPermit next = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(2));
+            CocoRateLimitPermit next = permit("api", "203.0.113.10", 1, 2);
             assertThat(store.acquire(next).allowed()).isTrue();
         }
     }
 
     @Test
-    void rejectsAWindowThatHasAlreadyExpiredAtTheInjectedClock() {
+    void fixedWindowAllowsTheBoundaryBurstThatSlidingWindowPrevents() {
+        // Align to a window boundary so the fixed-window 2x burst is reproducible:
+        // fill window N's tail, cross into N+1, and fill again -> 2*limit in a short span.
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
-        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false)) {
-            CocoRateLimitDecision decision = store.acquire(
-                    permit("api", "203.0.113.10", 2, clock.instant()));
-            assertThat(decision.allowed()).isFalse();
-            assertThat(decision.capacityExhausted()).isTrue();
-            assertThat(store.size()).isZero();
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(1000, 60), clock, false)) {
+            clock.advanceSeconds(59); // near the end of window N
+            CocoRateLimitPermit fixed = permit("api", "fixed", CocoRateLimitAlgorithm.FIXED_WINDOW, 5, 60);
+            for (int i = 0; i < 5; i++) {
+                assertThat(store.acquire(fixed).allowed()).isTrue();
+            }
+            assertThat(store.acquire(fixed).allowed()).isFalse();
+            clock.advanceSeconds(1); // cross into window N+1
+            long allowedAfterBoundary = 0;
+            for (int i = 0; i < 5; i++) {
+                if (store.acquire(fixed).allowed()) {
+                    allowedAfterBoundary++;
+                }
+            }
+            // Fixed window resets fully at the boundary: another full `limit` gets through,
+            // so 10 requests were admitted within ~1 second around the boundary.
+            assertThat(allowedAfterBoundary).isEqualTo(5);
+        }
+    }
+
+    @Test
+    void slidingWindowSuppressesTheBoundaryBurst() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(1000, 60), clock, false)) {
+            clock.advanceSeconds(59);
+            CocoRateLimitPermit sliding = permit("api", "sliding", CocoRateLimitAlgorithm.SLIDING_WINDOW, 5, 60);
+            for (int i = 0; i < 5; i++) {
+                assertThat(store.acquire(sliding).allowed()).isTrue();
+            }
+            clock.advanceSeconds(1); // one second into the next window
+            // The previous window (now weighted ~59/60) still holds ~5 requests, so almost
+            // no fresh capacity exists immediately after the boundary — the burst is gone.
+            long allowedAfterBoundary = 0;
+            for (int i = 0; i < 5; i++) {
+                if (store.acquire(sliding).allowed()) {
+                    allowedAfterBoundary++;
+                }
+            }
+            assertThat(allowedAfterBoundary).isZero();
+        }
+    }
+
+    @Test
+    void tokenBucketAllowsABurstUpToCapacityThenRefillsAtRate() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(1000, 60), clock, false)) {
+            // 10 tokens over 10 seconds => refill 1 token/second.
+            CocoRateLimitPermit bucket = permit("api", "bucket", CocoRateLimitAlgorithm.TOKEN_BUCKET, 10, 10);
+            // Full bucket: the first 10 requests burst through, the 11th is denied.
+            for (int i = 0; i < 10; i++) {
+                assertThat(store.acquire(bucket).allowed()).isTrue();
+            }
+            assertThat(store.acquire(bucket).allowed()).isFalse();
+            // After 1 second exactly one token has refilled: one more request, then denied.
+            clock.advanceMillis(1000);
+            assertThat(store.acquire(bucket).allowed()).isTrue();
+            assertThat(store.acquire(bucket).allowed()).isFalse();
+            // After 3 more seconds, 3 tokens: three succeed, the fourth fails.
+            clock.advanceMillis(3000);
+            int allowed = 0;
+            for (int i = 0; i < 5; i++) {
+                if (store.acquire(bucket).allowed()) {
+                    allowed++;
+                }
+            }
+            assertThat(allowed).isEqualTo(3);
         }
     }
 
@@ -264,7 +326,7 @@ class InMemoryCocoRateLimitStoreTest {
         store.close();
 
         CocoRateLimitDecision decision = store.acquire(
-                permit("api", "203.0.113.10", 2, clock.instant().plusSeconds(60)));
+                permit("api", "203.0.113.10", 2, 60));
         assertThat(decision.allowed()).isFalse();
         assertThat(decision.capacityExhausted()).isTrue();
     }
@@ -276,7 +338,7 @@ class InMemoryCocoRateLimitStoreTest {
         InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(
                 properties(2, 60), clock, false, entries);
         ExecutorService executor = Executors.newFixedThreadPool(2);
-        CocoRateLimitPermit permit = permit("api", "203.0.113.10", 1, clock.instant().plusSeconds(60));
+        CocoRateLimitPermit permit = permit("api", "203.0.113.10", 1, 60);
         entries.blockNext(permit.key());
         try {
             Future<CocoRateLimitDecision> acquisition = executor.submit(() -> store.acquire(permit));
@@ -325,7 +387,7 @@ class InMemoryCocoRateLimitStoreTest {
                             boolean startedAfterClose = closeReturned.get();
                             int key = sequence.getAndIncrement();
                             CocoRateLimitDecision decision = store.acquire(permit("api", "stress-" + key, 1,
-                                    clock.instant().plusSeconds(60)));
+                                    60));
                             if (decision.allowed()) {
                                 firstAllowed.countDown();
                                 if (startedAfterClose) {
@@ -349,7 +411,7 @@ class InMemoryCocoRateLimitStoreTest {
                 assertThat(store.size()).isZero();
                 assertThat(store.activeEntryCount()).isZero();
                 assertThat(store.acquire(permit("api", "after-close", 1,
-                        clock.instant().plusSeconds(60))).allowed()).isFalse();
+                        60)).allowed()).isFalse();
             }
             finally {
                 store.close();
@@ -398,7 +460,7 @@ class InMemoryCocoRateLimitStoreTest {
     void reportsRemainingQuotaForEachSuccessfulAcquire() {
         MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
         try (InMemoryCocoRateLimitStore store = new InMemoryCocoRateLimitStore(properties(2, 60), clock, false)) {
-            CocoRateLimitPermit permit = permit("api", "203.0.113.10", 2, clock.instant().plusSeconds(60));
+            CocoRateLimitPermit permit = permit("api", "203.0.113.10", 2, 60);
             assertThat(store.acquire(permit).remaining()).isEqualTo(1);
             assertThat(store.acquire(permit).remaining()).isZero();
             assertThat(store.acquire(permit).remaining()).isZero();
@@ -443,8 +505,14 @@ class InMemoryCocoRateLimitStoreTest {
         return properties;
     }
 
-    private static CocoRateLimitPermit permit(String route, String subject, long limit, Instant resetAt) {
-        return new CocoRateLimitPermit(new CocoRateLimitKey(route, subject), limit, resetAt);
+    private static CocoRateLimitPermit permit(String route, String subject, long limit, long windowSeconds) {
+        return new CocoRateLimitPermit(new CocoRateLimitKey(route, subject),
+                CocoRateLimitAlgorithm.FIXED_WINDOW, limit, windowSeconds);
+    }
+
+    private static CocoRateLimitPermit permit(String route, String subject, CocoRateLimitAlgorithm algorithm,
+            long limit, long windowSeconds) {
+        return new CocoRateLimitPermit(new CocoRateLimitKey(route, subject), algorithm, limit, windowSeconds);
     }
 
     private static CocoRateLimitDecision get(Future<CocoRateLimitDecision> result) {
@@ -541,6 +609,10 @@ class InMemoryCocoRateLimitStoreTest {
 
         private void advanceSeconds(long seconds) {
             this.instant.updateAndGet(value -> value.plusSeconds(seconds));
+        }
+
+        private void advanceMillis(long millis) {
+            this.instant.updateAndGet(value -> value.plusMillis(millis));
         }
     }
 }

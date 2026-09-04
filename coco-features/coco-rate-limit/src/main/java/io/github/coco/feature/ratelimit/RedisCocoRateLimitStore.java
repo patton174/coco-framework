@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
@@ -13,26 +12,105 @@ import java.util.Objects;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
-/** Redis Lua implementation of {@link CocoRateLimitStore}. */
+/**
+ * Redis Lua 实现的 {@link CocoRateLimitStore}。
+ * <p>
+ * 每种算法一段 Lua 脚本,在 Redis 服务端原子执行:读取-判定-写回不可被并发穿插,
+ * 计数用 Redis 服务器时间({@code TIME})而非应用时钟,避免多实例时钟漂移影响窗口边界。
+ * 脚本统一返回三元组 {@code {allowed, remaining, resetAtMillis}}。
+ * </p>
+ */
 public final class RedisCocoRateLimitStore implements CocoRateLimitStore {
 
-    private static final DefaultRedisScript<Long> ACQUIRE_SCRIPT = script("""
-            local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+    @SuppressWarnings("rawtypes")
+    private static final DefaultRedisScript<List> FIXED_WINDOW_SCRIPT = script("""
             local limit = tonumber(ARGV[1])
-            if current >= limit then
-                return -current
+            local windowMs = tonumber(ARGV[2])
+            local t = redis.call('TIME')
+            local nowMs = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+            local windowStart = math.floor(nowMs / windowMs) * windowMs
+            local resetAt = windowStart + windowMs
+            local count = 0
+            if redis.call('HGET', KEYS[1], 'ws') == tostring(windowStart) then
+                count = tonumber(redis.call('HGET', KEYS[1], 'c') or '0')
             end
-            current = redis.call('INCR', KEYS[1])
-            if current == 1 then
-                redis.call('PEXPIRE', KEYS[1], ARGV[2])
+            if count >= limit then
+                return {0, 0, resetAt}
             end
-            return current
+            count = count + 1
+            redis.call('HSET', KEYS[1], 'ws', windowStart, 'c', count)
+            redis.call('PEXPIRE', KEYS[1], windowMs)
+            return {1, limit - count, resetAt}
+            """);
+
+    @SuppressWarnings("rawtypes")
+    private static final DefaultRedisScript<List> SLIDING_WINDOW_SCRIPT = script("""
+            local limit = tonumber(ARGV[1])
+            local windowMs = tonumber(ARGV[2])
+            local t = redis.call('TIME')
+            local nowMs = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+            local windowStart = math.floor(nowMs / windowMs) * windowMs
+            local resetAt = windowStart + windowMs
+            local storedWs = tonumber(redis.call('HGET', KEYS[1], 'ws') or '-1')
+            local cur = 0
+            local prev = 0
+            if storedWs == windowStart then
+                cur = tonumber(redis.call('HGET', KEYS[1], 'c') or '0')
+                prev = tonumber(redis.call('HGET', KEYS[1], 'p') or '0')
+            elseif storedWs == windowStart - windowMs then
+                prev = tonumber(redis.call('HGET', KEYS[1], 'c') or '0')
+            end
+            local weight = (windowMs - (nowMs - windowStart)) / windowMs
+            if weight < 0 then weight = 0 end
+            local estimated = prev * weight + cur
+            if estimated + 1 > limit then
+                return {0, 0, resetAt}
+            end
+            cur = cur + 1
+            redis.call('HSET', KEYS[1], 'ws', windowStart, 'c', cur, 'p', prev)
+            redis.call('PEXPIRE', KEYS[1], windowMs * 2)
+            local remaining = limit - math.ceil(estimated + 1)
+            if remaining < 0 then remaining = 0 end
+            return {1, remaining, resetAt}
+            """);
+
+    @SuppressWarnings("rawtypes")
+    private static final DefaultRedisScript<List> TOKEN_BUCKET_SCRIPT = script("""
+            local limit = tonumber(ARGV[1])
+            local windowMs = tonumber(ARGV[2])
+            local refillPerMs = limit / windowMs
+            local t = redis.call('TIME')
+            local nowMs = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+            local tokens = limit
+            local last = tonumber(redis.call('HGET', KEYS[1], 'ts') or '-1')
+            if last >= 0 then
+                local stored = tonumber(redis.call('HGET', KEYS[1], 'tk') or '0')
+                local refilled = math.max(0, nowMs - last) * refillPerMs
+                tokens = math.min(limit, stored + refilled)
+            end
+            if tokens < 1 then
+                local waitMs = math.ceil((1 - tokens) / refillPerMs)
+                redis.call('HSET', KEYS[1], 'ts', nowMs, 'tk', tostring(tokens))
+                redis.call('PEXPIRE', KEYS[1], windowMs)
+                return {0, 0, nowMs + waitMs}
+            end
+            tokens = tokens - 1
+            redis.call('HSET', KEYS[1], 'ts', nowMs, 'tk', tostring(tokens))
+            redis.call('PEXPIRE', KEYS[1], windowMs)
+            local fullMs = math.ceil((limit - tokens) / refillPerMs)
+            return {1, math.floor(tokens), nowMs + fullMs}
             """);
 
     private final ScriptExecutor scriptExecutor;
     private final String keyPrefix;
     private final Clock clock;
 
+    /**
+     * 创建 Redis 限流存储。
+     * @param stringRedisTemplate Redis 模板
+     * @param keyPrefix 键前缀
+     * @param clock 时钟(仅用于不可用兜底的 resetAt)
+     */
     public RedisCocoRateLimitStore(StringRedisTemplate stringRedisTemplate, String keyPrefix, Clock clock) {
         this((script, keys, arguments) -> stringRedisTemplate.execute(script, keys, arguments), keyPrefix, clock);
     }
@@ -46,27 +124,39 @@ public final class RedisCocoRateLimitStore implements CocoRateLimitStore {
     @Override
     public CocoRateLimitDecision acquire(CocoRateLimitPermit permit) {
         CocoRateLimitPermit checked = Objects.requireNonNull(permit, "permit must not be null");
-        long ttlMillis = Duration.between(this.clock.instant(), checked.resetAt()).toMillis();
-        if (ttlMillis <= 0) {
-            return unavailable(checked);
-        }
+        DefaultRedisScript<List> script = switch (checked.algorithm()) {
+            case FIXED_WINDOW -> FIXED_WINDOW_SCRIPT;
+            case SLIDING_WINDOW -> SLIDING_WINDOW_SCRIPT;
+            case TOKEN_BUCKET -> TOKEN_BUCKET_SCRIPT;
+        };
         try {
-            Long result = this.scriptExecutor.execute(ACQUIRE_SCRIPT, List.of(redisKey(checked.key())),
-                    Long.toString(checked.limit()), Long.toString(ttlMillis));
-            if (result == null || result == Long.MIN_VALUE) {
+            List<?> result = this.scriptExecutor.execute(script, List.of(redisKey(checked.key())),
+                    Long.toString(checked.limit()), Long.toString(checked.windowSeconds() * 1000L));
+            if (result == null || result.size() < 3) {
                 return unavailable(checked);
             }
-            long count = Math.abs(result);
-            long remaining = Math.max(0L, checked.limit() - count);
-            return new CocoRateLimitDecision(result > 0, checked.limit(), remaining, checked.resetAt(), false);
+            long allowed = toLong(result.get(0));
+            long remaining = Math.max(0L, Math.min(checked.limit(), toLong(result.get(1))));
+            Instant resetAt = Instant.ofEpochMilli(toLong(result.get(2)));
+            return new CocoRateLimitDecision(allowed == 1L, checked.limit(), remaining, resetAt, false);
         }
         catch (RuntimeException exception) {
             return unavailable(checked);
         }
     }
 
-    static DefaultRedisScript<Long> acquireScript() {
-        return ACQUIRE_SCRIPT;
+    private CocoRateLimitDecision unavailable(CocoRateLimitPermit permit) {
+        long windowMillis = permit.windowSeconds() * 1000L;
+        long nowMillis = this.clock.instant().toEpochMilli();
+        long resetAt = Math.floorDiv(nowMillis, windowMillis) * windowMillis + windowMillis;
+        return new CocoRateLimitDecision(false, permit.limit(), 0, Instant.ofEpochMilli(resetAt), true);
+    }
+
+    private static long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.parseLong(String.valueOf(value));
     }
 
     private String redisKey(CocoRateLimitKey key) {
@@ -74,14 +164,23 @@ public final class RedisCocoRateLimitStore implements CocoRateLimitStore {
                 + key.subject().length() + ":" + key.subject());
     }
 
-    private static CocoRateLimitDecision unavailable(CocoRateLimitPermit permit) {
-        return new CocoRateLimitDecision(false, permit.limit(), 0, permit.resetAt(), true);
+    static DefaultRedisScript<List> fixedWindowScript() {
+        return FIXED_WINDOW_SCRIPT;
     }
 
-    private static DefaultRedisScript<Long> script(String source) {
-        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+    static DefaultRedisScript<List> slidingWindowScript() {
+        return SLIDING_WINDOW_SCRIPT;
+    }
+
+    static DefaultRedisScript<List> tokenBucketScript() {
+        return TOKEN_BUCKET_SCRIPT;
+    }
+
+    @SuppressWarnings("rawtypes")
+    private static DefaultRedisScript<List> script(String source) {
+        DefaultRedisScript<List> script = new DefaultRedisScript<>();
         script.setScriptText(source);
-        script.setResultType(Long.class);
+        script.setResultType(List.class);
         return script;
     }
 
@@ -105,6 +204,7 @@ public final class RedisCocoRateLimitStore implements CocoRateLimitStore {
 
     @FunctionalInterface
     interface ScriptExecutor {
-        Long execute(DefaultRedisScript<Long> script, List<String> keys, Object... arguments);
+        @SuppressWarnings("rawtypes")
+        List execute(DefaultRedisScript<List> script, List<String> keys, Object... arguments);
     }
 }

@@ -18,6 +18,8 @@ public class CocoRateLimitRoute {
 
     private long windowSeconds = 60;
 
+    private CocoRateLimitAlgorithm algorithm = CocoRateLimitAlgorithm.FIXED_WINDOW;
+
     /**
      * 返回路由标识。
      * @return 路由标识
@@ -85,9 +87,25 @@ public class CocoRateLimitRoute {
         this.windowSeconds = windowSeconds;
     }
 
+    /**
+     * 返回限流算法。
+     * @return 限流算法
+     */
+    public CocoRateLimitAlgorithm getAlgorithm() {
+        return this.algorithm;
+    }
+
+    /**
+     * 设置限流算法。
+     * @param algorithm 限流算法；{@code null} 回退到固定窗口
+     */
+    public void setAlgorithm(CocoRateLimitAlgorithm algorithm) {
+        this.algorithm = algorithm == null ? CocoRateLimitAlgorithm.FIXED_WINDOW : algorithm;
+    }
+
     boolean valid() {
         return this.id != null && !this.id.isBlank() && this.matcher != null && !this.matcher.isEmpty()
-                && this.limit > 0 && isSupportedWindowSeconds(this.windowSeconds);
+                && this.limit > 0 && this.algorithm != null && isSupportedWindowSeconds(this.windowSeconds);
     }
 
     static boolean isSupportedWindowSeconds(long windowSeconds) {
@@ -103,6 +121,7 @@ public class CocoRateLimitRoute {
         copy.setMatcher(source.getMatcher());
         copy.setLimit(source.getLimit());
         copy.setWindowSeconds(source.getWindowSeconds());
+        copy.setAlgorithm(source.getAlgorithm());
         return copy;
     }
 
