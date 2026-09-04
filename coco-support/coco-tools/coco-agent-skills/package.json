@@ -1,6 +1,6 @@
 {
   "name": "@patton174/coco-agent-skills",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Let AI coding agents use the Coco Framework: semantic docs search, latest-version detection, and one-command MCP install.",
   "bin": {
