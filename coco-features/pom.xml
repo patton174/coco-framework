@@ -32,6 +32,7 @@
         <module>coco-storage</module>
         <module>coco-messaging</module>
         <module>coco-cache</module>
+        <module>coco-notification</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>

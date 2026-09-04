@@ -268,7 +268,7 @@ class CocoFeaturesMojoTest {
                 .hasRootCauseMessage("Unknown Coco feature id 'wrong-feature' in Maven parameter "
                         + "coco.features.enabled. Valid feature ids: web, mybatis-plus, audit, security, tenant, "
                         + "data-permission, openapi, rate-limit, idempotency, scheduling, lock, storage, "
-                        + "messaging, cache, codegen.");
+                        + "messaging, cache, notification, codegen.");
     }
 
     @Test

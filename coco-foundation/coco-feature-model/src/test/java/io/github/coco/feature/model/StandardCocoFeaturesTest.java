@@ -84,6 +84,12 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.CACHE).autoConfigurationClassName());
         assertTrue(definitions.get(CocoFeature.CACHE).defaultEnabled());
         assertEquals(Set.of(), definitions.get(CocoFeature.CACHE).dependencies());
+        assertEquals("notification", CocoFeature.NOTIFICATION.id());
+        assertEquals("coco-notification", definitions.get(CocoFeature.NOTIFICATION).artifactId());
+        assertEquals("io.github.coco.notification.CocoNotificationAutoConfiguration",
+                definitions.get(CocoFeature.NOTIFICATION).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.NOTIFICATION).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.NOTIFICATION).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
         assertEquals(Set.of("coco-feature-codegen", "freemarker"),
