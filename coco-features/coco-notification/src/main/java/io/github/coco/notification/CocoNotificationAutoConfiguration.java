@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.github.coco.i18n.CocoMessageBundleRegistrar;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -34,6 +36,8 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "coco.notification", name = "enabled", havingValue = "true")
 public class CocoNotificationAutoConfiguration {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(CocoNotificationAutoConfiguration.class);
+
     /**
      * 注册通知模块的 i18n 消息包。
      * @return 消息包注册器
@@ -60,13 +64,24 @@ public class CocoNotificationAutoConfiguration {
         boolean hasEmail = channels.stream().anyMatch(c -> c.supportedType() == CocoNotificationChannelType.EMAIL);
         boolean hasInApp = channels.stream().anyMatch(c -> c.supportedType() == CocoNotificationChannelType.IN_APP);
         // Reference channels only fill gaps — a business channel for a type always wins.
+        // Each fallback is logged at WARN so a production deployment that forgot to register
+        // a real channel does not silently route to a dev-only logging/in-memory stub.
         if (properties.isLoggingFallback() && !hasSms) {
+            LOGGER.warn("No business Coco notification channel for SMS; installing the logging "
+                    + "reference channel (dev-only, does not actually send). Register a "
+                    + "CocoNotificationChannel for SMS in production.");
             channels.add(new LoggingCocoNotificationChannel(CocoNotificationChannelType.SMS));
         }
         if (properties.isLoggingFallback() && !hasEmail) {
+            LOGGER.warn("No business Coco notification channel for EMAIL; installing the logging "
+                    + "reference channel (dev-only, does not actually send). Register a "
+                    + "CocoNotificationChannel for EMAIL in production.");
             channels.add(new LoggingCocoNotificationChannel(CocoNotificationChannelType.EMAIL));
         }
         if (properties.isInMemoryInApp() && !hasInApp) {
+            LOGGER.warn("No business Coco notification channel for IN_APP; installing the in-memory "
+                    + "reference channel (dev-only, not shared across instances, not persisted). "
+                    + "Register a CocoNotificationChannel for IN_APP in production.");
             channels.add(new InMemoryInAppCocoNotificationChannel());
         }
         return new CocoNotificationService(channels);

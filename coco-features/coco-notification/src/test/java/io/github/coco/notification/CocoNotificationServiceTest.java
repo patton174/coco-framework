@@ -59,6 +59,13 @@ class CocoNotificationServiceTest {
     }
 
     @Test
+    void nullNotificationIsRejected() {
+        CocoNotificationService service = new CocoNotificationService(List.of());
+        assertThat(catchThrowable(() -> service.send(null)))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     void blankRecipientIsRejectedAtConstruction() {
         assertThat(catchThrowable(() -> CocoNotification.of(CocoNotificationChannelType.SMS, "  ", "hi")))
                 .isInstanceOf(IllegalArgumentException.class);

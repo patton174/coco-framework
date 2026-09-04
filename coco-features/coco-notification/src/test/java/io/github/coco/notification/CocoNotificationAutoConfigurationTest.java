@@ -35,6 +35,11 @@ class CocoNotificationAutoConfigurationTest {
                     CocoNotificationService service = context.getBean(CocoNotificationService.class);
                     assertThat(service.supports(CocoNotificationChannelType.SMS)).isFalse();
                     assertThat(service.supports(CocoNotificationChannelType.IN_APP)).isFalse();
+                    // With no fallback and no business channel, a send must fail closed, not throw.
+                    CocoNotificationResult result = service.send(
+                            CocoNotification.of(CocoNotificationChannelType.SMS, "13800000000", "hi"));
+                    assertThat(result.success()).isFalse();
+                    assertThat(result.detail()).contains("SMS");
                 });
     }
 

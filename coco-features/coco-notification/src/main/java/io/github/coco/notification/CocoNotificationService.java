@@ -55,6 +55,10 @@ public final class CocoNotificationService {
         Objects.requireNonNull(notification, "notification must not be null");
         CocoNotificationChannel channel = this.channels.get(notification.channelType());
         if (channel == null) {
+            // Surface the misconfiguration: a silent failure result is easy to miss when
+            // callers only branch on success.
+            LOGGER.warn("No Coco notification channel registered for type {}; dropping notification to {}",
+                    notification.channelType(), notification.recipient());
             return CocoNotificationResult.failure(notification.channelType(),
                     "no channel registered for type " + notification.channelType());
         }

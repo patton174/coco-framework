@@ -13,6 +13,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 import io.github.coco.api.feature.CocoFeature;
 import io.github.coco.feature.model.CocoFeaturePlan;
 import io.github.coco.feature.model.CocoFeatureManifest;
@@ -262,13 +265,16 @@ class CocoFeaturesMojoTest {
         set(mojo, "classesDirectory", output.toFile());
         set(mojo, "enabled", "web,wrong-feature");
 
+        // Derive the valid-id list from CocoFeature the same way the parser does, so this
+        // assertion never drifts when a feature is added or renamed.
+        String validIds = Arrays.stream(CocoFeature.values())
+                .map(CocoFeature::id)
+                .collect(Collectors.joining(", "));
         assertThatThrownBy(mojo::execute)
                 .isInstanceOf(MojoExecutionException.class)
                 .hasMessageContaining("Failed to resolve Coco feature selection")
                 .hasRootCauseMessage("Unknown Coco feature id 'wrong-feature' in Maven parameter "
-                        + "coco.features.enabled. Valid feature ids: web, mybatis-plus, audit, security, tenant, "
-                        + "data-permission, openapi, rate-limit, idempotency, scheduling, lock, storage, "
-                        + "messaging, cache, notification, codegen.");
+                        + "coco.features.enabled. Valid feature ids: " + validIds + ".");
     }
 
     @Test
