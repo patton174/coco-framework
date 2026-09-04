@@ -36,6 +36,7 @@ public enum CocoFeature {
     MESSAGING("messaging"),
     CACHE("cache"),
     NOTIFICATION("notification"),
+    CAPTCHA("captcha"),
     CODEGEN("codegen");
 
     private final String id;

@@ -33,6 +33,7 @@
         <module>coco-messaging</module>
         <module>coco-cache</module>
         <module>coco-notification</module>
+        <module>coco-captcha</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>
