@@ -34,6 +34,7 @@ public enum CocoFeature {
     LOCK("lock"),
     STORAGE("storage"),
     MESSAGING("messaging"),
+    CACHE("cache"),
     CODEGEN("codegen");
 
     private final String id;

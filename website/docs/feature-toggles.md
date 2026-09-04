@@ -58,6 +58,7 @@ class ApplicationCocoConfiguration {
 | `lock` | 分布式锁 | — |
 | `storage` | 对象存储 | — |
 | `messaging` | 消息与事件 | — |
+| `cache` | 两层缓存 | — |
 | `codegen` | 代码生成 | `mybatis-plus` |
 
 ## 与模块级开关的关系
