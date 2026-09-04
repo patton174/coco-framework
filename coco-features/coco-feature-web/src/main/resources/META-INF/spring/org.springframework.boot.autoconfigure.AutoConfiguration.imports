@@ -1,3 +1,6 @@
 io.github.coco.feature.web.CocoWebJdbcReplayAutoConfiguration
 io.github.coco.feature.web.CocoWebRedisReplayAutoConfiguration
 io.github.coco.feature.web.CocoWebAutoConfiguration
+io.github.coco.feature.web.cors.CocoCorsAutoConfiguration
+io.github.coco.feature.web.page.CocoPageAutoConfiguration
+io.github.coco.feature.web.headers.CocoSecurityHeadersAutoConfiguration

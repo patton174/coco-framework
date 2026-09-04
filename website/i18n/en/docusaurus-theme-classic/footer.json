@@ -1,0 +1,78 @@
+{
+  "link.title.文档": {
+    "message": "Docs",
+    "description": "The title of the footer links column with title=文档 in the footer"
+  },
+  "link.item.label.快速开始": {
+    "message": "Getting Started",
+    "description": "The label of footer link with label=快速开始 linking to /getting-started"
+  },
+  "link.item.label.功能总览": {
+    "message": "All Features",
+    "description": "The label of footer link with label=功能总览 linking to /features/web-runtime"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/patton174/coco-framework"
+  },
+  "link.item.label.Maven Central": {
+    "message": "Maven Central",
+    "description": "The label of footer link with label=Maven Central linking to https://central.sonatype.com/artifact/io.github.patton174/coco-framework"
+  },
+  "copyright": {
+    "message": "Copyright © 2026 Coco Framework · Apache-2.0 · Built with Docusaurus.",
+    "description": "The footer copyright"
+  },
+  "link.title.技能": {
+    "message": "Skills",
+    "description": "The title of the footer links column with title=技能 in the footer"
+  },
+  "link.title.能力": {
+    "message": "Capabilities",
+    "description": "The title of the footer links column with title=能力 in the footer"
+  },
+  "link.title.资源": {
+    "message": "Resources",
+    "description": "The title of the footer links column with title=资源 in the footer"
+  },
+  "link.item.label.概览": {
+    "message": "Overview",
+    "description": "The label of footer link with label=概览 linking to /overview"
+  },
+  "link.item.label.特性开关": {
+    "message": "Feature Toggles",
+    "description": "The label of footer link with label=特性开关 linking to /feature-toggles"
+  },
+  "link.item.label.技能概览": {
+    "message": "Skills Overview",
+    "description": "The label of footer link with label=技能概览 linking to /skills"
+  },
+  "link.item.label.快捷安装": {
+    "message": "Quick Install",
+    "description": "The label of footer link with label=快捷安装 linking to /skills/install"
+  },
+  "link.item.label.使用指南": {
+    "message": "Usage Guide",
+    "description": "The label of footer link with label=使用指南 linking to /skills/usage"
+  },
+  "link.item.label.核心 Web": {
+    "message": "Core Web",
+    "description": "The label of footer link with label=核心 Web linking to /features/web-runtime"
+  },
+  "link.item.label.数据访问": {
+    "message": "Data Access",
+    "description": "The label of footer link with label=数据访问 linking to /features/mybatis-plus"
+  },
+  "link.item.label.流控与可靠性": {
+    "message": "Rate Limiting & Reliability",
+    "description": "The label of footer link with label=流控与可靠性 linking to /features/rate-limit"
+  },
+  "link.item.label.对象存储": {
+    "message": "Object Storage",
+    "description": "The label of footer link with label=对象存储 linking to /features/storage"
+  },
+  "link.item.label.npm · 技能包": {
+    "message": "npm · Skills Package",
+    "description": "The label of footer link with label=npm · 技能包 linking to https://www.npmjs.com/package/@patton174/coco-agent-skills"
+  }
+}

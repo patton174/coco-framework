@@ -1,6 +1,5 @@
 package io.github.coco.context;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -126,6 +125,72 @@ public final class CocoRequestContext {
      */
     public Map<String, String> attributes() {
         return this.attributes;
+    }
+
+    /**
+     * <p>
+     * 返回客户端 IP 视图。
+     * </p>
+     * @return 客户端 IP 视图
+     * @since 1.1.0
+     */
+    public CocoRequestClientIp clientIpInfo() {
+        return new CocoRequestClientIp(this.attributes);
+    }
+
+    /**
+     * <p>
+     * 返回请求签名视图。
+     * </p>
+     * @return 请求签名视图
+     * @since 1.1.0
+     */
+    public CocoRequestSignature signatureInfo() {
+        return new CocoRequestSignature(this.attributes);
+    }
+
+    /**
+     * <p>
+     * 返回请求加密视图。
+     * </p>
+     * @return 请求加密视图
+     * @since 1.1.0
+     */
+    public CocoRequestEncryption encryptionInfo() {
+        return new CocoRequestEncryption(this.attributes);
+    }
+
+    /**
+     * <p>
+     * 返回请求防重放视图。
+     * </p>
+     * @return 请求防重放视图
+     * @since 1.1.0
+     */
+    public CocoRequestReplay replayInfo() {
+        return new CocoRequestReplay(this.attributes);
+    }
+
+    /**
+     * <p>
+     * 返回请求体视图。
+     * </p>
+     * @return 请求体视图
+     * @since 1.1.0
+     */
+    public CocoRequestBody bodyInfo() {
+        return new CocoRequestBody(this.attributes);
+    }
+
+    /**
+     * <p>
+     * 返回浏览器指纹视图。
+     * </p>
+     * @return 浏览器指纹视图
+     * @since 1.1.0
+     */
+    public CocoRequestBrowserFingerprint browserFingerprintInfo() {
+        return new CocoRequestBrowserFingerprint(this.attributes);
     }
 
     /**
@@ -959,28 +1024,19 @@ public final class CocoRequestContext {
     }
 
     private Optional<Long> longAttribute(String name) {
-        return attribute(name).flatMap(CocoRequestContext::parseLong);
+        return CocoRequestContextAttributeParser.longAttribute(this.attributes, name);
     }
 
     private Optional<Integer> intAttribute(String name) {
-        return attribute(name).flatMap(CocoRequestContext::parseInteger);
+        return CocoRequestContextAttributeParser.intAttribute(this.attributes, name);
     }
 
     private Optional<List<String>> listAttribute(String name, boolean legacyCsvFallback) {
-        return attribute(name).map(value -> decodeAttributeList(value, legacyCsvFallback));
+        return CocoRequestContextAttributeParser.listAttribute(this.attributes, name, legacyCsvFallback);
     }
 
     private Map<String, String> prefixedAttributes(String prefix) {
-        if (prefix == null || prefix.isBlank()) {
-            return Map.of();
-        }
-        Map<String, String> values = new LinkedHashMap<>();
-        this.attributes.forEach((name, value) -> {
-            if (name.startsWith(prefix) && name.length() > prefix.length()) {
-                values.put(name.substring(prefix.length()), value);
-            }
-        });
-        return values.isEmpty() ? Map.of() : Collections.unmodifiableMap(values);
+        return CocoRequestContextAttributeParser.prefixedAttributes(this.attributes, prefix);
     }
 
     private Map<String, List<String>> prefixedListAttributes(String prefix) {
@@ -990,48 +1046,12 @@ public final class CocoRequestContext {
         Map<String, List<String>> values = new LinkedHashMap<>();
         this.attributes.forEach((name, value) -> {
             if (name.startsWith(prefix) && name.length() > prefix.length()) {
-                values.put(name.substring(prefix.length()), decodeAttributeList(value, true));
+                values.put(name.substring(prefix.length()),
+                        CocoRequestContextAttributeParser.listAttribute(this.attributes, name, true)
+                                .orElseGet(List::of));
             }
         });
         return values.isEmpty() ? Map.of() : Collections.unmodifiableMap(values);
-    }
-
-    private static Optional<Long> parseLong(String value) {
-        try {
-            return Optional.of(Long.parseLong(value));
-        }
-        catch (NumberFormatException ex) {
-            return Optional.empty();
-        }
-    }
-
-    private static Optional<Integer> parseInteger(String value) {
-        try {
-            return Optional.of(Integer.parseInt(value));
-        }
-        catch (NumberFormatException ex) {
-            return Optional.empty();
-        }
-    }
-
-    private static List<String> decodeAttributeList(String value, boolean legacyCsvFallback) {
-        if (value == null || value.isBlank()) {
-            return List.of();
-        }
-        if (CocoRequestContextValueCodec.isEncodedList(value)) {
-            try {
-                return CocoRequestContextValueCodec.decodeList(value);
-            }
-            catch (IllegalArgumentException ignored) {
-                return List.of(value.trim());
-            }
-        }
-        if (legacyCsvFallback) {
-            return Arrays.stream(value.split(",", -1))
-                    .map(String::trim)
-                    .toList();
-        }
-        return List.of(value.trim());
     }
 
     private static String requireTraceId(String traceId) {

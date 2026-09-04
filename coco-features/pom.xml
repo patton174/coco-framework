@@ -29,6 +29,7 @@
         <module>coco-idempotency</module>
         <module>coco-scheduling</module>
         <module>coco-lock</module>
+        <module>coco-storage</module>
         <module>coco-feature-codegen</module>
     </modules>
 </project>
