@@ -47,6 +47,7 @@ const sidebars: SidebarsConfig = {
         'features/storage',
         'features/messaging',
         'features/cache',
+        'features/notification',
         'features/audit',
         'features/openapi',
         'features/codegen',
