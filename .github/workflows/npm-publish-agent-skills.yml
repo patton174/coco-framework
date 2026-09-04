@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+# Serializes the whole workflow, so rapid dispatches queue instead of overlapping.
+# This covers every step in the job, including install/test/audit/publish — a second
+# dispatch waits rather than running tests concurrently. cancel-in-progress is false
+# so an in-flight publish is never interrupted midway.
 concurrency:
   group: npm-publish-agent-skills-${{ github.repository_id }}
   cancel-in-progress: false
@@ -68,14 +72,14 @@ jobs:
         shell: bash
         run: npm test
 
-      # High and critical advisories block the release; moderate and low are printed
-      # for visibility but do not fail the run.
+      # Blocks the release on any high or critical advisory. There is no `|| true`
+      # anywhere in this step, so a non-zero npm audit exit fails the job under
+      # `set -euo pipefail`. The full report is printed by the same command.
       - name: Audit dependencies
         working-directory: coco-support/coco-tools/coco-agent-skills
         shell: bash
         run: |
           set -euo pipefail
-          npm audit --registry=https://registry.npmjs.org/ || true
           npm audit --registry=https://registry.npmjs.org/ --audit-level=high
 
       # Fail early with a clear message instead of letting npm return an opaque 403.
