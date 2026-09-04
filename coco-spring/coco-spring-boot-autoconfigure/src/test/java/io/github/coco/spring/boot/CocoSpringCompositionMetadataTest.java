@@ -38,7 +38,9 @@ class CocoSpringCompositionMetadataTest {
             "io.github.coco.feature.registry.CocoFeatureRegistryAutoConfiguration",
             "io.github.coco.config.CocoConfigAutoConfiguration",
             "io.github.coco.feature.runtime.autoconfigure.CocoFeatureRuntimeAutoConfiguration",
-            "io.github.coco.spring.boot.CocoAutoConfiguration");
+            "io.github.coco.spring.boot.CocoAutoConfiguration",
+            "io.github.coco.spring.boot.async.CocoAsyncAutoConfiguration",
+            "io.github.coco.spring.boot.jackson.CocoJacksonAutoConfiguration");
 
     @Test
     void exposesMergedAutoConfigurationImports() throws IOException {

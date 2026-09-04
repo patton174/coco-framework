@@ -136,6 +136,6 @@ public record CocoApiResponse<T>(boolean success, int code, String message, T da
     }
 
     private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return io.github.coco.context.CocoStrings.blankToNull(value);
     }
 }

@@ -5,10 +5,6 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -39,15 +35,9 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
 
     private final ConcurrentMap<String, Instant> reservedKeys = new ConcurrentHashMap<>();
 
-    private final long cleanupIntervalSeconds;
-
     private final Clock clock;
 
-    private final ScheduledExecutorService cleanupExecutor;
-
-    private final AtomicBoolean cleanupStarted = new AtomicBoolean();
-
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CocoReplayCleanupLifecycle cleanupLifecycle;
 
     /**
      * <p>
@@ -72,11 +62,10 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
 
     InMemoryCocoReplayStore(CocoReplayProperties properties, Clock clock, boolean backgroundCleanupEnabled) {
         CocoReplayProperties replayProperties = properties == null ? new CocoReplayProperties() : properties;
-        this.cleanupIntervalSeconds = replayProperties.getCleanupIntervalSeconds();
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.cleanupExecutor = backgroundCleanupEnabled
-                ? Executors.newSingleThreadScheduledExecutor(new CleanupThreadFactory())
-                : null;
+        this.cleanupLifecycle = new CocoReplayCleanupLifecycle(this::cleanupExpiredKeys,
+                replayProperties.getCleanupIntervalSeconds(), "coco-replay-cleanup",
+                LOGGER, backgroundCleanupEnabled);
         warnClusterDeploymentRisk();
     }
 
@@ -87,7 +76,7 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
     public boolean reserve(CocoReplayKey key, Instant expiresAt) {
         CocoReplayKey checkedKey = Objects.requireNonNull(key, "key must not be null");
         Instant checkedExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt must not be null");
-        startCleanupTaskIfNecessary();
+        this.cleanupLifecycle.startCleanupTaskIfNecessary();
         Instant now = this.clock.instant();
         AtomicBoolean reserved = new AtomicBoolean(false);
         this.reservedKeys.compute(checkedKey.value(), (ignored, currentExpiresAt) -> {
@@ -105,9 +94,7 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
      */
     @Override
     public void close() {
-        if (this.cleanupExecutor != null && this.closed.compareAndSet(false, true)) {
-            this.cleanupExecutor.shutdownNow();
-        }
+        this.cleanupLifecycle.close();
     }
 
     int cleanupExpiredKeys() {
@@ -127,38 +114,10 @@ public final class InMemoryCocoReplayStore implements CocoReplayStore, AutoClose
         return this.reservedKeys.size();
     }
 
-    private void startCleanupTaskIfNecessary() {
-        if (this.cleanupExecutor == null || this.closed.get()
-                || !this.cleanupStarted.compareAndSet(false, true)) {
-            return;
-        }
-        this.cleanupExecutor.scheduleWithFixedDelay(this::cleanupExpiredKeysSafely,
-                this.cleanupIntervalSeconds, this.cleanupIntervalSeconds, TimeUnit.SECONDS);
-    }
-
-    private void cleanupExpiredKeysSafely() {
-        try {
-            cleanupExpiredKeys();
-        }
-        catch (RuntimeException ex) {
-            LOGGER.warn("Coco replay cleanup failed; expired replay keys will be retried later.", ex);
-        }
-    }
-
     private static void warnClusterDeploymentRisk() {
         if (WARNING_LOGGED.compareAndSet(false, true)) {
             LOGGER.warn("Coco replay uses process-local InMemoryCocoReplayStore; replace CocoReplayStore "
                     + "with a shared implementation for clustered deployments.");
-        }
-    }
-
-    private static final class CleanupThreadFactory implements ThreadFactory {
-
-        @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "coco-replay-cleanup");
-            thread.setDaemon(true);
-            return thread;
         }
     }
 }

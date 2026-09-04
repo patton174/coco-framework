@@ -83,7 +83,7 @@ public final class CocoIpAddressSupport {
      * @return 去除首尾空白后的字符串；为空时返回 {@code null}
      */
     public static String normalizeString(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return io.github.coco.context.CocoStrings.blankToNull(value);
     }
 
     private static boolean matchesTrustedProxy(byte[] remoteAddress, String trustedProxy) {

@@ -86,7 +86,7 @@ public final class DefaultCocoBrowserFingerprintResolver implements CocoBrowserF
     }
 
     private static String normalizeString(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return io.github.coco.context.CocoStrings.blankToNull(value);
     }
 
     private static String trimValue(String value, int maxLength) {
