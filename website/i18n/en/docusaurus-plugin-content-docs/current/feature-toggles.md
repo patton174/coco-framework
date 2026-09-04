@@ -58,6 +58,7 @@ For example, disabling `mybatis-plus` cascades to disable `tenant`, `data-permis
 | `lock` | Distributed lock | — |
 | `storage` | Object storage | — |
 | `messaging` | Messaging and events | — |
+| `cache` | Two-level cache | — |
 | `codegen` | Code generation | `mybatis-plus` |
 
 ## Relationship to module-level switches

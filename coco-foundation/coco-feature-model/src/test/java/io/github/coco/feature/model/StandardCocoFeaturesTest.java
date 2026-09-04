@@ -78,6 +78,12 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.MESSAGING).autoConfigurationClassName());
         assertTrue(definitions.get(CocoFeature.MESSAGING).defaultEnabled());
         assertEquals(Set.of(), definitions.get(CocoFeature.MESSAGING).dependencies());
+        assertEquals("cache", CocoFeature.CACHE.id());
+        assertEquals("coco-cache", definitions.get(CocoFeature.CACHE).artifactId());
+        assertEquals("io.github.coco.cache.CocoCacheAutoConfiguration",
+                definitions.get(CocoFeature.CACHE).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.CACHE).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.CACHE).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
         assertEquals(Set.of("coco-feature-codegen", "freemarker"),
