@@ -15313,5 +15313,146 @@ class CrossHeadContinuityTest(unittest.TestCase):
         self.assertIn(HEAD_SHA, body)
 
 
+class ReviewToolSandboxTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.context = bound_context()
+        # Catalog sorts by (domain, path): S001 = head-code/src/Foo.java,
+        # S002 = protected-policy/AGENTS.md.
+        self.catalog = review.context_evidence_catalog(self.context)
+
+    def test_content_map_matches_catalog_ids(self) -> None:
+        content = review.review_source_content_map(self.context)
+        self.assertEqual({item["source_id"] for item in self.catalog}, set(content))
+        self.assertEqual("Policy", content["S002"])
+        self.assertIn("class Foo", content["S001"])
+
+    def test_list_sources_returns_content_free_catalog(self) -> None:
+        out = review.review_tool_list_sources(self.context, {})
+        self.assertIn("S001", out)
+        self.assertIn("protected-policy", out)
+        # The catalog is content-free: source bodies must not leak here.
+        self.assertNotIn("class Foo", out)
+
+    def test_read_source_returns_catalog_content(self) -> None:
+        out = review.review_tool_read_source(self.context, {"source_id": "S002"})
+        self.assertEqual("Policy", out)
+
+    def test_read_source_rejects_unknown_id(self) -> None:
+        with self.assertRaisesRegex(review.ReviewError, "unknown source_id"):
+            review.review_tool_read_source(self.context, {"source_id": "S999"})
+
+    def test_read_source_requires_source_id(self) -> None:
+        with self.assertRaisesRegex(review.ReviewError, "non-empty 'source_id'"):
+            review.review_tool_read_source(self.context, {})
+
+    def test_execute_review_tool_rejects_unknown_tool(self) -> None:
+        with self.assertRaisesRegex(review.ReviewError, "Unknown review tool"):
+            review.execute_review_tool(
+                self.context, "read_file", {"path": "/etc/passwd"}
+            )
+
+
+class AgenticHarnessTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # Real context so tools resolve against the vetted catalog: S002 is the
+        # protected-policy source with content "Policy".
+        self.context = bound_context()
+
+    def make_client(self, scripted):
+        outer = self
+
+        class Scripted:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+                self._queue = list(scripted)
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                del system, max_tokens
+                outer.last_user = user
+                self.calls.append(user)
+                return self._queue.pop(0)
+
+        return Scripted()
+
+    def test_final_action_passes_report_through_validate(self) -> None:
+        client = self.make_client([{"action": "final", "report": {"ok": True}}])
+        seen = {}
+
+        def validate(report):
+            seen.update(report)
+            return {"validated": report}
+
+        result = review.complete_agentic(
+            client, "sys", "task", self.context, 100, validate
+        )
+        self.assertEqual({"validated": {"ok": True}}, result)
+        self.assertEqual({"ok": True}, seen)
+        self.assertEqual(1, len(client.calls))
+
+    def test_tool_call_result_is_fed_back_then_finalizes(self) -> None:
+        client = self.make_client(
+            [
+                {
+                    "action": "tool_call",
+                    "tool": "read_source",
+                    "args": {"source_id": "S002"},
+                },
+                {"action": "final", "report": {"done": True}},
+            ]
+        )
+        result = review.complete_agentic(
+            client, "sys", "task", self.context, 100, lambda r: r
+        )
+        self.assertEqual({"done": True}, result)
+        # The second turn's transcript must carry the tool observation.
+        self.assertIn("Policy", client.calls[1])
+
+    def test_tool_error_is_fed_back_not_raised(self) -> None:
+        client = self.make_client(
+            [
+                {
+                    "action": "tool_call",
+                    "tool": "read_source",
+                    "args": {"source_id": "S999"},
+                },
+                {"action": "final", "report": {"recovered": True}},
+            ]
+        )
+        result = review.complete_agentic(
+            client, "sys", "task", self.context, 100, lambda r: r
+        )
+        self.assertEqual({"recovered": True}, result)
+        self.assertIn("ERROR", client.calls[1])
+
+    def test_invalid_action_is_rejected(self) -> None:
+        client = self.make_client([{"action": "chat", "text": "hi"}])
+        with self.assertRaisesRegex(review.ReviewError, "tool_call.*final|final"):
+            review.complete_agentic(
+                client, "sys", "task", self.context, 100, lambda r: r
+            )
+
+    def test_final_without_report_object_is_rejected(self) -> None:
+        client = self.make_client([{"action": "final", "report": "not-an-object"}])
+        with self.assertRaisesRegex(review.ReviewError, "report object"):
+            review.complete_agentic(
+                client, "sys", "task", self.context, 100, lambda r: r
+            )
+
+    def test_iteration_cap_fails_closed(self) -> None:
+        loop = [
+            {
+                "action": "tool_call",
+                "tool": "read_source",
+                "args": {"source_id": "S002"},
+            }
+        ]
+        client = self.make_client(loop * 5)
+        with self.assertRaisesRegex(review.ReviewError, "did not finalize"):
+            review.complete_agentic(
+                client, "sys", "task", self.context, 100, lambda r: r, max_iterations=3
+            )
+        self.assertEqual(3, len(client.calls))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
