@@ -32,6 +32,21 @@ AGENT_ISSUE_LABEL = "agent-review"
 STANDARD_REQUIRED_GATES = ("CI gate", "Agent jury gate", "Agent issue gate")
 INCIDENT_REQUIRED_GATES = ("CI gate", "Agent issue gate")
 INCIDENT_MISSING_CONTEXT = "Agent jury gate"
+# Contributor pull requests are additionally admission-checked, and the release
+# branch trades per-change review for the promotion check. Both sets are listed
+# so branch protection can be recognised on either side without loosening the
+# rule that the set must match a known contract exactly.
+DEV_REQUIRED_GATES = STANDARD_REQUIRED_GATES + ("Contributor gate",)
+MAIN_REQUIRED_GATES = ("CI gate", "Promotion gate")
+RECOGNISED_REQUIRED_GATE_SETS = frozenset(
+    tuple(sorted(gates))
+    for gates in (
+        STANDARD_REQUIRED_GATES,
+        INCIDENT_REQUIRED_GATES,
+        DEV_REQUIRED_GATES,
+        MAIN_REQUIRED_GATES,
+    )
+)
 INCIDENT_MARKER_PREFIX = "<!-- coco-auto-merge-incident: "
 INCIDENT_MARKER_RE = re.compile(
     r"<!-- coco-auto-merge-incident: (?P<payload>\{[^\r\n]{1,2048}\}) -->"
@@ -873,12 +888,9 @@ def required_gate_configuration(
             "main branch required checks must be bound to the GitHub Actions App."
         )
     gates = tuple(sorted(context_names))
-    if gates not in {
-        tuple(sorted(STANDARD_REQUIRED_GATES)),
-        tuple(sorted(INCIDENT_REQUIRED_GATES)),
-    }:
+    if gates not in RECOGNISED_REQUIRED_GATE_SETS:
         raise ContractError(
-            "main branch required check set is not the standard or controlled incident contract."
+            "branch required check set is not a recognised governance contract."
         )
     return RequiredGateConfiguration(
         gates=gates,

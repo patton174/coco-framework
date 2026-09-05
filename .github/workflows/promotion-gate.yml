@@ -14,8 +14,11 @@ on:
 permissions: {}
 
 concurrency:
+  # Per pull request, matching the other status publishers. cancel-in-progress
+  # stays false so a status write is never interrupted mid-publish, which would
+  # leave a required check stuck pending.
   group: promotion-gate-${{ github.repository_id }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gate:

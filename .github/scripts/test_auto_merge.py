@@ -566,6 +566,10 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(
             [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
         )
+        # Even with only a main-base fixture, every governed base must be queried;
+        # otherwise the multi-base loop could regress unnoticed in this shape.
+        self.assertIn("dev", client.scanned_bases)
+        self.assertEqual(sorted(merge.ACCEPTED_PR_BASES), sorted(client.scanned_bases))
 
     def test_protection_is_read_from_the_pull_request_base(self) -> None:
         # The contract must come from the branch the pull request targets. Reading a
@@ -657,6 +661,44 @@ class AutoMergeTests(unittest.TestCase):
             {(17, HEAD_SHA), (18, BASE_SHA)},
             {(item.number, item.expected_head_sha) for item in candidates},
         )
+
+    def test_dev_and_main_gate_contracts_are_recognised(self) -> None:
+        # Once dev protection carries the admission gate and main carries the
+        # promotion gate, auto-merge must still recognise both configurations or
+        # it would refuse to merge anything.
+        for gates in (
+            merge.STANDARD_REQUIRED_GATES,
+            merge.INCIDENT_REQUIRED_GATES,
+            merge.DEV_REQUIRED_GATES,
+            merge.MAIN_REQUIRED_GATES,
+        ):
+            with self.subTest(gates=gates):
+                client = FakeClient()
+                client.protection_client.configuration = required_check_configuration(
+                    gates
+                )
+                configuration = merge.required_gate_configuration(
+                    client.protection_client, REPOSITORY
+                )
+                self.assertEqual(tuple(sorted(gates)), configuration.gates)
+
+    def test_dev_contract_adds_only_the_contributor_gate(self) -> None:
+        self.assertEqual(
+            set(merge.STANDARD_REQUIRED_GATES) | {"Contributor gate"},
+            set(merge.DEV_REQUIRED_GATES),
+        )
+
+    def test_main_contract_replaces_content_review_with_promotion(self) -> None:
+        self.assertEqual(("CI gate", "Promotion gate"), merge.MAIN_REQUIRED_GATES)
+        self.assertNotIn("Agent jury gate", merge.MAIN_REQUIRED_GATES)
+
+    def test_unrecognised_gate_set_is_rejected(self) -> None:
+        client = FakeClient()
+        client.protection_client.configuration = required_check_configuration(
+            ("CI gate",)
+        )
+        with self.assertRaisesRegex(merge.ContractError, "recognised governance"):
+            merge.required_gate_configuration(client.protection_client, REPOSITORY)
 
     @staticmethod
     def snapshot_with_base(base_ref: str) -> merge.PullRequestSnapshot:
