@@ -83,12 +83,17 @@ class CocoCaptchaAutoConfigurationTest {
     }
 
     @Test
-    void ambiguousTemplateRequiresAnExplicitBeanName() {
+    void ambiguousTemplateWithoutABeanNameFailsFast() {
         RedisConnectionFactory connectionFactory = mock(RedisConnectionFactory.class);
         this.runner.withPropertyValues("coco.captcha.enabled=true", "coco.captcha.store-type=redis")
                 .withBean("templateA", StringRedisTemplate.class, () -> new StringRedisTemplate(connectionFactory))
                 .withBean("templateB", StringRedisTemplate.class, () -> new StringRedisTemplate(connectionFactory))
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void explicitBeanNameResolvesAmbiguousTemplates() {
+        RedisConnectionFactory connectionFactory = mock(RedisConnectionFactory.class);
         this.runner.withPropertyValues("coco.captcha.enabled=true", "coco.captcha.store-type=redis",
                         "coco.captcha.redis.template-bean-name=templateB")
                 .withBean("templateA", StringRedisTemplate.class, () -> new StringRedisTemplate(connectionFactory))
