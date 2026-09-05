@@ -44,8 +44,20 @@ compatibility evidence, operational risk, and long-term maintenance cost.
 
 ### Protected merge and release controls
 
-- `main` protection applies to administrators and requires strict, App-bound
-  `CI gate`, `Agent jury gate`, and `Agent issue gate` checks.
+- Contributions enter through `dev`. A `dev-<login>` branch opens a pull request
+  against `dev`, which requires strict, App-bound `CI gate`, `Agent jury gate`,
+  `Agent issue gate`, and `Contributor gate` checks. The contributor gate
+  verifies branch naming, that the branch suffix is the author's own login, and
+  that the author is a write-access collaborator or an allow-listed project bot.
+- `main` is the release branch. Its protection applies to administrators and
+  requires strict, App-bound `CI gate` and `Promotion gate` checks. Only the
+  repository owner may promote, only from `dev`, and only when `dev` is not
+  behind `main` and carries no open bound agent-review finding. The promotion
+  gate reuses the content verdicts already recorded on the `dev` head instead of
+  re-reviewing the change.
+- `main` remains the GitHub default branch. `workflow_run` executes only from the
+  default branch, which is what keeps reviewer code and release secrets outside
+  the reach of the change being reviewed.
 - One current CODEOWNER approval and resolved conversations are required.
 - Only merge commits are enabled. Force pushes and branch deletion are blocked.
 - GitHub Actions are limited to GitHub-owned actions pinned to commit SHAs; the
