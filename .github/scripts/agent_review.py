@@ -3438,6 +3438,30 @@ def complete_fragment_json(
 AGENTIC_TOOL_OUTPUT_BUDGET = 240_000
 AGENTIC_MAX_ITERATIONS = 24
 
+# Appended to a role's system prompt when it runs on the agentic path. Describes
+# the harness text protocol so the model drives the read-only catalog tools and
+# emits its normal report only when done.
+AGENTIC_PROTOCOL_INSTRUCTIONS = (
+    "## Protected agentic tool protocol\n"
+    "You gather evidence on demand instead of receiving it all at once. On every "
+    "turn respond with exactly one strict JSON object and nothing else, one of:\n"
+    '- {"action":"tool_call","tool":"list_sources","args":{}} to get the '
+    "content-free catalog of canonical evidence sources (source_id, trust_domain, "
+    "path, available_line_ranges).\n"
+    '- {"action":"tool_call","tool":"read_source","args":{"source_id":"S001"}} to '
+    "read one catalog source's content by its exact source_id.\n"
+    '- {"action":"final","report":{...}} where report is the complete schema '
+    "report this role must produce, exactly as specified above.\n"
+    "Only source_ids returned by list_sources exist; you cannot read anything "
+    "outside the catalog. Call tools only as needed, then finalize. Every "
+    "constraint on the report above still applies to the final report."
+)
+
+
+def agentic_role_enabled(config: dict[str, Any], role: str) -> bool:
+    roles = config.get("agentic_roles", [])
+    return isinstance(roles, list) and role in roles
+
 
 def complete_agentic(
     client: "AgentModelClient",
@@ -4565,20 +4589,37 @@ def command_cross(args: argparse.Namespace) -> int:
     max_tokens = int(
         verifier.get("max_tokens", normalized_limits(config)["verifier_tokens"])
     )
-    report = complete_with_shape_repair(
-        AgentModelClient(config),
-        system,
-        user,
-        max_tokens,
-        lambda candidate: validate_raw_cross_report(
+
+    def validate(candidate: dict[str, Any]) -> Any:
+        return validate_raw_cross_report(
             candidate,
             args.role,
             context,
             finding_ids,
             normalized_limits(config)["max_context_gaps_per_agent"],
-        ),
-        cross_review_fresh_retry=True,
-    )
+        )
+
+    if agentic_role_enabled(config, args.role):
+        # The catalog tools serve the same vetted sources the single-shot path
+        # would have inlined, so the model builds context on demand; the final
+        # report still goes through the identical validate().
+        report = complete_agentic(
+            AgentModelClient(config),
+            f"{system}\n\n{AGENTIC_PROTOCOL_INSTRUCTIONS}",
+            user,
+            context,
+            max_tokens,
+            validate,
+        )
+    else:
+        report = complete_with_shape_repair(
+            AgentModelClient(config),
+            system,
+            user,
+            max_tokens,
+            validate,
+            cross_review_fresh_retry=True,
+        )
     write_json(args.output, report)
     return 0
 

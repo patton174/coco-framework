@@ -15454,5 +15454,33 @@ class AgenticHarnessTest(unittest.TestCase):
         self.assertEqual(3, len(client.calls))
 
 
+class AgenticRoleFlagTest(unittest.TestCase):
+    def test_flag_defaults_off_when_absent(self) -> None:
+        # Missing key = production behavior unchanged; no role is agentic.
+        self.assertFalse(review.agentic_role_enabled({}, "evidence-verifier"))
+
+    def test_empty_list_enables_no_role(self) -> None:
+        self.assertFalse(
+            review.agentic_role_enabled({"agentic_roles": []}, "evidence-verifier")
+        )
+
+    def test_listed_role_is_enabled(self) -> None:
+        config = {"agentic_roles": ["evidence-verifier"]}
+        self.assertTrue(review.agentic_role_enabled(config, "evidence-verifier"))
+        self.assertFalse(review.agentic_role_enabled(config, "policy-skeptic"))
+
+    def test_non_list_value_is_treated_as_off(self) -> None:
+        self.assertFalse(
+            review.agentic_role_enabled(
+                {"agentic_roles": "evidence-verifier"}, "evidence-verifier"
+            )
+        )
+
+    def test_protocol_instructions_name_both_tools(self) -> None:
+        self.assertIn("list_sources", review.AGENTIC_PROTOCOL_INSTRUCTIONS)
+        self.assertIn("read_source", review.AGENTIC_PROTOCOL_INSTRUCTIONS)
+        self.assertIn('"action":"final"', review.AGENTIC_PROTOCOL_INSTRUCTIONS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
