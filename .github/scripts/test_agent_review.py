@@ -14390,6 +14390,49 @@ class CrossHeadContinuityTest(unittest.TestCase):
         )
         self.assertEqual(self.candidate["anchor"], adopted["previous_anchor"])
 
+    def test_candidates_sharing_one_anchor_remain_selectable(self) -> None:
+        # Two distinct findings can sit at the same file, category, severity, and
+        # line range. That used to abort the whole run; ADOPT now selects by Issue
+        # number, so a shared anchor is no longer ambiguous.
+        second = dict(self.candidate)
+        second["previous_issue_number"] = self.candidate["previous_issue_number"] + 1
+        second["previous_group_id"] = "v2-" + "7" * 64
+        material = {
+            key: value for key, value in second.items() if key != "candidate_sha256"
+        }
+        second["candidate_sha256"] = review.sha256_text(review.canonical_json(material))
+        context = {
+            **self.context,
+            "trusted": {"continuity_candidates": [self.candidate, second]},
+        }
+        self.assertEqual(
+            review.canonical_json(self.candidate["anchor"]),
+            review.canonical_json(second["anchor"]),
+        )
+
+        for candidate in (self.candidate, second):
+            with self.subTest(issue=candidate["previous_issue_number"]):
+                relationship = self.relationship(
+                    "ADOPT",
+                    candidate_sha256=None,
+                    previous_group_id=None,
+                    previous_anchor=None,
+                    previous_issue_number=candidate["previous_issue_number"],
+                )
+                normalized = review.validate_continuity_report(
+                    self.report("evidence-verifier", relationship),
+                    "evidence-verifier",
+                    context,
+                    self.groups,
+                )
+                adopted = normalized["relationships"][0]
+                self.assertEqual(
+                    candidate["candidate_sha256"], adopted["candidate_sha256"]
+                )
+                self.assertEqual(
+                    candidate["previous_group_id"], adopted["previous_group_id"]
+                )
+
     def test_continuity_adopt_unknown_issue_number_fails_closed(self) -> None:
         relationship = self.relationship(
             "ADOPT",

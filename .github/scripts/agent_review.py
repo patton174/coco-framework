@@ -5878,10 +5878,13 @@ def collect_continuity_candidates(
     candidates.sort(key=lambda value: int(value["previous_issue_number"]))
     if len({str(value["candidate_sha256"]) for value in candidates}) != len(candidates):
         raise ReviewError("Duplicate continuity candidate binding.")
-    if len({canonical_json(value["anchor"]) for value in candidates}) != len(
-        candidates
-    ):
-        raise ReviewError("Multiple continuity candidates share one canonical anchor.")
+    # Candidates may legitimately share one canonical anchor: two distinct findings
+    # can sit at the same file, category, severity, and line range. That used to be
+    # fatal because the anchor participated in ADOPT binding, so a collision made
+    # the selection ambiguous. ADOPT now selects by previous_issue_number, which the
+    # duplicate check above already proves unique, and the relationship contract
+    # rejects an ambiguous match, so anchor collisions can no longer create
+    # ambiguity and must not fail the run.
     return [canonical_continuity_candidate(value) for value in candidates]
 
 
