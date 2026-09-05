@@ -14247,6 +14247,31 @@ class GovernedBaseBranchTest(unittest.TestCase):
         self.assertIn(review.DEFAULT_BRANCH, review.ACCEPTED_PR_BASES)
         self.assertIn(review.INTEGRATION_BRANCH, review.ACCEPTED_PR_BASES)
 
+    def test_agent_issue_gate_resolve_event_honors_governed_bases(self) -> None:
+        # The gate's pull_request path was refactored to is_accepted_base; every
+        # governed base must resolve, and an ungoverned base must be ignored.
+        def event(base_ref: str) -> dict:
+            return {
+                "repository": {"full_name": "patton174/coco-framework"},
+                "pull_request": {
+                    "number": 60,
+                    "head": {"sha": HEAD_SHA},
+                    "base": {"ref": base_ref},
+                },
+            }
+
+        for base_ref in sorted(review.ACCEPTED_PR_BASES):
+            with self.subTest(base_ref=base_ref):
+                resolved = issue_gate.resolve_event(event(base_ref), APP_LOGIN)
+                self.assertFalse(resolved["ignored"])
+                self.assertEqual(60, resolved["pr_number"])
+
+        for base_ref in ("master", "release", "dev-someone"):
+            with self.subTest(rejected=base_ref):
+                self.assertTrue(
+                    issue_gate.resolve_event(event(base_ref), APP_LOGIN)["ignored"]
+                )
+
 
 class CrossHeadContinuityTest(unittest.TestCase):
     def setUp(self) -> None:

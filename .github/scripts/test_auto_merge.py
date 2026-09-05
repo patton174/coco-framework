@@ -8,6 +8,7 @@ import os
 import subprocess
 import unittest
 import urllib.parse
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -637,7 +638,13 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(
             [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
         )
-        self.assertEqual(sorted(merge.ACCEPTED_PR_BASES), sorted(client.scanned_bases))
+        # Assert each governed base was paginated exactly once, not merely that
+        # the set was covered: a dedup or early return that skipped a base would
+        # pass a set assertion but silently miss dev-targeting candidates.
+        self.assertEqual(
+            {base: 1 for base in merge.ACCEPTED_PR_BASES},
+            dict(Counter(client.scanned_bases)),
+        )
 
     def test_eligible_pull_request_uses_merge_commit_and_exact_head(self) -> None:
         client = FakeClient()
@@ -788,6 +795,23 @@ class AutoMergeTests(unittest.TestCase):
             )
         self.assertEqual(2, one_page.protection_client.reads)
         self.assertEqual([], one_page.sent)
+
+    def test_incident_path_authorizes_a_dev_base_candidate(self) -> None:
+        # The incident two-gate path was only exercised with a main base. A
+        # dev-targeting candidate under owner dispatch must resolve identically:
+        # the per-base protection read is for dev, and authorization still holds.
+        client = self.incident_client()
+        client.pull_reads = [
+            pull_request(user=app_actor(), base={"ref": "dev", "sha": BASE_SHA}),
+            pull_request(user=app_actor(), base={"ref": "dev", "sha": BASE_SHA}),
+        ]
+        decision = self.evaluate(
+            client,
+            dry_run=True,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("dry-run", decision.state)
+        self.assertEqual(["dev", "dev"], client.protection_client.branches_read)
 
     def test_incident_owner_issue_marker_cannot_replace_owner_dispatch(self) -> None:
         cases = {
