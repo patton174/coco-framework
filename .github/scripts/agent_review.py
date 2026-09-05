@@ -3491,7 +3491,9 @@ as `REJECT` or `INSUFFICIENT` and set all four candidate fields to JSON null:
 `candidate_sha256`, `previous_group_id`, `previous_issue_number`, and
 `previous_anchor`. Keep `current_group_id` and `current_anchor` bound to the
 supplied current group. Do not change the relationship to `ADOPT`; ADOPT alone
-requires all four candidate fields to match one supplied candidate exactly."""
+sets `previous_issue_number` to one supplied candidate's integer
+`previous_issue_number` and keeps `candidate_sha256`, `previous_group_id`, and
+`previous_anchor` null."""
                 elif (
                     str(exc)
                     == "Cross-review evidence-verifier change_scope evidence must be protected policy or a base specification."
@@ -3525,8 +3527,10 @@ those names to repair coverage, but still re-read the canonical catalog and
 never weaken a protected rule. For continuity relationships, emit exactly
 these eight fields: schema_version, action, current_group_id, current_anchor,
 candidate_sha256, previous_group_id, previous_issue_number, previous_anchor.
-Here `action` is the relationship type: ADOPT requires all four candidate
-fields to be present and exactly bound to one supplied candidate; REJECT and
+Here `action` is the relationship type: ADOPT sets `previous_issue_number` to
+one supplied candidate's integer `previous_issue_number` and keeps
+`candidate_sha256`, `previous_group_id`, and `previous_anchor` JSON null (the
+validator derives them; never copy a SHA-256 or anchor); REJECT and
 INSUFFICIENT require all four candidate fields to be JSON null.""",
                 ]
                 if targeted_correction:
@@ -5165,7 +5169,7 @@ def command_continuity(args: argparse.Namespace) -> int:
             "Only an empty `current_groups` array may omit relationships under this contract. "
             "Each relationship must itself contain exactly these eight fields: numeric `schema_version` 2, `action`, `current_group_id`, `current_anchor`, `candidate_sha256`, `previous_group_id`, `previous_issue_number`, and `previous_anchor`. "
             "The relationship-level schema_version is required even though the report has a schema_version. "
-            "Treat `action` as the relationship type: `ADOPT` is permitted only when all four candidate fields are present and the exact candidate SHA, previous group/Issue, and both canonical anchors match one supplied record. "
+            "Treat `action` as the relationship type. For `ADOPT`, set `previous_issue_number` to the integer `previous_issue_number` of the one supplied candidate you are continuing, and set `candidate_sha256`, `previous_group_id`, and `previous_anchor` all to JSON null: the validator derives them from that candidate, so do not copy any SHA-256 or anchor. Adopt only when the current group is the same defect as that candidate. "
             "Do not use titles, claims, body prose, semantic similarity, or any text similarity. "
             "For `REJECT` or `INSUFFICIENT`, the relationship is non-adopt and `candidate_sha256`, `previous_group_id`, `previous_issue_number`, and `previous_anchor` must all be JSON null; never claim a candidate in a non-adopt relationship. "
             "The chair has no authority over this decision.",
@@ -5920,24 +5924,28 @@ def continuity_relationship_contract(
         # Older completions treated schema_version as report-level metadata.
         # Restore only this fixed protocol value; identity-bearing fields remain
         # subject to the exact checks below.
+        #
+        # The model no longer transcribes candidate hashes. For ADOPT it supplies
+        # only previous_issue_number as the selector; candidate_sha256,
+        # previous_anchor, and previous_group_id are derived from the trusted
+        # candidate below, so force them null regardless of what the model sent
+        # (echoing a 64-char SHA-256 was the deterministic failure this removes).
+        # For REJECT/INSUFFICIENT all four candidate fields are null.
+        if relationship.get("action") == "ADOPT":
+            derived_nulls = ("candidate_sha256", "previous_anchor", "previous_group_id")
+        else:
+            derived_nulls = (
+                "candidate_sha256",
+                "previous_anchor",
+                "previous_group_id",
+                "previous_issue_number",
+            )
         relationship = {
             "schema_version": relationship.get(
                 "schema_version", CONTINUITY_SCHEMA_VERSION
             ),
             **relationship,
-            **(
-                {
-                    name: None
-                    for name in (
-                        "candidate_sha256",
-                        "previous_anchor",
-                        "previous_group_id",
-                        "previous_issue_number",
-                    )
-                }
-                if relationship.get("action") in {"REJECT", "INSUFFICIENT"}
-                else {}
-            ),
+            **{name: None for name in derived_nulls},
         }
     if not isinstance(relationship, dict) or set(relationship) != required:
         raise ReportShapeError("Continuity relationship schema is invalid.")
@@ -5976,6 +5984,11 @@ def continuity_relationship_contract(
             "previous_issue_number": None,
             "schema_version": CONTINUITY_SCHEMA_VERSION,
         }
+    # ADOPT selects a candidate by previous_issue_number — a small integer the
+    # model can reliably copy — and every hash-bearing field is derived from the
+    # matched trusted candidate. The candidate set is built and cryptographically
+    # validated by the harness, so a wrong integer fails closed as "unknown
+    # candidate"; it can never forge an adoption of a finding that was not queued.
     if (
         type(relationship.get("previous_issue_number")) is not int
         or relationship["previous_issue_number"] < 1
@@ -5983,35 +5996,26 @@ def continuity_relationship_contract(
         raise ReportShapeError(
             "Continuity relationship previous Issue number is invalid."
         )
-    try:
-        candidate_hash = require_sha256(
-            relationship.get("candidate_sha256"), "Continuity candidate SHA-256"
-        )
-    except ReviewError as exc:
+    issue_number = relationship["previous_issue_number"]
+    matches = [
+        candidate
+        for candidate in candidates.values()
+        if candidate["previous_issue_number"] == issue_number
+    ]
+    if len(matches) > 1:
+        # collect_continuity_candidates rejects duplicate Issue numbers, so this
+        # is defensive: never adopt when the selector is ambiguous.
         raise ReportShapeError(
-            "Continuity relationship candidate SHA-256 is invalid."
-        ) from exc
-    candidate = candidates.get(candidate_hash)
-    if candidate is None:
+            "Continuity relationship references an ambiguous candidate."
+        )
+    if not matches:
         raise ReportShapeError(
             "Continuity relationship references an unknown candidate."
         )
-    try:
-        previous_anchor = require_continuity_anchor(relationship.get("previous_anchor"))
-    except ReviewError as exc:
-        raise ReportShapeError(
-            "Continuity relationship previous anchor is invalid."
-        ) from exc
-    if (
-        relationship.get("previous_group_id") != candidate["previous_group_id"]
-        or relationship.get("previous_issue_number")
-        != candidate["previous_issue_number"]
-        or canonical_json(previous_anchor) != canonical_json(candidate["anchor"])
-    ):
-        raise ReportShapeError("Continuity relationship candidate binding drifted.")
+    candidate = matches[0]
     return {
         "action": "ADOPT",
-        "candidate_sha256": candidate_hash,
+        "candidate_sha256": candidate["candidate_sha256"],
         "current_anchor": group["anchor"],
         "current_group_id": group["current_group_id"],
         "previous_anchor": candidate["anchor"],
