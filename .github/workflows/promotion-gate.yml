@@ -1,0 +1,55 @@
+name: Promotion Gate
+
+# Verifies that a release promotion is authorised and complete. It deliberately
+# does not re-judge content: the integration head already carries the CI, jury,
+# and issue gate verdicts produced per contributor pull request, and this gate
+# only reuses them. No Anthropic or GitHub App credentials are used here, and
+# pull request code is never checked out.
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: promotion-gate-${{ github.repository_id }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Verify release promotion
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout trusted gate implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Evaluate promotion gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .github/scripts/promotion_gate.py \
+            --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" \
+            --repository-owner "${REPOSITORY_OWNER}" \
+            --event-path "${GITHUB_EVENT_PATH}" \
+            --run-url "${run_url}"

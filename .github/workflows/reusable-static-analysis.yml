@@ -61,14 +61,17 @@ jobs:
             .github/scripts/agent_issue_gate.py \
             .github/scripts/auto_merge.py \
             .github/scripts/contributor_gate.py \
+            .github/scripts/promotion_gate.py \
             .github/scripts/test_agent_review.py \
             .github/scripts/test_auto_merge.py \
             .github/scripts/test_contributor_gate.py \
+            .github/scripts/test_promotion_gate.py \
             .github/scripts/verify_boot_archive_feature_coordinates.py \
             .github/scripts/test_verify_boot_archive_feature_coordinates.py
           python .github/scripts/test_agent_review.py
           python .github/scripts/test_auto_merge.py
           python .github/scripts/test_contributor_gate.py
+          python .github/scripts/test_promotion_gate.py
           python .github/scripts/test_verify_boot_archive_feature_coordinates.py
           python -m ruff check .github/scripts
           python -m ruff format --check .github/scripts
