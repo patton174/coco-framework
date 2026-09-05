@@ -37,6 +37,8 @@ LEGACY_COMMENT_MARKER = "<!-- claude-review-marker: managed by workflow -->"
 STATUS_CONTEXT = "Agent jury gate"
 OWNERSHIP_STATUS_CONTEXT = "Agent jury ownership"
 ISSUE_STATUS_CONTEXT = "Agent issue gate"
+CONTRIBUTOR_STATUS_CONTEXT = "Contributor gate"
+PROMOTION_STATUS_CONTEXT = "Promotion gate"
 # `main` is the release branch and the GitHub default branch; `dev` is the
 # integration trunk that contributor pull requests target. `main` stays default
 # because `workflow_run` loads its workflow DEFINITION only from the default
@@ -47,6 +49,20 @@ ISSUE_STATUS_CONTEXT = "Agent issue gate"
 DEFAULT_BRANCH = "main"
 INTEGRATION_BRANCH = "dev"
 ACCEPTED_PR_BASES = frozenset({DEFAULT_BRANCH, INTEGRATION_BRANCH})
+# Contributor branches are dev-<login>. The suffix is matched against the PR
+# author later, so the pattern only bounds shape and length here (GitHub logins
+# are at most 39 characters).
+CONTRIBUTOR_BRANCH_RE = re.compile(r"^dev-[A-Za-z0-9](?:[A-Za-z0-9._-]{0,38})$")
+# Bots whose branch names cannot follow dev-<login>. Dependabot's prefix is not
+# configurable at all, and an App login like `coco-framework-agent[bot]` contains
+# brackets that no valid ref may hold. Each prefix maps to the ONE identity
+# allowed to use it, so a spoofed `dependabot/x` branch from an ordinary account
+# is still rejected -- the prefix alone never grants the exemption.
+EXEMPT_BRANCH_PREFIX_OWNERS = {
+    "dependabot/": "dependabot[bot]",
+    "codex/": "coco-framework-agent[bot]",
+}
+EXEMPT_BRANCH_PREFIXES = tuple(EXEMPT_BRANCH_PREFIX_OWNERS)
 PR_ROUTE_DIRECT = "direct-secret"
 PR_ROUTE_DEFERRED = "deferred-secret"
 PR_ROUTE_NO_SECRET = "no-secret"
@@ -136,6 +152,10 @@ BLOCKING_FINDING_SEVERITIES = frozenset({"P0", "P1"})
 NONBLOCKING_FINDING_SEVERITIES = frozenset({"P2", "P3"})
 POLICY_EVIDENCE_DOMAINS = frozenset({"protected-policy", "base-spec"})
 CODE_EVIDENCE_DOMAINS = frozenset({"head-code", "base-code"})
+# Checks that may only cite policy-domain evidence. They share the routing rule
+# but not the recovery path: see the error_type choice at the raising site, where
+# a misrouted `severity` deliberately fails closed instead of being repairable.
+POLICY_ROUTED_CHECKS = ("change_scope", "severity")
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 PATCH_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$")
@@ -3730,6 +3750,9 @@ sets `previous_issue_number` to one supplied candidate's integer
                     str(exc)
                     == "Cross-review evidence-verifier change_scope evidence must be protected policy or a base specification."
                 ):
+                    # Only change_scope reaches this path. A misrouted `severity`
+                    # raises a non-repairable ReviewError by design, so a targeted
+                    # correction for it would be unreachable.
                     targeted_correction = """## Protected evidence-verifier change_scope correction
 For `evidence-verifier`, every `verifications[].evidence_refs[].checks` entry
 that lists `change_scope` must cite only a canonical catalog source whose
@@ -4104,10 +4127,13 @@ def validate_verifier_evidence_domains(
     for reference in evidence_refs:
         domain = reference["trust_domain"]
         for check in reference["checks"]:
-            if (
-                check in {"severity", "change_scope"}
-                and domain not in POLICY_EVIDENCE_DOMAINS
-            ):
+            if check in POLICY_ROUTED_CHECKS and domain not in POLICY_EVIDENCE_DOMAINS:
+                # Only change_scope is shape-repairable. A misrouted `severity`
+                # must fail the run outright and never enter bounded repair:
+                # severity decides whether a finding blocks the pull request, so
+                # retrying would hand the model repeated attempts to find some
+                # evidence that justifies a severity claim. change_scope carries
+                # no such authority, so a routing slip there is recoverable.
                 error_type = (
                     ReportShapeError
                     if role == "evidence-verifier" and check == "change_scope"

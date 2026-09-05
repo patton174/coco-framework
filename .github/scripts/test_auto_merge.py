@@ -566,6 +566,10 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(
             [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
         )
+        # Even with only a main-base fixture, every governed base must be queried;
+        # otherwise the multi-base loop could regress unnoticed in this shape.
+        self.assertIn("dev", client.scanned_bases)
+        self.assertEqual(sorted(merge.ACCEPTED_PR_BASES), sorted(client.scanned_bases))
 
     def test_protection_is_read_from_the_pull_request_base(self) -> None:
         # The contract must come from the branch the pull request targets. Reading a
@@ -645,6 +649,84 @@ class AutoMergeTests(unittest.TestCase):
             {base: 1 for base in merge.ACCEPTED_PR_BASES},
             dict(Counter(client.scanned_bases)),
         )
+
+    def test_scan_merges_candidates_from_both_governed_bases(self) -> None:
+        client = FakeClient()
+        client.open_pulls = [{"number": 17, "head": {"sha": HEAD_SHA}}]
+        client.open_pulls_by_base = {"dev": [{"number": 18, "head": {"sha": BASE_SHA}}]}
+        candidates = merge.resolve_candidates(
+            client, REPOSITORY, "schedule", {"schedule": "*/10 * * * *"}
+        )
+        self.assertEqual(
+            {(17, HEAD_SHA), (18, BASE_SHA)},
+            {(item.number, item.expected_head_sha) for item in candidates},
+        )
+
+    def test_dev_and_main_gate_contracts_are_recognised(self) -> None:
+        # Once dev protection carries the admission gate and main carries the
+        # promotion gate, auto-merge must still recognise both configurations or
+        # it would refuse to merge anything.
+        for gates in (
+            merge.STANDARD_REQUIRED_GATES,
+            merge.INCIDENT_REQUIRED_GATES,
+            merge.DEV_REQUIRED_GATES,
+            merge.MAIN_REQUIRED_GATES,
+        ):
+            with self.subTest(gates=gates):
+                client = FakeClient()
+                client.protection_client.configuration = required_check_configuration(
+                    gates
+                )
+                configuration = merge.required_gate_configuration(
+                    client.protection_client, REPOSITORY
+                )
+                self.assertEqual(tuple(sorted(gates)), configuration.gates)
+
+    def test_dev_contract_adds_only_the_contributor_gate(self) -> None:
+        self.assertEqual(
+            set(merge.STANDARD_REQUIRED_GATES) | {"Contributor gate"},
+            set(merge.DEV_REQUIRED_GATES),
+        )
+
+    def test_main_contract_replaces_content_review_with_promotion(self) -> None:
+        self.assertEqual(("CI gate", "Promotion gate"), merge.MAIN_REQUIRED_GATES)
+        self.assertNotIn("Agent jury gate", merge.MAIN_REQUIRED_GATES)
+
+    def test_unrecognised_gate_set_is_rejected(self) -> None:
+        client = FakeClient()
+        client.protection_client.configuration = required_check_configuration(
+            ("CI gate",)
+        )
+        with self.assertRaisesRegex(merge.ContractError, "recognised governance"):
+            merge.required_gate_configuration(client.protection_client, REPOSITORY)
+
+    @staticmethod
+    def snapshot_with_base(base_ref: str) -> merge.PullRequestSnapshot:
+        return merge.PullRequestSnapshot(
+            number=17,
+            state="open",
+            base_ref=base_ref,
+            base_sha=BASE_SHA,
+            head_sha=HEAD_SHA,
+            draft=False,
+            mergeable=True,
+            mergeable_state="clean",
+            author_login="maintainer",
+        )
+
+    def test_integration_branch_base_is_eligible(self) -> None:
+        snapshot = self.snapshot_with_base("dev")
+        self.assertEqual([], merge.snapshot_reasons(snapshot, None))
+
+    def test_release_branch_base_is_eligible(self) -> None:
+        snapshot = self.snapshot_with_base("main")
+        self.assertEqual([], merge.snapshot_reasons(snapshot, None))
+
+    def test_ungoverned_base_is_rejected_with_the_allowed_set(self) -> None:
+        reasons = merge.snapshot_reasons(self.snapshot_with_base("master"), None)
+        self.assertEqual(1, len(reasons))
+        self.assertIn("dev", reasons[0])
+        self.assertIn("main", reasons[0])
 
     def test_eligible_pull_request_uses_merge_commit_and_exact_head(self) -> None:
         client = FakeClient()
