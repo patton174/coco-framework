@@ -598,6 +598,33 @@ class AutoMergeTests(unittest.TestCase):
                 real, REPOSITORY, "master"
             )
 
+    def test_protection_read_url_encodes_the_governed_branch(self) -> None:
+        # The branch is interpolated into a GitHub API path, so it must be
+        # percent-encoded. Both governed bases are ASCII, but pinning the
+        # encoding keeps the path safe if the governed set ever grows.
+        captured: list[str] = []
+
+        class CapturingInner:
+            def get_json(self, path: str) -> object:
+                captured.append(path)
+                return {"strict": True, "checks": []}
+
+        real = merge.BranchProtectionClient.__new__(merge.BranchProtectionClient)
+        real._client = CapturingInner()
+        for branch in sorted(merge.ACCEPTED_PR_BASES):
+            merge.BranchProtectionClient.required_status_checks(
+                real, REPOSITORY, branch
+            )
+        self.assertEqual(
+            [
+                f"repos/{REPOSITORY}/branches/"
+                f"{urllib.parse.quote(branch, safe='')}"
+                "/protection/required_status_checks"
+                for branch in sorted(merge.ACCEPTED_PR_BASES)
+            ],
+            captured,
+        )
+
     def test_scan_discovers_integration_branch_candidates(self) -> None:
         # GitHub's pulls endpoint filters one base at a time, so a dev-targeting
         # pull request is only found if every governed base is queried.
