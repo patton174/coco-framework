@@ -15481,6 +15481,42 @@ class AgenticRoleFlagTest(unittest.TestCase):
         self.assertIn("read_source", review.AGENTIC_PROTOCOL_INSTRUCTIONS)
         self.assertIn('"action":"final"', review.AGENTIC_PROTOCOL_INSTRUCTIONS)
 
+    def test_configured_agentic_roles_accepts_declared_verifier(self) -> None:
+        config = {
+            "verifiers": [{"id": "evidence-verifier"}, {"id": "policy-skeptic"}],
+            "agentic_roles": ["evidence-verifier"],
+        }
+        self.assertEqual(["evidence-verifier"], review.configured_agentic_roles(config))
+
+    def test_configured_agentic_roles_rejects_unknown_role(self) -> None:
+        # A typo must fail closed at load time, not silently stay single-shot.
+        config = {
+            "verifiers": [{"id": "evidence-verifier"}, {"id": "policy-skeptic"}],
+            "agentic_roles": ["evidence-verfier"],
+        }
+        with self.assertRaisesRegex(review.ReviewError, "unknown verifier role"):
+            review.configured_agentic_roles(config)
+
+    def test_configured_agentic_roles_rejects_duplicate(self) -> None:
+        config = {
+            "verifiers": [{"id": "evidence-verifier"}, {"id": "policy-skeptic"}],
+            "agentic_roles": ["evidence-verifier", "evidence-verifier"],
+        }
+        with self.assertRaisesRegex(review.ReviewError, "duplicate role"):
+            review.configured_agentic_roles(config)
+
+    def test_configured_agentic_roles_rejects_non_list(self) -> None:
+        config = {
+            "verifiers": [{"id": "evidence-verifier"}],
+            "agentic_roles": "evidence-verifier",
+        }
+        with self.assertRaisesRegex(review.ReviewError, "must be an array"):
+            review.configured_agentic_roles(config)
+
+    def test_configured_agentic_roles_defaults_empty(self) -> None:
+        config = {"verifiers": [{"id": "evidence-verifier"}]}
+        self.assertEqual([], review.configured_agentic_roles(config))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
