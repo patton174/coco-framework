@@ -14232,6 +14232,13 @@ class GovernedBaseBranchTest(unittest.TestCase):
         with self.assertRaisesRegex(review.ReviewError, "Custom label"):
             review.require_accepted_base("master", "Custom label")
 
+    def test_require_accepted_base_default_label_in_message(self) -> None:
+        # Callers that omit the label (the default form) still get a message that
+        # names the field, so a governed-base violation is self-describing.
+        with self.assertRaises(review.ReviewError) as caught:
+            review.require_accepted_base("master")
+        self.assertIn("Pull request base", str(caught.exception))
+
     def test_default_branch_stays_the_github_default(self) -> None:
         # workflow_run loads its workflow definition only from the default branch,
         # so keeping main default means a change to the reviewer's own workflow
