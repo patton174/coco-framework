@@ -815,6 +815,7 @@ def load_config(path: Path) -> dict[str, Any]:
         )
     configured_deferred_bot_authors(config)
     max_actionable_issue_groups(config)
+    configured_agentic_roles(config)
     return config
 
 
@@ -3456,6 +3457,37 @@ AGENTIC_PROTOCOL_INSTRUCTIONS = (
     "outside the catalog. Call tools only as needed, then finalize. Every "
     "constraint on the report above still applies to the final report."
 )
+
+
+def configured_agentic_roles(config: dict[str, Any]) -> list[str]:
+    """Validate agentic_roles at load time; unknown roles fail closed.
+
+    The agentic path is only dispatched for cross-review verifier roles today, so
+    every entry must be a declared verifier. A typo would otherwise be silently
+    ignored -- the role would quietly stay single-shot with no error, exactly the
+    fail-open misconfiguration the reviewer flagged.
+    """
+
+    roles = config.get("agentic_roles", [])
+    if not isinstance(roles, list):
+        raise ReviewError("Agent review agentic_roles must be an array.")
+    verifier_ids = set(role_map(config, "verifiers"))
+    seen: set[str] = set()
+    for role in roles:
+        if not isinstance(role, str) or not role:
+            raise ReviewError(
+                "Agent review agentic_roles entries must be non-empty strings."
+            )
+        if role in seen:
+            raise ReviewError(
+                f"Agent review agentic_roles has a duplicate role: {role}"
+            )
+        if role not in verifier_ids:
+            raise ReviewError(
+                f"Agent review agentic_roles references an unknown verifier role: {role}"
+            )
+        seen.add(role)
+    return list(roles)
 
 
 def agentic_role_enabled(config: dict[str, Any], role: str) -> bool:
