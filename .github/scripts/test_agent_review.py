@@ -1239,6 +1239,10 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-lock/pom.xml",
                 "coco-features/coco-scheduling/pom.xml",
                 "coco-features/coco-storage/pom.xml",
+                "coco-features/coco-messaging/pom.xml",
+                "coco-features/coco-cache/pom.xml",
+                "coco-features/coco-notification/pom.xml",
+                "coco-features/coco-captcha/pom.xml",
             ],
             "web": ["coco-features/coco-feature-web/pom.xml"],
             "audit": ["coco-features/coco-feature-audit/pom.xml"],
@@ -14331,6 +14335,85 @@ class CrossHeadContinuityTest(unittest.TestCase):
                         report, "evidence-verifier", self.context, self.groups
                     )
 
+    def test_continuity_adopt_selects_by_issue_number_and_derives_the_rest(
+        self,
+    ) -> None:
+        # The model supplies ONLY previous_issue_number; the three hash-bearing
+        # fields are null and the validator derives them from the trusted
+        # candidate. This is the failure mode the fix removes: no SHA-256 echo.
+        for role in ("evidence-verifier", "policy-skeptic"):
+            with self.subTest(role=role):
+                relationship = self.relationship(
+                    "ADOPT",
+                    candidate_sha256=None,
+                    previous_group_id=None,
+                    previous_anchor=None,
+                    previous_issue_number=self.candidate["previous_issue_number"],
+                )
+                report = self.report(role, relationship)
+                normalized = review.validate_continuity_report(
+                    report, role, self.context, self.groups
+                )
+                adopted = normalized["relationships"][0]
+                self.assertEqual("ADOPT", adopted["action"])
+                self.assertEqual(
+                    self.candidate["candidate_sha256"], adopted["candidate_sha256"]
+                )
+                self.assertEqual(
+                    self.candidate["previous_group_id"], adopted["previous_group_id"]
+                )
+                self.assertEqual(self.candidate["anchor"], adopted["previous_anchor"])
+                self.assertEqual(
+                    self.candidate["previous_issue_number"],
+                    adopted["previous_issue_number"],
+                )
+
+    def test_continuity_adopt_ignores_model_supplied_hash_fields(self) -> None:
+        # Even when the model echoes a WRONG SHA-256 / anchor, ADOPT succeeds by
+        # deriving from the candidate selected by previous_issue_number. The old
+        # contract failed here with "previous anchor is invalid".
+        relationship = self.relationship(
+            "ADOPT",
+            candidate_sha256="not-a-real-digest",
+            previous_group_id="v2-" + "9" * 64,
+            previous_anchor={"file": "garbage"},
+            previous_issue_number=self.candidate["previous_issue_number"],
+        )
+        report = self.report("evidence-verifier", relationship)
+        normalized = review.validate_continuity_report(
+            report, "evidence-verifier", self.context, self.groups
+        )
+        adopted = normalized["relationships"][0]
+        self.assertEqual("ADOPT", adopted["action"])
+        self.assertEqual(
+            self.candidate["candidate_sha256"], adopted["candidate_sha256"]
+        )
+        self.assertEqual(self.candidate["anchor"], adopted["previous_anchor"])
+
+    def test_continuity_adopt_unknown_issue_number_fails_closed(self) -> None:
+        relationship = self.relationship(
+            "ADOPT",
+            candidate_sha256=None,
+            previous_group_id=None,
+            previous_anchor=None,
+            previous_issue_number=999,
+        )
+        report = self.report("evidence-verifier", relationship)
+        with self.assertRaisesRegex(
+            review.ReportShapeError, "references an unknown candidate"
+        ):
+            review.validate_continuity_report(
+                report, "evidence-verifier", self.context, self.groups
+            )
+
+    def test_continuity_adopt_missing_issue_number_is_invalid(self) -> None:
+        report = self.report("evidence-verifier", self.relationship("ADOPT"))
+        del report["relationships"][0]["previous_issue_number"]
+        with self.assertRaisesRegex(review.ReportShapeError, "schema is invalid"):
+            review.validate_continuity_report(
+                report, "evidence-verifier", self.context, self.groups
+            )
+
     def test_continuity_non_adopt_candidate_is_normalized_to_null(self) -> None:
         for role in ("evidence-verifier", "policy-skeptic"):
             for action in ("REJECT", "INSUFFICIENT"):
@@ -14534,12 +14617,12 @@ class CrossHeadContinuityTest(unittest.TestCase):
     def test_continuity_model_shape_errors_repair_after_binding(self) -> None:
         role = "policy-skeptic"
         cases = {
-            "previous_anchor": lambda report: report["relationships"][0].update(
-                {"previous_anchor": {"file": "invalid"}}
+            "unknown_issue_number": lambda report: report["relationships"][0].update(
+                {"previous_issue_number": 999}
             ),
-            "candidate_sha256": lambda report: report["relationships"][0].update(
-                {"candidate_sha256": "not-a-digest"}
-            ),
+            "non_integer_issue_number": lambda report: report["relationships"][
+                0
+            ].update({"previous_issue_number": "7"}),
             "top_level_fields": lambda report: report.update({"extra": True}),
         }
 
@@ -14570,12 +14653,12 @@ class CrossHeadContinuityTest(unittest.TestCase):
     ) -> None:
         role = "policy-skeptic"
         cases = {
-            "previous_anchor": lambda report: report["relationships"][0].update(
-                {"previous_anchor": {"file": "invalid"}}
+            "unknown_issue_number": lambda report: report["relationships"][0].update(
+                {"previous_issue_number": 999}
             ),
-            "candidate_sha256": lambda report: report["relationships"][0].update(
-                {"candidate_sha256": "not-a-digest"}
-            ),
+            "non_integer_issue_number": lambda report: report["relationships"][
+                0
+            ].update({"previous_issue_number": "7"}),
             "top_level_fields": lambda report: report.update({"extra": True}),
         }
 
@@ -15125,13 +15208,11 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 left,
                 self.report("policy-skeptic", self.relationship("INSUFFICIENT")),
             ],
-            "anchor-drift": [
+            "unknown-issue-number": [
                 left,
                 self.report(
                     "policy-skeptic",
-                    self.relationship(
-                        previous_anchor={**self.anchor, "start_line": 99}
-                    ),
+                    self.relationship(previous_issue_number=999),
                 ),
             ],
             "stale-head-binding": [

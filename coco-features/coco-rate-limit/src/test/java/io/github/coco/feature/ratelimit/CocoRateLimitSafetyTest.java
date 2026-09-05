@@ -101,7 +101,7 @@ class CocoRateLimitSafetyTest {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
         CocoRateLimitResponseWriter writer = new CocoRateLimitResponseWriter(messages(), new ObjectMapper());
         CocoRateLimitStore store = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
-                permit.resetAt(), true);
+                Instant.EPOCH.plusSeconds(permit.windowSeconds()), true);
         CocoRateLimitRequestHandler handler = new CocoRateLimitRequestHandler(
                 new DefaultCocoRateLimitKeyResolver(), store, writer, clock);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
@@ -151,7 +151,7 @@ class CocoRateLimitSafetyTest {
     void handlerDoesNotOverwriteAnAlreadyCommittedResponse() throws Exception {
         CocoRateLimitResponseWriter writer = new CocoRateLimitResponseWriter(messages(), new ObjectMapper());
         CocoRateLimitRequestHandler handler = new CocoRateLimitRequestHandler(new DefaultCocoRateLimitKeyResolver(),
-                permit -> new CocoRateLimitDecision(false, permit.limit(), 0, permit.resetAt(), false), writer,
+                permit -> new CocoRateLimitDecision(false, permit.limit(), 0, Instant.EPOCH.plusSeconds(permit.windowSeconds()), false), writer,
                 Clock.systemUTC());
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
         request.setRemoteAddr("127.0.0.1");
@@ -236,7 +236,7 @@ class CocoRateLimitSafetyTest {
         properties.getRoutes().add(route);
         CocoRateLimitStore store = permit -> {
             acquisitions.incrementAndGet();
-            return new CocoRateLimitDecision(true, permit.limit(), permit.limit() - 1, permit.resetAt(), false);
+            return new CocoRateLimitDecision(true, permit.limit(), permit.limit() - 1, Instant.EPOCH.plusSeconds(permit.windowSeconds()), false);
         };
         CocoRateLimitRequestHandler handler = new CocoRateLimitRequestHandler(new DefaultCocoRateLimitKeyResolver(),
                 store, new CocoRateLimitResponseWriter(messages(), new ObjectMapper()), Clock.systemUTC());

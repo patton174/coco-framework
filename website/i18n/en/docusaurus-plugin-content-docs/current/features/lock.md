@@ -16,7 +16,7 @@ The lock binds to the `coco.lock` namespace and is **disabled by default**. It m
 - **Same-thread reentrancy**: A nested acquisition of the same lock key by the same thread reuses the already-held lease, managed via a reentrancy count, and the lock is only truly released when the outermost frame releases it.
 - **Lease and watchdog renewal**: While the lock is held, a background thread automatically renews it at roughly 1/3 of the lock lease's period; a renewal failure (not the owner, storage unavailable, or an exception thrown) marks that holding as "lost", and subsequent operations are handled as unavailable.
 - **owner token protection**: Renewal and release take effect only while the owner token still matches, preventing accidental release of someone else's lock.
-- **SPI-pluggable storage**: `CocoLockStore` is an atomic-storage SPI; the default in-process implementation is suitable only for a single instance. A cluster must replace it with a distributed implementation (such as Redis-based).
+- **SPI-pluggable storage**: `CocoLockStore` is an atomic-storage SPI. The default in-process implementation is suitable only for a single instance; a cluster switches `store-type` to `redis` for the built-in Lua-based implementation, or supplies its own Bean for another backend.
 
 ## How to Enable and Integrate
 
@@ -57,18 +57,46 @@ public class InventoryService {
 
 A `key` starting with `#` is treated as a SpEL expression and supports the `#{...}` wrapping form; it can reference method parameter names, the `#p0` positional parameter, and `#target`. When `leaseMillis`, `waitMillis`, or `pollIntervalMillis` are negative, they fall back to the global configuration. When the lock key is empty, cannot be evaluated, or exceeds `max-key-length`, an invalid-key error is thrown.
 
-### 3. Replace CocoLockStore for cluster deployment
+### 3. Switch to Redis storage for cluster deployment
 
-The state of the in-process `InMemoryCocoLockStore` exists only within the current JVM. In a multi-instance deployment the instances are unaware of one another, so cross-instance mutual exclusion is impossible; a multi-instance risk warning is emitted on construction. A cluster environment requires implementing and registering a custom `CocoLockStore` (for example, Redis-based), which must: acquire atomically by key, and allow only the current owner token to renew or release:
+The state of the in-process `InMemoryCocoLockStore` exists only within the current JVM. In a multi-instance deployment the instances are unaware of one another, so cross-instance mutual exclusion is impossible; a multi-instance risk warning is emitted on construction.
+
+For a cluster, use the built-in Redis store by declaring `store-type`:
+
+```yaml
+coco:
+  lock:
+    enabled: true
+    store-type: redis          # default is in-memory
+    redis:
+      key-prefix: "coco:lock:"  # optional
+```
+
+Then add Spring Data Redis:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+```
+
+`RedisCocoLockStore` uses Lua scripts so that acquire, renew, and release are each atomic, and both renew and release verify the owner token — it will never release someone else's lock.
+
+:::tip[Fails closed when the dependency is missing]
+If `store-type: redis` is set but Spring Data Redis is not on the classpath, startup fails with an explicit message rather than **silently falling back to process-local storage**. That matters most for locks: a silent fallback means several nodes in a cluster each believe they hold the lock.
+:::
+
+**With multiple `StringRedisTemplate` Beans**, name the intended one via `coco.lock.redis.template-bean-name` or mark it `@Primary`. Otherwise startup fails and lists the candidates rather than picking one arbitrarily.
+
+You can still provide a custom `CocoLockStore` Bean to override the built-in implementation (this works under either store type):
 
 ```java
 @Bean
 public CocoLockStore cocoLockStore() {
-    return new RedisCocoLockStore(/* ... */);
+    return new MyOwnLockStore(/* ... */);
 }
 ```
-
-When a custom Bean is present, it automatically overrides the default in-process implementation.
 
 ## Usage Examples
 

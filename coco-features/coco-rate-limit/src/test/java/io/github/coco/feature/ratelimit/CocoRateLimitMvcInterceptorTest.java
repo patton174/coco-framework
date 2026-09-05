@@ -125,7 +125,7 @@ class CocoRateLimitMvcInterceptorTest {
         CocoRateLimitStore store = permit -> {
             acquisitions.incrementAndGet();
             return new CocoRateLimitDecision(true, permit.limit(), permit.limit() - 1,
-                    permit.resetAt(), false);
+                    Instant.EPOCH.plusSeconds(permit.windowSeconds()), false);
         };
         return new CocoRateLimitRequestHandler(keyResolver, store,
                 new CocoRateLimitResponseWriter(new TestMessageService(), new ObjectMapper()),

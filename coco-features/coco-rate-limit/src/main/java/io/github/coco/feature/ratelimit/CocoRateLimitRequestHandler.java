@@ -62,10 +62,12 @@ public final class CocoRateLimitRequestHandler {
         Instant resetAt = fallbackResetAt(now);
         String traceId = CocoTraceContext.currentTraceId().orElseGet(CocoTraceContext::getOrCreateTraceId);
         try {
+            // Only used to populate response headers on the fail-closed path below,
+            // where the store never returns a decision to carry its own resetAt.
             resetAt = resetAt(now, checkedRoute.getWindowSeconds());
             CocoRateLimitKey key = this.keyResolver.resolve(request, checkedRoute);
-            CocoRateLimitDecision decision = this.store.acquire(
-                    new CocoRateLimitPermit(key, checkedRoute.getLimit(), resetAt));
+            CocoRateLimitDecision decision = this.store.acquire(new CocoRateLimitPermit(key,
+                    checkedRoute.getAlgorithm(), checkedRoute.getLimit(), checkedRoute.getWindowSeconds()));
             if (response.isCommitted()) {
                 return false;
             }
