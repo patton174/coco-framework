@@ -21,8 +21,11 @@ FINDING_MARKER = (
 
 
 def green_statuses() -> list[dict]:
+    """Statuses a dev head may or may not carry; the gate must not depend on them."""
+
     return [
-        {"context": name, "state": "success"} for name in gate.INHERITED_CONTENT_GATES
+        {"context": name, "state": "success"}
+        for name in ("CI gate", "Agent jury gate", "Agent issue gate")
     ]
 
 
@@ -138,48 +141,25 @@ class ReleaseCommitRetentionTest(unittest.TestCase):
             gate.require_no_release_commits_dropped(client, REPOSITORY, HEAD_SHA)
 
 
-class InheritedGateTest(unittest.TestCase):
-    def test_all_green_statuses_are_inherited(self) -> None:
-        client = FakeClient()
-        states = gate.require_inherited_content_gates(client, REPOSITORY, HEAD_SHA)
-        self.assertEqual(
-            set(gate.INHERITED_CONTENT_GATES),
-            set(states),
-        )
+class NoInheritedGateRequirementTest(unittest.TestCase):
+    """Pin that the gate does not demand per-change verdicts on the dev head.
 
-    def test_gate_results_may_arrive_as_check_runs(self) -> None:
-        client = FakeClient(
-            statuses=[],
-            check_runs=[
-                {"name": name, "conclusion": "success"}
-                for name in gate.INHERITED_CONTENT_GATES
-            ],
-        )
-        states = gate.require_inherited_content_gates(client, REPOSITORY, HEAD_SHA)
-        self.assertEqual(set(gate.INHERITED_CONTENT_GATES), set(states))
+    `agent-review.yml` runs on `pull_request_target`, so the jury and issue gate
+    publish against the contributor pull request head. The merge commit that lands
+    on `dev` never carries those contexts, so requiring them here was never
+    satisfiable and made promotion permanently impossible.
+    """
 
-    def test_missing_gate_result_is_rejected(self) -> None:
-        client = FakeClient(statuses=[{"context": "CI gate", "state": "success"}])
-        with self.assertRaisesRegex(gate.ReviewError, "missing required gate"):
-            gate.require_inherited_content_gates(client, REPOSITORY, HEAD_SHA)
+    def test_promotion_succeeds_with_no_statuses_on_the_dev_head(self) -> None:
+        client = FakeClient(statuses=[], check_runs=[])
+        gate.require_promotion_source("dev")
+        gate.require_owner_author(promotion_event()["pull_request"], OWNER)
+        gate.require_no_release_commits_dropped(client, REPOSITORY, HEAD_SHA)
+        gate.require_no_open_findings(client, REPOSITORY)
 
-    def test_failed_gate_is_rejected(self) -> None:
-        statuses = green_statuses()
-        statuses[1] = {"context": statuses[1]["context"], "state": "failure"}
-        client = FakeClient(statuses=statuses)
-        with self.assertRaisesRegex(gate.ReviewError, "non-successful gate"):
-            gate.require_inherited_content_gates(client, REPOSITORY, HEAD_SHA)
-
-    def test_newest_status_per_context_wins(self) -> None:
-        # The statuses endpoint is newest-first: a later success must not be
-        # overridden by an older failure for the same context.
-        statuses = green_statuses() + [
-            {"context": name, "state": "failure"}
-            for name in gate.INHERITED_CONTENT_GATES
-        ]
-        client = FakeClient(statuses=statuses)
-        states = gate.require_inherited_content_gates(client, REPOSITORY, HEAD_SHA)
-        self.assertTrue(all(state == "success" for state in states.values()))
+    def test_the_inherited_gate_check_is_gone(self) -> None:
+        self.assertFalse(hasattr(gate, "require_inherited_content_gates"))
+        self.assertFalse(hasattr(gate, "INHERITED_CONTENT_GATES"))
 
 
 class OpenFindingTest(unittest.TestCase):

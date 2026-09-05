@@ -1,10 +1,11 @@
 name: Promotion Gate
 
 # Verifies that a release promotion is authorised and complete. It deliberately
-# does not re-judge content: the integration head already carries the CI, jury,
-# and issue gate verdicts produced per contributor pull request, and this gate
-# only reuses them. No Anthropic or GitHub App credentials are used here, and
-# pull request code is never checked out.
+# does not re-judge content: each change was reviewed by the jury on the
+# contributor pull request that introduced it. Fresh verification of the
+# promotion itself comes from `CI gate`, which ci.yml runs on this pull request.
+# No Anthropic or GitHub App credentials are used here, and pull request code is
+# never checked out.
 
 on:
   pull_request_target:
@@ -26,7 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      checks: read
       contents: read
       issues: read
       pull-requests: read
