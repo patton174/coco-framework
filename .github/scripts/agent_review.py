@@ -954,6 +954,83 @@ def safe_base_file(root: Path, relative: str) -> Path:
     return candidate
 
 
+# Whitelisted read-only review tools. The agentic loop lets a reviewer fetch
+# evidence on demand instead of receiving one oversized prompt. Tools read ONLY
+# the pre-vetted evidence catalog carried in the context artifact -- never the
+# filesystem -- so a reviewer can never cite a source outside the catalog the
+# evidence-ref validator already trusts, and byte caps bound the budget.
+REVIEW_TOOL_NAMES = ("list_sources", "read_source")
+REVIEW_TOOL_MAX_SOURCE_BYTES = 64_000
+
+
+def review_source_content_map(context: dict[str, Any]) -> dict[str, str]:
+    """Map each catalog source_id (S001, ...) to its raw content.
+
+    Built in the SAME (domain, path) sort order the catalog uses, so a source_id
+    the model sees in list_sources resolves to exactly the content the evidence
+    validator will later bind that id to.
+    """
+    content_by_key: dict[tuple[str, str], str] = {}
+    collections = (
+        context.get("trusted", {}).get("policy", []),
+        context.get("untrusted", {}).get("code_contexts", []),
+    )
+    for collection in collections:
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            domain = item.get("trust_domain")
+            path = item.get("source")
+            content = item.get("content")
+            if (
+                isinstance(domain, str)
+                and isinstance(path, str)
+                and isinstance(content, str)
+            ):
+                content_by_key[(domain, path)] = content
+    result: dict[str, str] = {}
+    for entry in context_evidence_catalog(context):
+        key = (str(entry["trust_domain"]), str(entry["path"]))
+        result[str(entry["source_id"])] = content_by_key.get(key, "")
+    return result
+
+
+def review_tool_list_sources(context: dict[str, Any], args: dict[str, Any]) -> str:
+    del args
+    return canonical_json(context_evidence_catalog(context))
+
+
+def review_tool_read_source(context: dict[str, Any], args: dict[str, Any]) -> str:
+    source_id = args.get("source_id")
+    if not isinstance(source_id, str) or not source_id:
+        raise ReviewError("read_source requires a non-empty 'source_id'.")
+    content_map = review_source_content_map(context)
+    if source_id not in content_map:
+        raise ReviewError(f"read_source references an unknown source_id: {source_id}")
+    content = content_map[source_id]
+    if len(content.encode("utf-8")) > REVIEW_TOOL_MAX_SOURCE_BYTES:
+        raise ReviewError(
+            f"read_source content exceeds the {REVIEW_TOOL_MAX_SOURCE_BYTES}-byte cap: {source_id}"
+        )
+    return content
+
+
+REVIEW_TOOL_DISPATCH = {
+    "list_sources": review_tool_list_sources,
+    "read_source": review_tool_read_source,
+}
+
+
+def execute_review_tool(context: dict[str, Any], name: Any, args: Any) -> str:
+    if name not in REVIEW_TOOL_DISPATCH:
+        raise ReviewError(f"Unknown review tool: {name!r}")
+    if not isinstance(args, dict):
+        raise ReviewError(f"Review tool arguments must be an object: {name}")
+    return REVIEW_TOOL_DISPATCH[str(name)](context, args)
+
+
 def protocol_manifest(base_root: Path, config: dict[str, Any]) -> dict[str, Any]:
     prompt_paths: list[str] = []
     roles = config.get("roles")
@@ -3356,6 +3433,94 @@ def complete_fragment_json(
     return value
 
 
+# Total bytes of tool output an agentic review may accumulate before it must
+# emit a final report. Bounds a reviewer that keeps reading instead of deciding.
+AGENTIC_TOOL_OUTPUT_BUDGET = 240_000
+AGENTIC_MAX_ITERATIONS = 24
+
+# Appended to a role's system prompt when it runs on the agentic path. Describes
+# the harness text protocol so the model drives the read-only catalog tools and
+# emits its normal report only when done.
+AGENTIC_PROTOCOL_INSTRUCTIONS = (
+    "## Protected agentic tool protocol\n"
+    "You gather evidence on demand instead of receiving it all at once. On every "
+    "turn respond with exactly one strict JSON object and nothing else, one of:\n"
+    '- {"action":"tool_call","tool":"list_sources","args":{}} to get the '
+    "content-free catalog of canonical evidence sources (source_id, trust_domain, "
+    "path, available_line_ranges).\n"
+    '- {"action":"tool_call","tool":"read_source","args":{"source_id":"S001"}} to '
+    "read one catalog source's content by its exact source_id.\n"
+    '- {"action":"final","report":{...}} where report is the complete schema '
+    "report this role must produce, exactly as specified above.\n"
+    "Only source_ids returned by list_sources exist; you cannot read anything "
+    "outside the catalog. Call tools only as needed, then finalize. Every "
+    "constraint on the report above still applies to the final report."
+)
+
+
+def agentic_role_enabled(config: dict[str, Any], role: str) -> bool:
+    roles = config.get("agentic_roles", [])
+    return isinstance(roles, list) and role in roles
+
+
+def complete_agentic(
+    client: "AgentModelClient",
+    system: str,
+    user: str,
+    context: dict[str, Any],
+    max_tokens: int,
+    validate: Callable[[dict[str, Any]], Any],
+    *,
+    max_iterations: int = AGENTIC_MAX_ITERATIONS,
+) -> dict[str, Any]:
+    """Let the reviewer fetch evidence with read-only tools, then validate.
+
+    The model answers each turn with strict JSON: either a tool_call served from
+    the pre-vetted evidence catalog in `context`, or a final report. Only the
+    final report is trusted, and it still passes through `validate` unchanged, so
+    the tool loop widens how evidence is gathered without loosening what is
+    accepted -- and tools can never reach a source outside the catalog.
+    """
+    transcript = user
+    spent_bytes = 0
+    for _iteration in range(1, max_iterations + 1):
+        message = client.complete(system, transcript, max_tokens)
+        action = message.get("action")
+        if action == "final":
+            report = message.get("report")
+            if not isinstance(report, dict):
+                raise ReviewError("Agentic final action must carry a report object.")
+            return validate(report)
+        if action != "tool_call":
+            raise ReviewError(
+                f"Agentic action must be 'tool_call' or 'final': {action!r}"
+            )
+        tool_name = message.get("tool")
+        tool_args = message.get("args", {})
+        try:
+            result = execute_review_tool(context, tool_name, tool_args)
+        except ReviewError as exc:
+            # A tool error is fed back as data, not raised: the model can recover
+            # by choosing a valid path or tool on the next turn.
+            result = f"ERROR: {exc}"
+        spent_bytes += len(result.encode("utf-8"))
+        if spent_bytes > AGENTIC_TOOL_OUTPUT_BUDGET:
+            raise ReviewError(
+                f"Agentic tool output exceeded the {AGENTIC_TOOL_OUTPUT_BUDGET}-byte budget."
+            )
+        observation = canonical_json(
+            {"tool": tool_name, "args": tool_args, "result": result}
+        )
+        transcript = f"{transcript}\n\n## Tool result\n{observation}"
+        if len(transcript) > MAX_MODEL_CONTINUATION_CHARS:
+            raise ReviewError(
+                "Agentic transcript exceeded the protected character limit."
+            )
+    raise ReviewError(
+        f"Agentic review did not finalize within {max_iterations} iterations."
+    )
+
+
 def complete_with_shape_repair(
     client: AgentModelClient,
     system: str,
@@ -4424,20 +4589,37 @@ def command_cross(args: argparse.Namespace) -> int:
     max_tokens = int(
         verifier.get("max_tokens", normalized_limits(config)["verifier_tokens"])
     )
-    report = complete_with_shape_repair(
-        AgentModelClient(config),
-        system,
-        user,
-        max_tokens,
-        lambda candidate: validate_raw_cross_report(
+
+    def validate(candidate: dict[str, Any]) -> Any:
+        return validate_raw_cross_report(
             candidate,
             args.role,
             context,
             finding_ids,
             normalized_limits(config)["max_context_gaps_per_agent"],
-        ),
-        cross_review_fresh_retry=True,
-    )
+        )
+
+    if agentic_role_enabled(config, args.role):
+        # The catalog tools serve the same vetted sources the single-shot path
+        # would have inlined, so the model builds context on demand; the final
+        # report still goes through the identical validate().
+        report = complete_agentic(
+            AgentModelClient(config),
+            f"{system}\n\n{AGENTIC_PROTOCOL_INSTRUCTIONS}",
+            user,
+            context,
+            max_tokens,
+            validate,
+        )
+    else:
+        report = complete_with_shape_repair(
+            AgentModelClient(config),
+            system,
+            user,
+            max_tokens,
+            validate,
+            cross_review_fresh_retry=True,
+        )
     write_json(args.output, report)
     return 0
 
