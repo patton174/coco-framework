@@ -94,7 +94,7 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
         this.lifecycleReadLock.lock();
         try {
             Instant now = this.clock.instant();
-            if (this.closed.get() || !checkedPermit.resetAt().isAfter(now)) {
+            if (this.closed.get()) {
                 return unavailable(checkedPermit);
             }
             if (this.activeEntryCount.get() >= this.maxEntries) {
@@ -120,17 +120,8 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
             decision.set(unavailable(permit));
             return bucket;
         }
-        if (bucket != null && bucket.resetAt().isAfter(now)) {
-            long remaining = Math.max(0, permit.limit() - bucket.count());
-            if (remaining == 0) {
-                decision.set(new CocoRateLimitDecision(false, permit.limit(), 0, bucket.resetAt(), false));
-                return bucket;
-            }
-            long updatedCount = bucket.count() + 1;
-            decision.set(new CocoRateLimitDecision(true, permit.limit(), permit.limit() - updatedCount,
-                    bucket.resetAt(), false));
-            return new Bucket(updatedCount, bucket.resetAt());
-        }
+        // A never-before-seen key needs a capacity slot before it can create state.
+        // Existing keys already hold one, so only reserve on the null->present edge.
         boolean reserved = bucket == null;
         if (reserved && !reserveEntry()) {
             decision.set(unavailable(permit));
@@ -143,8 +134,105 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
             decision.set(unavailable(permit));
             return bucket;
         }
-        decision.set(new CocoRateLimitDecision(true, permit.limit(), permit.limit() - 1, permit.resetAt(), false));
-        return new Bucket(1, permit.resetAt());
+        Bucket updated = switch (permit.algorithm()) {
+            case FIXED_WINDOW -> acquireFixedWindow(permit, now, bucket, decision);
+            case SLIDING_WINDOW -> acquireSlidingWindow(permit, now, bucket, decision);
+            case TOKEN_BUCKET -> acquireTokenBucket(permit, now, bucket, decision);
+        };
+        // If a freshly reserved key ends up with no stored state, hand the slot back.
+        if (reserved && updated == null) {
+            releaseEntry();
+        }
+        return updated;
+    }
+
+    private static Bucket acquireFixedWindow(CocoRateLimitPermit permit, Instant now, Bucket bucket,
+            AtomicReference<CocoRateLimitDecision> decision) {
+        Instant resetAt = fixedWindowResetAt(now, permit.windowSeconds());
+        long count = bucket != null && bucket.expiresAt().isAfter(now) ? bucket.count() : 0;
+        if (count >= permit.limit()) {
+            decision.set(new CocoRateLimitDecision(false, permit.limit(), 0, resetAt, false));
+            return new Bucket(count, 0, resetAt);
+        }
+        long updatedCount = count + 1;
+        decision.set(new CocoRateLimitDecision(true, permit.limit(), permit.limit() - updatedCount, resetAt, false));
+        return new Bucket(updatedCount, 0, resetAt);
+    }
+
+    private static Bucket acquireSlidingWindow(CocoRateLimitPermit permit, Instant now, Bucket bucket,
+            AtomicReference<CocoRateLimitDecision> decision) {
+        long windowSeconds = permit.windowSeconds();
+        long windowStart = Math.floorDiv(now.getEpochSecond(), windowSeconds) * windowSeconds;
+        long currentCount = 0;
+        long previousCount = 0;
+        if (bucket != null) {
+            if (bucket.windowStart() == windowStart) {
+                currentCount = bucket.count();
+                previousCount = bucket.previousCount();
+            }
+            else if (bucket.windowStart() == windowStart - windowSeconds) {
+                // The new request falls in the window immediately after the stored one,
+                // so the stored current-count becomes the previous-window count.
+                previousCount = bucket.count();
+            }
+            // Older than one window back: both counts are already 0 (a full reset).
+        }
+        // Weight the previous window by the fraction of it still overlapping the
+        // trailing `windowSeconds` that end at `now`. This is the sliding-window
+        // counter approximation: cheap (two counters) yet free of the fixed-window
+        // 2x boundary burst.
+        double elapsed = now.getEpochSecond() - windowStart + now.getNano() / 1_000_000_000.0;
+        double previousWeight = Math.max(0.0, (windowSeconds - elapsed) / windowSeconds);
+        double estimated = previousCount * previousWeight + currentCount;
+        Instant resetAt = Instant.ofEpochSecond(windowStart + windowSeconds);
+        Instant expiresAt = Instant.ofEpochSecond(windowStart + 2 * windowSeconds);
+        if (estimated + 1 > permit.limit()) {
+            decision.set(new CocoRateLimitDecision(false, permit.limit(), 0, resetAt, false));
+            return new Bucket(currentCount, previousCount, windowStart, 0.0, expiresAt);
+        }
+        long updatedCount = currentCount + 1;
+        long remaining = Math.max(0, permit.limit() - (long) Math.ceil(estimated + 1));
+        decision.set(new CocoRateLimitDecision(true, permit.limit(), remaining, resetAt, false));
+        return new Bucket(updatedCount, previousCount, windowStart, 0.0, expiresAt);
+    }
+
+    private static Bucket acquireTokenBucket(CocoRateLimitPermit permit, Instant now, Bucket bucket,
+            AtomicReference<CocoRateLimitDecision> decision) {
+        double refillPerSecond = (double) permit.limit() / permit.windowSeconds();
+        double nowSeconds = now.getEpochSecond() + now.getNano() / 1_000_000_000.0;
+        double tokens = permit.limit();
+        if (bucket != null) {
+            double lastSeconds = bucket.windowStart() + bucket.previousCount() / 1_000_000_000.0;
+            double refilled = Math.max(0.0, nowSeconds - lastSeconds) * refillPerSecond;
+            tokens = Math.min(permit.limit(), bucket.tokens() + refilled);
+        }
+        Bucket stamped = tokenBucketState(now, tokens);
+        if (tokens < 1.0) {
+            // Time until the next whole token, expressed as a reset instant.
+            long waitMillis = (long) Math.ceil((1.0 - tokens) / refillPerSecond * 1000.0);
+            Instant resetAt = now.plusMillis(Math.max(1, waitMillis));
+            decision.set(new CocoRateLimitDecision(false, permit.limit(), 0, resetAt, false));
+            return stamped;
+        }
+        double remainingTokens = tokens - 1.0;
+        long fullMillis = (long) Math.ceil((permit.limit() - remainingTokens) / refillPerSecond * 1000.0);
+        Instant resetAt = now.plusMillis(Math.max(1, fullMillis));
+        decision.set(new CocoRateLimitDecision(true, permit.limit(), (long) Math.floor(remainingTokens), resetAt,
+                false));
+        return tokenBucketState(now, remainingTokens);
+    }
+
+    // Token-bucket state reuses the Bucket record: windowStart holds the last-refill
+    // epoch second and previousCount holds its nanosecond remainder, so the pair is a
+    // full-precision timestamp without widening the record.
+    private static Bucket tokenBucketState(Instant now, double tokens) {
+        long expireSeconds = now.getEpochSecond() + Math.max(1L, (long) Math.ceil(tokens)) + 1L;
+        return new Bucket(0, now.getNano(), now.getEpochSecond(), tokens, Instant.ofEpochSecond(expireSeconds));
+    }
+
+    static Instant fixedWindowResetAt(Instant now, long windowSeconds) {
+        long windowStart = Math.floorDiv(now.getEpochSecond(), windowSeconds) * windowSeconds;
+        return Instant.ofEpochSecond(windowStart + windowSeconds);
     }
 
     private boolean reserveEntry() {
@@ -165,7 +253,7 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
 
     private void removeExpired(Instant now) {
         this.entries.forEach((key, bucket) -> {
-            if (!bucket.resetAt().isAfter(now) && this.entries.remove(key, bucket)) {
+            if (!bucket.expiresAt().isAfter(now) && this.entries.remove(key, bucket)) {
                 releaseEntry();
             }
         });
@@ -231,8 +319,11 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
         }
     }
 
-    private static CocoRateLimitDecision unavailable(CocoRateLimitPermit permit) {
-        return new CocoRateLimitDecision(false, permit.limit(), 0, permit.resetAt(), true);
+    private CocoRateLimitDecision unavailable(CocoRateLimitPermit permit) {
+        // No stored window to derive a reset from on the unavailable path, so report
+        // the fixed-window boundary as a stable, algorithm-agnostic hint.
+        return new CocoRateLimitDecision(false, permit.limit(), 0,
+                fixedWindowResetAt(this.clock.instant(), permit.windowSeconds()), true);
     }
 
     private static int positive(int value, String name) {
@@ -242,7 +333,20 @@ public final class InMemoryCocoRateLimitStore implements CocoRateLimitStore, Aut
         return value;
     }
 
-    record Bucket(long count, Instant resetAt) {
+    /**
+     * 单个键的限流状态,三种算法复用同一 record。
+     * <p>
+     * 各算法只用其中相关字段:固定窗口用 {@code count};滑动窗口另用 {@code previousCount}
+     * 与 {@code windowStart};令牌桶用 {@code tokens},并把上次补充时间戳拆进 {@code windowStart}
+     * (整秒)与 {@code previousCount}(纳秒余数)以免加宽 record。{@code expiresAt} 供后台清理统一使用。
+     * </p>
+     */
+    record Bucket(long count, long previousCount, long windowStart, double tokens, Instant expiresAt) {
+
+        /** 固定窗口便捷构造:仅计数与到期时间。 */
+        Bucket(long count, long unused, Instant expiresAt) {
+            this(count, 0, 0, 0.0, expiresAt);
+        }
     }
 
     private static final class CleanupThreadFactory implements ThreadFactory {

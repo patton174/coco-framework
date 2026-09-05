@@ -1,0 +1,3 @@
+io.github.coco.captcha.CocoCaptchaRedisAutoConfiguration
+io.github.coco.captcha.CocoCaptchaRedisMissingDependencyAutoConfiguration
+io.github.coco.captcha.CocoCaptchaAutoConfiguration

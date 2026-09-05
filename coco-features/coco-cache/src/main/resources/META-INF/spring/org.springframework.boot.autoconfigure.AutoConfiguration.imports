@@ -1,0 +1,3 @@
+io.github.coco.cache.CocoCacheRedisAutoConfiguration
+io.github.coco.cache.CocoCacheRedisMissingDependencyAutoConfiguration
+io.github.coco.cache.CocoCacheAutoConfiguration

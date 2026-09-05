@@ -4,13 +4,13 @@ title: Rate Limiting
 
 # Rate Limiting
 
-Coco rate limiting (`coco-rate-limit`) applies request quota control at the Servlet entry point to explicitly declared routes. It uses the **fixed-window counter** algorithm: each rate-limit key accumulates a count within an aligned time window, requests are rejected once the limit is reached, and the count resets to zero after the window rolls over. It is neither a token bucket nor a sliding window, so a short-lived double burst may occur near the window boundary, which is an inherent characteristic of the fixed-window algorithm.
+Coco rate limiting (`coco-rate-limit`) applies request quota control at the Servlet entry point to explicitly declared routes. Each route picks one of three algorithms — fixed-window, sliding-window, or token-bucket — all sharing the same "`limit` requests per `windowSeconds`" model. Fixed-window is the default and the simplest; see [Choosing an algorithm](#choosing-an-algorithm) for when to use the others.
 
 Rate limiting binds the `coco.rate-limit` namespace and depends on the Web runtime feature (`web`). It is disabled by default; even when enabled, only the routes you explicitly declare in `coco.rate-limit.routes` are intercepted, and it does not apply to all requests.
 
 ## Overview
 
-- **Fixed-window counting**: aligns window boundaries with a period of `windowSeconds`, allows `limit` requests within a window, and returns HTTP 429 when exceeded.
+- **Three algorithms**: each route selects fixed-window, sliding-window, or token-bucket via `algorithm`; all share the "`limit` requests per `windowSeconds`" model, defaulting to fixed-window. See [Choosing an algorithm](#choosing-an-algorithm).
 - **Two execution paths sharing the same counting semantics**: a path-matching Servlet Filter executes at the frontmost position; the `@CocoRateLimited` annotation goes through an MVC interceptor fallback path. When the Filter has already matched by path and consumed the quota, the annotation interceptor does not deduct again, avoiding counting the same request twice.
 - **fail-closed (reject on failure)**: when key resolution or storage throws an exception, or storage capacity is exhausted, it is treated as a rejection and returns HTTP 503 rather than letting the request through.
 - **Standard rate-limit response headers**: whether allowed or rejected, quota-related response headers are written out, making it easy for clients to back off adaptively.
@@ -61,6 +61,36 @@ public class AuthController {
 ```
 
 `@CocoRateLimited` only expresses the intent that "this handler method is expected to be protected by some route"; it **does not create an implicit route**, nor does it read user, role, or transaction state. The actual interception rules are still explicitly configured by `coco.rate-limit.routes`. `value` and `route` are aliases for each other, and it can be annotated on a type or a method.
+
+## Choosing an algorithm
+
+Each route sets its algorithm with `algorithm`, defaulting to `fixed-window`. All three share the same `limit` / `window-seconds` configuration; they differ only in how the quota is spread over time:
+
+```yaml
+coco:
+  rate-limit:
+    enabled: true
+    routes:
+      - id: payment
+        algorithm: sliding-window   # fixed-window (default) | sliding-window | token-bucket
+        limit: 100
+        window-seconds: 60
+        matcher:
+          path-patterns:
+            - /api/payment/**
+```
+
+| Algorithm | Behaviour | Use for | Cost |
+|-----------|-----------|---------|------|
+| `fixed-window` | Aligns to `window-seconds`; each window counts independently | General, logging — insensitive to instantaneous peaks | Up to **2×limit** across a boundary (tail of one window + head of the next) |
+| `sliding-window` | Current window count plus the previous window weighted by time, approximating a continuous slide | **Payments, flash sales** and other burst-sensitive paths | Slightly higher (keeps the previous window count) |
+| `token-bucket` | Bucket of capacity `limit`, refilled at `limit/window-seconds` per second, one token per request | Controlled bursts with a capped long-run rate ("mostly idle, occasionally batched") | Comparable to sliding-window |
+
+:::tip[The fixed-window 2× burst]
+Fixed-window has an inherent boundary flaw: it can admit `limit` requests at the very end of window N, then admit another `limit` immediately after crossing into window N+1 — roughly `2×limit` within about a second. Payment and flash-sale paths should use `sliding-window` or `token-bucket`.
+:::
+
+Under Redis storage each algorithm runs as its own atomic Lua script, counting with Redis server time to avoid clock skew across instances.
 
 ## Usage Examples
 
@@ -129,8 +159,9 @@ Prefix `coco.rate-limit`.
 | `enabled` | boolean | `false` | Whether to enable rate limiting. |
 | `routes` | list | empty | The list of explicit rate-limit routes; only routes in the list are intercepted. |
 | `routes[].id` | string | — | Route identifier, corresponding to the `route` of `@CocoRateLimited`. |
-| `routes[].limit` | long | `100` | The number of requests allowed within a single window. |
-| `routes[].window-seconds` | long | `60` | Fixed-window duration (seconds), ranging from 1 to 366 days. |
+| `routes[].algorithm` | enum | `fixed-window` | Rate-limit algorithm: `fixed-window` / `sliding-window` / `token-bucket`. |
+| `routes[].limit` | long | `100` | Requests allowed within a window (the bucket capacity for token-bucket). |
+| `routes[].window-seconds` | long | `60` | Window duration (seconds), 1 to 366 days (time to refill a full bucket for token-bucket). |
 | `routes[].matcher.methods` | list | empty (all methods) | The HTTP methods to match. |
 | `routes[].matcher.path-patterns` | list | empty | Ant-style path patterns; at least one must be non-empty to be valid. |
 | `store-type` | enum | `in-memory` | Storage type, either `in-memory` or `redis`. |

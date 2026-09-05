@@ -34,6 +34,7 @@ public class CocoLockAutoConfiguration {
     /** 创建默认进程内 Store。 */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean(CocoLockStore.class)
+    @ConditionalOnProperty(prefix = "coco.lock", name = "store-type", havingValue = "in-memory", matchIfMissing = true)
     public CocoLockStore cocoLockStore(CocoLockProperties properties, @Qualifier("cocoLockClock") Clock clock) {
         return new InMemoryCocoLockStore(properties, clock, true);
     }
