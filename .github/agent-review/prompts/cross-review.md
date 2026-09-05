@@ -98,8 +98,12 @@ relationship adopts exactly one supplied candidate; select it by setting
 `previous_issue_number` to that candidate's integer `previous_issue_number`,
 and set `candidate_sha256`, `previous_group_id`, and `previous_anchor` to JSON
 `null`. The coordinator derives those three fields from the selected candidate,
-so never copy a SHA-256 or anchor value. `REJECT` and
-`INSUFFICIENT` are non-adopt types; their `candidate_sha256`,
+so never copy a SHA-256 or anchor value. Each supplied candidate may be adopted
+by at most one current group: never use the same `previous_issue_number` in two
+`ADOPT` relationships. A prior finding continues into exactly one current group,
+so when several current groups resemble one candidate, adopt it in only the
+single best-matching group and `REJECT` the candidate in the others. `REJECT`
+and `INSUFFICIENT` are non-adopt types; their `candidate_sha256`,
 `previous_group_id`, `previous_issue_number`, and `previous_anchor` fields must
 all be JSON `null`. A non-adopt relationship must never carry any candidate
 identity, even when the supplied candidate inventory is non-empty.
