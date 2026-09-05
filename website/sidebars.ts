@@ -45,6 +45,10 @@ const sidebars: SidebarsConfig = {
       label: '平台能力',
       items: [
         'features/storage',
+        'features/messaging',
+        'features/cache',
+        'features/notification',
+        'features/captcha',
         'features/audit',
         'features/openapi',
         'features/codegen',

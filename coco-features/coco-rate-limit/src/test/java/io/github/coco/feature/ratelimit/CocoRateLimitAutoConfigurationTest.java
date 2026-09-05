@@ -126,7 +126,7 @@ class CocoRateLimitAutoConfigurationTest {
                 .withBean(StringRedisTemplate.class, () -> new StringRedisTemplate(new LettuceConnectionFactory()))
                 .run(context -> assertThat(context).hasSingleBean(RedisCocoRateLimitStore.class));
         CocoRateLimitStore customStore = permit -> new CocoRateLimitDecision(false, permit.limit(), 0,
-                permit.resetAt(), true);
+                Instant.EPOCH.plusSeconds(permit.windowSeconds()), true);
         this.contextRunner
                 .withConfiguration(AutoConfigurations.of(CocoRateLimitRedisAutoConfiguration.class))
                 .withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis",
@@ -143,7 +143,7 @@ class CocoRateLimitAutoConfigurationTest {
         this.redisContextRunner.withPropertyValues("coco.rate-limit.enabled=true", "coco.rate-limit.store-type=redis")
                 .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
                     context.getBean(CocoRateLimitStore.class).acquire(new CocoRateLimitPermit(
-                            new CocoRateLimitKey("orders", "client"), 1, Instant.now().plusSeconds(60)));
+                            new CocoRateLimitKey("orders", "client"), CocoRateLimitAlgorithm.FIXED_WINDOW, 1, 60));
                     assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
                     assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
                 });
@@ -151,7 +151,7 @@ class CocoRateLimitAutoConfigurationTest {
                         "coco.rate-limit.redis.template-bean-name=  secondaryTemplate  ")
                 .withUserConfiguration(PrimaryRedisTemplates.class).run(context -> {
                     context.getBean(CocoRateLimitStore.class).acquire(new CocoRateLimitPermit(
-                            new CocoRateLimitKey("orders", "client"), 1, Instant.now().plusSeconds(60)));
+                            new CocoRateLimitKey("orders", "client"), CocoRateLimitAlgorithm.FIXED_WINDOW, 1, 60));
                     assertThat(context.getBean("primaryTemplate", TrackingRedisTemplate.class).calls()).isZero();
                     assertThat(context.getBean("secondaryTemplate", TrackingRedisTemplate.class).calls()).isEqualTo(1);
                 });

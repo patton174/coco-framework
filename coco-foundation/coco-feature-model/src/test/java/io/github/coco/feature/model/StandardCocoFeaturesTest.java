@@ -72,6 +72,30 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.STORAGE).autoConfigurationClassName());
         assertTrue(definitions.get(CocoFeature.STORAGE).defaultEnabled());
         assertEquals(Set.of(), definitions.get(CocoFeature.STORAGE).dependencies());
+        assertEquals("messaging", CocoFeature.MESSAGING.id());
+        assertEquals("coco-messaging", definitions.get(CocoFeature.MESSAGING).artifactId());
+        assertEquals("io.github.coco.messaging.CocoMessagingAutoConfiguration",
+                definitions.get(CocoFeature.MESSAGING).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.MESSAGING).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.MESSAGING).dependencies());
+        assertEquals("cache", CocoFeature.CACHE.id());
+        assertEquals("coco-cache", definitions.get(CocoFeature.CACHE).artifactId());
+        assertEquals("io.github.coco.cache.CocoCacheAutoConfiguration",
+                definitions.get(CocoFeature.CACHE).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.CACHE).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.CACHE).dependencies());
+        assertEquals("notification", CocoFeature.NOTIFICATION.id());
+        assertEquals("coco-notification", definitions.get(CocoFeature.NOTIFICATION).artifactId());
+        assertEquals("io.github.coco.notification.CocoNotificationAutoConfiguration",
+                definitions.get(CocoFeature.NOTIFICATION).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.NOTIFICATION).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.NOTIFICATION).dependencies());
+        assertEquals("captcha", CocoFeature.CAPTCHA.id());
+        assertEquals("coco-captcha", definitions.get(CocoFeature.CAPTCHA).artifactId());
+        assertEquals("io.github.coco.captcha.CocoCaptchaAutoConfiguration",
+                definitions.get(CocoFeature.CAPTCHA).autoConfigurationClassName());
+        assertTrue(definitions.get(CocoFeature.CAPTCHA).defaultEnabled());
+        assertEquals(Set.of(), definitions.get(CocoFeature.CAPTCHA).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
                 definitions.get(CocoFeature.CODEGEN).dependencies());
         assertEquals(Set.of("coco-feature-codegen", "freemarker"),
