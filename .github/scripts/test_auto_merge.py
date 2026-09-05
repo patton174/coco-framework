@@ -1058,6 +1058,20 @@ class AutoMergeTests(unittest.TestCase):
                     self.evaluate(client)
                 self.assertEqual([], client.sent)
 
+    def test_nonstrict_integration_base_protection_fails_closed(self) -> None:
+        # A dev-targeting candidate whose base protection is nonstrict must fail
+        # loud, not silently skip: the per-base read raises ContractError, and no
+        # merge is attempted. Mirrors the release-branch guard for the dev base.
+        client = FakeClient()
+        client.pull_reads = [pull_request(base={"ref": "dev", "sha": BASE_SHA})]
+        client.protection_client.configuration = required_check_configuration(
+            strict=False
+        )
+        with self.assertRaises(merge.ContractError):
+            self.evaluate(client)
+        self.assertEqual([], client.sent)
+        self.assertIn("dev", client.protection_client.branches_read)
+
     def test_branch_protection_api_failure_fails_closed(self) -> None:
         for status in (401, 403, 404, 503):
             with self.subTest(status=status):
