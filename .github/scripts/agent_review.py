@@ -3562,6 +3562,7 @@ def complete_with_shape_repair(
     *,
     cross_review_fresh_retry: bool = False,
     return_validated_report: bool = False,
+    targeted_corrections: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     original_system = system
     original_user = user
@@ -3744,13 +3745,17 @@ INSUFFICIENT require all four candidate fields to be JSON null.""",
                     }
                 )
             else:
-                current_system = "\n\n".join(
-                    [
-                        original_system,
-                        correction,
-                        f"Original task SHA-256: {sha256_text(original_user)}",
-                    ]
+                correction_sections = [original_system, correction]
+                # A validator message may carry an exact, field-level fix. Append it
+                # so the model is told precisely which rule it broke, not just the
+                # generic contract. The message is matched exactly, never parsed.
+                targeted = (targeted_corrections or {}).get(str(exc))
+                if targeted:
+                    correction_sections.append(targeted)
+                correction_sections.append(
+                    f"Original task SHA-256: {sha256_text(original_user)}"
                 )
+                current_system = "\n\n".join(correction_sections)
                 current_user = canonical_json(
                     {
                         "original_task": json.loads(original_user),
@@ -5216,6 +5221,30 @@ def render_review(
     )
 
 
+# Field-level fixes for the chair's two most common contract violations. Keyed on
+# the exact validator message so the model is told which rule it broke, not just
+# the generic contract. Matched exactly, never parsed.
+CHAIR_TARGETED_CORRECTIONS = {
+    "Chair actionable group references an ineligible or duplicate finding.": (
+        """## Protected chair grouping correction
+Every ID in an actionable group must be a canonical source ID drawn from
+`deterministic_consensus.confirmed_blocker_ids` or
+`deterministic_consensus.eligible_follow_up_ids`, and each ID may appear in at
+most one group across the whole report. Re-read those two protected lists, drop
+any ID not in them, and remove every repeated ID so no finding is cited twice.
+Never invent, rename, or infer an ID."""
+    ),
+    "Chair actionable group is not a deterministic duplicate set.": (
+        """## Protected chair duplicate-set correction
+A group may bundle more than one finding only when they share one proven
+deterministic semantic identity. When that identity is not proven identical,
+emit one group per finding with an empty `duplicate_finding_ids` array rather
+than merging them. Split the rejected group into single-finding groups unless
+the members are truly the same defect."""
+    ),
+}
+
+
 def command_chair(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     context = read_json(args.context)
@@ -5317,6 +5346,7 @@ def command_chair(args: argparse.Namespace) -> int:
             allowed_followups,
             max_questions,
         ),
+        targeted_corrections=CHAIR_TARGETED_CORRECTIONS,
     )
     final = {
         "schema_version": SCHEMA_VERSION,

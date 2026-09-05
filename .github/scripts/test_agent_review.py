@@ -12886,6 +12886,76 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual({"wrong": True}, repair_payload["previous_response"])
         self.assertIn("missing=['required']", repair_payload["validator_message"])
 
+    def test_targeted_correction_appended_on_exact_validator_message(self) -> None:
+        # When the validator message matches a targeted-correction key, the retry
+        # prompt must carry that field-level fix in addition to the generic one.
+        message = "Chair actionable group is not a deterministic duplicate set."
+        targeted = "## Protected chair duplicate-set correction\nSplit it."
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [{"wrong": True}, {"required": True}]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+
+        def validate(value: dict) -> None:
+            if "required" not in value:
+                raise review.ReportShapeError(message)
+
+        with patch("builtins.print"):
+            result = review.complete_with_shape_repair(
+                client,
+                "protected system",
+                '{"task":"chair"}',
+                100,
+                validate,
+                targeted_corrections={message: targeted},
+            )
+
+        self.assertEqual({"required": True}, result)
+        self.assertEqual(2, len(client.calls))
+        retry_system = client.calls[1][0]
+        self.assertIn("Protected protocol correction", retry_system)
+        self.assertIn(targeted, retry_system)
+
+    def test_unmatched_validator_message_gets_only_generic_correction(self) -> None:
+        # A validator message that matches no key must not pull in a wrong fix.
+        targeted = "## Protected chair duplicate-set correction\nSplit it."
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.responses = [{"wrong": True}, {"required": True}]
+                self.calls: list[tuple[str, str, int]] = []
+
+            def complete(self, system: str, user: str, max_tokens: int) -> dict:
+                self.calls.append((system, user, max_tokens))
+                return self.responses.pop(0)
+
+        client = FakeClient()
+
+        def validate(value: dict) -> None:
+            if "required" not in value:
+                raise review.ReportShapeError("Some other unrelated message.")
+
+        with patch("builtins.print"):
+            review.complete_with_shape_repair(
+                client,
+                "protected system",
+                '{"task":"chair"}',
+                100,
+                validate,
+                targeted_corrections={
+                    "Chair actionable group is not a deterministic duplicate set.": targeted
+                },
+            )
+
+        self.assertNotIn(targeted, client.calls[1][0])
+
     def test_cross_review_shape_repair_uses_digest_without_previous_response(
         self,
     ) -> None:
