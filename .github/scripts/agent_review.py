@@ -47,6 +47,20 @@ ISSUE_STATUS_CONTEXT = "Agent issue gate"
 DEFAULT_BRANCH = "main"
 INTEGRATION_BRANCH = "dev"
 ACCEPTED_PR_BASES = frozenset({DEFAULT_BRANCH, INTEGRATION_BRANCH})
+# Contributor branches are dev-<login>. The suffix is matched against the PR
+# author later, so the pattern only bounds shape and length here (GitHub logins
+# are at most 39 characters).
+CONTRIBUTOR_BRANCH_RE = re.compile(r"^dev-[A-Za-z0-9](?:[A-Za-z0-9._-]{0,38})$")
+# Bots whose branch names cannot follow dev-<login>. Dependabot's prefix is not
+# configurable at all, and an App login like `coco-framework-agent[bot]` contains
+# brackets that no valid ref may hold. Each prefix maps to the ONE identity
+# allowed to use it, so a spoofed `dependabot/x` branch from an ordinary account
+# is still rejected -- the prefix alone never grants the exemption.
+EXEMPT_BRANCH_PREFIX_OWNERS = {
+    "dependabot/": "dependabot[bot]",
+    "codex/": "coco-framework-agent[bot]",
+}
+EXEMPT_BRANCH_PREFIXES = tuple(EXEMPT_BRANCH_PREFIX_OWNERS)
 PR_ROUTE_DIRECT = "direct-secret"
 PR_ROUTE_DEFERRED = "deferred-secret"
 PR_ROUTE_NO_SECRET = "no-secret"

@@ -14272,6 +14272,25 @@ class GovernedBaseBranchTest(unittest.TestCase):
                     issue_gate.resolve_event(event(base_ref), APP_LOGIN)["ignored"]
                 )
 
+    def test_each_exempt_prefix_is_owned_by_exactly_one_bot(self) -> None:
+        # Bots whose branch names cannot be dev-<login>: Dependabot's prefix is
+        # fixed, and an App login contains brackets no ref may hold.
+        self.assertEqual(
+            {
+                "dependabot/": "dependabot[bot]",
+                "codex/": "coco-framework-agent[bot]",
+            },
+            review.EXEMPT_BRANCH_PREFIX_OWNERS,
+        )
+        self.assertEqual(
+            set(review.EXEMPT_BRANCH_PREFIXES),
+            set(review.EXEMPT_BRANCH_PREFIX_OWNERS),
+        )
+        for prefix, owner in review.EXEMPT_BRANCH_PREFIX_OWNERS.items():
+            with self.subTest(prefix=prefix):
+                self.assertTrue(prefix.endswith("/"))
+                self.assertTrue(owner.endswith("[bot]"))
+
 
 class CrossHeadContinuityTest(unittest.TestCase):
     def setUp(self) -> None:

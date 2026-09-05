@@ -138,6 +138,36 @@ class BranchNamingTest(unittest.TestCase):
     def test_bare_prefix_without_a_suffix_is_not_exempt(self) -> None:
         self.assertIsNone(gate.exempt_prefix("dependabot/"))
 
+    def test_agent_bot_may_use_its_own_codex_prefix(self) -> None:
+        # The App login contains brackets, so dev-<login> is not a legal ref name;
+        # the codex/ prefix is its exemption.
+        gate.evaluate_branch_naming("codex/some-work", AGENT_LOGIN, AGENT_ID, bots())
+
+    def test_human_cannot_use_the_agent_prefix(self) -> None:
+        with self.assertRaisesRegex(gate.ReviewError, "reserved for"):
+            gate.evaluate_branch_naming("codex/some-work", "patton174", 1, bots())
+
+    def test_one_bot_cannot_use_another_bots_prefix(self) -> None:
+        # Each prefix maps to exactly one owner, so cross-bot use is rejected.
+        with self.assertRaisesRegex(gate.ReviewError, "reserved for"):
+            gate.evaluate_branch_naming(
+                "codex/some-work", DEPENDABOT_LOGIN, DEPENDABOT_ID, bots()
+            )
+        with self.assertRaisesRegex(gate.ReviewError, "reserved for"):
+            gate.evaluate_branch_naming(
+                "dependabot/pip/x", AGENT_LOGIN, AGENT_ID, bots()
+            )
+
+    def test_every_exempt_prefix_declares_exactly_one_owner(self) -> None:
+        self.assertEqual(
+            set(gate.EXEMPT_BRANCH_PREFIXES),
+            set(gate.EXEMPT_BRANCH_PREFIX_OWNERS),
+        )
+        for prefix, owner in gate.EXEMPT_BRANCH_PREFIX_OWNERS.items():
+            with self.subTest(prefix=prefix):
+                self.assertTrue(prefix.endswith("/"))
+                self.assertTrue(owner.endswith("[bot]"))
+
 
 class AuthorizationTest(unittest.TestCase):
     def test_write_access_collaborator_is_authorized(self) -> None:
