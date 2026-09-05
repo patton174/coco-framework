@@ -6,7 +6,7 @@ run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / hea
 
 on:
   pull_request_target:
-    branches: [main]
+    branches: [main, dev]
     types: [opened, synchronize, reopened, ready_for_review]
   pull_request_review:
     types: [submitted, edited, dismissed]

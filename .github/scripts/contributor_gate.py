@@ -32,6 +32,7 @@ from typing import Any
 from agent_review import (
     CONTRIBUTOR_BRANCH_RE,
     CONTRIBUTOR_STATUS_CONTEXT,
+    EXEMPT_BRANCH_PREFIX_OWNERS,
     EXEMPT_BRANCH_PREFIXES,
     INTEGRATION_BRANCH,
     SHA_RE,
@@ -99,10 +100,10 @@ def evaluate_branch_naming(
 
     prefix = exempt_prefix(branch)
     if prefix is not None:
-        # A prefix alone proves nothing: require the exact upstream bot identity
-        # so an ordinary account cannot borrow the exemption by naming a branch
+        # A prefix alone proves nothing: require the one identity that owns it, so
+        # an ordinary account cannot borrow the exemption by naming a branch
         # `dependabot/anything`.
-        expected_login = prefix.rstrip("/") + "[bot]"
+        expected_login = EXEMPT_BRANCH_PREFIX_OWNERS[prefix]
         expected_bot_id = allowed_bots.get(expected_login.lower())
         if expected_bot_id is None:
             raise ReviewError(

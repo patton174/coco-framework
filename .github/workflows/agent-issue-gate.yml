@@ -5,7 +5,7 @@ name: Agent Issue Gate
 
 on:
   pull_request_target:
-    branches: [main]
+    branches: [main, dev]
     types: [opened, synchronize, reopened, ready_for_review]
   issues:
     types: [opened, closed, reopened, labeled, unlabeled, edited, deleted, transferred]
