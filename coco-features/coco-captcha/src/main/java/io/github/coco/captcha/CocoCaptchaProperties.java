@@ -41,6 +41,10 @@ public class CocoCaptchaProperties {
 
     private int sliderTolerance = 5;
 
+    private CocoCaptchaStoreType storeType = CocoCaptchaStoreType.IN_MEMORY;
+
+    private final Redis redis = new Redis();
+
     public boolean isEnabled() {
         return this.enabled;
     }
@@ -103,5 +107,50 @@ public class CocoCaptchaProperties {
 
     public void setSliderTolerance(int sliderTolerance) {
         this.sliderTolerance = sliderTolerance;
+    }
+
+    public CocoCaptchaStoreType getStoreType() {
+        return this.storeType;
+    }
+
+    public void setStoreType(CocoCaptchaStoreType storeType) {
+        this.storeType = storeType == null ? CocoCaptchaStoreType.IN_MEMORY : storeType;
+    }
+
+    public Redis getRedis() {
+        return this.redis;
+    }
+
+    /**
+     * Redis 存储配置。
+     * <p>
+     * {@code key-prefix} 是键前缀;{@code template-bean-name} 只在容器里有多个
+     * {@code StringRedisTemplate} 且都不是 {@code @Primary} 时才需要显式指定。
+     * </p>
+     * @author patton174
+     * @since 2.1.0
+     */
+    public static class Redis {
+
+        private String keyPrefix = "coco:captcha:";
+
+        private String templateBeanName;
+
+        public String getKeyPrefix() {
+            return this.keyPrefix;
+        }
+
+        public void setKeyPrefix(String keyPrefix) {
+            this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "coco:captcha:" : keyPrefix.trim();
+        }
+
+        public String getTemplateBeanName() {
+            return this.templateBeanName;
+        }
+
+        public void setTemplateBeanName(String templateBeanName) {
+            this.templateBeanName = templateBeanName == null || templateBeanName.isBlank()
+                    ? null : templateBeanName.trim();
+        }
     }
 }

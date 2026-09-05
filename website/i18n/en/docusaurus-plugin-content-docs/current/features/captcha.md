@@ -11,7 +11,7 @@ Coco captcha (`coco-captcha`) provides a type-agnostic generate/verify SPI: imag
 - **Three captcha types**: `IMAGE` returns a base64 PNG, `SLIDER` returns a track width verified by offset tolerance, `SMS_CODE` generates a numeric code (delivered by the application via `coco-notification`; this module does not send).
 - **Answer never leaks**: `CocoCaptcha` splits into a client-facing challenge and a server-only answer; the response returns only `ClientView` (no answer field).
 - **Single-use verification**: `CocoCaptchaStore.consume` removes on read — a `captchaId` verifies at most once regardless of match result, preventing answer replay and single-code brute force.
-- **Pluggable store**: the default `InMemoryCocoCaptchaStore` fits a single instance only; a multi-instance deployment should register a `CocoCaptchaStore` backed by shared storage such as Redis.
+- **Pluggable store**: the default `InMemoryCocoCaptchaStore` fits a single instance only; switch `store-type` to `redis` for the built-in atomic Lua implementation, or supply your own bean to back it with different shared storage.
 - **Business generator wins**: register a custom `CocoCaptchaGenerator` to override the reference implementation for its type.
 
 ## How to Enable
@@ -57,7 +57,41 @@ public class CaptchaController {
 }
 ```
 
-### 3. Custom generator or store
+### 3. Switch to the Redis store for clustered deployments
+
+`InMemoryCocoCaptchaStore` keeps answers in the current JVM only. Across instances a captcha generated on A cannot be verified on B, so verification always fails — and it fails as "wrong captcha", which makes it easy to misdiagnose.
+
+For a cluster, declare `store-type`:
+
+```yaml
+coco:
+  captcha:
+    enabled: true
+    store-type: redis             # default is in-memory
+    redis:
+      key-prefix: "coco:captcha:"  # optional
+```
+
+Then add Spring Data Redis:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+```
+
+`RedisCocoCaptchaStore` folds `GET` + `DEL` into one Lua script so the single-use guarantee holds under concurrency — two round trips would let two concurrent requests read the same answer. Keys are SHA-256 digests of the `captchaId`, so the raw identifier never enters the Redis keyspace.
+
+:::tip[Fails loudly when the dependency is missing]
+If `store-type: redis` is set but Spring Data Redis is absent from the classpath, startup fails with the reason and **does not silently fall back to the in-process store**. A silent fallback would make captchas fail at random behind a load balancer while everything looked healthy.
+:::
+
+**With multiple `StringRedisTemplate` beans**, name one via `coco.captcha.redis.template-bean-name` or mark the target `@Primary`; otherwise startup fails and lists the candidates rather than picking one arbitrarily.
+
+When Redis is unavailable, `consume` throws rather than degrading to `null`. `null` already means "expired or absent" and renders to the user as a wrong captcha, so reusing it for an outage would report a correct answer as wrong and hide the outage from error rates.
+
+### 4. Custom generator or store
 
 ```java
 @Bean
@@ -66,8 +100,8 @@ CocoCaptchaGenerator myImageGenerator() {
 }
 
 @Bean
-CocoCaptchaStore redisCaptchaStore(StringRedisTemplate template) {
-    return new RedisCocoCaptchaStore(template);   // shared across instances
+CocoCaptchaStore myCaptchaStore() {
+    return new MyOwnCaptchaStore(/* ... */);   // applies under either store-type
 }
 ```
 
@@ -76,4 +110,4 @@ CocoCaptchaStore redisCaptchaStore(StringRedisTemplate template) {
 - **Does not deliver**: SMS codes are sent by the application via `coco-notification` or its own channel; this module only generates and verifies.
 - **Reference image is weak**: `ImageCocoCaptchaGenerator` has only basic interference lines and is not OCR-resistant; register a custom generator for high-security scenarios.
 - **Slider has no puzzle image**: the reference implementation only does offset-tolerance verification; puzzle-gap rendering is left to a business generator.
-- **In-process store is not shared**: replace `CocoCaptchaStore` for multi-instance deployments.
+- **Default store is not shared**: multi-instance deployments must switch to `store-type: redis` or supply their own shared-storage implementation.
