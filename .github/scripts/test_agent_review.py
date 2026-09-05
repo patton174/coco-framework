@@ -14409,9 +14409,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
     def test_continuity_adopt_missing_issue_number_is_invalid(self) -> None:
         report = self.report("evidence-verifier", self.relationship("ADOPT"))
         del report["relationships"][0]["previous_issue_number"]
-        with self.assertRaisesRegex(
-            review.ReportShapeError, "schema is invalid"
-        ):
+        with self.assertRaisesRegex(review.ReportShapeError, "schema is invalid"):
             review.validate_continuity_report(
                 report, "evidence-verifier", self.context, self.groups
             )
