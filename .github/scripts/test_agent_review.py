@@ -14187,6 +14187,92 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
 
+class GovernedBaseBranchTest(unittest.TestCase):
+    """Pin the parameterized base-branch contract shared by every entrypoint."""
+
+    def test_governed_bases_are_release_and_integration_branches(self) -> None:
+        self.assertEqual("main", review.DEFAULT_BRANCH)
+        self.assertEqual("dev", review.INTEGRATION_BRANCH)
+        self.assertEqual({"main", "dev"}, set(review.ACCEPTED_PR_BASES))
+
+    def test_is_accepted_base_admits_only_governed_branches(self) -> None:
+        for accepted in ("main", "dev"):
+            with self.subTest(base=accepted):
+                self.assertTrue(review.is_accepted_base(accepted))
+        for rejected in (
+            "master",
+            "dev-patton174",
+            "devel",
+            "Main",
+            "",
+            None,
+            123,
+            ["dev"],
+        ):
+            with self.subTest(base=rejected):
+                self.assertFalse(review.is_accepted_base(rejected))
+
+    def test_require_accepted_base_returns_governed_branch(self) -> None:
+        for accepted in ("main", "dev"):
+            with self.subTest(base=accepted):
+                self.assertEqual(accepted, review.require_accepted_base(accepted))
+
+    def test_require_accepted_base_fails_closed_and_names_the_allowed_set(
+        self,
+    ) -> None:
+        for rejected in ("master", "dev-patton174", "", None):
+            with self.subTest(base=rejected):
+                with self.assertRaises(review.ReviewError) as caught:
+                    review.require_accepted_base(rejected)
+                message = str(caught.exception)
+                self.assertIn("dev", message)
+                self.assertIn("main", message)
+
+    def test_require_accepted_base_uses_the_supplied_label(self) -> None:
+        with self.assertRaisesRegex(review.ReviewError, "Custom label"):
+            review.require_accepted_base("master", "Custom label")
+
+    def test_require_accepted_base_default_label_in_message(self) -> None:
+        # Callers that omit the label (the default form) still get a message that
+        # names the field, so a governed-base violation is self-describing.
+        with self.assertRaises(review.ReviewError) as caught:
+            review.require_accepted_base("master")
+        self.assertIn("Pull request base", str(caught.exception))
+
+    def test_default_branch_stays_the_github_default(self) -> None:
+        # workflow_run loads its workflow definition only from the default branch,
+        # so keeping main default means a change to the reviewer's own workflow
+        # definition ships only through an owner-performed promotion.
+        self.assertEqual("main", review.DEFAULT_BRANCH)
+        self.assertIn(review.DEFAULT_BRANCH, review.ACCEPTED_PR_BASES)
+        self.assertIn(review.INTEGRATION_BRANCH, review.ACCEPTED_PR_BASES)
+
+    def test_agent_issue_gate_resolve_event_honors_governed_bases(self) -> None:
+        # The gate's pull_request path was refactored to is_accepted_base; every
+        # governed base must resolve, and an ungoverned base must be ignored.
+        def event(base_ref: str) -> dict:
+            return {
+                "repository": {"full_name": "patton174/coco-framework"},
+                "pull_request": {
+                    "number": 60,
+                    "head": {"sha": HEAD_SHA},
+                    "base": {"ref": base_ref},
+                },
+            }
+
+        for base_ref in sorted(review.ACCEPTED_PR_BASES):
+            with self.subTest(base_ref=base_ref):
+                resolved = issue_gate.resolve_event(event(base_ref), APP_LOGIN)
+                self.assertFalse(resolved["ignored"])
+                self.assertEqual(60, resolved["pr_number"])
+
+        for base_ref in ("master", "release", "dev-someone"):
+            with self.subTest(rejected=base_ref):
+                self.assertTrue(
+                    issue_gate.resolve_event(event(base_ref), APP_LOGIN)["ignored"]
+                )
+
+
 class CrossHeadContinuityTest(unittest.TestCase):
     def setUp(self) -> None:
         self.finding = {

@@ -37,6 +37,16 @@ LEGACY_COMMENT_MARKER = "<!-- claude-review-marker: managed by workflow -->"
 STATUS_CONTEXT = "Agent jury gate"
 OWNERSHIP_STATUS_CONTEXT = "Agent jury ownership"
 ISSUE_STATUS_CONTEXT = "Agent issue gate"
+# `main` is the release branch and the GitHub default branch; `dev` is the
+# integration trunk that contributor pull requests target. `main` stays default
+# because `workflow_run` loads its workflow DEFINITION only from the default
+# branch, so a change to the reviewer's own workflow definition can take effect
+# only through an owner-performed promotion. Reviewer SCRIPTS are checked out
+# from the base of the pull request under review, so a `dev` pull request is
+# judged by the reviewer code on `dev`.
+DEFAULT_BRANCH = "main"
+INTEGRATION_BRANCH = "dev"
+ACCEPTED_PR_BASES = frozenset({DEFAULT_BRANCH, INTEGRATION_BRANCH})
 PR_ROUTE_DIRECT = "direct-secret"
 PR_ROUTE_DEFERRED = "deferred-secret"
 PR_ROUTE_NO_SECRET = "no-secret"
@@ -419,6 +429,30 @@ def require_continuity_verifier_roles(value: Any) -> list[str]:
     if value != list(CONTINUITY_VERIFIER_ROLES):
         raise ReviewError("Continuity verifier roles are invalid.")
     return list(CONTINUITY_VERIFIER_ROLES)
+
+
+def is_accepted_base(base_ref: Any) -> bool:
+    """Report whether a pull request base is a governed branch.
+
+    Callers that must ignore (rather than reject) an off-target pull request use
+    this; callers that must fail closed use require_accepted_base instead.
+    """
+
+    return isinstance(base_ref, str) and base_ref in ACCEPTED_PR_BASES
+
+
+def require_accepted_base(base_ref: Any, label: str = "Pull request base") -> str:
+    """Return the base branch, rejecting anything outside the governed set.
+
+    Every protected entrypoint routes its base check through here so adding or
+    retiring a governed branch is a one-line change to ACCEPTED_PR_BASES.
+    """
+
+    if not is_accepted_base(base_ref):
+        raise ReviewError(
+            f"{label} must target one of: {', '.join(sorted(ACCEPTED_PR_BASES))}."
+        )
+    return str(base_ref)
 
 
 def finding_issue_marker_v2(
@@ -2234,7 +2268,7 @@ def resolve_current_pull_request(
     if (
         pr.get("state") != "open"
         or (pr.get("number") is not None and pr.get("number") != pr_number)
-        or base.get("ref") != "main"
+        or not is_accepted_base(base.get("ref"))
         or base_repository.get("full_name") != checked_repository
         or (repository_id and base_repository.get("id") != repository_id)
         or not SHA_RE.fullmatch(base_sha)
@@ -2494,7 +2528,7 @@ def deferred_review_candidate(
     if (
         type(source_pr_number) is not int
         or source_pr_number < 1
-        or source_base.get("ref") != "main"
+        or not is_accepted_base(source_base.get("ref"))
         or type(source_base_repository_id) is not int
         or source_base_repository_id < 1
         or source_base_repository_id != repository_id
@@ -2529,7 +2563,7 @@ def deferred_review_candidate(
     if (
         pr.get("state") != "open"
         or (pr.get("number") is not None and pr.get("number") != source_pr_number)
-        or base.get("ref") != "main"
+        or not is_accepted_base(base.get("ref"))
         or base_repository.get("id") != repository_id
         or base_repository.get("full_name") != checked_repository
         or head_repository.get("id") != repository_id
@@ -7856,7 +7890,7 @@ def command_admit_publisher(args: argparse.Namespace) -> int:
         )
         if (
             current.get("state") != "open"
-            or (current.get("base") or {}).get("ref") != "main"
+            or not is_accepted_base((current.get("base") or {}).get("ref"))
             or (current.get("head") or {}).get("sha") != head_sha
             or (current.get("base") or {}).get("sha") != base_sha
         ):
@@ -7961,7 +7995,7 @@ def command_publish(args: argparse.Namespace) -> int:
         )
         if (
             value.get("state") != "open"
-            or (value.get("base") or {}).get("ref") != "main"
+            or not is_accepted_base((value.get("base") or {}).get("ref"))
             or (value.get("head") or {}).get("sha") != head_sha
             or (value.get("base") or {}).get("sha") != base_sha
         ):

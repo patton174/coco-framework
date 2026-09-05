@@ -7,6 +7,8 @@ import json
 import os
 import subprocess
 import unittest
+import urllib.parse
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -254,10 +256,16 @@ class ProtectionOnlyClient:
         self.configuration_pages: list[dict] | None = None
         self.error: Exception | None = None
         self.reads = 0
+        self.branches_read: list[str] = []
 
-    def required_status_checks(self, repository: str) -> object:
+    def required_status_checks(
+        self, repository: str, branch: str = merge.BASE_BRANCH
+    ) -> object:
         if repository != REPOSITORY:
             raise AssertionError("protection client received another repository")
+        # Record which branch's contract was requested so tests can assert the
+        # read follows the pull request's base rather than a fixed branch.
+        self.branches_read.append(branch)
         self.reads += 1
         if self.error is not None:
             raise self.error
@@ -283,6 +291,10 @@ class FakeClient:
         self.check_runs = [success_check(20, "CI gate")]
         self.issues: list[dict] = []
         self.open_pulls: list[dict] = []
+        # Candidates per governed base. `open_pulls` stays the release-branch
+        # fixture so existing expectations hold; other bases are set per test.
+        self.open_pulls_by_base: dict[str, list[dict]] = {}
+        self.scanned_bases: list[str] = []
         self.permissions = {"maintainer": "write"}
         self.repository_settings = {
             "mergeCommitAllowed": True,
@@ -343,8 +355,16 @@ class FakeClient:
             return self.next_page(self.check_run_pages, self.check_runs, "check runs")
         if "/issues?state=open&labels=agent-review&sort=created&direction=asc" in path:
             return self.next_page(self.issue_pages, self.issues, "issues")
-        if "/pulls?state=open&base=main" in path:
-            return copy.deepcopy(self.open_pulls)
+        base_marker = "/pulls?state=open&base="
+        if base_marker in path:
+            # URL-decode and stop at the next parameter so a future encoded base
+            # cannot silently stop matching and hide drift in the multi-base scan.
+            raw_base = path.split(base_marker, 1)[1].split("&", 1)[0]
+            base = urllib.parse.unquote(raw_base)
+            self.scanned_bases.append(base)
+            if base == "main":
+                return copy.deepcopy(self.open_pulls)
+            return copy.deepcopy(self.open_pulls_by_base.get(base, []))
         raise AssertionError(f"unexpected paginate path: {path}")
 
     @staticmethod
@@ -547,6 +567,85 @@ class AutoMergeTests(unittest.TestCase):
             [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
         )
 
+    def test_protection_is_read_from_the_pull_request_base(self) -> None:
+        # The contract must come from the branch the pull request targets. Reading a
+        # fixed branch would judge an integration-branch pull request against gates
+        # it never publishes.
+        for base in sorted(merge.ACCEPTED_PR_BASES):
+            with self.subTest(base=base):
+                client = FakeClient()
+                client.pull_reads = [
+                    pull_request(base={"ref": base, "sha": BASE_SHA}),
+                    pull_request(base={"ref": base, "sha": BASE_SHA}),
+                ]
+                merge.evaluate_eligibility(
+                    client,
+                    client.protection_client,
+                    REPOSITORY,
+                    merge.Candidate(17, HEAD_SHA, "test"),
+                    HEAD_SHA,
+                    APP_LOGIN,
+                    APP_BOT_ID,
+                    None,
+                    NOW,
+                    incident_invocation,
+                )
+                self.assertEqual([base], client.protection_client.branches_read)
+
+    def test_protection_read_rejects_an_ungoverned_branch(self) -> None:
+        real = merge.BranchProtectionClient.__new__(merge.BranchProtectionClient)
+        with self.assertRaisesRegex(merge.ContractError, "governed base branch"):
+            merge.BranchProtectionClient.required_status_checks(
+                real, REPOSITORY, "master"
+            )
+
+    def test_protection_read_url_encodes_the_governed_branch(self) -> None:
+        # The branch is interpolated into a GitHub API path, so it must be
+        # percent-encoded. Both governed bases are ASCII, but pinning the
+        # encoding keeps the path safe if the governed set ever grows.
+        captured: list[str] = []
+
+        class CapturingInner:
+            def get_json(self, path: str) -> object:
+                captured.append(path)
+                return {"strict": True, "checks": []}
+
+        real = merge.BranchProtectionClient.__new__(merge.BranchProtectionClient)
+        real._client = CapturingInner()
+        for branch in sorted(merge.ACCEPTED_PR_BASES):
+            merge.BranchProtectionClient.required_status_checks(
+                real, REPOSITORY, branch
+            )
+        self.assertEqual(
+            [
+                f"repos/{REPOSITORY}/branches/"
+                f"{urllib.parse.quote(branch, safe='')}"
+                "/protection/required_status_checks"
+                for branch in sorted(merge.ACCEPTED_PR_BASES)
+            ],
+            captured,
+        )
+
+    def test_scan_discovers_integration_branch_candidates(self) -> None:
+        # GitHub's pulls endpoint filters one base at a time, so a dev-targeting
+        # pull request is only found if every governed base is queried.
+        client = FakeClient()
+        client.open_pulls = []
+        client.open_pulls_by_base = {"dev": [{"number": 17, "head": {"sha": HEAD_SHA}}]}
+        candidates = merge.resolve_candidates(
+            client, REPOSITORY, "schedule", {"schedule": "*/10 * * * *"}
+        )
+        self.assertEqual(
+            [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
+        )
+        # Assert each governed base was paginated exactly once, not merely that
+        # the set was covered: a dedup or early return that skipped a base would
+        # pass a set assertion but silently miss dev-targeting candidates.
+        self.assertEqual(
+            {base: 1 for base in merge.ACCEPTED_PR_BASES},
+            dict(Counter(client.scanned_bases)),
+        )
+
     def test_eligible_pull_request_uses_merge_commit_and_exact_head(self) -> None:
         client = FakeClient()
         decision = self.evaluate(client)
@@ -696,6 +795,23 @@ class AutoMergeTests(unittest.TestCase):
             )
         self.assertEqual(2, one_page.protection_client.reads)
         self.assertEqual([], one_page.sent)
+
+    def test_incident_path_authorizes_a_dev_base_candidate(self) -> None:
+        # The incident two-gate path was only exercised with a main base. A
+        # dev-targeting candidate under owner dispatch must resolve identically:
+        # the per-base protection read is for dev, and authorization still holds.
+        client = self.incident_client()
+        client.pull_reads = [
+            pull_request(user=app_actor(), base={"ref": "dev", "sha": BASE_SHA}),
+            pull_request(user=app_actor(), base={"ref": "dev", "sha": BASE_SHA}),
+        ]
+        decision = self.evaluate(
+            client,
+            dry_run=True,
+            incident_issue_number=INCIDENT_ISSUE_NUMBER,
+        )
+        self.assertEqual("dry-run", decision.state)
+        self.assertEqual(["dev", "dev"], client.protection_client.branches_read)
 
     def test_incident_owner_issue_marker_cannot_replace_owner_dispatch(self) -> None:
         cases = {
@@ -992,6 +1108,20 @@ class AutoMergeTests(unittest.TestCase):
                 with self.assertRaises(merge.ContractError):
                     self.evaluate(client)
                 self.assertEqual([], client.sent)
+
+    def test_nonstrict_integration_base_protection_fails_closed(self) -> None:
+        # A dev-targeting candidate whose base protection is nonstrict must fail
+        # loud, not silently skip: the per-base read raises ContractError, and no
+        # merge is attempted. Mirrors the release-branch guard for the dev base.
+        client = FakeClient()
+        client.pull_reads = [pull_request(base={"ref": "dev", "sha": BASE_SHA})]
+        client.protection_client.configuration = required_check_configuration(
+            strict=False
+        )
+        with self.assertRaises(merge.ContractError):
+            self.evaluate(client)
+        self.assertEqual([], client.sent)
+        self.assertIn("dev", client.protection_client.branches_read)
 
     def test_branch_protection_api_failure_fails_closed(self) -> None:
         for status in (401, 403, 404, 503):
