@@ -14117,6 +14117,70 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
 
+class GovernedBaseBranchTest(unittest.TestCase):
+    """Pin the parameterized base-branch contract shared by every entrypoint."""
+
+    def test_governed_bases_are_release_and_integration_branches(self) -> None:
+        self.assertEqual("main", review.DEFAULT_BRANCH)
+        self.assertEqual("dev", review.INTEGRATION_BRANCH)
+        self.assertEqual({"main", "dev"}, set(review.ACCEPTED_PR_BASES))
+
+    def test_is_accepted_base_admits_only_governed_branches(self) -> None:
+        for accepted in ("main", "dev"):
+            with self.subTest(base=accepted):
+                self.assertTrue(review.is_accepted_base(accepted))
+        for rejected in (
+            "master",
+            "dev-patton174",
+            "devel",
+            "Main",
+            "",
+            None,
+            123,
+            ["dev"],
+        ):
+            with self.subTest(base=rejected):
+                self.assertFalse(review.is_accepted_base(rejected))
+
+    def test_require_accepted_base_returns_governed_branch(self) -> None:
+        for accepted in ("main", "dev"):
+            with self.subTest(base=accepted):
+                self.assertEqual(accepted, review.require_accepted_base(accepted))
+
+    def test_require_accepted_base_fails_closed_and_names_the_allowed_set(
+        self,
+    ) -> None:
+        for rejected in ("master", "dev-patton174", "", None):
+            with self.subTest(base=rejected):
+                with self.assertRaises(review.ReviewError) as caught:
+                    review.require_accepted_base(rejected)
+                message = str(caught.exception)
+                self.assertIn("dev", message)
+                self.assertIn("main", message)
+
+    def test_require_accepted_base_uses_the_supplied_label(self) -> None:
+        with self.assertRaisesRegex(review.ReviewError, "Custom label"):
+            review.require_accepted_base("master", "Custom label")
+
+    def test_contributor_branch_pattern_shape(self) -> None:
+        for accepted in ("dev-patton174", "dev-a", "dev-user.name", "dev-user_1"):
+            with self.subTest(branch=accepted):
+                self.assertIsNotNone(review.CONTRIBUTOR_BRANCH_RE.fullmatch(accepted))
+        for rejected in (
+            "dev",
+            "dev-",
+            "devpatton174",
+            "feature/x",
+            "dev-.leading",
+            "DEV-patton174",
+        ):
+            with self.subTest(branch=rejected):
+                self.assertIsNone(review.CONTRIBUTOR_BRANCH_RE.fullmatch(rejected))
+
+    def test_exempt_prefixes_cover_dependabot_only(self) -> None:
+        self.assertEqual(("dependabot/",), review.EXEMPT_BRANCH_PREFIXES)
+
+
 class CrossHeadContinuityTest(unittest.TestCase):
     def setUp(self) -> None:
         self.finding = {

@@ -345,6 +345,10 @@ class FakeClient:
             return self.next_page(self.issue_pages, self.issues, "issues")
         if "/pulls?state=open&base=main" in path:
             return copy.deepcopy(self.open_pulls)
+        # The scan covers every governed base; only the release branch carries
+        # fixture pull requests, so other governed bases return nothing.
+        if "/pulls?state=open&base=" in path:
+            return []
         raise AssertionError(f"unexpected paginate path: {path}")
 
     @staticmethod
