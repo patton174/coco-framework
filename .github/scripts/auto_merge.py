@@ -349,15 +349,22 @@ class GitHubClient:
 
 
 class BranchProtectionClient:
-    """Capability client exposing only protected-main required-check reads."""
+    """Capability client exposing only governed-branch required-check reads."""
 
     def __init__(self, token: str, api_url: str = "https://api.github.com") -> None:
         self._client = GitHubClient(token, api_url)
 
-    def required_status_checks(self, repository: str) -> Any:
-        branch = urllib.parse.quote(BASE_BRANCH, safe="")
+    def required_status_checks(self, repository: str, branch: str = BASE_BRANCH) -> Any:
+        # The contract must come from the branch the pull request actually targets.
+        # Reading the release branch for an integration-branch pull request would
+        # judge it against gates it never publishes, and vice versa.
+        if not is_accepted_base(branch):
+            raise ContractError(
+                "Branch protection may only be read for a governed base branch."
+            )
+        encoded = urllib.parse.quote(branch, safe="")
         return self._client.get_json(
-            f"repos/{repository}/branches/{branch}/protection/required_status_checks"
+            f"repos/{repository}/branches/{encoded}/protection/required_status_checks"
         )
 
 
@@ -816,16 +823,18 @@ def _status_outcome(status: dict[str, Any], gate: str) -> tuple[str, bool]:
 
 
 def required_gate_configuration(
-    protection_client: BranchProtectionClient, repository: str
+    protection_client: BranchProtectionClient,
+    repository: str,
+    branch: str = BASE_BRANCH,
 ) -> RequiredGateConfiguration:
-    """Read the current strict, App-bound required-check contract for main."""
+    """Read the strict, App-bound required-check contract for a governed branch."""
 
     payload = require_mapping(
-        protection_client.required_status_checks(repository),
-        "main branch required status checks",
+        protection_client.required_status_checks(repository, branch),
+        f"{branch} branch required status checks",
     )
     if payload.get("strict") is not True:
-        raise ContractError("main branch required status checks must be strict.")
+        raise ContractError(f"{branch} branch required status checks must be strict.")
     contexts = require_list(
         payload.get("contexts"), "main branch required status check contexts"
     )
@@ -1284,7 +1293,10 @@ def evaluate_eligibility(
     if snapshot_failures:
         return Eligibility(snapshot=snapshot, reasons=tuple(snapshot_failures))
 
-    gate_configuration = required_gate_configuration(protection_client, repository)
+    # Read the contract from the branch this pull request targets, not a fixed one.
+    gate_configuration = required_gate_configuration(
+        protection_client, repository, snapshot.base_ref
+    )
     if gate_configuration.gates == tuple(sorted(STANDARD_REQUIRED_GATES)):
         if incident_issue_number is not None:
             raise ContractError(
