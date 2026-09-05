@@ -150,6 +150,10 @@ BLOCKING_FINDING_SEVERITIES = frozenset({"P0", "P1"})
 NONBLOCKING_FINDING_SEVERITIES = frozenset({"P2", "P3"})
 POLICY_EVIDENCE_DOMAINS = frozenset({"protected-policy", "base-spec"})
 CODE_EVIDENCE_DOMAINS = frozenset({"head-code", "base-code"})
+# Checks that may only cite policy-domain evidence. They share the routing rule
+# but not the recovery path: see the error_type choice at the raising site, where
+# a misrouted `severity` deliberately fails closed instead of being repairable.
+POLICY_ROUTED_CHECKS = ("change_scope", "severity")
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 PATCH_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$")
@@ -3744,6 +3748,9 @@ sets `previous_issue_number` to one supplied candidate's integer
                     str(exc)
                     == "Cross-review evidence-verifier change_scope evidence must be protected policy or a base specification."
                 ):
+                    # Only change_scope reaches this path. A misrouted `severity`
+                    # raises a non-repairable ReviewError by design, so a targeted
+                    # correction for it would be unreachable.
                     targeted_correction = """## Protected evidence-verifier change_scope correction
 For `evidence-verifier`, every `verifications[].evidence_refs[].checks` entry
 that lists `change_scope` must cite only a canonical catalog source whose
@@ -4118,10 +4125,13 @@ def validate_verifier_evidence_domains(
     for reference in evidence_refs:
         domain = reference["trust_domain"]
         for check in reference["checks"]:
-            if (
-                check in {"severity", "change_scope"}
-                and domain not in POLICY_EVIDENCE_DOMAINS
-            ):
+            if check in POLICY_ROUTED_CHECKS and domain not in POLICY_EVIDENCE_DOMAINS:
+                # Only change_scope is shape-repairable. A misrouted `severity`
+                # must fail the run outright and never enter bounded repair:
+                # severity decides whether a finding blocks the pull request, so
+                # retrying would hand the model repeated attempts to find some
+                # evidence that justifies a severity claim. change_scope carries
+                # no such authority, so a routing slip there is recoverable.
                 error_type = (
                     ReportShapeError
                     if role == "evidence-verifier" and check == "change_scope"
