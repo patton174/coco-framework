@@ -3,6 +3,9 @@
   "gate_name": "Agent jury gate",
   "managed_comment_marker": "<!-- agent-jury:v1 -->",
   "max_actionable_issue_groups": 8,
+  "agentic_roles": [
+    "evidence-verifier"
+  ],
   "deferred_bot_authors": [
     {
       "login": "dependabot[bot]",
