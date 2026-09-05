@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import unittest
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -350,7 +351,10 @@ class FakeClient:
             return self.next_page(self.issue_pages, self.issues, "issues")
         base_marker = "/pulls?state=open&base="
         if base_marker in path:
-            base = path.split(base_marker, 1)[1]
+            # URL-decode so a future change that percent-encodes the base cannot
+            # silently stop matching and hide drift in the multi-base scan.
+            raw_base = path.split(base_marker, 1)[1].split("&", 1)[0]
+            base = urllib.parse.unquote(raw_base)
             self.scanned_bases.append(base)
             if base == "main":
                 return copy.deepcopy(self.open_pulls)
@@ -556,6 +560,10 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(
             [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
         )
+        # Even with only a main-base fixture, every governed base must be queried;
+        # otherwise the multi-base loop could regress unnoticed in this shape.
+        self.assertIn("dev", client.scanned_bases)
+        self.assertEqual(sorted(merge.ACCEPTED_PR_BASES), sorted(client.scanned_bases))
 
     def test_scan_discovers_integration_branch_candidates(self) -> None:
         # GitHub's pulls endpoint filters one base at a time, so a dev-targeting
@@ -589,6 +597,44 @@ class AutoMergeTests(unittest.TestCase):
             {(17, HEAD_SHA), (18, BASE_SHA)},
             {(item.number, item.expected_head_sha) for item in candidates},
         )
+
+    def test_dev_and_main_gate_contracts_are_recognised(self) -> None:
+        # Once dev protection carries the admission gate and main carries the
+        # promotion gate, auto-merge must still recognise both configurations or
+        # it would refuse to merge anything.
+        for gates in (
+            merge.STANDARD_REQUIRED_GATES,
+            merge.INCIDENT_REQUIRED_GATES,
+            merge.DEV_REQUIRED_GATES,
+            merge.MAIN_REQUIRED_GATES,
+        ):
+            with self.subTest(gates=gates):
+                client = FakeClient()
+                client.protection_client.configuration = required_check_configuration(
+                    gates
+                )
+                configuration = merge.required_gate_configuration(
+                    client.protection_client, REPOSITORY
+                )
+                self.assertEqual(tuple(sorted(gates)), configuration.gates)
+
+    def test_dev_contract_adds_only_the_contributor_gate(self) -> None:
+        self.assertEqual(
+            set(merge.STANDARD_REQUIRED_GATES) | {"Contributor gate"},
+            set(merge.DEV_REQUIRED_GATES),
+        )
+
+    def test_main_contract_replaces_content_review_with_promotion(self) -> None:
+        self.assertEqual(("CI gate", "Promotion gate"), merge.MAIN_REQUIRED_GATES)
+        self.assertNotIn("Agent jury gate", merge.MAIN_REQUIRED_GATES)
+
+    def test_unrecognised_gate_set_is_rejected(self) -> None:
+        client = FakeClient()
+        client.protection_client.configuration = required_check_configuration(
+            ("CI gate",)
+        )
+        with self.assertRaisesRegex(merge.ContractError, "recognised governance"):
+            merge.required_gate_configuration(client.protection_client, REPOSITORY)
 
     @staticmethod
     def snapshot_with_base(base_ref: str) -> merge.PullRequestSnapshot:

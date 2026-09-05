@@ -13,8 +13,12 @@ on:
 permissions: {}
 
 concurrency:
+  # Per pull request, matching the other status publishers: each run publishes to
+  # its own head SHA, so there is nothing to serialise across pull requests.
+  # cancel-in-progress stays false so a status write is never interrupted, which
+  # would leave a required check stuck pending.
   group: contributor-gate-${{ github.repository_id }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gate:
