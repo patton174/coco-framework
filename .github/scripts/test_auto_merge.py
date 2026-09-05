@@ -283,6 +283,11 @@ class FakeClient:
         self.check_runs = [success_check(20, "CI gate")]
         self.issues: list[dict] = []
         self.open_pulls: list[dict] = []
+        # Candidates discovered per governed base. `open_pulls` stays the release
+        # branch fixture so existing expectations hold; other governed bases can
+        # be populated per test to exercise integration-branch scanning.
+        self.open_pulls_by_base: dict[str, list[dict]] = {}
+        self.scanned_bases: list[str] = []
         self.permissions = {"maintainer": "write"}
         self.repository_settings = {
             "mergeCommitAllowed": True,
@@ -343,12 +348,13 @@ class FakeClient:
             return self.next_page(self.check_run_pages, self.check_runs, "check runs")
         if "/issues?state=open&labels=agent-review&sort=created&direction=asc" in path:
             return self.next_page(self.issue_pages, self.issues, "issues")
-        if "/pulls?state=open&base=main" in path:
-            return copy.deepcopy(self.open_pulls)
-        # The scan covers every governed base; only the release branch carries
-        # fixture pull requests, so other governed bases return nothing.
-        if "/pulls?state=open&base=" in path:
-            return []
+        base_marker = "/pulls?state=open&base="
+        if base_marker in path:
+            base = path.split(base_marker, 1)[1]
+            self.scanned_bases.append(base)
+            if base == "main":
+                return copy.deepcopy(self.open_pulls)
+            return copy.deepcopy(self.open_pulls_by_base.get(base, []))
         raise AssertionError(f"unexpected paginate path: {path}")
 
     @staticmethod
@@ -550,6 +556,67 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(
             [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
         )
+
+    def test_scan_discovers_integration_branch_candidates(self) -> None:
+        # GitHub's pulls endpoint filters one base at a time, so a dev-targeting
+        # pull request is only found if every governed base is queried.
+        client = FakeClient()
+        client.open_pulls = []
+        client.open_pulls_by_base = {"dev": [{"number": 17, "head": {"sha": HEAD_SHA}}]}
+        candidates = merge.resolve_candidates(
+            client, REPOSITORY, "schedule", {"schedule": "*/10 * * * *"}
+        )
+        self.assertEqual(
+            [merge.Candidate(17, HEAD_SHA, "schedule:open-pr-scan")], candidates
+        )
+
+    def test_scan_covers_every_governed_base(self) -> None:
+        client = FakeClient()
+        client.open_pulls = []
+        merge.resolve_candidates(
+            client, REPOSITORY, "schedule", {"schedule": "*/10 * * * *"}
+        )
+        self.assertEqual(sorted(merge.ACCEPTED_PR_BASES), sorted(client.scanned_bases))
+
+    def test_scan_merges_candidates_from_both_governed_bases(self) -> None:
+        client = FakeClient()
+        client.open_pulls = [{"number": 17, "head": {"sha": HEAD_SHA}}]
+        client.open_pulls_by_base = {"dev": [{"number": 18, "head": {"sha": BASE_SHA}}]}
+        candidates = merge.resolve_candidates(
+            client, REPOSITORY, "schedule", {"schedule": "*/10 * * * *"}
+        )
+        self.assertEqual(
+            {(17, HEAD_SHA), (18, BASE_SHA)},
+            {(item.number, item.expected_head_sha) for item in candidates},
+        )
+
+    @staticmethod
+    def snapshot_with_base(base_ref: str) -> merge.PullRequestSnapshot:
+        return merge.PullRequestSnapshot(
+            number=17,
+            state="open",
+            base_ref=base_ref,
+            base_sha=BASE_SHA,
+            head_sha=HEAD_SHA,
+            draft=False,
+            mergeable=True,
+            mergeable_state="clean",
+            author_login="maintainer",
+        )
+
+    def test_integration_branch_base_is_eligible(self) -> None:
+        snapshot = self.snapshot_with_base("dev")
+        self.assertEqual([], merge.snapshot_reasons(snapshot, None))
+
+    def test_release_branch_base_is_eligible(self) -> None:
+        snapshot = self.snapshot_with_base("main")
+        self.assertEqual([], merge.snapshot_reasons(snapshot, None))
+
+    def test_ungoverned_base_is_rejected_with_the_allowed_set(self) -> None:
+        reasons = merge.snapshot_reasons(self.snapshot_with_base("master"), None)
+        self.assertEqual(1, len(reasons))
+        self.assertIn("dev", reasons[0])
+        self.assertIn("main", reasons[0])
 
     def test_eligible_pull_request_uses_merge_commit_and_exact_head(self) -> None:
         client = FakeClient()
