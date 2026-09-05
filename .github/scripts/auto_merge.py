@@ -16,12 +16,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from agent_review import ACCEPTED_PR_BASES
+from agent_review import DEFAULT_BRANCH
 from agent_review import ReviewError as AgentReviewError
+from agent_review import is_accepted_base
 from agent_review import parse_finding_issue_marker
 from agent_review import require_resource_actor
 
 
-BASE_BRANCH = "main"
+# Retained as the protected release branch whose protection contract is read.
+# Pull request eligibility is checked against ACCEPTED_PR_BASES instead, so an
+# integration-branch pull request is no longer rejected as off-target.
+BASE_BRANCH = DEFAULT_BRANCH
 AGENT_ISSUE_LABEL = "agent-review"
 STANDARD_REQUIRED_GATES = ("CI gate", "Agent jury gate", "Agent issue gate")
 INCIDENT_REQUIRED_GATES = ("CI gate", "Agent issue gate")
@@ -621,10 +627,17 @@ def resolve_candidates(
         ):
             return []
 
-    pulls = client.paginate(
-        f"repos/{repository}/pulls?state=open&base={BASE_BRANCH}",
-        limit=MAX_OPEN_PULL_REQUESTS,
-    )
+    # Scan every governed base. GitHub's pulls endpoint filters one base at a
+    # time, so integration-branch candidates would be invisible if only the
+    # release branch were queried.
+    pulls: list[Any] = []
+    for base in sorted(ACCEPTED_PR_BASES):
+        pulls.extend(
+            client.paginate(
+                f"repos/{repository}/pulls?state=open&base={urllib.parse.quote(base, safe='')}",
+                limit=MAX_OPEN_PULL_REQUESTS,
+            )
+        )
     fallback: list[Candidate] = []
     for value in pulls:
         pull_request = require_mapping(value, "open pull request")
@@ -690,8 +703,10 @@ def snapshot_reasons(
     reasons: list[str] = []
     if snapshot.state != "open":
         reasons.append("pull request is not open")
-    if snapshot.base_ref != BASE_BRANCH:
-        reasons.append(f"pull request base is not {BASE_BRANCH}")
+    if not is_accepted_base(snapshot.base_ref):
+        reasons.append(
+            "pull request base is not one of: " + ", ".join(sorted(ACCEPTED_PR_BASES))
+        )
     if snapshot.draft:
         reasons.append("pull request is a draft")
     if expected_head_sha and snapshot.head_sha != expected_head_sha:

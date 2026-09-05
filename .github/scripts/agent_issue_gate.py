@@ -18,10 +18,12 @@ from agent_review import (
     ReviewError,
     app_finding_issue_resources,
     canonical_json,
+    is_accepted_base,
     issue_label_names,
     parse_finding_issue_marker,
     publish_status,
     read_json,
+    require_accepted_base,
     require_app_bot_id,
     require_app_bot_login,
     require_repository,
@@ -65,7 +67,7 @@ def resolve_event(event: dict[str, Any], expected_app_login: str) -> dict[str, A
         head_sha = str((pull_request.get("head") or {}).get("sha") or "")
         if not SHA_RE.fullmatch(head_sha):
             raise ReviewError("Pull request event head SHA is invalid.")
-        if (pull_request.get("base") or {}).get("ref") != "main":
+        if not is_accepted_base((pull_request.get("base") or {}).get("ref")):
             return {"ignored": True, "repository": repository}
         return {
             "ignored": False,
@@ -167,8 +169,7 @@ def bind_current_pr(
     head = pr.get("head") or {}
     base_sha = str(base.get("sha") or "")
     head_sha = str(head.get("sha") or "")
-    if base.get("ref") != "main":
-        raise ReviewError("Agent issue gate accepts only pull requests targeting main.")
+    require_accepted_base(base.get("ref"), "Agent issue gate pull request base")
     if not SHA_RE.fullmatch(base_sha) or not SHA_RE.fullmatch(head_sha):
         raise ReviewError("GitHub returned invalid pull request commit SHAs.")
     if expected_head_sha and expected_head_sha != head_sha:
@@ -186,7 +187,7 @@ def require_same_pr_binding(
     if (
         not isinstance(current, dict)
         or current.get("state") != "open"
-        or (current.get("base") or {}).get("ref") != "main"
+        or not is_accepted_base((current.get("base") or {}).get("ref"))
         or (current.get("base") or {}).get("sha") != binding["base_sha"]
         or (current.get("head") or {}).get("sha") != binding["head_sha"]
     ):

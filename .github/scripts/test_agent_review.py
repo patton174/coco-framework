@@ -14187,6 +14187,60 @@ class AgentReviewTests(unittest.TestCase):
                 )
 
 
+class GovernedBaseBranchTest(unittest.TestCase):
+    """Pin the parameterized base-branch contract shared by every entrypoint."""
+
+    def test_governed_bases_are_release_and_integration_branches(self) -> None:
+        self.assertEqual("main", review.DEFAULT_BRANCH)
+        self.assertEqual("dev", review.INTEGRATION_BRANCH)
+        self.assertEqual({"main", "dev"}, set(review.ACCEPTED_PR_BASES))
+
+    def test_is_accepted_base_admits_only_governed_branches(self) -> None:
+        for accepted in ("main", "dev"):
+            with self.subTest(base=accepted):
+                self.assertTrue(review.is_accepted_base(accepted))
+        for rejected in (
+            "master",
+            "dev-patton174",
+            "devel",
+            "Main",
+            "",
+            None,
+            123,
+            ["dev"],
+        ):
+            with self.subTest(base=rejected):
+                self.assertFalse(review.is_accepted_base(rejected))
+
+    def test_require_accepted_base_returns_governed_branch(self) -> None:
+        for accepted in ("main", "dev"):
+            with self.subTest(base=accepted):
+                self.assertEqual(accepted, review.require_accepted_base(accepted))
+
+    def test_require_accepted_base_fails_closed_and_names_the_allowed_set(
+        self,
+    ) -> None:
+        for rejected in ("master", "dev-patton174", "", None):
+            with self.subTest(base=rejected):
+                with self.assertRaises(review.ReviewError) as caught:
+                    review.require_accepted_base(rejected)
+                message = str(caught.exception)
+                self.assertIn("dev", message)
+                self.assertIn("main", message)
+
+    def test_require_accepted_base_uses_the_supplied_label(self) -> None:
+        with self.assertRaisesRegex(review.ReviewError, "Custom label"):
+            review.require_accepted_base("master", "Custom label")
+
+    def test_default_branch_stays_the_github_default(self) -> None:
+        # workflow_run loads its workflow definition only from the default branch,
+        # so keeping main default means a change to the reviewer's own workflow
+        # definition ships only through an owner-performed promotion.
+        self.assertEqual("main", review.DEFAULT_BRANCH)
+        self.assertIn(review.DEFAULT_BRANCH, review.ACCEPTED_PR_BASES)
+        self.assertIn(review.INTEGRATION_BRANCH, review.ACCEPTED_PR_BASES)
+
+
 class CrossHeadContinuityTest(unittest.TestCase):
     def setUp(self) -> None:
         self.finding = {
