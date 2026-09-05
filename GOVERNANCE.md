@@ -53,11 +53,16 @@ compatibility evidence, operational risk, and long-term maintenance cost.
   requires strict, App-bound `CI gate` and `Promotion gate` checks. Only the
   repository owner may promote, only from `dev`, and only when `dev` is not
   behind `main` and carries no open bound agent-review finding. The promotion
-  gate reuses the content verdicts already recorded on the `dev` head instead of
-  re-reviewing the change.
-- `main` remains the GitHub default branch. `workflow_run` executes only from the
-  default branch, which is what keeps reviewer code and release secrets outside
-  the reach of the change being reviewed.
+  gate checks authority and batch integrity, not content: each change was already
+  reviewed by the jury on the contributor pull request that introduced it, and
+  `CI gate` re-verifies the promotion itself.
+- `main` remains the GitHub default branch because `workflow_run` loads its
+  **workflow definition** only from the default branch. Keeping `main` default
+  therefore means a change to the reviewer's own workflow definition can only
+  take effect through an owner-performed promotion, not through a routine merge
+  into `dev`. The reviewer's **scripts** are checked out from the base of the
+  pull request under review, so a `dev` pull request is judged by the reviewer
+  code on `dev`, not by a stale copy from `main`.
 - One current CODEOWNER approval and resolved conversations are required.
 - Only merge commits are enabled. Force pushes and branch deletion are blocked.
 - GitHub Actions are limited to GitHub-owned actions pinned to commit SHAs; the
