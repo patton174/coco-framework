@@ -224,15 +224,20 @@ class EndToEndTest(unittest.TestCase):
     def test_valid_promotion_publishes_success(self) -> None:
         client = FakeClient()
         self.assertEqual(0, self.run_gate(promotion_event(), client))
-        _path, payload = client.published[0]
+        self.assertEqual(1, len(client.published))
+        path, payload = client.published[0]
+        # The status must land on the promotion head, not any other commit.
+        self.assertEqual(f"repos/{REPOSITORY}/statuses/{HEAD_SHA}", path)
         self.assertEqual("success", payload["state"])
         self.assertEqual(gate.PROMOTION_STATUS_CONTEXT, payload["context"])
 
     def test_non_dev_head_publishes_failure(self) -> None:
         client = FakeClient()
         self.assertEqual(1, self.run_gate(promotion_event(head_ref="hotfix"), client))
-        _path, payload = client.published[0]
+        path, payload = client.published[0]
+        self.assertEqual(f"repos/{REPOSITORY}/statuses/{HEAD_SHA}", path)
         self.assertEqual("failure", payload["state"])
+        self.assertEqual(gate.PROMOTION_STATUS_CONTEXT, payload["context"])
         self.assertIn("promoted", payload["description"])
 
     def test_non_owner_publishes_failure(self) -> None:

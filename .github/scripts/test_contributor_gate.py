@@ -289,7 +289,8 @@ class EndToEndTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual(1, len(client.statuses))
         path, payload = client.statuses[0]
-        self.assertIn(HEAD_SHA, path)
+        # Exact path, not just containment: the status must land on this head.
+        self.assertEqual(f"repos/{REPOSITORY}/statuses/{HEAD_SHA}", path)
         self.assertEqual("success", payload["state"])
         self.assertEqual(gate.CONTRIBUTOR_STATUS_CONTEXT, payload["context"])
 
@@ -298,8 +299,10 @@ class EndToEndTest(unittest.TestCase):
             pull_request_event(branch="dev-someoneelse"), {"patton174": "admin"}
         )
         self.assertEqual(1, code)
-        _path, payload = client.statuses[0]
+        path, payload = client.statuses[0]
+        self.assertEqual(f"repos/{REPOSITORY}/statuses/{HEAD_SHA}", path)
         self.assertEqual("failure", payload["state"])
+        self.assertEqual(gate.CONTRIBUTOR_STATUS_CONTEXT, payload["context"])
         self.assertIn("author login", payload["description"])
 
     def test_non_collaborator_publishes_failure(self) -> None:
