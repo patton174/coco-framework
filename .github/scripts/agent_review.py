@@ -37,6 +37,8 @@ LEGACY_COMMENT_MARKER = "<!-- claude-review-marker: managed by workflow -->"
 STATUS_CONTEXT = "Agent jury gate"
 OWNERSHIP_STATUS_CONTEXT = "Agent jury ownership"
 ISSUE_STATUS_CONTEXT = "Agent issue gate"
+CONTRIBUTOR_STATUS_CONTEXT = "Contributor gate"
+PROMOTION_STATUS_CONTEXT = "Promotion gate"
 # `main` is the release branch and the GitHub default branch; `dev` is the
 # integration trunk that contributor pull requests target. `main` stays default
 # because `workflow_run` loads its workflow DEFINITION only from the default
