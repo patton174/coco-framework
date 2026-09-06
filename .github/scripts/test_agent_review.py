@@ -3953,6 +3953,57 @@ class AgentReviewTests(unittest.TestCase):
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
 
+    def test_misrouted_policy_checks_are_symmetric_across_verifier_roles(
+        self,
+    ) -> None:
+        # A change_scope check misrouted to code evidence must be correctable for
+        # both verifier roles alike, while a severity check misrouted the same way
+        # stays unrecoverable for both. Neither the correctable nor the hard-fail
+        # behavior may depend on which verifier produced the report.
+        context = bound_context()
+
+        def report_with(code_check: str, policy_check: str) -> dict:
+            refs = [
+                {
+                    "trust_domain": "head-code",
+                    "path": "src/Foo.java",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "checks": ["anchor", "claim", "impact", "trigger", code_check],
+                },
+                {
+                    "trust_domain": "protected-policy",
+                    "path": "AGENTS.md",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "checks": [policy_check],
+                },
+            ]
+            return verifier_report(
+                "evidence-verifier", context, "correctness:f1", evidence_refs=refs
+            )
+
+        for role in ("evidence-verifier", "policy-skeptic"):
+            with self.subTest(role=role, check="change_scope"):
+                report = report_with("change_scope", "severity")
+                report["role"] = role
+                with self.assertRaisesRegex(
+                    review.ReportShapeError, "change_scope evidence must be protected"
+                ):
+                    review.validate_cross_report(
+                        report, role, context, {"correctness:f1"}
+                    )
+            with self.subTest(role=role, check="severity"):
+                report = report_with("severity", "change_scope")
+                report["role"] = role
+                with self.assertRaisesRegex(
+                    review.ReviewError, "severity evidence must be protected"
+                ) as raised:
+                    review.validate_cross_report(
+                        report, role, context, {"correctness:f1"}
+                    )
+                self.assertNotIsInstance(raised.exception, review.ReportShapeError)
+
     def test_canonical_policy_and_head_revision_of_same_path_validate_evidence(
         self,
     ) -> None:

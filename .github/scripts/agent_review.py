@@ -136,6 +136,13 @@ BLOCKING_FINDING_SEVERITIES = frozenset({"P0", "P1"})
 NONBLOCKING_FINDING_SEVERITIES = frozenset({"P2", "P3"})
 POLICY_EVIDENCE_DOMAINS = frozenset({"protected-policy", "base-spec"})
 CODE_EVIDENCE_DOMAINS = frozenset({"head-code", "base-code"})
+# Shared tail of the f-string raised in validate_verifier_evidence_domains for
+# every role/check combination. The correction loop matches on this suffix so a
+# new role or check spelling still routes to the targeted correction. Keep it in
+# sync with that raise site.
+POLICY_EVIDENCE_ROUTING_SUFFIX = (
+    " evidence must be protected policy or a base specification."
+)
 MARKDOWN_INLINE_ESCAPE_RE = re.compile(r"([\\`*_\[\]\(\)!|~])")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 PATCH_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$")
@@ -3726,18 +3733,19 @@ supplied current group. Do not change the relationship to `ADOPT`; ADOPT alone
 sets `previous_issue_number` to one supplied candidate's integer
 `previous_issue_number` and keeps `candidate_sha256`, `previous_group_id`, and
 `previous_anchor` null."""
-                elif (
-                    str(exc)
-                    == "Cross-review evidence-verifier change_scope evidence must be protected policy or a base specification."
-                ):
-                    targeted_correction = """## Protected evidence-verifier change_scope correction
-For `evidence-verifier`, every `verifications[].evidence_refs[].checks` entry
-that lists `change_scope` must cite only a canonical catalog source whose
-`trust_domain` is `protected-policy` or `base-spec`. Re-read the original
-catalog and select an allowed source ID for that field. Never attach
-`change_scope` to `head-code`, `base-code`, a PR diff, or any other evidence
-domain, even when that source supports a code-fact check. Generate a complete
-replacement JSON object that satisfies this field-level routing rule."""
+                elif str(exc).endswith(POLICY_EVIDENCE_ROUTING_SUFFIX):
+                    # The validator message is an f-string over role and check, so
+                    # matching one literal spelling left the other roles and the
+                    # severity check with no targeted correction at all. Match the
+                    # shared suffix to recognize every spelling the validator raises.
+                    targeted_correction = """## Protected evidence routing correction
+Every `evidence_refs[].checks` entry that lists `severity` or `change_scope`
+must cite only a canonical catalog source whose `trust_domain` is
+`protected-policy` or `base-spec`. Re-read the original catalog and select an
+allowed source ID for that field. Never attach either check to `head-code`,
+`base-code`, a PR diff, or any other evidence domain, even when that source
+supports a code-fact check. Generate a complete replacement JSON object that
+satisfies this field-level routing rule."""
                 correction_sections = [
                     original_system,
                     """## Protected cross-review fresh protocol correction
@@ -4108,11 +4116,13 @@ def validate_verifier_evidence_domains(
                 check in {"severity", "change_scope"}
                 and domain not in POLICY_EVIDENCE_DOMAINS
             ):
-                error_type = (
-                    ReportShapeError
-                    if role == "evidence-verifier" and check == "change_scope"
-                    else ReviewError
-                )
+                # A misrouted change_scope judgement is an output-contract slip the
+                # model can repair, so make it correctable for both verifier roles
+                # alike -- previously only evidence-verifier could retry it while
+                # policy-skeptic failed closed with zero corrections on the very
+                # same check. A misrouted severity judgement stays unrecoverable
+                # for every role, which is already symmetric and contract-locked.
+                error_type = ReportShapeError if check == "change_scope" else ReviewError
                 raise error_type(
                     f"Cross-review {role} {check} evidence must be protected policy or a base specification."
                 )
