@@ -2,7 +2,7 @@
   "version": 1,
   "gate_name": "Agent jury gate",
   "managed_comment_marker": "<!-- agent-jury:v1 -->",
-  "max_actionable_issue_groups": 8,
+  "max_actionable_issue_groups": 24,
   "agentic_roles": [],
   "deferred_bot_authors": [
     {
