@@ -11,13 +11,16 @@ Checks, in order, all fail-closed:
 1. Base must be the integration branch (a release-branch pull request is skipped
    here and handled by the promotion gate instead).
 2. Head must live in this repository, never a fork.
-3. Branch name must match `dev-<login>` or an exempt prefix.
-4. An exempt prefix additionally requires the exact upstream bot identity, so a
-   spoofed `dependabot/` branch from anyone else is still rejected.
-5. For `dev-<login>`, the suffix must be the pull request author, so one
-   contributor cannot open work under another's name.
-6. The author must be a repository collaborator with write access or an
+3. The author must be a repository collaborator with write access or an
    allow-listed project bot.
+4. Branch name must match `dev-<login>` or an exempt prefix.
+5. An exempt prefix additionally requires the exact upstream bot identity, so a
+   spoofed `dependabot/` branch from anyone else is still rejected.
+6. For `dev-<login>`, the suffix must be the pull request author, so one
+   contributor cannot open work under another's name.
+
+Authorization precedes naming so that an unauthorized author is told they are
+unauthorized rather than that their branch is misnamed.
 """
 
 from __future__ import annotations
@@ -236,10 +239,18 @@ def main(argv: list[str]) -> int:
         author_login, _author_type, author_bot_id = author_identity(
             binding["pull_request"]
         )
-        evaluate_branch_naming(branch, author_login, author_bot_id, allowed_bots)
+        # Authorization first, then naming. Both orders reject the same set, but an
+        # unauthorized author reaching the naming check would be told their branch
+        # is misnamed, hiding the real reason. Reporting the binding failure keeps
+        # the published status diagnostic.
+        # Authorization first, then naming. Both orders reject the same set, but an
+        # unauthorized author reaching the naming check would be told their branch
+        # is misnamed, hiding the real reason. Reporting the binding failure keeps
+        # the published status diagnostic.
         authorization = evaluate_authorization(
             client, repository, author_login, author_bot_id, allowed_bots
         )
+        evaluate_branch_naming(branch, author_login, author_bot_id, allowed_bots)
     except ReviewError as exc:
         publish_status(
             client,

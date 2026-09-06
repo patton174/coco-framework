@@ -158,6 +158,17 @@ class BranchNamingTest(unittest.TestCase):
                 "dependabot/pip/x", AGENT_LOGIN, AGENT_ID, bots()
             )
 
+    def test_one_prefix_owner_being_allow_listed_does_not_cover_another(self) -> None:
+        # A populated allow-list is not a blanket one: removing a bot from
+        # COCO_ALLOWED_BOTS must retire its prefix even while other bots remain.
+        with self.assertRaisesRegex(gate.ReviewError, "not\n?.*allow-listed"):
+            gate.evaluate_branch_naming(
+                "dependabot/pip/x",
+                DEPENDABOT_LOGIN,
+                DEPENDABOT_ID,
+                {AGENT_LOGIN.lower(): AGENT_ID},
+            )
+
     def test_every_exempt_prefix_declares_exactly_one_owner(self) -> None:
         self.assertEqual(
             set(gate.EXEMPT_BRANCH_PREFIXES),
@@ -312,6 +323,18 @@ class EndToEndTest(unittest.TestCase):
         self.assertEqual(1, code)
         _path, payload = client.statuses[0]
         self.assertEqual("failure", payload["state"])
+
+    def test_unauthorized_author_is_reported_as_unauthorized_not_misnamed(self) -> None:
+        # An unauthorized author on a spoofed exempt branch fails both checks. The
+        # status must name the binding reason, so authorization is evaluated first.
+        code, client = self.run_gate(
+            pull_request_event(branch="dependabot/pip/x", author_login="stranger"), {}
+        )
+        self.assertEqual(1, code)
+        _path, payload = client.statuses[0]
+        self.assertEqual("failure", payload["state"])
+        self.assertIn("collaborator permission", payload["description"])
+        self.assertNotIn("reserved for", payload["description"])
 
     def test_release_branch_pull_request_publishes_nothing(self) -> None:
         code, client = self.run_gate(
