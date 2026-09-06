@@ -433,6 +433,44 @@ class AutoMergeTests(unittest.TestCase):
     def candidate(self, head_sha: str | None = HEAD_SHA) -> merge.Candidate:
         return merge.Candidate(17, head_sha, "test")
 
+    def test_dev_and_main_gate_contracts_are_recognised(self) -> None:
+        # Once dev protection carries the admission gate and main carries the
+        # promotion gate, auto-merge must still recognise both configurations or
+        # it would refuse to merge anything.
+        for gates in (
+            merge.STANDARD_REQUIRED_GATES,
+            merge.INCIDENT_REQUIRED_GATES,
+            merge.DEV_REQUIRED_GATES,
+            merge.MAIN_REQUIRED_GATES,
+        ):
+            with self.subTest(gates=gates):
+                client = FakeClient()
+                client.protection_client.configuration = required_check_configuration(
+                    gates
+                )
+                configuration = merge.required_gate_configuration(
+                    client.protection_client, REPOSITORY
+                )
+                self.assertEqual(tuple(sorted(gates)), configuration.gates)
+
+    def test_dev_contract_adds_only_the_contributor_gate(self) -> None:
+        self.assertEqual(
+            set(merge.STANDARD_REQUIRED_GATES) | {"Contributor gate"},
+            set(merge.DEV_REQUIRED_GATES),
+        )
+
+    def test_main_contract_replaces_content_review_with_promotion(self) -> None:
+        self.assertEqual(("CI gate", "Promotion gate"), merge.MAIN_REQUIRED_GATES)
+        self.assertNotIn("Agent jury gate", merge.MAIN_REQUIRED_GATES)
+
+    def test_unrecognised_gate_set_is_rejected(self) -> None:
+        client = FakeClient()
+        client.protection_client.configuration = required_check_configuration(
+            ("CI gate",)
+        )
+        with self.assertRaisesRegex(merge.ContractError, "recognised governance"):
+            merge.required_gate_configuration(client.protection_client, REPOSITORY)
+
     def incident_client(self) -> FakeClient:
         client = FakeClient()
         client.pull_reads = [

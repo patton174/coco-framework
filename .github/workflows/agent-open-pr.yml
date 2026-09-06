@@ -19,6 +19,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Agent pull requests target the integration branch. Dispatch itself remains
+  # bound to main so the workflow definition always comes from protected code.
+  TARGET_BASE: dev
+
 concurrency:
   group: agent-open-pr-${{ github.repository_id }}
   cancel-in-progress: false
@@ -79,13 +84,22 @@ jobs:
             echo "::error::Head branch no longer points to the requested SHA."
             exit 1
           fi
+          # Dispatch stays bound to main (the trust boundary verified above), but
+          # contributor pull requests target the integration branch, so the head
+          # must be current with dev rather than with main.
+          base_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_BASE}" \
+            --jq '.object.sha')"
+          if [[ ! "${base_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Target base branch '${TARGET_BASE}' has no valid head."
+            exit 1
+          fi
           compare_json="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/compare/${main_sha}...${HEAD_SHA}")"
+            "repos/${GITHUB_REPOSITORY}/compare/${base_sha}...${HEAD_SHA}")"
           ahead_by="$(jq -r '.ahead_by' <<< "${compare_json}")"
           behind_by="$(jq -r '.behind_by' <<< "${compare_json}")"
           if [[ ! "${ahead_by}" =~ ^[0-9]+$ || ! "${behind_by}" =~ ^[0-9]+$ \
              || "${ahead_by}" -le 0 || "${behind_by}" -ne 0 ]]; then
-            echo "::error::Head must contain current main and add at least one commit."
+            echo "::error::Head must contain current ${TARGET_BASE} and add at least one commit."
             exit 1
           fi
 
@@ -145,14 +159,18 @@ jobs:
           repository_json="$(GH_TOKEN="${READ_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}")"
           repository_id="$(jq -r '.id' <<< "${repository_json}")"
           default_branch="$(jq -r '.default_branch' <<< "${repository_json}")"
-          main_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          base_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_BASE}" --jq '.object.sha')"
+          if [[ ! "${base_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Target base branch '${TARGET_BASE}' has no valid head."
+            exit 1
+          fi
           # shellcheck disable=SC2016
           encoded_branch="$(jq -rn --arg value "${HEAD_BRANCH}" '$value | @uri')"
           branch_sha="$(GH_TOKEN="${READ_TOKEN}" gh api \
             "repos/${GITHUB_REPOSITORY}/branches/${encoded_branch}" --jq '.commit.sha')"
           compare_json="$(GH_TOKEN="${READ_TOKEN}" gh api \
-            "repos/${GITHUB_REPOSITORY}/compare/${main_sha}...${HEAD_SHA}")"
+            "repos/${GITHUB_REPOSITORY}/compare/${base_sha}...${HEAD_SHA}")"
           ahead_by="$(jq -r '.ahead_by' <<< "${compare_json}")"
           behind_by="$(jq -r '.behind_by' <<< "${compare_json}")"
           if [[ "${repository_id}" != "${GITHUB_REPOSITORY_ID}" \
@@ -178,7 +196,7 @@ jobs:
                || "$(jq -r '.head.sha // empty' <<< "${pr_json}")" != "${HEAD_SHA}" \
                || "$(jq -r '.base.repo.id // empty' <<< "${pr_json}")" != "${repository_id}" \
                || "$(jq -r '.base.repo.full_name // empty' <<< "${pr_json}")" != "${GITHUB_REPOSITORY}" \
-               || "$(jq -r '.base.ref // empty' <<< "${pr_json}")" != 'main' ]]; then
+               || "$(jq -r '.base.ref // empty' <<< "${pr_json}")" != "${TARGET_BASE}" ]]; then
               echo "::error::Pull request identity or branch binding is invalid." >&2
               return 1
             fi
@@ -208,7 +226,7 @@ jobs:
           created_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls" \
             -f "title=${PR_TITLE}" \
             -f "head=${owner}:${HEAD_BRANCH}" \
-            -f base=main \
+            -f "base=${TARGET_BASE}" \
             -f "body=${pr_body}" \
             -F maintainer_can_modify=true)"
           pr_number="$(jq -r '.number // empty' <<< "${created_json}")"
