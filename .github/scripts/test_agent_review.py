@@ -767,7 +767,10 @@ class AgentReviewTests(unittest.TestCase):
             )
         )
         self.assertEqual(8192, value["output_limits"]["specialist_tokens"])
-        self.assertEqual(12288, value["output_limits"]["verifier_tokens"])
+        # Verifiers emit one verification per specialist finding, so their output
+        # scales with the number of findings while a specialist's does not. The
+        # budget is raised above the specialist and chair figures for that reason.
+        self.assertEqual(16384, value["output_limits"]["verifier_tokens"])
         self.assertEqual(8192, value["output_limits"]["chair_tokens"])
         self.assertEqual(
             (("dependabot[bot]", DEPENDABOT_BOT_ID),),
