@@ -779,7 +779,7 @@ class AgentReviewTests(unittest.TestCase):
         limits = review.normalized_limits(value)
         self.assertEqual(180_000, limits["diff_chars"])
         self.assertEqual(384_000, limits["assembled_context_chars"])
-        self.assertEqual(64_000, limits["policy_chars"])
+        self.assertEqual(96_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         explicit_section_budget = sum(
             limits[key]
@@ -790,9 +790,12 @@ class AgentReviewTests(unittest.TestCase):
                 "code_context_chars",
             )
         )
-        self.assertEqual(312_000, explicit_section_budget)
+        self.assertEqual(344_000, explicit_section_budget)
+        # Slack inside the assembled envelope after every explicit section. The
+        # policy section may not be trimmed, so it must never be sized to consume
+        # this remainder: an oversized policy route fails the run instead.
         self.assertEqual(
-            72_000, limits["assembled_context_chars"] - explicit_section_budget
+            40_000, limits["assembled_context_chars"] - explicit_section_budget
         )
         self.assertEqual(limits["diff_chars"], limits["patch_chars"])
         repository_root = Path(__file__).resolve().parents[2]
@@ -14039,7 +14042,11 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
         self.assertEqual(56_629, largest_size)
-        self.assertEqual(7_371, limit - largest_size)
+        self.assertEqual(39_371, limit - largest_size)
+        # The policy section may not be trimmed, so a route that outgrows the
+        # budget fails the run rather than degrading. Headroom is asserted as a
+        # fraction of the selected size so the guard scales with the budget
+        # instead of pinning one absolute figure.
         self.assertGreaterEqual((limit - largest_size) * 100, largest_size * 13)
 
     def test_production_policy_route_fails_closed_above_configured_budget(self) -> None:
