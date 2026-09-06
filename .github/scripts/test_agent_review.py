@@ -1119,7 +1119,13 @@ class AgentReviewTests(unittest.TestCase):
             '"${GITHUB_SHA}" != "${main_sha}"',
             "^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$",
             "'$value | @uri'",
-            '"repos/${GITHUB_REPOSITORY}/compare/${main_sha}...${HEAD_SHA}"',
+            # Dispatch stays bound to main (main_sha trust check above), but the
+            # pull request targets the integration branch, so head currency is
+            # compared against dev and the PR base is TARGET_BASE.
+            "TARGET_BASE: dev",
+            '"repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_BASE}"',
+            '"repos/${GITHUB_REPOSITORY}/compare/${base_sha}...${HEAD_SHA}"',
+            '-f "base=${TARGET_BASE}"',
             '"${branch_sha}" != "${HEAD_SHA}"',
             "GH_TOKEN: ${{ steps.app-token.outputs.token }}",
             "READ_TOKEN: ${{ github.token }}",
