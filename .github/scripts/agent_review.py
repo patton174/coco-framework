@@ -4122,7 +4122,9 @@ def validate_verifier_evidence_domains(
                 # policy-skeptic failed closed with zero corrections on the very
                 # same check. A misrouted severity judgement stays unrecoverable
                 # for every role, which is already symmetric and contract-locked.
-                error_type = ReportShapeError if check == "change_scope" else ReviewError
+                error_type = (
+                    ReportShapeError if check == "change_scope" else ReviewError
+                )
                 raise error_type(
                     f"Cross-review {role} {check} evidence must be protected policy or a base specification."
                 )
