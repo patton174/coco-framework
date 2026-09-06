@@ -772,6 +772,13 @@ class AgentReviewTests(unittest.TestCase):
         # budget is raised above the specialist and chair figures for that reason.
         self.assertEqual(16384, value["output_limits"]["verifier_tokens"])
         self.assertEqual(8192, value["output_limits"]["chair_tokens"])
+        # Five specialists may each report up to specialist_findings P2/P3 items,
+        # and a P2/P3 item needs no verifier AGREE to become an actionable group
+        # (see nonblocking_consensus_finding_ids). A run with no P0/P1 therefore
+        # reaches this limit on ordinary governance changes, and exceeding it is
+        # an infrastructure failure that writes nothing at all -- leaving the gate
+        # pending forever. The limit must stay well above a routine yield.
+        self.assertEqual(24, review.max_actionable_issue_groups(value))
         self.assertEqual(
             (("dependabot[bot]", DEPENDABOT_BOT_ID),),
             review.configured_deferred_bot_authors(value),
