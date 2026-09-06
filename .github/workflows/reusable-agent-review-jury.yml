@@ -502,7 +502,9 @@ jobs:
       actions: read
       contents: read
       pull-requests: read
-      statuses: read
+      # The fail-closed path below publishes a failure status, so this job needs
+      # write access even though admission itself only reads.
+      statuses: write
     outputs:
       admitted: ${{ steps.export-admission.outputs.admitted }}
       reason: ${{ steps.export-admission.outputs.reason }}
@@ -522,6 +524,11 @@ jobs:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
 
+      # These four variables must stay repository-scoped. This job deliberately
+      # declares no environment, because re-verifying the digest never needs the
+      # model API key. An environment-scoped variable of the same name would
+      # therefore resolve differently here than in the job that bound the digest,
+      # and every run would fail closed on a binding mismatch.
       - name: Revalidate publisher admission
         id: admission-check
         continue-on-error: true

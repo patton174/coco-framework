@@ -8364,7 +8364,12 @@ class AgentReviewTests(unittest.TestCase):
             "\n  verifiers:\n", 1
         )[0]
         verifiers = core.split("\n  verifiers:\n", 1)[1].split("\n  chair:\n", 1)[0]
-        chair = core.split("\n  chair:\n", 1)[1].split("\n  trusted-publisher:\n", 1)[0]
+        # publisher-admission sits between chair and trusted-publisher, so the
+        # chair slice must stop there or the least-privilege assertions below
+        # would inspect the admission job instead of the model job.
+        chair = core.split("\n  chair:\n", 1)[1].split("\n  publisher-admission:\n", 1)[
+            0
+        ]
         for model_job in (specialists, verifiers, chair):
             self.assertIn("inputs.allow_deferred", model_job)
             self.assertNotIn("statuses: write", model_job)
@@ -8373,7 +8378,9 @@ class AgentReviewTests(unittest.TestCase):
         )[0]
         self.assertIn("inputs.allow_deferred", trusted)
         self.assertIn("environment: coco-agent", trusted)
-        self.assertEqual(3, core.count("statuses: write"))
+        # prepare, publisher-admission, trusted-publisher, no-secret-publisher.
+        # Admission is included because its fail-closed path publishes a status.
+        self.assertEqual(4, core.count("statuses: write"))
 
         reusable_call = "uses: ./.github/workflows/reusable-agent-review-jury.yml"
         self.assertEqual(1, direct.count(reusable_call))
@@ -11234,7 +11241,9 @@ class AgentReviewTests(unittest.TestCase):
             "ref: ${{ needs.prepare.outputs.base-sha }}",
             ".agent-review-admission/.github/scripts/agent_review.py admit-publisher",
             "--require-run-ownership",
-            "statuses: read",
+            # mark-failed runs in this job and POSTs a commit status, so read-only
+            # status access would make the fail-closed path itself fail with 403.
+            "statuses: write",
         ):
             self.assertIn(value, admission)
         for variable in (
@@ -11562,7 +11571,7 @@ class AgentReviewTests(unittest.TestCase):
         )[0]
         self.assertIn("ref: ${{ needs.prepare.outputs.base-sha }}", admission)
         self.assertIn("agent_review.py admit-publisher", admission)
-        self.assertIn("statuses: read", admission)
+        self.assertIn("statuses: write", admission)
         self.assertNotIn("${{ secrets.", admission)
         for publisher in (
             reusable.split("\n  trusted-publisher:\n", 1)[1].split(
