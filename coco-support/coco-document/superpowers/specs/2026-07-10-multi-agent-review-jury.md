@@ -192,8 +192,13 @@ P2/P3 不进 verifier 或作 jury blocker，由 specialist、chair、评论保�
 - 把被反驳或无法验证的意见放入折叠区；
 - 汇总非阻断建议和待澄清问题。
 
-主席不能创建无 source ID blocker，或把未双验证 P0/P1 升级为 blocker。P2/P3 必须展示且只能作为
-非阻断 follow-up 进入 `actionable_groups`；选中 group 可创建只影响 `Agent issue gate` 的受管 Issue。
+主席不能创建无 source ID blocker，或把未双验证 P0/P1 升级为 blocker。P2/P3 必须在最终报告中
+展示，且只能作为非阻断 follow-up 进入 `actionable_groups`；选中 group 可创建只影响
+`Agent issue gate` 的受管 Issue。
+
+展示不等于进入 `actionable_groups`：`max_actionable_issue_groups` 只限 follow-up group 数，blocker
+group 必须全部出现。超限时按严重度选，未选中者以 `reported, not selected` 展示且不开 Issue；不得
+丢弃或合并 finding 来压低计数。主席与 publisher 各自独立执行。
 `actionable_groups` 是完整且严格的结构化契约：每个 group 必须含一个合法 primary source
 finding ID 和有序、唯一、且不含 primary 的 duplicate ID 列表。缺失、非对象、非法 primary、
 重复成员或错误类型均为基础设施失败，协调器不得静默忽略任何条目。

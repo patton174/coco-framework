@@ -13843,6 +13843,90 @@ class AgentReviewTests(unittest.TestCase):
             )
         )
 
+    def test_chair_follow_up_selection_is_capped(self) -> None:
+        """Selecting more follow-up groups than the limit is a shape error."""
+        context = bound_context()
+        template = specialist_report("correctness", context)["findings"][0]
+        followups = []
+        for index in range(3):
+            finding = json.loads(json.dumps(template))
+            finding["id"] = f"correctness:f{index + 1}"
+            finding["severity"] = "P2"
+            # Distinct claim, trigger, and impact: semantic_finding_identity keys
+            # on those, not on the anchor, so varying lines alone would still
+            # collapse the groups as duplicates before the cap is reached.
+            finding["claim"] = f"Distinct defect claim {index}."
+            finding["trigger"] = f"Distinct trigger {index}."
+            finding["impact"] = f"Distinct impact {index}."
+            followups.append(finding)
+        consensus = {
+            "confirmed": [],
+            "challenged": [],
+            "unverified": [{"finding": item, "verification": {}} for item in followups],
+        }
+        chair = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "PASS",
+            "summary": "No independently confirmed blockers remain.",
+            "confirmed_blocker_ids": [],
+            "actionable_groups": [
+                {"primary_finding_id": item["id"], "duplicate_finding_ids": []}
+                for item in followups
+            ],
+            "questions": [],
+        }
+        allowed = {item["id"] for item in followups}
+
+        # At the limit and below it, the same report validates.
+        for limit in (3, 4):
+            with self.subTest(limit=limit):
+                review.validate_chair(chair, consensus, context, allowed, 5, limit)
+
+        with self.assertRaisesRegex(
+            review.ReportShapeError,
+            r"Chair selected 3 follow-up groups; the protected maximum is 2",
+        ):
+            review.validate_chair(chair, consensus, context, allowed, 5, 2)
+
+    def test_chair_follow_up_cap_never_truncates_confirmed_blockers(self) -> None:
+        """Blockers must all appear even when the follow-up cap is smaller."""
+        context = bound_context()
+        template = specialist_report("correctness", context)["findings"][0]
+        blockers = []
+        for index in range(3):
+            finding = json.loads(json.dumps(template))
+            finding["id"] = f"correctness:f{index + 1}"
+            finding["severity"] = "P1"
+            finding["claim"] = f"Distinct blocker claim {index}."
+            finding["trigger"] = f"Distinct blocker trigger {index}."
+            finding["impact"] = f"Distinct blocker impact {index}."
+            blockers.append(finding)
+        consensus = {
+            "confirmed": [{"finding": item} for item in blockers],
+            "challenged": [],
+            "unverified": [],
+        }
+        chair = {
+            "schema_version": 1,
+            "role": "chair",
+            "head_sha": HEAD_SHA,
+            "context_sha256": context["binding"]["context_sha256"],
+            "verdict": "BLOCK",
+            "summary": "The deterministic consensus confirms every cited blocker.",
+            "confirmed_blocker_ids": [item["id"] for item in blockers],
+            "actionable_groups": [
+                {"primary_finding_id": item["id"], "duplicate_finding_ids": []}
+                for item in blockers
+            ],
+            "questions": [],
+        }
+        # Three blocker groups against a follow-up cap of one: accepted, because
+        # the cap counts follow-up groups only.
+        review.validate_chair(chair, consensus, context, set(), 5, 1)
+
     def test_chair_question_budget_fails_closed_after_invalid_corrections(self) -> None:
         context = bound_context()
         consensus = {"confirmed": [], "challenged": [], "unverified": []}
@@ -14171,8 +14255,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_629, largest_size)
-        self.assertEqual(39_371, limit - largest_size)
+        self.assertEqual(56_834, largest_size)
+        self.assertEqual(39_166, limit - largest_size)
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
         # fraction of the selected size so the guard scales with the budget

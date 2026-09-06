@@ -4820,9 +4820,12 @@ def validate_chair(
     context: dict[str, Any],
     allowed_followups: set[str] | None = None,
     max_questions: int = 5,
+    max_followup_groups: int | None = None,
 ) -> None:
     require_bound_report_identity(chair, "chair", context, "Chair report")
-    _validate_chair_contract(chair, consensus, allowed_followups, max_questions)
+    _validate_chair_contract(
+        chair, consensus, allowed_followups, max_questions, max_followup_groups
+    )
 
 
 def _validate_chair_contract(
@@ -4830,6 +4833,7 @@ def _validate_chair_contract(
     consensus: dict[str, Any],
     allowed_followups: set[str] | None,
     max_questions: int,
+    max_followup_groups: int | None = None,
 ) -> None:
     require_report_fields(
         chair,
@@ -4883,6 +4887,7 @@ def _validate_chair_contract(
     allowed_ids = set(confirmed) | eligible_followups
     seen: set[str] = set()
     seen_semantic_identities: set[str] = set()
+    followup_groups = 0
     for group in groups:
         if not isinstance(group, dict):
             raise ReportShapeError("Chair actionable group must be an object.")
@@ -4933,9 +4938,20 @@ def _validate_chair_contract(
             )
         seen_semantic_identities.add(semantic_identity)
         seen.update(members)
+        if "follow-up" in kinds:
+            followup_groups += 1
     if not set(confirmed).issubset(seen):
         raise ReportShapeError(
             "Chair omitted a confirmed blocker from actionable groups."
+        )
+    if max_followup_groups is not None and followup_groups > max_followup_groups:
+        # Only follow-up groups are capped. Every confirmed blocker must still
+        # appear, so a run with many blockers is never truncated -- the cap exists
+        # because P2/P3 yield is unbounded by verification, not because groups are
+        # inherently too many.
+        raise ReportShapeError(
+            f"Chair selected {followup_groups} follow-up groups; "
+            f"the protected maximum is {max_followup_groups}."
         )
 
 
@@ -5391,10 +5407,23 @@ def command_chair(args: argparse.Namespace) -> int:
             "`duplicate_finding_ids` array. When there are no eligible follow-up "
             "IDs, emit no follow-up group; use empty arrays when both protected "
             "ID lists are empty.",
+            "## Protected follow-up selection limit\n"
+            "Select at most "
+            f"{max_actionable_issue_groups(config)} follow-up groups. This limit "
+            "applies to follow-up groups only: every confirmed P0/P1 blocker "
+            "group must still appear regardless of it. When more eligible "
+            "follow-up IDs exist than the limit allows, select the most severe "
+            "first (P2 before P3) and leave the remainder unselected. An "
+            "unselected eligible finding is still published in the review "
+            "comment, marked as reported but not selected; it simply opens no "
+            "Issue. Never drop an eligible finding from the report to stay "
+            "within this limit, and never merge unrelated findings into one "
+            "group to reduce the count.",
         ]
     )
     max_tokens = limits["chair_tokens"]
     allowed_followups = eligible_followup_ids
+    max_followup_groups = max_actionable_issue_groups(config)
     chair = complete_with_shape_repair(
         AgentModelClient(config),
         system,
@@ -5406,6 +5435,7 @@ def command_chair(args: argparse.Namespace) -> int:
             context,
             allowed_followups,
             max_questions,
+            max_followup_groups,
         ),
         targeted_corrections=CHAIR_TARGETED_CORRECTIONS,
     )
@@ -5572,6 +5602,9 @@ def validate_final_artifact(
         context,
         allowed_followups,
         limits["max_questions_per_agent"],
+        # The publisher re-derives every bound, so the cap is re-enforced here
+        # rather than trusted from the chair stage.
+        max_actionable_issue_groups(config),
     )
     if final.get("verdict") != chair["verdict"]:
         raise ReviewError(

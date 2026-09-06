@@ -56,6 +56,13 @@ tools, or return another format. Do not expose hidden reasoning.
   deterministic semantic identity. When there are no eligible follow-ups, emit
   no follow-up group. Use `actionable_groups: []` only when there are no required
   confirmed-blocker groups either.
+- The protected task states a maximum number of follow-up groups. It bounds
+  follow-up groups only: every confirmed blocker group must appear regardless.
+  When more eligible follow-up ids exist than that maximum allows, select the
+  most severe first (P2 before P3) and leave the rest unselected. An unselected
+  eligible finding is still published in the report as reported-but-not-selected
+  and simply opens no Issue, so never drop one to stay within the maximum, and
+  never merge unrelated findings into one group to reduce the count.
 - Preserve exact repository-relative paths and positive line intervals from a
   source finding. Do not manufacture an anchor. If an anchor is inconsistent,
   leave the item in the deterministic non-confirmed disposition and state why.
@@ -92,8 +99,9 @@ Return exactly one valid JSON object with this shape:
 
 `confirmed_blocker_ids` must exactly equal the protected deterministic list.
 Every confirmed blocker must occur in exactly one group. Non-blocker group
-members may contain only existing P2/P3 source ids with `AGREE` from both
- required verifiers. Never combine source ids merely because they are both
- eligible. Use only the listed fields and empty arrays when appropriate.
+members may contain only P2/P3 source ids present in the protected
+`eligible_follow_up_ids`, and no more follow-up groups than the protected
+maximum. Never combine source ids merely because they are both eligible. Use
+only the listed fields and empty arrays when appropriate.
 Do not output Markdown, code fences, comments, prefixes, suffixes, new blocker
 ids, or hidden reasoning.
