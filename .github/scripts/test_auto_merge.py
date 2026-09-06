@@ -646,6 +646,46 @@ class AutoMergeTests(unittest.TestCase):
             dict(Counter(client.scanned_bases)),
         )
 
+    def test_scan_merges_candidates_from_both_governed_bases(self) -> None:
+        client = FakeClient()
+        client.open_pulls = [{"number": 17, "head": {"sha": HEAD_SHA}}]
+        client.open_pulls_by_base = {"dev": [{"number": 18, "head": {"sha": BASE_SHA}}]}
+        candidates = merge.resolve_candidates(
+            client, REPOSITORY, "schedule", {"schedule": "*/10 * * * *"}
+        )
+        self.assertEqual(
+            {(17, HEAD_SHA), (18, BASE_SHA)},
+            {(item.number, item.expected_head_sha) for item in candidates},
+        )
+
+    @staticmethod
+    def snapshot_with_base(base_ref: str) -> merge.PullRequestSnapshot:
+        return merge.PullRequestSnapshot(
+            number=17,
+            state="open",
+            base_ref=base_ref,
+            base_sha=BASE_SHA,
+            head_sha=HEAD_SHA,
+            draft=False,
+            mergeable=True,
+            mergeable_state="clean",
+            author_login="maintainer",
+        )
+
+    def test_integration_branch_base_is_eligible(self) -> None:
+        snapshot = self.snapshot_with_base("dev")
+        self.assertEqual([], merge.snapshot_reasons(snapshot, None))
+
+    def test_release_branch_base_is_eligible(self) -> None:
+        snapshot = self.snapshot_with_base("main")
+        self.assertEqual([], merge.snapshot_reasons(snapshot, None))
+
+    def test_ungoverned_base_is_rejected_with_the_allowed_set(self) -> None:
+        reasons = merge.snapshot_reasons(self.snapshot_with_base("master"), None)
+        self.assertEqual(1, len(reasons))
+        self.assertIn("dev", reasons[0])
+        self.assertIn("main", reasons[0])
+
     def test_eligible_pull_request_uses_merge_commit_and_exact_head(self) -> None:
         client = FakeClient()
         decision = self.evaluate(client)

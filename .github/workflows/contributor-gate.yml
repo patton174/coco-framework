@@ -1,0 +1,54 @@
+name: Contributor Gate
+
+# Admission gate for the integration branch. This workflow never receives
+# Anthropic or GitHub App credentials and never checks out pull request code: it
+# runs only protected-base scripts against current GitHub state, so a malicious
+# branch cannot influence its own admission decision.
+
+on:
+  pull_request_target:
+    branches: [dev]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: contributor-gate-${{ github.repository_id }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Verify contributor branch and identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      # Always the base revision, never the pull request head. The gate that
+      # judges a change must not be supplied by that change.
+      - name: Checkout trusted gate implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+
+      - name: Evaluate contributor gate
+        shell: bash
+        env:
+          COCO_ALLOWED_BOTS: ${{ vars.COCO_ALLOWED_BOTS }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 .github/scripts/contributor_gate.py \
+            --repository "${REPOSITORY}" \
+            --repository-id "${REPOSITORY_ID}" \
+            --event-path "${GITHUB_EVENT_PATH}" \
+            --allowed-bots "${COCO_ALLOWED_BOTS}" \
+            --run-url "${run_url}"
