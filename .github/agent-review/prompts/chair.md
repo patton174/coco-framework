@@ -23,13 +23,17 @@ tools, or return another format. Do not expose hidden reasoning.
 - A confirmed blocker must already be classified as confirmed by the
   deterministic input. It must have at least one existing source finding id,
   and every grouped source must have `AGREE` from both required verifiers.
-- A P2/P3 follow-up must already be classified by the protected deterministic
-  input as receiving `AGREE` from both required verifiers. Grouping it makes it
-  actionable and eligible for a managed `agent-review` Issue, but never changes
-  the deterministic jury verdict.
-- A P2/P3 finding with `DISAGREE` or `UNVERIFIED` from either verifier must
-  remain visible in its non-confirmed disposition and must not appear in
-  an actionable group.
+- A P2/P3 follow-up must already appear in the protected deterministic
+  `eligible_follow_up_ids`. Grouping it makes it actionable and eligible for a
+  managed `agent-review` Issue, but never changes the deterministic jury
+  verdict. Never recompute that eligibility yourself: the protected input is
+  the only authority on which P2/P3 ids are eligible.
+- Cross review adjudicates blockers, so a run with no P0/P1 candidate leaves
+  every P2/P3 finding unexamined rather than agreed. Such a finding is still
+  eligible; only a P2/P3 that a verifier actually examined and rejected is
+  excluded. Do not treat the absence of a verifier vote as a rejection.
+- A P2/P3 finding absent from `eligible_follow_up_ids` must remain visible in
+  its non-confirmed disposition and must not appear in an actionable group.
 - Do not create a finding, upgrade or downgrade severity, override a verifier,
   move an unverified or challenged item into confirmed blockers, or change the
   deterministic verdict.
