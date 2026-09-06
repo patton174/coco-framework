@@ -243,10 +243,6 @@ def main(argv: list[str]) -> int:
         # unauthorized author reaching the naming check would be told their branch
         # is misnamed, hiding the real reason. Reporting the binding failure keeps
         # the published status diagnostic.
-        # Authorization first, then naming. Both orders reject the same set, but an
-        # unauthorized author reaching the naming check would be told their branch
-        # is misnamed, hiding the real reason. Reporting the binding failure keeps
-        # the published status diagnostic.
         authorization = evaluate_authorization(
             client, repository, author_login, author_bot_id, allowed_bots
         )

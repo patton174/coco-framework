@@ -158,6 +158,17 @@ class BranchNamingTest(unittest.TestCase):
                 "dependabot/pip/x", AGENT_LOGIN, AGENT_ID, bots()
             )
 
+    def test_login_length_boundary_matches_the_github_limit(self) -> None:
+        # A GitHub login is at most 39 characters, so dev-<login> must admit 39
+        # and reject 40. Without this the quantifier could drift unnoticed.
+        for length in (1, 39):
+            login = "a" * length
+            with self.subTest(accepted=length):
+                gate.evaluate_branch_naming(f"dev-{login}", login, 1, bots())
+        overlong = "a" * 40
+        with self.assertRaisesRegex(gate.ReviewError, "must be named dev-"):
+            gate.evaluate_branch_naming(f"dev-{overlong}", overlong, 1, bots())
+
     def test_one_prefix_owner_being_allow_listed_does_not_cover_another(self) -> None:
         # A populated allow-list is not a blanket one: removing a bot from
         # COCO_ALLOWED_BOTS must retire its prefix even while other bots remain.
