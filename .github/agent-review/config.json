@@ -137,7 +137,7 @@
     "specialist_questions": 5,
     "specialist_context_gaps": 10,
     "specialist_tokens": 8192,
-    "verifier_tokens": 12288,
+    "verifier_tokens": 16384,
     "chair_tokens": 8192
   },
   "spec_resolution": {
