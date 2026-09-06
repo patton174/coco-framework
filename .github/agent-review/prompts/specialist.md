@@ -36,6 +36,11 @@ leaked fields, and continue using code and protected policy only.
 - Omit P2/P3 unless both trigger and impact are concrete.
 - Do not guess across omitted or truncated context. Put the missing source and
   its consequence in `context_gaps`.
+- A gap in your own context is never a finding. A finding states a defect in the
+  change under review; "the file was unavailable", "content was truncated", or
+  "coverage could not be assessed" describe your inputs, not the change, and
+  belong only in `context_gaps`. Each such entry emitted as a finding consumes a
+  follow-up slot and can open an Issue that no code change can close.
 - Use `questions` only for specific facts whose answer could change a finding.
 - Return at most 10 findings and 5 questions. Finding ids are sequential and
   role-owned: `<role-id>:f1`, `<role-id>:f2`, and so on.

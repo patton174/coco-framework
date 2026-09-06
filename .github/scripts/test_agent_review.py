@@ -1068,6 +1068,26 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("Never repeat the diff", prompt)
         self.assertIn("do not omit a security finding", prompt)
 
+    def test_prompts_describe_the_implemented_follow_up_eligibility(self) -> None:
+        """Pin the prompt statements that a prior revision contradicted."""
+        root = Path(__file__).resolve().parents[1]
+        chair = (root / "agent-review/prompts/chair.md").read_text(encoding="utf-8")
+        specialist = (root / "agent-review/prompts/specialist.md").read_text(
+            encoding="utf-8"
+        )
+
+        # nonblocking_consensus_finding_ids admits an unexamined P2/P3, so the
+        # chair prompt must not tell the chair that a missing verifier vote
+        # disqualifies one. It previously did, describing behaviour that cannot
+        # occur on any run without a P0/P1 candidate.
+        self.assertIn("eligible_follow_up_ids", chair)
+        self.assertIn("Do not treat the absence of a verifier vote", chair)
+        self.assertNotIn("`DISAGREE` or `UNVERIFIED` from either verifier", chair)
+
+        # A context gap reported as a finding consumes a follow-up slot and opens
+        # an Issue that no code change can close.
+        self.assertIn("A gap in your own context is never a finding", specialist)
+
     def test_agent_open_pr_workflow_uses_protected_app_identity(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1] / "workflows/agent-open-pr.yml"
