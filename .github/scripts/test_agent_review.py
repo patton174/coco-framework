@@ -3653,6 +3653,69 @@ class AgentReviewTests(unittest.TestCase):
         )
         self.assertEqual(expected, output)
 
+    def test_command_cross_repairs_policy_skeptic_change_scope_domain(self) -> None:
+        # End-to-end proof that the shape-repair loop recovers a change_scope
+        # misroute for policy-skeptic, not just evidence-verifier. Before the
+        # symmetry fix, validate raised a plain ReviewError for this role, which
+        # the loop's `except ReportShapeError` did not catch, so the first
+        # invalid response failed closed with zero corrections. This mirrors
+        # test_command_cross_repairs_evidence_verifier_change_scope_domain.
+        context = bound_context()
+        invalid = raw_verifier_report("policy-skeptic", context, "correctness:f1")
+        invalid_refs = invalid["verifications"][0]["evidence_refs"]
+        invalid_refs[0]["checks"].append("change_scope")
+        invalid_refs[1]["checks"].remove("change_scope")
+        valid = raw_verifier_report("policy-skeptic", context, "correctness:f1")
+        expected = verifier_report("policy-skeptic", context, "correctness:f1")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports = root / "specialists"
+            prompt_root = root / "prompts-root"
+            reports.mkdir()
+            (prompt_root / "prompts").mkdir(parents=True)
+            (prompt_root / "prompts/cross-review.md").write_text(
+                "Return strict JSON.", encoding="utf-8"
+            )
+            for role in review.role_map(config(), "specialists"):
+                report = specialist_report(role, context)
+                if role != "correctness":
+                    report["findings"] = []
+                review.write_json(reports / f"{role}.json", report)
+            config_path = root / "config.json"
+            context_path = root / "context.json"
+            output_path = root / "verifier.json"
+            review.write_json(config_path, config())
+            review.write_json(context_path, context)
+            with (
+                patch.object(review, "AgentModelClient") as client_class,
+                patch.dict("os.environ", model_env("openai-responses"), clear=True),
+                patch("builtins.print"),
+            ):
+                client_class.return_value.complete.side_effect = [invalid, valid]
+                self.assertEqual(
+                    0,
+                    review.command_cross(
+                        SimpleNamespace(
+                            role="policy-skeptic",
+                            config=config_path,
+                            prompt_root=prompt_root,
+                            context=context_path,
+                            reports=reports,
+                            output=output_path,
+                        )
+                    ),
+                )
+                calls = client_class.return_value.complete.call_args_list
+                output = review.read_json(output_path)
+
+        self.assertEqual(2, len(calls))
+        correction = json.loads(calls[1].args[1])
+        self.assertEqual(
+            "Cross-review policy-skeptic change_scope evidence must be protected policy or a base specification.",
+            correction["validator_message"],
+        )
+        self.assertEqual(expected, output)
+
     def test_command_cross_rejects_three_normalized_envelopes(self) -> None:
         context = bound_context()
         normalized = verifier_report("evidence-verifier", context, "correctness:f1")
@@ -3952,6 +4015,57 @@ class AgentReviewTests(unittest.TestCase):
             review.validate_cross_report(
                 report, "evidence-verifier", context, {"correctness:f1"}
             )
+
+    def test_misrouted_policy_checks_are_symmetric_across_verifier_roles(
+        self,
+    ) -> None:
+        # A change_scope check misrouted to code evidence must be correctable for
+        # both verifier roles alike, while a severity check misrouted the same way
+        # stays unrecoverable for both. Neither the correctable nor the hard-fail
+        # behavior may depend on which verifier produced the report.
+        context = bound_context()
+
+        def report_with(code_check: str, policy_check: str) -> dict:
+            refs = [
+                {
+                    "trust_domain": "head-code",
+                    "path": "src/Foo.java",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "checks": ["anchor", "claim", "impact", "trigger", code_check],
+                },
+                {
+                    "trust_domain": "protected-policy",
+                    "path": "AGENTS.md",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "checks": [policy_check],
+                },
+            ]
+            return verifier_report(
+                "evidence-verifier", context, "correctness:f1", evidence_refs=refs
+            )
+
+        for role in ("evidence-verifier", "policy-skeptic"):
+            with self.subTest(role=role, check="change_scope"):
+                report = report_with("change_scope", "severity")
+                report["role"] = role
+                with self.assertRaisesRegex(
+                    review.ReportShapeError, "change_scope evidence must be protected"
+                ):
+                    review.validate_cross_report(
+                        report, role, context, {"correctness:f1"}
+                    )
+            with self.subTest(role=role, check="severity"):
+                report = report_with("severity", "change_scope")
+                report["role"] = role
+                with self.assertRaisesRegex(
+                    review.ReviewError, "severity evidence must be protected"
+                ) as raised:
+                    review.validate_cross_report(
+                        report, role, context, {"correctness:f1"}
+                    )
+                self.assertNotIsInstance(raised.exception, review.ReportShapeError)
 
     def test_canonical_policy_and_head_revision_of_same_path_validate_evidence(
         self,
