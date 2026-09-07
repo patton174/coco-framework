@@ -141,7 +141,7 @@ export default function Home(): ReactNode {
           <div className="container">
             <div className={styles.heroGrid}>
               <div>
-                <a className={styles.release} href="https://github.com/patton174/coco-framework/releases/tag/v2.0.2">
+                <a className={styles.release} href="https://github.com/patton174/coco-framework/releases/tag/v2.0.3">
                   <span />{t.release}<ArrowRight size={15} aria-hidden="true" />
                 </a>
                 <div className={styles.brand}><img src={logo} width="54" height="54" alt="" /><span>COCO / FRAMEWORK</span></div>

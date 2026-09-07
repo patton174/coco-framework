@@ -14,5 +14,9 @@
   "item.label.技能": {
     "message": "Skills",
     "description": "Navbar item with label 技能"
+  },
+  "item.label.更新日志": {
+    "message": "Changelog",
+    "description": "Navbar changelog link"
   }
 }

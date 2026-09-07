@@ -22,5 +22,9 @@
   "sidebar.docsSidebar.category.平台能力": {
     "message": "Platform Capabilities",
     "description": "The label for category '平台能力' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.更新日志": {
+    "message": "Changelog",
+    "description": "Changelog sidebar category"
   }
 }
