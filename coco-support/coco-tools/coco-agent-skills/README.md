@@ -64,3 +64,7 @@ npm test
 ```
 
 Tests run fully offline: version comparison and metadata parsing are pure, and search-ranking tests inject fake embeddings so no model is downloaded.
+
+### Release index generation
+
+The protected npm publication workflow rebuilds the bilingual index from the checked-out documentation before publishing, including dry runs. It rejects placeholder or empty indexes, missing locales, incomplete vectors and a source-commit mismatch. The committed index is a development snapshot; run `npm run build-index` after editing docs for local use. Published packages contain the freshly generated index.

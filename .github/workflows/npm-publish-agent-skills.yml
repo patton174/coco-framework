@@ -72,6 +72,41 @@ jobs:
         shell: bash
         run: npm test
 
+      - name: Rebuild and validate the published documentation index
+        working-directory: coco-support/coco-tools/coco-agent-skills
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build-index
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {readFile} from 'node:fs/promises';
+          import {execFileSync} from 'node:child_process';
+          import {loadIndex, EMBEDDING_DIMENSION, EMBEDDING_MODEL, LOCALES} from './src/search.mjs';
+          const index = await loadIndex();
+          const meta = JSON.parse(await readFile('data/doc-index.meta.json', 'utf8'));
+          assert.equal(meta.placeholder, false, 'Cannot publish a placeholder index');
+          assert.ok(index.length > 0, 'Cannot publish an empty index');
+          assert.equal(meta.chunkCount, index.length);
+          assert.equal(meta.totalChunksDiscovered, index.length);
+          assert.equal(meta.dimension, EMBEDDING_DIMENSION);
+          assert.equal(meta.model, EMBEDDING_MODEL);
+          assert.equal(meta.frameworkDocsCommit, execFileSync('git', ['rev-parse', '--short', 'HEAD'], {encoding: 'utf8'}).trim());
+          assert.equal(new Set(index.map(entry => entry.id)).size, index.length);
+          for (const locale of LOCALES) {
+            const entries = index.filter(entry => entry.locale === locale);
+            assert.ok(entries.length > 0, `Missing locale: ${locale}`);
+            assert.equal(meta.locales[locale].chunks, entries.length);
+            assert.equal(meta.locales[locale].files, new Set(entries.map(entry => entry.docPath)).size);
+          }
+          for (const entry of index) {
+            assert.equal(entry.embedding.length, EMBEDDING_DIMENSION);
+            assert.ok(entry.embedding.every(Number.isFinite));
+            assert.ok(entry.embedding.some(value => value !== 0));
+          }
+          console.log(`Validated ${index.length} vectors from ${meta.frameworkDocsCommit}`);
+          JS
+
       # Blocks the release on any high or critical advisory. There is no `|| true`
       # anywhere in this step, so a non-zero npm audit exit fails the job under
       # `set -euo pipefail`. The full report is printed by the same command.
