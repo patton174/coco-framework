@@ -1,241 +1,166 @@
-/* The hero owns the full-bleed background for the top of the page and has to
-   hand off to .features (a flat --coco-cream-deep block) with no visible seam.
-   Strategy: the *base* layer is a plain vertical ramp that lands exactly on
-   --coco-cream-deep at 100%, and every decorative layer is kept clear of the
-   bottom edge so the handoff is a pure colour match rather than a blend of
-   translucent washes. `isolation` keeps the negative z-index layers inside the
-   hero instead of falling behind the page background. */
-.heroBanner {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  /* Fill the first screen so nothing below it is visible at scroll-top. The
-     navbar is sticky and sits in the flow above, so its height comes off the
-     viewport. min-height (not height) lets the content push the section taller
-     on short or zoomed-in viewports instead of being clipped. */
-  min-height: calc(100vh - var(--ifm-navbar-height));
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 4rem 0;
-  text-align: center;
-  background: linear-gradient(
-    180deg,
-    var(--coco-cream) 0%,
-    var(--coco-cream) 52%,
-    var(--coco-cream-deep) 100%
-  );
+.home { overflow: clip; }
+.hero { padding: 5rem 0 2rem; background: radial-gradient(ellipse at 82% 10%, color-mix(in srgb, var(--coco-amber) 12%, transparent), transparent 60%), var(--coco-cream); }
+.heroGrid { display: grid; grid-template-columns: 1.08fr 1fr; gap: 4rem; align-items: center; }
+.release { display: inline-flex; align-items: center; gap: .6rem; padding: .45rem .75rem; border: 1px solid var(--coco-border); border-radius: 30px; color: var(--coco-espresso-soft); font-size: .8rem; }
+.release > span { width: 6px; height: 6px; background: var(--ifm-color-primary); border-radius: 50%; }
+.brand { display: flex; align-items: center; gap: .9rem; margin: 2.7rem 0 1.2rem; }
+.brand span, .eyebrow { font-family: var(--ifm-font-family-monospace); font-size: .72rem; letter-spacing: .13em; font-weight: 600; color: var(--ifm-color-primary); }
+.hero h1 { font-size: clamp(2.7rem, 4.2vw, 4.4rem); letter-spacing: -.05em; line-height: 1.08; margin-bottom: 1.2rem; }
+.slogan { font-size: clamp(1.6rem, 2.6vw, 2.4rem); font-weight: 650; line-height: 1.4; color: var(--ifm-color-primary); margin-bottom: 1.2rem; }
+.intro { max-width: 34rem; font-size: 1.05rem; line-height: 1.9; color: var(--coco-espresso-soft); }
+.actions { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; margin-top: 2rem; }
+.actions :global(.button) { display: inline-flex; align-items: center; gap: .6rem; min-height: 48px; }
+.textLink { font-weight: 600; padding: .65rem 0; display: inline-block; }
+.editor { border: 1px solid var(--coco-border); background: var(--ifm-background-surface-color); border-radius: 16px; box-shadow: 0 24px 65px -38px #2b1d1666; overflow: hidden; }
+.editorBar { display: flex; gap: 1rem; justify-content: space-between; padding: .8rem 1rem; border-bottom: 1px solid var(--coco-border); font: .7rem var(--ifm-font-family-monospace); color: var(--coco-espresso-soft); }
+.lights { color: var(--ifm-color-primary); letter-spacing: .18em; }
+.editorIntro { display: flex; align-items: center; gap: .6rem; font-size: .85rem; padding: 1.8rem 1.2rem 1rem; }
+.editor :global(.theme-code-block) { margin: 0 .65rem; box-shadow: none; font-size: .77rem; }
+.editorNote { font-size: .76rem; padding: 1rem 1.2rem; color: var(--coco-espresso-soft); line-height: 1.8; }
+.editorNote a { text-decoration: underline; text-underline-offset: 3px; }
+.request { display: flex; justify-content: space-between; margin: .5rem 1.2rem 0; padding-top: 1.2rem; border-top: 1px solid var(--coco-border); font: .85rem var(--ifm-font-family-monospace); }
+.request strong { color: var(--ifm-color-primary); }
+.responseNote { padding: .8rem 1.2rem 1.5rem; font-size: .8rem; margin: 0; color: var(--coco-espresso-soft); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); margin: 4.5rem 0 1rem; border-top: 1px solid var(--coco-border); border-bottom: 1px solid var(--coco-border); padding: 1.7rem 0; }
+.stats > div { padding: 0 1.5rem; border-left: 1px solid var(--coco-border); }
+.stats > div:first-child { border-left: 0; padding-left: 0; }
+.stats dt { font: 700 clamp(1.25rem, 2.4vw, 2.2rem) var(--ifm-heading-font-family); color: var(--ifm-heading-color); }
+.stats dd { margin: .5rem 0 0; font-size: .78rem; color: var(--coco-espresso-soft); }
+.versionNote { font-size: .77rem; color: var(--coco-espresso-soft); line-height: 1.8; margin: 1.25rem 0 0; }
+.section { padding: 5rem 0; scroll-margin-top: 5rem; }
+.section h2 { font-size: clamp(1.8rem, 3vw, 2.7rem); letter-spacing: -.03em; margin: .8rem 0 1rem; line-height: 1.3; max-width: 48rem; }
+.section h3 { font-size: 1.08rem; margin: 1rem 0 .75rem; }
+.sectionIntro { color: var(--coco-espresso-soft); max-width: 40rem; font-size: 1rem; line-height: 1.8; }
+.tinted { background: var(--coco-cream-deep); }
+.painGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem; margin-top: 2.5rem; }
+.pain > svg, .feature > svg { color: var(--ifm-color-primary); }
+.pain p, .feature p, .ecosystem p, .steps p { font-size: .9rem; line-height: 1.8; color: var(--coco-espresso-soft); margin-bottom: 0; }
+.featureGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 2.5rem; }
+.feature { background: var(--ifm-background-surface-color); border: 1px solid var(--coco-border); border-radius: 12px; padding: 1.6rem; transition: transform .25s, box-shadow .25s, border-color .25s; }
+.feature:hover { transform: translateY(-4px); border-color: var(--ifm-color-primary); box-shadow: 0 15px 30px -22px #2b1d1666; }
+.feature h3 a { display: flex; justify-content: space-between; align-items: center; color: var(--ifm-heading-color); }
+.feature ul { padding-left: 1.1rem; margin: 1rem 0 0; font-size: .85rem; line-height: 1.95; }
+.feature li::marker { color: var(--ifm-color-primary); }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem; }
+.compare article { min-width: 0; }
+.compare p { font-size: .85rem; color: var(--coco-espresso-soft); min-height: 3rem; }
+.compare :global(.theme-code-block) { font-size: .8rem; border: 1px solid var(--coco-border); }
+.callout { padding: 1rem 1.25rem; border-left: 3px solid var(--ifm-color-primary); background: var(--coco-cream-deep); font-size: .85rem; line-height: 1.9; margin: 1.5rem 0 0; }
+.architecture { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; }
+.layers { list-style: none; padding: 0; margin: 0; display: grid; gap: .7rem; }
+.layers li { display: flex; align-items: center; gap: 1rem; padding: 1.2rem; border: 1px solid var(--coco-border); border-radius: 10px; background: var(--ifm-background-surface-color); }
+.layers li > span { font: .75rem var(--ifm-font-family-monospace); color: var(--ifm-color-primary); }
+.layers li > span:last-child { margin-left: auto; }
+.layers p { margin: .3rem 0 0; font-size: .8rem; color: var(--coco-espresso-soft); }
+.ecosystem { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; margin-top: 2rem; }
+.ecosystem article { border-top: 2px solid var(--coco-border); padding-top: 1.5rem; }
+.ecosystem h3 { font: 700 1.6rem var(--ifm-heading-font-family); }
+.steps { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem; margin: 2.5rem 0; }
+.steps li > span { font: 600 1.5rem var(--ifm-font-family-monospace); color: var(--ifm-color-primary); }
+.community { text-align: center; }
+.community h2, .community .sectionIntro { margin-left: auto; margin-right: auto; }
+.community .actions { justify-content: center; gap: .75rem; }
+.star { margin: 1.5rem 0 0; font-size: .8rem; color: var(--coco-espresso-soft); }
+.metric { font-variant-numeric: tabular-nums; display: inline-block; min-width: 2ch; }
+.screenReader { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* The lead text stays opaque: entry motion must not delay the largest paint. */
+@keyframes heroEnter {
+  from { transform: translateY(18px); }
+  to { transform: translateY(0); }
+}
+@keyframes editorEnter {
+  from { opacity: .35; transform: translateY(26px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes railEnter {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes statusPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ifm-color-primary) 24%, transparent); }
+  65% { box-shadow: 0 0 0 7px transparent; }
+}
+@keyframes lineEnter {
+  from { opacity: .3; transform: translateX(-9px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
-/* Static warm washes, top-weighted. */
-.heroBanner::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  background:
-    radial-gradient(60% 110% at 15% 8%, rgba(224, 138, 30, 0.22), transparent 60%),
-    radial-gradient(50% 95% at 85% 18%, rgba(180, 68, 31, 0.20), transparent 55%);
+/* Motion is opt-in; reduced-motion and no-JS visitors get the final layout. */
+@media (prefers-reduced-motion: no-preference) {
+  .heroGrid > div:first-child > :is(.brand, h1, .slogan, .intro, .actions) {
+    animation: heroEnter .8s cubic-bezier(.22, 1, .36, 1) backwards;
+  }
+  .heroGrid .brand { animation-delay: 40ms; }
+  .heroGrid h1 { animation-delay: 90ms; }
+  .heroGrid .slogan { animation-delay: 140ms; }
+  .heroGrid .intro { animation-delay: 190ms; }
+  .heroGrid .actions { animation-delay: 240ms; }
+  .editor { animation: editorEnter .85s cubic-bezier(.22, 1, .36, 1) 150ms backwards; }
+  .editor :global(.token-line) { animation: lineEnter .5s ease-out backwards; }
+  .editor :global(.token-line:nth-child(1)) { animation-delay: 350ms; }
+  .editor :global(.token-line:nth-child(2)) { animation-delay: 420ms; }
+  .editor :global(.token-line:nth-child(3)) { animation-delay: 490ms; }
+  .editor :global(.token-line:nth-child(4)) { animation-delay: 560ms; }
+  .request { animation: heroEnter .6s cubic-bezier(.22, 1, .36, 1) 600ms backwards; }
+  .request strong { animation: editorEnter .5s ease-out 850ms backwards; }
+  .release > span { animation: statusPulse 2.2s ease-out 600ms 3; }
+  .stats { position: relative; }
+  .stats::before {
+    content: ''; position: absolute; top: -1px; left: 0; width: 100%; height: 1px;
+    background: var(--ifm-color-primary); transform-origin: left;
+    animation: railEnter 1.2s cubic-bezier(.22, 1, .36, 1) 400ms backwards;
+  }
 }
 
-/* Slow-drifting conic sheen. `bottom: 45%` keeps the rotating square — and the
-   soft edge its blur leaves behind — well above the seam, so the bottom of the
-   hero is nothing but the base ramp. */
-.heroBanner::after {
-  content: '';
-  position: absolute;
-  inset: -40% -40% 45% -40%;
-  z-index: -1;
-  background:
-    conic-gradient(from 120deg at 50% 50%,
-      rgba(224, 138, 30, 0.08),
-      rgba(180, 68, 31, 0.10),
-      rgba(224, 138, 30, 0.06),
-      rgba(180, 68, 31, 0.10));
-  filter: blur(60px);
-  animation: heroDrift 22s linear infinite;
+/* Pointer effects stay on pointer devices; keyboard focus has equivalent cues. */
+.feature > svg, .pain > svg { transition: transform .3s cubic-bezier(.22, 1, .36, 1); }
+.feature h3 a svg, .actions svg, .release svg { transition: transform .25s ease; }
+.feature:focus-within h3 a svg, .actions a:focus-visible svg { transform: translateX(4px); }
+.feature:focus-within { border-color: var(--ifm-color-primary); }
+.actions :global(.button) { transition: transform .22s ease, box-shadow .22s ease; }
+.textLink { position: relative; text-decoration: none; }
+.textLink::after {
+  content: ''; position: absolute; bottom: .3rem; left: 0; right: 0; height: 1px;
+  background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform .3s ease;
 }
-
-@keyframes heroDrift {
-  from { transform: rotate(0deg) scale(1.1); }
-  to { transform: rotate(360deg) scale(1.1); }
+.textLink:focus-visible::after { transform: scaleX(1); }
+.layers li { transition: transform .3s ease, border-color .3s ease; }
+.ecosystem article { transition: border-color .3s ease; }
+.ecosystem h3 a { display: inline-block; transition: transform .3s ease; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .feature:hover > svg { transform: translateY(-2px) rotate(-7deg); }
+  .pain:hover > svg { transform: translateY(-3px); }
+  .feature:hover h3 a svg, .actions a:hover svg, .release:hover svg { transform: translateX(4px); }
+  .actions :global(.button:hover) { transform: translateY(-3px); box-shadow: 0 9px 20px -13px var(--ifm-color-primary); }
+  .actions :global(.button:active) { transform: translateY(0) scale(.97); box-shadow: none; }
+  .textLink:hover::after { transform: scaleX(1); }
+  .layers li:hover { transform: translateX(5px); border-color: var(--ifm-color-primary); }
+  .ecosystem article:hover { border-color: var(--ifm-color-primary); }
+  .ecosystem article:hover h3 a { transform: translateX(4px); }
 }
-
-.heroInner {
-  position: relative;
-  z-index: 1;
+@media (max-width: 996px) {
+  .hero { padding-top: 3rem; }
+  .heroGrid, .architecture { grid-template-columns: 1fr; gap: 2.5rem; }
+  .heroGrid > div { min-width: 0; }
+  .hero h1 { font-size: clamp(2.7rem, 7vw, 4.5rem); }
+  .brand { margin-top: 1.7rem; }
+  .painGrid, .steps { grid-template-columns: repeat(2, 1fr); }
+  .stats { margin-top: 2.5rem; }
+  .section { padding: 3.5rem 0; }
 }
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0.9rem;
-  margin-bottom: 1.6rem;
-  border: 1px solid var(--coco-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ifm-background-surface-color) 70%, transparent);
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: var(--coco-espresso-soft);
-  opacity: 0;
-  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.05s forwards;
+@media (max-width: 600px) {
+  .hero, .section { padding-left: .4rem; padding-right: .4rem; }
+  .featureGrid, .compare, .ecosystem { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: 1fr 1fr; gap: 1.5rem 0; }
+  .stats > div:nth-child(3) { border-left: 0; padding-left: 0; }
+  .painGrid, .steps { gap: 1.5rem; }
+  .actions { gap: .9rem; }
+  .editorBar span:last-child { display: none; }
+  .intro { font-size: 1rem; }
 }
-
-.badgeDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ifm-color-primary);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ifm-color-primary) 25%, transparent);
-}
-
-.heroTitle {
-  font-family: var(--ifm-heading-font-family);
-  font-size: clamp(2.8rem, 7vw, 5rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.02;
-  margin: 0;
-  background: linear-gradient(100deg, var(--coco-espresso) 30%, var(--ifm-color-primary) 90%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  opacity: 0;
-  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.12s forwards;
-}
-
-[data-theme='dark'] .heroTitle {
-  background: linear-gradient(100deg, #f8f2ea 30%, var(--ifm-color-primary) 95%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.heroSubtitle {
-  max-width: 34rem;
-  margin: 1.4rem auto 0;
-  font-size: 1.2rem;
-  line-height: 1.6;
-  color: var(--coco-espresso-soft);
-  opacity: 0;
-  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.22s forwards;
-}
-
-.buttons {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  margin-top: 2.2rem;
-  flex-wrap: wrap;
-  opacity: 0;
-  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.32s forwards;
-}
-
-.primaryBtn,
-.ghostBtn {
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-}
-
-.primaryBtn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 28px -8px var(--ifm-color-primary);
-}
-
-.ghostBtn:hover {
-  transform: translateY(-2px);
-}
-
-.install {
-  max-width: 30rem;
-  margin: 3rem auto 0;
-  padding: 0;
-  border: 1px solid var(--coco-border);
-  border-radius: 12px;
-  background: var(--ifm-background-surface-color);
-  overflow: hidden;
-  text-align: left;
-  box-shadow: 0 24px 60px -30px rgba(43, 29, 22, 0.4);
-  opacity: 0;
-  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.44s forwards;
-}
-
-.installBar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 0.95rem;
-  border-bottom: 1px solid var(--coco-border);
-  background: color-mix(in srgb, var(--ifm-color-primary) 8%, transparent);
-}
-
-.dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--coco-border);
-}
-
-.installLabel {
-  margin-left: auto;
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.72rem;
-  color: var(--coco-espresso-soft);
-}
-
-.install pre {
-  margin: 0;
-  padding: 1rem 1.15rem;
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.82rem;
-  line-height: 1.7;
-  color: var(--coco-espresso);
-  background: transparent;
-  white-space: pre;
-  overflow-x: auto;
-}
-
-.install .tok {
-  color: var(--ifm-color-primary);
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(18px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Every element above starts at opacity 0 and is only made visible by `rise`
-   finishing (animation-fill-mode: forwards). custom.css kills animations
-   outright under prefers-reduced-motion, which left the entire hero blank —
-   title, subtitle, buttons and install snippet all invisible. Restate the end
-   state here so reduced-motion users get the content, just without the motion.
-   Scoped to these CSS-Module classes on purpose: a global [class*='…'] sweep
-   would also hit Infima's .card__body / .card__header and force them visible. */
 @media (prefers-reduced-motion: reduce) {
-  .badge,
-  .heroTitle,
-  .heroSubtitle,
-  .buttons,
-  .install {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media screen and (max-width: 996px) {
-  .heroBanner {
-    padding: 3rem 1.25rem;
-  }
-}
-
-/* Landscape phones and other very short viewports: a full-height hero would be
-   nothing but padding, so let it size to its content instead. */
-@media screen and (max-height: 560px) {
-  .heroBanner {
-    min-height: 0;
-    padding: 3rem 0;
-  }
+  .home *, .home *::before, .home *::after { animation: none !important; transition: none !important; }
+  .feature:hover, .layers li:hover, .home :global(.button:active),
+  .feature:focus-within h3 a svg, .actions a:focus-visible svg { transform: none; }
 }

@@ -2,6 +2,9 @@
  * Coco Framework — warm cocoa / terracotta editorial-technical theme.
  */
 
+@import '@fontsource-variable/bricolage-grotesque';
+@import '@fontsource-variable/jetbrains-mono';
+
 :root {
   /* Terracotta accent — deliberately not the default blue/purple dev-docs palette. */
   --ifm-color-primary: #b4441f;
@@ -27,8 +30,8 @@
   --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI',
     'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC',
     Helvetica, Arial, sans-serif;
-  --ifm-heading-font-family: 'Bricolage Grotesque', var(--ifm-font-family-base);
-  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular,
+  --ifm-heading-font-family: 'Bricolage Grotesque Variable', var(--ifm-font-family-base);
+  --ifm-font-family-monospace: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular,
     Menlo, Consolas, monospace;
 
   --ifm-code-font-size: 92%;
@@ -347,7 +350,7 @@ article a {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  * { animation: none !important; transition: none !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
 /* ============================================================
@@ -410,16 +413,16 @@ article a {
 
 /* --- Inline code: tint it into the palette --- */
 .markdown :not(pre) > code {
-  background: color-mix(in srgb, var(--ifm-color-primary) 10%, var(--ifm-background-surface-color));
-  border: 1px solid color-mix(in srgb, var(--ifm-color-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--ifm-font-color-base) 5%, var(--ifm-background-surface-color));
+  border: 1px solid var(--coco-border);
   border-radius: 6px;
   padding: 0.12em 0.4em;
   font-size: 0.86em;
-  color: var(--ifm-color-primary-darkest);
+  color: var(--ifm-font-color-base);
 }
 
 [data-theme='dark'] .markdown :not(pre) > code {
-  color: var(--ifm-color-primary-lighter);
+  color: var(--ifm-font-color-base);
 }
 /* --- Code blocks: warmer frame + terracotta title bar --- */
 .markdown .theme-code-block,
@@ -522,3 +525,43 @@ article a {
   font-weight: 600;
 }
 
+.table-of-contents__link {
+  position: relative;
+  display: block;
+  padding: .22rem .5rem .22rem .7rem;
+  border-radius: 0 4px 4px 0;
+  transition: color .22s ease, background-color .22s ease;
+}
+.table-of-contents__link::before {
+  content: ''; position: absolute; left: 0; top: .22rem; bottom: .22rem; width: 2px;
+  background: var(--ifm-color-primary); transform: scaleY(0); transform-origin: top;
+  transition: transform .25s cubic-bezier(.22, 1, .36, 1);
+}
+.table-of-contents__link--active { background: color-mix(in srgb, var(--ifm-color-primary) 7%, transparent); }
+.table-of-contents__link--active::before { transform: scaleY(1); }
+.menu__link { transition: color .2s ease, background-color .2s ease; }
+.markdown .theme-code-block { transition: border-color .25s ease, box-shadow .25s ease; }
+.markdown .theme-code-block:focus-within { border-color: var(--ifm-color-primary); }
+.markdown .theme-code-block button { transition: opacity .2s ease, transform .2s ease, background-color .2s ease; }
+.pagination-nav__label { display: inline-block; transition: transform .25s ease; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .table-of-contents__link:hover { background: color-mix(in srgb, var(--ifm-color-primary) 6%, transparent); }
+  .markdown .theme-code-block:hover {
+    border-color: color-mix(in srgb, var(--ifm-color-primary) 45%, var(--coco-border));
+    box-shadow: 0 12px 28px -23px var(--ifm-color-primary);
+  }
+  .markdown .theme-code-block button:active { transform: scale(.94); }
+  .pagination-nav__link--next:hover .pagination-nav__label { transform: translateX(3px); }
+  .pagination-nav__link--prev:hover .pagination-nav__label { transform: translateX(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pagination-nav__link:hover { transform: none; }
+}
+
+.button:active { transform: scale(.98); }
+:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 4px; }
+.markdown > h1 { color: var(--ifm-heading-color); background: none; -webkit-text-fill-color: currentColor; }
+@media (max-width: 768px) {
+  .markdown table { display: block; overflow-x: auto; }
+  .pagination-nav__link { min-height: 72px; }
+}

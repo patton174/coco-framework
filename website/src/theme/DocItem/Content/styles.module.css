@@ -4,6 +4,23 @@
   margin-bottom: 0.4rem;
 }
 
+.document { min-width: 0; }
+.readingTrack {
+  position: fixed;
+  top: var(--ifm-navbar-height);
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 199;
+  pointer-events: none;
+}
+.readingProgress {
+  height: 100%;
+  background: var(--ifm-color-primary);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
 .copyBtn {
   display: inline-flex;
   align-items: center;
@@ -41,4 +58,17 @@
 
 [data-theme='dark'] .copyBtn[data-state='copied'] {
   color: #4fddbf;
+}
+
+@keyframes copied {
+  from { transform: scale(.82); }
+  60% { transform: scale(1.13); }
+  to { transform: scale(1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .copyBtn[data-state='copied'] svg { animation: copied .32s ease-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .copyBtn, .copyBtn svg { transition: none !important; animation: none !important; }
+  .copyBtn:hover { transform: none; }
 }

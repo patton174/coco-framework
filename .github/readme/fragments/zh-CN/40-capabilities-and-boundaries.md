@@ -2,42 +2,16 @@
 
 <table>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
-      <strong>Web 运行时</strong><br/>
-      统一响应、异常响应、链路标识、请求上下文、访问日志、请求签名、请求加密和防重放。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
-      <strong>安全基础</strong><br/>
-      安全上下文门面、解析 SPI、Web 上下文桥接、可信请求头适配、断言工具和上下文传播原语。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
-      <strong>数据集成</strong><br/>
-      MyBatis-Plus 拦截器组装、分页、SQL 防护、租户 SQL 隔离和数据权限 SQL 条件。
-    </td>
+    <td width="33%"><strong>🌐 Web 请求</strong><p>让每个接口遵循一致约定。</p><ul><li>统一响应与异常</li><li>TraceId 与访问日志</li><li>签名、加密与防重放</li></ul></td>
+    <td width="33%"><strong>🗃 数据与权限</strong><p>将数据隔离放入查询链路。</p><ul><li>MyBatis-Plus 与分页</li><li>租户 SQL 隔离</li><li>数据权限条件</li></ul></td>
+    <td width="33%"><strong>⏱ 流控与可靠性</strong><p>为频繁或重复的请求划清边界。</p><ul><li>限流与幂等</li><li>锁与调度</li><li>存储实现可替换</li></ul></td>
   </tr>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Reliability-Flow%20Control-be123c?style=flat-square" alt="Reliability"/></p>
-      <strong>流控与可靠性</strong><br/>
-      限流、幂等、分布式锁、调度——每项都有进程内默认实现和可替换的存储 SPI。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Platform-Storage%20%26%20Audit-16a34a?style=flat-square" alt="Platform"/></p>
-      <strong>平台能力</strong><br/>
-      对象存储 SPI（含内容寻址的本地参考实现）、结构化审计流水线和 OpenAPI 元数据。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
-      <strong>功能控制</strong><br/>
-      父 POM、BOM、单 starter、声明式功能选择、依赖感知的功能计划和运行时功能条件。
-    </td>
+    <td width="33%"><strong>📦 文件与平台</strong><p>通用服务能力随应用成长。</p><ul><li>文件存储与缓存</li><li>消息与通知</li><li>验证码</li></ul></td>
+    <td width="33%"><strong>🔎 审计与可观测性</strong><p>为重要操作留下线索。</p><ul><li>结构化审计事件</li><li>日志与上下文</li><li>OpenAPI 元数据</li></ul></td>
+    <td width="33%"><strong>🧩 功能与扩展</strong><p>只带上需要的能力。</p><ul><li>声明式功能开关</li><li>构建期裁剪</li><li>Bean 与 SPI 替换</li></ul></td>
   </tr>
 </table>
-
-**→ [能力参考](https://patton174.github.io/coco-framework/features/web-runtime)** —— 逐个功能的配置项与 SPI。
 
 ## 边界
 
@@ -47,4 +21,4 @@
 
 CRUD 属于代码生成，不是运行时实体暴露——生成的是业务项目可保留、可修改、可删除的普通 Java 源码。
 
-**→ [边界与设计哲学](https://patton174.github.io/coco-framework/overview)** —— 双方各自负责什么，以及什么明确不在范围内。
+**→ [边界与设计哲学](https://cocoframwork.dev/overview)** —— 双方各自负责什么，以及什么明确不在范围内。

@@ -5,6 +5,7 @@ const sidebars: SidebarsConfig = {
     'overview',
     'getting-started',
     'feature-toggles',
+    'releases/2.0.3',
     {
       type: 'category',
       label: '核心 Web',

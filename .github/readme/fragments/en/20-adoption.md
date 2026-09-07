@@ -6,7 +6,7 @@ Use `coco-parent` as the application parent and add the single starter dependenc
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>${coco.version}</version>
+    <version>2.0.2</version>
     <relativePath/>
 </parent>
 
@@ -30,11 +30,11 @@ coco:
       - tenant
 ```
 
-**→ [Getting started](https://patton174.github.io/coco-framework/getting-started)** walks through a first service end to end.
-**→ [Feature toggles](https://patton174.github.io/coco-framework/feature-toggles)** lists every switch and its default.
+**→ [Getting started](https://cocoframwork.dev/en/getting-started)** walks through a first service end to end.
+**→ [Feature toggles](https://cocoframwork.dev/en/feature-toggles)** lists every switch and its default.
 
 ## CRUD source generation
 
 Standard CRUD scaffolding lives in the standalone [coco-generate](https://github.com/patton174/coco-generate) tool. It generates business-owned ordinary source during development — Controller, DTO, application service, domain repository, MyBatis-Plus infrastructure — and is not an application runtime dependency. It writes to `src/main/java` and refuses to overwrite existing files, so entities are never exposed automatically at runtime.
 
-**→ [Code generation](https://patton174.github.io/coco-framework/features/codegen)** covers the config format and templates.
+**→ [Code generation](https://cocoframwork.dev/en/features/codegen)** covers the config format and templates.
