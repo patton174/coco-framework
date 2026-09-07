@@ -5,7 +5,7 @@ const sidebars: SidebarsConfig = {
     'overview',
     'getting-started',
     'feature-toggles',
-    {type: 'category', label: '更新日志', items: ['releases/index', 'releases/2.0.3']},
+    {type: 'category', label: '更新日志', link: {type: 'doc', id: 'releases/index'}, items: ['releases/2.0.3']},
     {
       type: 'category',
       label: '核心 Web',

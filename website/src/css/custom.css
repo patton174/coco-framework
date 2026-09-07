@@ -196,43 +196,25 @@ body::before {
   letter-spacing: -0.02em;
 }
 
-/* --- Logo left, doc link centered (desktop) --- */
-.navbar__inner {
-  position: relative;
-}
-
+/* Desktop navigation shares one flow; adding links never detaches them. */
 @media (min-width: 997px) {
-  /* Center the "文档" + "技能" links as a symmetric pair around the page centre
-     while the brand stays flush left and the controls stay right.
-
-     They are absolutely positioned against .navbar__inner, and counted from the
-     END of the container (:nth-last-child) rather than the start — the left
-     .navbar__items also contains a .navbar__toggle button and the brand ahead of
-     them, so counting forwards silently shifts the whole pair when either
-     changes. Counting backwards only depends on these two being the last items.
-
-     Adding a third left-side link would need a new rule; without one it falls
-     back to normal static flow next to the brand rather than stacking. */
-  .navbar__items:not(.navbar__items--right) > .navbar__link:nth-last-child(-n + 2) {
-    position: absolute;
-    /* Stretch to the containing block (.navbar__inner) rather than assuming a
-       height. --ifm-navbar-height covers the navbar *including* its vertical
-       padding, so using it here made the box taller than .navbar__inner and
-       pushed the text one padding-step below every other navbar item. */
-    top: 0;
-    bottom: 0;
+  .navbar__items:not(.navbar__items--right) {
+    flex: 1;
+    gap: clamp(0.25rem, 1.5vw, 1.5rem);
+  }
+  .navbar__brand {
+    margin-right: auto;
+  }
+  .navbar__items:not(.navbar__items--right) > .navbar__link {
     display: flex;
     align-items: center;
     font-weight: 600;
+    white-space: nowrap;
     transition: transform 0.18s ease, color 0.18s ease;
   }
-  /* 文档 — sits just left of centre. */
-  .navbar__items:not(.navbar__items--right) > .navbar__link:nth-last-child(2) {
-    right: calc(50% + 0.75rem);
-  }
-  /* 技能 — sits just right of centre. */
-  .navbar__items:not(.navbar__items--right) > .navbar__link:nth-last-child(1) {
-    left: calc(50% + 0.75rem);
+  .navbar__items--right {
+    flex: 0 0 auto;
+    margin-left: clamp(1rem, 3vw, 3rem);
   }
   .navbar__items:not(.navbar__items--right) > .navbar__link:hover {
     transform: translateY(-1px);

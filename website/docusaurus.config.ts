@@ -78,7 +78,6 @@ const config: Config = {
         height: 32,
       },
       items: [
-        {to: '/releases', label: '更新日志', position: 'left'},
         {
           type: 'docSidebar',
           sidebarId: 'docsSidebar',
@@ -91,6 +90,7 @@ const config: Config = {
           position: 'left',
           label: '技能',
         },
+        {to: '/releases', label: '更新日志', position: 'left'},
         {
           // Icon-only 文A / A文 switch — see src/theme/NavbarItem/ComponentTypes.
           type: 'custom-localeToggle',
