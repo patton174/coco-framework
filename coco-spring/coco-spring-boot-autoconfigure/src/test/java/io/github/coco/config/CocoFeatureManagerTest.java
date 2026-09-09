@@ -46,7 +46,6 @@ class CocoFeatureManagerTest {
         assertTrue(manager.isEnabled(CocoFeature.AUDIT));
         assertFalse(manager.isEnabled(CocoFeature.TENANT));
         assertFalse(manager.isEnabled(CocoFeature.DATA_PERMISSION));
-        assertFalse(manager.isEnabled(CocoFeature.CODEGEN));
         assertTrue(manager.isEnabled(CocoFeature.WEB));
         assertTrue(manager.isEnabled(CocoFeature.SECURITY));
         assertTrue(manager.isEnabled(CocoFeature.OPENAPI));

@@ -18,8 +18,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         CocoFeature.TENANT,
         CocoFeature.DATA_PERMISSION,
         CocoFeature.RATE_LIMIT,
-        CocoFeature.IDEMPOTENCY,
-        CocoFeature.CODEGEN
+        CocoFeature.IDEMPOTENCY
 })
 public class FeatureArchiveSmokeApplication {
 

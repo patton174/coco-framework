@@ -60,7 +60,7 @@ class MutableCocoFeatureRegistryTest {
 
         Set<CocoFeature> enabledFeatures = registry.enabledFeatures();
 
-        assertThrows(UnsupportedOperationException.class, () -> enabledFeatures.add(CocoFeature.CODEGEN));
+        assertThrows(UnsupportedOperationException.class, () -> enabledFeatures.add(CocoFeature.CAPTCHA));
         assertEquals(Set.of(CocoFeature.OPENAPI), registry.enabledFeatures());
     }
 

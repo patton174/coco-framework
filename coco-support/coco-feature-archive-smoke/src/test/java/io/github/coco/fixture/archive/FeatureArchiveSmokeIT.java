@@ -31,7 +31,7 @@ class FeatureArchiveSmokeIT {
     private static final Set<String> ENABLED_FEATURES = Set.of("web", "audit", "security", "openapi");
 
     private static final Set<String> DISABLED_FEATURES = Set.of(
-            "mybatis-plus", "tenant", "data-permission", "rate-limit", "idempotency", "codegen");
+            "mybatis-plus", "tenant", "data-permission", "rate-limit", "idempotency");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -52,6 +52,11 @@ class FeatureArchiveSmokeIT {
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-audit-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-security-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-openapi-"));
+            assertThat(featureStates).doesNotContainKey("codegen");
+            assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-codegen-"));
+            // FreeMarker entered business archives only through the codegen feature, so its absence is
+            // part of the removal contract rather than a pruning result.
+            assertThat(archiveLibraries).noneMatch(name -> name.startsWith("freemarker-"));
             assertNoDisabledFeatureLibraries(archiveLibraries, "archive");
 
             Set<String> classpathLibraries = indexLibraries(archive, "BOOT-INF/classpath.idx");
@@ -122,8 +127,7 @@ class FeatureArchiveSmokeIT {
     }
 
     private static boolean isDisabledFeatureLibrary(String library) {
-        return library.startsWith("coco-feature-codegen-")
-                || library.startsWith("coco-mybatis-plus-")
+        return library.startsWith("coco-mybatis-plus-")
                 || library.startsWith("coco-feature-mybatis-plus-")
                 || library.startsWith("coco-feature-tenant-")
                 || library.startsWith("coco-tenant-")
@@ -132,7 +136,6 @@ class FeatureArchiveSmokeIT {
                 || library.startsWith("coco-rate-limit-")
                 || library.startsWith("coco-idempotency-")
                 || library.startsWith("mybatis-")
-                || library.startsWith("mybatis-plus-")
-                || library.startsWith("freemarker-");
+                || library.startsWith("mybatis-plus-");
     }
 }
