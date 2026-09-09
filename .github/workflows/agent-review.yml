@@ -6,7 +6,7 @@ run-name: "Agent Review Jury / PR #${{ github.event.pull_request.number }} / hea
 
 on:
   pull_request_target:
-    branches: [main]
+    branches: [main, dev]
     types: [opened, synchronize, reopened, ready_for_review]
   pull_request_review:
     types: [submitted, edited, dismissed]
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   route:
     name: Route bound pull request
-    if: github.event_name != 'pull_request_review' || github.event.pull_request.base.ref == 'main'
+    if: github.event_name != 'pull_request_review' || contains(fromJSON('["main","dev"]'), github.event.pull_request.base.ref)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
