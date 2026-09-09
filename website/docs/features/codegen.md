@@ -1,91 +1,48 @@
 ---
 title: 代码生成
+description: Coco Framework 3.0.0 起移除内置代码生成；CRUD 源码生成由独立工具 coco-generate 承担。
 ---
 
 # 代码生成
 
-Coco 代码生成（`coco-feature-codegen`）是一套基于模板的 CRUD 脚手架生成能力。它把“一个业务资源”的描述（包名、资源名、数据表、字段）交给 FreeMarker 模板渲染成可继续维护的普通源码，**不注册任何运行时动态 CRUD 行为**。它是开发期能力，生成结果是业务项目自己的源文件。模块绑定 `coco.codegen` 命名空间，默认启用，作为 Coco Feature（`CocoFeature.CODEGEN`）参与自动装配，并在 MyBatis-Plus 自动配置之后加载（内置 CRUD 模板生成的仓储、Mapper 依赖 MyBatis-Plus）。
+**Coco Framework 3.0.0 起不再内置代码生成。** `coco-feature-codegen` 模块、`CocoFeature.CODEGEN` 功能标识以及 `coco-maven-plugin` 的 `coco:generate` goal 均已移除。CRUD 脚手架由独立的开发期工具 [coco-generate](https://github.com/patton174/coco-generate) 提供，它与框架保持独立：不依赖框架模块，业务应用也不会因此增加运行时依赖。
 
-## 功能简介
+这一页保留下来，是为了让旧文档与 README 中的链接继续可用，并说明如何迁移。
 
-- **`CocoCodeGenerator`**：代码生成器 SPI，入参 `CocoCodegenRequest`（模板组、目标包名、扩展上下文），返回 `CocoCodegenResult`（内存中的生成文件集合）。默认实现是 `FreeMarkerCocoCodeGenerator`。
-- **`CocoCrudSpec`**：默认 CRUD 生成规格，描述单个业务资源并在进入模板前归一化、校验包名、资源名、表名、字段和 Java 类型，再通过 `toRequest()` 转成内置 `crud` 模板组请求。
-- **`FreeMarkerCocoCodeGenerator`**：模板引擎实现，从模板根目录读取每个模板组的 `<group>/manifest.properties` 声明的模板资源与输出路径，**只返回内存文件结果，不隐式创建目录或写盘**。
+## 为什么移除
 
-## 如何启用接入
+- 代码生成是开发期能力，不应作为运行时特性参与自动装配和包裁剪。
+- 生成结果是业务项目自己的普通源码，归属边界在 coco-generate 的产品规格中更清晰。
+- 框架自身只保留基础设施，遵循[边界与设计哲学](../overview.md)。
 
-模块默认启用。开启后框架注册两个 Bean：`CocoCodeGenerator`（默认 `FreeMarkerCocoCodeGenerator`，读取 `coco.codegen.templates.location` 与 `encoding`）和 `CocoGeneratedFileWriter`（显式落盘时使用）。注入生成器即可：
+## 从 `coco:generate` 迁移
 
-```java
-@Component
-public class CrudScaffolder {
+旧的 Maven goal 参数与 coco-generate CLI 的对应关系：
 
-    private final CocoCodeGenerator codeGenerator;
-    private final CocoGeneratedFileWriter fileWriter;
+| 旧 `coco:generate` 参数 | coco-generate 对应方式 |
+| --- | --- |
+| `coco.codegen.spec`（默认 `coco-codegen.yml`） | 项目根目录的 `coco-generate.yml`；旧文件名 `coco-codegen.yml` 仍可直接识别，YAML 结构不变 |
+| `coco.codegen.outputDirectory`（默认 `src/main/java`） | 固定写入 `<项目目录>/src/main/java` |
+| `coco.codegen.dryRun=true` | `coco-generate plan <项目目录>`：只打印生成计划，不写文件 |
+| `coco.codegen.overwrite=true` | 无对应。coco-generate 只允许 `CREATE_NEW`，已有文件一律作为冲突报告，不做全局覆盖 |
+| `coco.codegen.templateLocation` | 暂不支持外部模板根；当前只使用内置 `crud` 模板 |
+| `coco.codegen.encoding` | 固定 UTF-8 |
 
-    public CrudScaffolder(CocoCodeGenerator codeGenerator, CocoGeneratedFileWriter fileWriter) {
-        this.codeGenerator = codeGenerator;
-        this.fileWriter = fileWriter;
-    }
-}
+最小示例：
+
+```bash
+java -jar coco-generate.jar plan ./my-service
+java -jar coco-generate.jar generate ./my-service
 ```
 
-## 使用示例
+内置 `crud` 模板与 2.x 框架内置模板逐字节一致，生成的 Controller、DTO、应用服务、领域仓储和 MyBatis-Plus 基础设施源码保持相同语义。
 
-用 `CocoCrudSpec` 描述一个资源，转成请求交给生成器；生成结果是内存文件，是否落盘由调用方**显式决定**：
+## 升级检查
 
-```java
-CocoCrudSpec spec = CocoCrudSpec.builder("com.example.order", "Order", "t_order")
-        .id("id", "id", Long.class, CocoCrudIdStrategy.AUTO)
-        .field("orderNo", "order_no", String.class, true)
-        .field("amount", "amount", java.math.BigDecimal.class, true)
-        .field("remark", "remark", String.class, false)
-        .apiPath("/orders")   // 省略时按资源名推导，如 Order -> /orders
-        .build();
+1. 从 `pom.xml` 中移除对 `io.github.patton174:coco-feature-codegen` 的显式依赖（只依赖 `coco-spring-boot-starter` 的项目无需改动）。
+2. 删除对 `coco:generate` goal 的调用，改用 coco-generate CLI。
+3. 从 `coco.features.disabled`、`coco.features.enabled` 与 `@CocoFeatures` 中删除 `codegen`。残留的 `codegen` 会在构建期被 `coco:features` 拒绝，并给出指向 coco-generate 的提示；不删除则构建失败。
+4. 删除 `coco.codegen.*` 配置项，它们不再被读取。
+5. 不再引用 `io.github.coco.feature.codegen` 包下的类型（`CocoCodeGenerator`、`CocoCrudSpec`、`CocoGeneratedFileWriter` 等）。需要在代码中描述 CRUD 规格时，请直接使用 coco-generate。
 
-CocoCodegenResult result = codeGenerator.generate(spec.toRequest());
-
-for (CocoGeneratedFile file : result.files()) {
-    System.out.println(file.path());   // 相对输出路径
-    // 需要落盘时再调用 fileWriter 写入目标目录
-}
-```
-
-`CocoCrudSpec` 在构建阶段做了大量安全校验：包名与字段名必须是合法 Java 标识符且不能是关键字；表名、列名必须匹配安全 SQL 标识符；`apiPath` 必须是安全段组成的绝对路径；主键类型不允许为基本类型；字段名、列名不允许重复；资源名和字段类型不得与模板内置生成类型（如 `Controller`、`Mapper`、`Service` 等）冲突。这些校验保证渲染出的源码可编译、无注入风险。
-
-## 模板机制
-
-`FreeMarkerCocoCodeGenerator` 通过模板组组织模板。每个模板组在模板根目录下有一份 `<group>/manifest.properties`，声明模板数量、每个模板的源文件与输出路径：
-
-```properties
-group=crud
-template.count=2
-template.0.source=Entity.java.ftl
-template.0.output=${basePackagePath}/entity/${resourceName}Entity.java
-template.1.source=Controller.java.ftl
-template.1.output=${basePackagePath}/web/${resourceName}Controller.java
-```
-
-- 模板路径经过归一化校验，拒绝绝对路径、盘符前缀、`.`/`..` 段等穿越尝试；`file:` / 普通路径根目录下的模板读取还会校验目标路径不逃逸出模板根。
-- 输出路径本身也是 FreeMarker 表达式，渲染后经 `CocoGeneratedPathValidator.normalizeRelativePath` 归一化；同一模板组产出重复输出路径会报错。
-- 模板模型保留字段 `_coco`、`templateGroup`、`targetPackage` 不允许被请求属性覆盖。
-- FreeMarker 配置为严格模式（`RETHROW_HANDLER`、禁用 `localizedLookup`、禁止空循环变量回退），模板错误会直接抛 `CocoCodegenException`。
-
-业务方可通过 `coco.codegen.templates.location` 指向自己的模板根目录，替换或扩展内置 `crud` 模板组。模板位置支持 `classpath:`、`file:` 和普通文件路径三种前缀。
-
-## 关键配置项
-
-绑定前缀 `coco.codegen`（对应 `CocoCodegenProperties`）：
-
-| 配置项 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `coco.codegen.enabled` | `boolean` | `true` | 是否启用代码生成基础设施 |
-| `coco.codegen.templates.location` | `String` | `classpath:/coco/codegen/templates` | FreeMarker 模板根位置，支持 `classpath:` / `file:` / 普通路径 |
-| `coco.codegen.templates.encoding` | `String` | `UTF-8` | 模板文件编码 |
-
-## 边界注意事项
-
-- 这是**开发期能力**：生成的是业务项目可继续维护的普通源码，不会在运行时注册动态 CRUD 行为，也不读取数据库元数据。
-- 内置 `crud` 模板生成的仓储、Mapper 依赖 MyBatis-Plus，因此自动配置声明在 `CocoMybatisPlusAutoConfiguration` 之后；使用内置模板的项目需具备 MyBatis-Plus。
-- 生成器只计算文件，**不隐式写盘**。是否落盘、落到哪个目录由调用方通过 `CocoGeneratedFileWriter` 显式控制，避免覆盖既有源码。
-- `CocoCrudSpec` 的严格校验意味着不合规的包名、表名、字段名会在构建期直接抛异常，而不是产出无法编译的代码。
+更多说明见 [coco-generate 仓库](https://github.com/patton174/coco-generate) 与其产品边界规格。

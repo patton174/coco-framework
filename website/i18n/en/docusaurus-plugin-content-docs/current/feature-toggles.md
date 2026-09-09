@@ -39,7 +39,7 @@ class ApplicationCocoConfiguration {
 
 Features have dependency relationships. When you disable a feature that others depend on, the features that depend on it are **automatically disabled as well**, avoiding a half-assembled state.
 
-For example, disabling `mybatis-plus` cascades to disable `tenant`, `data-permission`, and `codegen`, which depend on it.
+For example, disabling `mybatis-plus` cascades to disable `tenant` and `data-permission`, which depend on it.
 
 ## Built-in feature identifiers
 
@@ -61,7 +61,8 @@ For example, disabling `mybatis-plus` cascades to disable `tenant`, `data-permis
 | `cache` | Two-level cache | — |
 | `notification` | Notification channels | — |
 | `captcha` | Captcha | — |
-| `codegen` | Code generation | `mybatis-plus` |
+
+The `codegen` identifier was removed in 3.0.0: CRUD source generation is owned by the standalone [coco-generate](https://github.com/patton174/coco-generate) tool and is no longer a framework feature. A leftover `codegen` entry in your configuration is rejected by `coco:features` at build time with migration guidance; see [Code generation](./features/codegen.md).
 
 ## Relationship to module-level switches
 

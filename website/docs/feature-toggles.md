@@ -39,7 +39,7 @@ class ApplicationCocoConfiguration {
 
 功能之间存在依赖关系。当你禁用一个被依赖的功能时，依赖它的功能会被**自动一并禁用**，避免半装配状态。
 
-例如禁用 `mybatis-plus` 会级联禁用依赖它的 `tenant`、`data-permission`、`codegen`。
+例如禁用 `mybatis-plus` 会级联禁用依赖它的 `tenant`、`data-permission`。
 
 ## 内置功能标识
 
@@ -61,7 +61,8 @@ class ApplicationCocoConfiguration {
 | `cache` | 两层缓存 | — |
 | `notification` | 通知通道 | — |
 | `captcha` | 验证码 | — |
-| `codegen` | 代码生成 | `mybatis-plus` |
+
+`codegen` 标识已在 3.0.0 中移除：CRUD 源码生成由独立工具 [coco-generate](https://github.com/patton174/coco-generate) 承担，不再是框架功能。配置中残留的 `codegen` 会在构建期被 `coco:features` 明确拒绝并给出迁移提示，见[代码生成](./features/codegen.md)。
 
 ## 与模块级开关的关系
 
