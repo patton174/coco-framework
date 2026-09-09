@@ -287,3 +287,20 @@ same-repository 和 no-secret canary；Auto Merge 不修改保护配置，也不
 - 任一开放绑定 Issue 都让 required `Agent issue gate` 阻断合并；关闭后只对仍然相同的当前 head 恢复。
 - 自动合并日志输出每个条件的机器可读结果，但不输出 token、私钥或模型内容。
 - 源码或脚本修改后执行 `codegraph sync .`。
+
+
+## 2026-09-07：补齐集成分支审核事件
+
+代码贡献进入 `dev` 时，`Agent Review Jury` 和 `Agent Issue Gate` 的
+`pull_request_target` 入口必须同时监听 `main`、`dev`；人工 review 事件使用相同的
+精确分支集合。Python 层的 `ACCEPTED_PR_BASES` 已覆盖两者，工作流入口不得漏掉 `dev`。
+`main` 的监听保留用于既有路由兼容，并不改变其 Promotion gate。
+
+本次仅补齐事件入口，不扩大 secret environment 的分支范围：模型与 App 凭据仍只在
+受保护 `main` 的 `workflow_run` 发布器中使用，审核代码仍取被审核 PR 的受保护 base
+提交，PR head 只作为不可信文本读取。`coco-agent`、`coco-spring` 继续仅允许 `main`。
+正式 Release 和 npm 发布仍从最新受保护 `main` 派发；只有仓库 owner 可以提出
+`dev → main` 晋升，Contributor gate、人工审批与 Promotion gate 均保留。
+
+上线前需以当前提交完成协议测试和独立审核；受保护 base 缺失入口导致的自举阻塞，
+按既有受保护运行时修复流程处理，不执行 PR-head 审核代码来给自身出具受保护检查。
