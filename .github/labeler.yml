@@ -40,7 +40,6 @@
 "area: tooling":
   - changed-files:
       - any-glob-to-any-file:
-          - "coco-features/coco-feature-codegen/**"
           - "coco-support/**"
 
 "area: governance":
