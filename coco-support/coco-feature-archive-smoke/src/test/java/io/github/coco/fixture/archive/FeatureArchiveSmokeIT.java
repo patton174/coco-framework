@@ -54,6 +54,9 @@ class FeatureArchiveSmokeIT {
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-openapi-"));
             assertThat(featureStates).doesNotContainKey("codegen");
             assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-codegen-"));
+            // FreeMarker entered business archives only through the codegen feature, so its absence is
+            // part of the removal contract rather than a pruning result.
+            assertThat(archiveLibraries).noneMatch(name -> name.startsWith("freemarker-"));
             assertNoDisabledFeatureLibraries(archiveLibraries, "archive");
 
             Set<String> classpathLibraries = indexLibraries(archive, "BOOT-INF/classpath.idx");
