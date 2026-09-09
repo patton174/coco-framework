@@ -14252,8 +14252,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(57_108, largest_size)
-        self.assertEqual(38_892, limit - largest_size)
+        self.assertEqual(57_735, largest_size)
+        self.assertEqual(38_265, limit - largest_size)
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
         # fraction of the selected size so the guard scales with the budget
@@ -14430,6 +14430,29 @@ class AgentReviewTests(unittest.TestCase):
 
 class GovernedBaseBranchTest(unittest.TestCase):
     """Pin the parameterized base-branch contract shared by every entrypoint."""
+
+    def test_workflow_events_reach_both_governed_bases(self) -> None:
+        # Python accepting dev is insufficient if Actions never starts the
+        # protected router for a dev-targeting contribution.
+        root = Path(__file__).resolve().parents[1] / "workflows"
+        for name in ("agent-review.yml", "agent-issue-gate.yml"):
+            with self.subTest(workflow=name):
+                workflow = (root / name).read_text(encoding="utf-8")
+                match = re.search(
+                    r"pull_request_target:\s*\n\s*branches: \[([^\]]+)\]",
+                    workflow,
+                )
+                self.assertIsNotNone(match)
+                self.assertEqual(
+                    review.ACCEPTED_PR_BASES,
+                    {branch.strip() for branch in match.group(1).split(",")},
+                )
+        router = (root / "agent-review.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            """contains(fromJSON('["main","dev"]'), github.event.pull_request.base.ref)""",
+            router,
+        )
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", router)
 
     def test_governed_bases_are_release_and_integration_branches(self) -> None:
         self.assertEqual("main", review.DEFAULT_BRANCH)
