@@ -438,7 +438,6 @@ def check_archive(
     forbidden_features: tuple[str, ...] = (),
     required_library_prefixes: tuple[str, ...] = (),
     forbidden_library_prefixes: tuple[str, ...] = (),
-    require_codegen: bool = False,
 ) -> list[str]:
     inspection = inspect_archive(archive_path)
     errors = list(inspection.errors)
@@ -461,15 +460,10 @@ def check_archive(
         for index_name, parsed in inspection.indexes
         if not parsed.errors
     )
-    normalized_required_features = list(dict.fromkeys(required_features))
-    if require_codegen and "codegen" not in normalized_required_features:
-        normalized_required_features.append("codegen")
-    for feature in normalized_required_features:
+    for feature in dict.fromkeys(required_features):
         append_required_artifact_error(
             errors,
-            subject="codegen"
-            if feature == "codegen" and require_codegen
-            else f"feature {feature}",
+            subject=f"feature {feature}",
             prefixes=feature_prefixes(feature),
             archive_libraries=archive_libraries,
             index_libraries=index_libraries,
@@ -516,7 +510,6 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--forbidden-features", nargs="*", default=[])
     value.add_argument("--required-library-prefixes", nargs="*", default=[])
     value.add_argument("--forbidden-library-prefixes", nargs="*", default=[])
-    value.add_argument("--require-codegen", action="store_true")
     return value
 
 
@@ -528,7 +521,6 @@ def main(argv: list[str] | None = None) -> int:
         forbidden_features=tuple(args.forbidden_features),
         required_library_prefixes=tuple(args.required_library_prefixes),
         forbidden_library_prefixes=tuple(args.forbidden_library_prefixes),
-        require_codegen=args.require_codegen,
     )
     if errors:
         for error in errors:

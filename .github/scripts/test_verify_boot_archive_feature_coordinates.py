@@ -77,10 +77,8 @@ class BootArchiveFeatureCoordinateTests(unittest.TestCase):
                 [
                     "coco-feature-web-2.0.2.jar",
                     "coco-feature-audit-2.0.2.jar",
-                    "coco-feature-codegen-2.0.2.jar",
                 ],
                 ("web", "audit"),
-                True,
                 (),
             ),
             "canonical-mixed": (
@@ -88,34 +86,29 @@ class BootArchiveFeatureCoordinateTests(unittest.TestCase):
                     "coco-web-2.0.2.jar",
                     "coco-feature-audit-2.0.2.jar",
                     "coco-security-2.0.2.jar",
-                    "coco-codegen-2.0.2.jar",
                 ],
                 ("web", "audit", "security"),
-                True,
                 (),
             ),
             "missing": (
                 ["coco-web-2.0.2.jar"],
                 ("web", "audit"),
-                False,
                 ("feature audit", "found 0"),
             ),
             "old-canonical-duplicate": (
                 ["coco-web-2.0.2.jar", "coco-feature-web-2.0.2.jar"],
                 ("web",),
-                False,
                 ("feature web", "found 2"),
             ),
         }
 
-        for name, (libraries, features, require_codegen, expected) in cases.items():
+        for name, (libraries, features, expected) in cases.items():
             with self.subTest(name=name):
                 self.write_archive(libraries)
 
                 errors = verifier.check_archive(
                     self.archive,
                     required_features=features,
-                    require_codegen=require_codegen,
                 )
 
                 if expected:
@@ -460,43 +453,6 @@ class BootArchiveFeatureCoordinateTests(unittest.TestCase):
                     self.assert_errors_contain(errors, expected)
                 else:
                     self.assertEqual([], errors)
-
-    def test_codegen_requirement_matrix_has_one_normalized_production_path(
-        self,
-    ) -> None:
-        coordinates = {
-            "old": (["coco-feature-codegen-2.0.2.jar"], ()),
-            "canonical": (["coco-codegen-2.0.2.jar"], ()),
-            "missing": ([], ("found 0",)),
-            "duplicate": (
-                ["coco-feature-codegen-2.0.2.jar", "coco-codegen-2.0.2.jar"],
-                ("found 2",),
-            ),
-        }
-        modes = {
-            "flag": ((), True),
-            "required-feature": (("codegen",), False),
-            "both": (("codegen",), True),
-        }
-
-        for coordinate, (libraries, expected) in coordinates.items():
-            for mode, (features, require_codegen) in modes.items():
-                with self.subTest(coordinate=coordinate, mode=mode):
-                    self.write_archive(libraries)
-
-                    errors = verifier.check_archive(
-                        self.archive,
-                        required_features=features,
-                        require_codegen=require_codegen,
-                    )
-
-                    if expected:
-                        self.assertEqual(1, len(errors), errors)
-                        self.assert_errors_contain(errors, expected)
-                        if require_codegen:
-                            self.assertTrue(errors[0].startswith("codegen requires"))
-                    else:
-                        self.assertEqual([], errors)
 
     def test_duplicate_zip_entry_matrix_is_one_structural_error(self) -> None:
         library = "coco-web-2.0.2.jar"

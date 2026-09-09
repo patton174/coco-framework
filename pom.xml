@@ -179,11 +179,6 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>coco-feature-codegen</artifactId>
-                <version>${revision}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
                 <artifactId>coco-spring-boot-starter</artifactId>
                 <version>${revision}</version>
             </dependency>

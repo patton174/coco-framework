@@ -96,10 +96,17 @@ class StandardCocoFeaturesTest {
                 definitions.get(CocoFeature.CAPTCHA).autoConfigurationClassName());
         assertTrue(definitions.get(CocoFeature.CAPTCHA).defaultEnabled());
         assertEquals(Set.of(), definitions.get(CocoFeature.CAPTCHA).dependencies());
-        assertEquals(Set.of(CocoFeature.MYBATIS_PLUS),
-                definitions.get(CocoFeature.CODEGEN).dependencies());
-        assertEquals(Set.of("coco-feature-codegen", "freemarker"),
-                definitions.get(CocoFeature.CODEGEN).pruneArtifactIds());
+    }
+
+    @Test
+    void doesNotRegisterRetiredCodegenFeature() {
+        assertTrue(CocoFeature.fromId("codegen").isEmpty());
+        assertTrue(StandardCocoFeatures.all().stream()
+                .map(CocoFeatureDefinition::artifactId)
+                .noneMatch("coco-feature-codegen"::equals));
+        assertTrue(StandardCocoFeatures.all().stream()
+                .flatMap(definition -> definition.pruneArtifactIds().stream())
+                .noneMatch(artifactId -> artifactId.equals("coco-feature-codegen") || artifactId.equals("freemarker")));
     }
 
     @Test
@@ -110,7 +117,6 @@ class StandardCocoFeaturesTest {
         assertTrue(enabled.contains(CocoFeature.AUDIT));
         assertFalse(enabled.contains(CocoFeature.TENANT));
         assertFalse(enabled.contains(CocoFeature.DATA_PERMISSION));
-        assertFalse(enabled.contains(CocoFeature.CODEGEN));
         assertTrue(enabled.contains(CocoFeature.WEB));
         assertTrue(enabled.contains(CocoFeature.SECURITY));
         assertTrue(enabled.contains(CocoFeature.OPENAPI));
@@ -136,8 +142,7 @@ class StandardCocoFeaturesTest {
 
         assertEquals(Set.of(
                 CocoFeature.TENANT,
-                CocoFeature.DATA_PERMISSION,
-                CocoFeature.CODEGEN), plan.disabledByDependencyFeatures());
+                CocoFeature.DATA_PERMISSION), plan.disabledByDependencyFeatures());
     }
 
     @Test
