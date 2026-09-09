@@ -6,7 +6,7 @@
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>${coco.version}</version>
+    <version>2.0.2</version>
     <relativePath/>
 </parent>
 
@@ -30,11 +30,11 @@ coco:
       - tenant
 ```
 
-**→ [快速开始](https://patton174.github.io/coco-framework/getting-started)** 完整走一遍第一个服务。
-**→ [特性开关](https://patton174.github.io/coco-framework/feature-toggles)** 列出全部开关及默认值。
+**→ [快速开始](https://cocoframwork.dev/getting-started)** 完整走一遍第一个服务。
+**→ [特性开关](https://cocoframwork.dev/feature-toggles)** 列出全部开关及默认值。
 
 ## CRUD 源码生成
 
 标准 CRUD 脚手架由独立工具 [coco-generate](https://github.com/patton174/coco-generate) 提供。它在开发期生成业务持有的普通源码——Controller、DTO、应用服务、领域仓储、MyBatis-Plus 基础设施——**不是**应用运行时依赖。默认写入 `src/main/java` 且拒绝覆盖已有文件，因此运行时不会自动暴露实体。
 
-**→ [代码生成](https://patton174.github.io/coco-framework/features/codegen)** 讲解配置格式与模板。
+**→ [代码生成](https://cocoframwork.dev/features/codegen)** 讲解配置格式与模板。

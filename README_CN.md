@@ -2,58 +2,71 @@
 
 <div align="center">
 
+<img src="website/static/img/logo.svg" width="128" height="128" alt="Coco Framework Logo"/>
+
 # Coco Framework
 
-<p>
-  <strong>面向 Spring Boot Web 服务的高约定快速开发框架，用于构建可生产落地的 Java 服务。</strong>
-</p>
+**少写基础设施，多写业务。**
 
-<p>
-  <a href="./README.md">English</a>
-  ·
-  <a href="./README_CN.md">简体中文</a>
-</p>
+Spring Boot · One starter · Plain Java
 
-<p>
-  <img src="https://img.shields.io/badge/Java-17+-f89820?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 17+"/>
-  <img src="https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?style=for-the-badge&logo=springboot&logoColor=white" alt="Spring Boot 4.1"/>
-  <img src="https://img.shields.io/badge/Maven-3.8.9-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white" alt="Maven 3.8.9"/>
-  <img src="https://img.shields.io/badge/License-Apache%202.0-4b5563?style=for-the-badge&logo=apache&logoColor=white" alt="Apache 2.0"/>
-</p>
+[English](README.md) · [简体中文](README_CN.md)
 
-<p>
-  <a href="https://patton174.github.io/coco-framework/"><strong>📖 文档</strong></a>
-  ·
-  <a href="https://patton174.github.io/coco-framework/getting-started">快速开始</a>
-  ·
-  <a href="https://patton174.github.io/coco-framework/features/web-runtime">能力参考</a>
-  ·
-  <a href="https://patton174.github.io/coco-framework/skills">Agent 技能</a>
-</p>
+![Build](https://github.com/patton174/coco-framework/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/patton174/coco-framework) ![License](https://img.shields.io/badge/License-Apache--2.0-b4441f) ![Java](https://img.shields.io/badge/Java-17%2B-b4441f) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F) ![Maven](https://img.shields.io/badge/Maven-3.8.9%2B-C71A36)
 
-<p>
-  <a href="#安装">安装</a>
-  ·
-  <a href="#能力范围">能力范围</a>
-  ·
-  <a href="#边界">边界</a>
-  ·
-  <a href="#生产注意事项">生产注意事项</a>
-  ·
-  <a href="#贡献者">贡献者</a>
-</p>
+[**开始接入 →**](https://cocoframwork.dev/getting-started) · [文档](https://cocoframwork.dev/) · [GitHub Discussions](https://github.com/patton174/coco-framework/discussions)
 
 </div>
 
 ---
 
-## 概览
+## 为什么需要 Coco
 
-Coco Framework 帮助团队快速搭建 Spring Boot Web 服务：框架提供高约定、可替换的黑盒基础设施，业务侧继续使用普通 Java/Spring 编程模型。
+每个项目都有自己的业务，但很多基础工作不必重新开始。
 
-它适用于 SaaS 系统、内部服务、管理后台、集成服务和通用 Web API。它不是零代码业务运行时，也不会强制所有项目使用同一套用户、角色、菜单、组织或租户模型。
+| 你可能正在做的事 | Coco 的处理方式 |
+|---|---|
+| 复制统一响应、异常处理和日志代码 | Starter 默认接入响应封装、全局异常与 TraceId |
+| 手动梳理越来越多的配置 | YAML / 注解选择能力，构建与运行时使用一致的功能计划 |
+| 从单机迁移到多实例 | 通过存储接口替换限流、幂等、锁等实现，显式配置 Redis 等服务 |
+| 为框架重写业务模型 | 保留普通 Spring Controller，自行决定认证、组织与事务边界 |
 
-> 基础设施默认自动化；业务代码保持显式、可生成、由用户持有。
+| **17** 项主干功能标识 | **1** 个 Starter | **Java 17+** | **Apache-2.0** |
+|---|---|---|---|
+| 含 Codegen 兼容项 | 配合 parent / BOM | 业务编译目标 | 开源许可 |
+
+> 当前稳定版为 **v2.0.2**。本 README 描述当前主干；缓存、通知、验证码等新增能力尚未全部进入稳定版。外部服务和多实例存储需要显式配置，不承诺所有功能零配置启动。
+
+## 少维护一套装配
+
+**手动组装：** 以下是需要维护的职责示意，并非可运行示例。
+
+```java
+@Configuration
+class WebInfrastructure {
+    // ResponseBodyAdvice：统一响应
+    // RestControllerAdvice：异常处理
+    // TraceId filter：请求关联
+    // Access-log filter：访问日志
+    // Context propagation：异步上下文
+}
+```
+
+**接入 Coco：** 使用下方 parent 和一个 Starter，将这些集成点交给框架，业务仍是普通 Java / Spring。
+
+## 如何选择
+
+| 维度 | Spring Boot 自行组装 | Coco Framework |
+|---|---|---|
+| 默认行为 | 按项目组合响应、异常和日志约定 | 统一响应、异常与 TraceId 默认接入 |
+| 能力覆盖 | 自行选择并集成生态库 | 以功能开关组合基础设施模块 |
+| 扩展方式 | Spring Bean 与扩展接口 | 保留 Spring 扩展方式，增加领域明确的 SPI |
+| 业务模型 | 自行设计 | 自行设计，不强制用户/角色/组织模型 |
+| 工程治理 | 团队建立自己的流程 | 仓库提供 CI、Agent 评审与受保护合并流程 |
+
+选型仍需结合你的依赖、业务边界与部署方式；此表描述集成方式，不是性能排名。
+
+---
 
 ## 安装
 
@@ -63,7 +76,7 @@ Coco Framework 帮助团队快速搭建 Spring Boot Web 服务：框架提供高
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>${coco.version}</version>
+    <version>2.0.2</version>
     <relativePath/>
 </parent>
 
@@ -87,14 +100,14 @@ coco:
       - tenant
 ```
 
-**→ [快速开始](https://patton174.github.io/coco-framework/getting-started)** 完整走一遍第一个服务。
-**→ [特性开关](https://patton174.github.io/coco-framework/feature-toggles)** 列出全部开关及默认值。
+**→ [快速开始](https://cocoframwork.dev/getting-started)** 完整走一遍第一个服务。
+**→ [特性开关](https://cocoframwork.dev/feature-toggles)** 列出全部开关及默认值。
 
 ## CRUD 源码生成
 
 标准 CRUD 脚手架由独立工具 [coco-generate](https://github.com/patton174/coco-generate) 提供。它在开发期生成业务持有的普通源码——Controller、DTO、应用服务、领域仓储、MyBatis-Plus 基础设施——**不是**应用运行时依赖。默认写入 `src/main/java` 且拒绝覆盖已有文件，因此运行时不会自动暴露实体。
 
-**→ [代码生成](https://patton174.github.io/coco-framework/features/codegen)** 讲解配置格式与模板。
+**→ [代码生成](https://cocoframwork.dev/features/codegen)** 讲解配置格式与模板。
 
 ## 生产注意事项
 
@@ -106,48 +119,22 @@ coco:
 | **防重放** | `InMemoryCocoReplayStore`，仅进程内有效 | 换成 JDBC 存储（或自己的实现），让键预留在多实例间原子。框架不执行迁移，表结构由你负责 |
 | **异步日志** | 有界队列；`ERROR` 与携带异常的记录始终同步写 | 替换 `CocoAsyncLogDropListener`，把丢弃计数接入你的监控。这是过载可观测性，不是投递保证 |
 
-**→ [SQL 防护](https://patton174.github.io/coco-framework/features/mybatis-plus)** · **[防重放](https://patton174.github.io/coco-framework/features/request-security)** · **[日志与基础设施](https://patton174.github.io/coco-framework/features/infra)**
+**→ [SQL 防护](https://cocoframwork.dev/features/mybatis-plus)** · **[防重放](https://cocoframwork.dev/features/request-security)** · **[日志与基础设施](https://cocoframwork.dev/features/infra)**
 
 ## 能力范围
 
 <table>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
-      <strong>Web 运行时</strong><br/>
-      统一响应、异常响应、链路标识、请求上下文、访问日志、请求签名、请求加密和防重放。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
-      <strong>安全基础</strong><br/>
-      安全上下文门面、解析 SPI、Web 上下文桥接、可信请求头适配、断言工具和上下文传播原语。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
-      <strong>数据集成</strong><br/>
-      MyBatis-Plus 拦截器组装、分页、SQL 防护、租户 SQL 隔离和数据权限 SQL 条件。
-    </td>
+    <td width="33%"><strong>🌐 Web 请求</strong><p>让每个接口遵循一致约定。</p><ul><li>统一响应与异常</li><li>TraceId 与访问日志</li><li>签名、加密与防重放</li></ul></td>
+    <td width="33%"><strong>🗃 数据与权限</strong><p>将数据隔离放入查询链路。</p><ul><li>MyBatis-Plus 与分页</li><li>租户 SQL 隔离</li><li>数据权限条件</li></ul></td>
+    <td width="33%"><strong>⏱ 流控与可靠性</strong><p>为频繁或重复的请求划清边界。</p><ul><li>限流与幂等</li><li>锁与调度</li><li>存储实现可替换</li></ul></td>
   </tr>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Reliability-Flow%20Control-be123c?style=flat-square" alt="Reliability"/></p>
-      <strong>流控与可靠性</strong><br/>
-      限流、幂等、分布式锁、调度——每项都有进程内默认实现和可替换的存储 SPI。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Platform-Storage%20%26%20Audit-16a34a?style=flat-square" alt="Platform"/></p>
-      <strong>平台能力</strong><br/>
-      对象存储 SPI（含内容寻址的本地参考实现）、结构化审计流水线和 OpenAPI 元数据。
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
-      <strong>功能控制</strong><br/>
-      父 POM、BOM、单 starter、声明式功能选择、依赖感知的功能计划和运行时功能条件。
-    </td>
+    <td width="33%"><strong>📦 文件与平台</strong><p>通用服务能力随应用成长。</p><ul><li>文件存储与缓存</li><li>消息与通知</li><li>验证码</li></ul></td>
+    <td width="33%"><strong>🔎 审计与可观测性</strong><p>为重要操作留下线索。</p><ul><li>结构化审计事件</li><li>日志与上下文</li><li>OpenAPI 元数据</li></ul></td>
+    <td width="33%"><strong>🧩 功能与扩展</strong><p>只带上需要的能力。</p><ul><li>声明式功能开关</li><li>构建期裁剪</li><li>Bean 与 SPI 替换</li></ul></td>
   </tr>
 </table>
-
-**→ [能力参考](https://patton174.github.io/coco-framework/features/web-runtime)** —— 逐个功能的配置项与 SPI。
 
 ## 边界
 
@@ -157,7 +144,7 @@ coco:
 
 CRUD 属于代码生成，不是运行时实体暴露——生成的是业务项目可保留、可修改、可删除的普通 Java 源码。
 
-**→ [边界与设计哲学](https://patton174.github.io/coco-framework/overview)** —— 双方各自负责什么，以及什么明确不在范围内。
+**→ [边界与设计哲学](https://cocoframwork.dev/overview)** —— 双方各自负责什么，以及什么明确不在范围内。
 
 ## Framework 验收
 

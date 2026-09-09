@@ -1,0 +1,7 @@
+tunnel: 12ee460b-f694-43c9-95bb-e837499aefbc
+credentials-file: /opt/coco-website/tunnel/credentials.json
+metrics: 127.0.0.1:18082
+ingress:
+  - hostname: cocoframwork.dev
+    service: http://127.0.0.1:18081
+  - service: http_status:404

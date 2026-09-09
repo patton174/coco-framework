@@ -6,6 +6,7 @@ import type {WrapperProps} from '@docusaurus/types';
 import {useDoc} from '@docusaurus/plugin-content-docs/client';
 import Translate from '@docusaurus/Translate';
 import styles from './styles.module.css';
+import {useDocMotion} from './useDocMotion';
 
 type Props = WrapperProps<typeof ContentType>;
 
@@ -24,6 +25,7 @@ function rawUrlFromEditUrl(editUrl: string | null | undefined): string | null {
 
 export default function ContentWrapper(props: Props): ReactNode {
   const {metadata} = useDoc();
+  const {contentRef, progressRef} = useDocMotion(metadata.permalink);
   const rawUrl = rawUrlFromEditUrl(metadata.editUrl);
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
 
@@ -43,6 +45,7 @@ export default function ContentWrapper(props: Props): ReactNode {
 
   return (
     <>
+      <div className={styles.readingTrack} aria-hidden="true"><div ref={progressRef} className={styles.readingProgress} /></div>
       {rawUrl && (
         <div className={styles.copyBar}>
           <button
@@ -75,7 +78,7 @@ export default function ContentWrapper(props: Props): ReactNode {
           </button>
         </div>
       )}
-      <Content {...props} />
+      <div ref={contentRef} className={styles.document}><Content {...props} /></div>
     </>
   );
 }

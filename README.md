@@ -2,58 +2,71 @@
 
 <div align="center">
 
+<img src="website/static/img/logo.svg" width="128" height="128" alt="Coco Framework Logo"/>
+
 # Coco Framework
 
-<p>
-  <strong>A high-convention Spring Boot Web server framework for fast, production-ready Java services.</strong>
-</p>
+**Less infrastructure. More product.**
 
-<p>
-  <a href="./README.md">English</a>
-  ·
-  <a href="./README_CN.md">简体中文</a>
-</p>
+Spring Boot · One starter · Plain Java
 
-<p>
-  <img src="https://img.shields.io/badge/Java-17+-f89820?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 17+"/>
-  <img src="https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?style=for-the-badge&logo=springboot&logoColor=white" alt="Spring Boot 4.1"/>
-  <img src="https://img.shields.io/badge/Maven-3.8.9-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white" alt="Maven 3.8.9"/>
-  <img src="https://img.shields.io/badge/License-Apache%202.0-4b5563?style=for-the-badge&logo=apache&logoColor=white" alt="Apache 2.0"/>
-</p>
+[English](README.md) · [简体中文](README_CN.md)
 
-<p>
-  <a href="https://patton174.github.io/coco-framework/"><strong>📖 Documentation</strong></a>
-  ·
-  <a href="https://patton174.github.io/coco-framework/getting-started">Getting started</a>
-  ·
-  <a href="https://patton174.github.io/coco-framework/features/web-runtime">Capabilities</a>
-  ·
-  <a href="https://patton174.github.io/coco-framework/skills">Agent skills</a>
-</p>
+![Build](https://github.com/patton174/coco-framework/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/patton174/coco-framework) ![License](https://img.shields.io/badge/License-Apache--2.0-b4441f) ![Java](https://img.shields.io/badge/Java-17%2B-b4441f) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F) ![Maven](https://img.shields.io/badge/Maven-3.8.9%2B-C71A36)
 
-<p>
-  <a href="#install">Install</a>
-  ·
-  <a href="#what-coco-provides">What you get</a>
-  ·
-  <a href="#boundary">Boundary</a>
-  ·
-  <a href="#production-notes">Production notes</a>
-  ·
-  <a href="#contributors">Contributors</a>
-</p>
+[**Start building →**](https://cocoframwork.dev/en/getting-started) · [Documentation](https://cocoframwork.dev/en/) · [GitHub Discussions](https://github.com/patton174/coco-framework/discussions)
 
 </div>
 
 ---
 
-## Overview
+## Why Coco
 
-Coco Framework helps teams build Spring Boot Web servers with a strong black-box infrastructure foundation and a normal Java/Spring business programming model.
+Every product has its own domain. Much of the setup can be shared.
 
-The framework is designed for SaaS systems, internal services, admin APIs, integration servers, and general Web applications. It is not a zero-code business runtime and does not force one user, role, menu, organization, or tenant model onto every project.
+| Work you may be repeating | What Coco provides |
+|---|---|
+| Copying response, exception and logging code | Starter integration for response wrapping, global exceptions and TraceId |
+| Managing growing configuration | YAML / annotation feature selection with a consistent build and runtime plan |
+| Moving from one instance to many | Replaceable rate-limit, idempotency and lock stores; explicitly configure Redis or other services |
+| Adapting your domain to a framework | Ordinary Spring controllers; you own authentication, organizations and transactions |
 
-> Infrastructure defaults are automatic. Business code is explicit, generated, or user-owned.
+| **17** feature IDs on main | **1** starter | **Java 17+** | **Apache-2.0** |
+|---|---|---|---|
+| Includes Codegen compatibility | With parent / BOM | Application compile target | Open-source license |
+
+> Latest stable: **v2.0.2**. This README describes main; new cache, notification and captcha capabilities are not all in the stable release. External services and multi-instance stores need explicit configuration; not every feature works without setup.
+
+## Less assembly to maintain
+
+**Manual assembly:** illustrative responsibilities, not a runnable example.
+
+```java
+@Configuration
+class WebInfrastructure {
+    // ResponseBodyAdvice: response consistency
+    // RestControllerAdvice: exception handling
+    // TraceId filter: request correlation
+    // Access-log filter: request logging
+    // Context propagation: asynchronous work
+}
+```
+
+**With Coco:** use the parent and one starter below. The framework handles those integration points; business code stays ordinary Java / Spring.
+
+## Choosing an approach
+
+| Dimension | Assemble with Spring Boot | Coco Framework |
+|---|---|---|
+| Default behavior | Compose response, exception and logging conventions | Response wrapping, exceptions and TraceId connected by default |
+| Capabilities | Select and integrate ecosystem libraries | Combine infrastructure with feature switches |
+| Extensions | Spring beans and extension interfaces | Spring extension points plus focused SPIs |
+| Business model | Design your own | Design your own users, roles and organizations |
+| Engineering governance | Establish your team's workflow | Repository CI, Agent review and protected merges |
+
+Choose based on dependencies, domain boundaries and deployment needs. This compares integration approaches, not benchmark results.
+
+---
 
 ## Install
 
@@ -63,7 +76,7 @@ Use `coco-parent` as the application parent and add the single starter dependenc
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>${coco.version}</version>
+    <version>2.0.2</version>
     <relativePath/>
 </parent>
 
@@ -87,14 +100,14 @@ coco:
       - tenant
 ```
 
-**→ [Getting started](https://patton174.github.io/coco-framework/getting-started)** walks through a first service end to end.
-**→ [Feature toggles](https://patton174.github.io/coco-framework/feature-toggles)** lists every switch and its default.
+**→ [Getting started](https://cocoframwork.dev/en/getting-started)** walks through a first service end to end.
+**→ [Feature toggles](https://cocoframwork.dev/en/feature-toggles)** lists every switch and its default.
 
 ## CRUD source generation
 
 Standard CRUD scaffolding lives in the standalone [coco-generate](https://github.com/patton174/coco-generate) tool. It generates business-owned ordinary source during development — Controller, DTO, application service, domain repository, MyBatis-Plus infrastructure — and is not an application runtime dependency. It writes to `src/main/java` and refuses to overwrite existing files, so entities are never exposed automatically at runtime.
 
-**→ [Code generation](https://patton174.github.io/coco-framework/features/codegen)** covers the config format and templates.
+**→ [Code generation](https://cocoframwork.dev/en/features/codegen)** covers the config format and templates.
 
 ## Production notes
 
@@ -106,58 +119,30 @@ A few defaults are deliberately conservative, because the safe choice for a firs
 | **Replay protection** | `InMemoryCocoReplayStore`, process-local | Switch to the JDBC store (or your own) so reservations are atomic across instances. Coco runs no migrations — you own the schema |
 | **Async logging** | Bounded queue; `ERROR` and exceptions always synchronous | Replace `CocoAsyncLogDropListener` to feed drop counts into your metrics. This is overload observability, not durable delivery |
 
-**→ [SQL guard](https://patton174.github.io/coco-framework/features/mybatis-plus)** · **[Replay protection](https://patton174.github.io/coco-framework/features/request-security)** · **[Logging and infrastructure](https://patton174.github.io/coco-framework/features/infra)**
+**→ [SQL guard](https://cocoframwork.dev/en/features/mybatis-plus)** · **[Replay protection](https://cocoframwork.dev/en/features/request-security)** · **[Logging and infrastructure](https://cocoframwork.dev/en/features/infra)**
 
-## What Coco Provides
+## Capabilities
 
 <table>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
-      <strong>Web Runtime</strong><br/>
-      Unified responses, exception responses, trace headers, request context, access logs, request signatures, encryption, and replay protection.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
-      <strong>Security Foundation</strong><br/>
-      Principal context facade, resolver SPI, Web context bridge, trusted-header adapter, assertions, and propagation helpers.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
-      <strong>Data Integration</strong><br/>
-      MyBatis-Plus interceptor assembly, pagination, SQL guard, tenant SQL isolation, and data-permission predicates.
-    </td>
+    <td width="33%"><strong>🌐 Consistent web requests</strong><p>Give every endpoint consistent behavior.</p><ul><li>Responses and exceptions</li><li>TraceId and access logs</li><li>Signatures, encryption and replay protection</li></ul></td>
+    <td width="33%"><strong>🗃 Data and permissions</strong><p>Integrate isolation into the query path.</p><ul><li>MyBatis-Plus and pagination</li><li>Tenant SQL isolation</li><li>Data-permission conditions</li></ul></td>
+    <td width="33%"><strong>⏱ Traffic and reliability</strong><p>Put boundaries around frequent and repeated requests.</p><ul><li>Rate limiting and idempotency</li><li>Locks and scheduling</li><li>Replaceable stores</li></ul></td>
   </tr>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Reliability-Flow%20Control-be123c?style=flat-square" alt="Reliability"/></p>
-      <strong>Reliability</strong><br/>
-      Rate limiting, idempotency, distributed locks, and scheduling — each with a process-local default and a replaceable store SPI.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Platform-Storage%20%26%20Audit-16a34a?style=flat-square" alt="Platform"/></p>
-      <strong>Platform</strong><br/>
-      Object storage SPI with content-addressed local reference implementation, structured audit pipeline, and OpenAPI metadata.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
-      <strong>Feature Control</strong><br/>
-      Parent POM, BOM, one starter, declarative feature selection, dependency-aware plans, and runtime feature conditions.
-    </td>
+    <td width="33%"><strong>📦 Files and platform</strong><p>Let shared services grow with the application.</p><ul><li>Files and cache</li><li>Messaging and notifications</li><li>Captcha</li></ul></td>
+    <td width="33%"><strong>🔎 Audit and visibility</strong><p>Leave useful evidence of important actions.</p><ul><li>Structured audit events</li><li>Logs and context</li><li>OpenAPI metadata</li></ul></td>
+    <td width="33%"><strong>🧩 Features and extensions</strong><p>Ship the capabilities you need.</p><ul><li>Declarative feature selection</li><li>Build-time pruning</li><li>Bean and SPI overrides</li></ul></td>
   </tr>
 </table>
-
-**→ [Capability reference](https://patton174.github.io/coco-framework/features/web-runtime)** — every feature, its config keys, and its SPI.
 
 ## Boundary
 
 Coco owns **infrastructure**. Your application owns the **domain model, API semantics, authentication provider, and user/role/organization models**.
 
-That line is deliberate: the framework does not guess your business, it only turns the repetitive, cross-project infrastructure into replaceable black boxes. Every SPI can be overridden with a single `@Bean`.
+Use Spring beans and the documented extension interfaces to replace integrations. CRUD generation produces ordinary Java source that your application owns; it does not expose entities as APIs at runtime.
 
-CRUD belongs to code generation, not runtime entity exposure — generated code is readable Java source your project keeps, edits, or deletes.
-
-**→ [Boundary and design philosophy](https://patton174.github.io/coco-framework/overview)** — what each side is responsible for, and what stays out of scope.
+**→ [Boundary and design philosophy](https://cocoframwork.dev/en/overview)** — responsibilities and scope.
 
 ## Framework Acceptance
 
