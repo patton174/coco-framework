@@ -1,6 +1,6 @@
 # Coco Framework — agent guide
 
-Coco is a high-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1, group `io.github.patton174`). It provides replaceable black-box infrastructure — unified responses, global exception handling, TraceId, multi-tenancy, data permission, rate limiting, idempotency, distributed lock, object storage, audit, OpenAPI, code generation — while business code stays plain Spring.
+Coco is a high-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1, group `io.github.patton174`). It provides replaceable black-box infrastructure — unified responses, global exception handling, TraceId, multi-tenancy, data permission, rate limiting, idempotency, distributed lock, object storage, audit, OpenAPI — while business code stays plain Spring.
 
 Docs: https://patton174.github.io/coco-framework/
 
@@ -33,7 +33,9 @@ coco:
     disabled: [mybatis-plus, tenant]
 ```
 
-Feature ids: `web`, `mybatis-plus`, `audit`, `security`, `tenant`, `data-permission`, `openapi`, `rate-limit`, `idempotency`, `scheduling`, `lock`, `storage`, `codegen`. `coco.features.disabled` controls assembly; per-module `coco.<x>.enabled` controls runtime behavior.
+Feature ids: `web`, `mybatis-plus`, `audit`, `security`, `tenant`, `data-permission`, `openapi`, `rate-limit`, `idempotency`, `scheduling`, `lock`, `storage`, `messaging`, `cache`, `notification`, `captcha`. `coco.features.disabled` controls assembly; per-module `coco.<x>.enabled` controls runtime behavior.
+
+CRUD source generation is not a framework feature — it lives in [coco-generate](https://github.com/patton174/coco-generate). A `codegen` id left in the config fails the build from 3.0.0 on.
 
 ## MCP tools (server `coco`)
 

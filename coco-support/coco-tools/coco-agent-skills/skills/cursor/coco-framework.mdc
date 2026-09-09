@@ -35,7 +35,9 @@ coco:
     disabled: [mybatis-plus, tenant]   # disabling a dep cascades to dependents
 ```
 
-Or `@CocoFeatures(disabled = { CocoFeature.TENANT })`. Feature ids: `web`, `mybatis-plus`, `audit`, `security`, `tenant`, `data-permission`, `openapi`, `rate-limit`, `idempotency`, `scheduling`, `lock`, `storage`, `codegen`. `coco.features.disabled` controls assembly; per-module `coco.<x>.enabled` controls behavior (e.g. `coco.idempotency.enabled: true`).
+Or `@CocoFeatures(disabled = { CocoFeature.TENANT })`. Feature ids: `web`, `mybatis-plus`, `audit`, `security`, `tenant`, `data-permission`, `openapi`, `rate-limit`, `idempotency`, `scheduling`, `lock`, `storage`, `messaging`, `cache`, `notification`, `captcha`. `coco.features.disabled` controls assembly; per-module `coco.<x>.enabled` controls behavior (e.g. `coco.idempotency.enabled: true`).
+
+CRUD source generation is not a framework feature — it lives in [coco-generate](https://github.com/patton174/coco-generate). A `codegen` id left in the config fails the build from 3.0.0 on.
 
 ## MCP tools (server name `coco`)
 

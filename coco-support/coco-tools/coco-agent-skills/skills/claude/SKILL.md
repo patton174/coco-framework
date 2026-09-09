@@ -1,11 +1,11 @@
 ---
 name: coco-framework
-description: Use the Coco Framework (io.github.patton174) in a Spring Boot Web service — add the starter, toggle features, and look up how each capability is configured. Trigger when a user works on a Java/Spring Boot service that uses or should use Coco, or asks how to enable a Coco feature (idempotency, tenant, rate-limit, storage, audit, lock, openapi, codegen, etc.).
+description: Use the Coco Framework (io.github.patton174) in a Spring Boot Web service — add the starter, toggle features, and look up how each capability is configured. Trigger when a user works on a Java/Spring Boot service that uses or should use Coco, or asks how to enable a Coco feature (idempotency, tenant, rate-limit, storage, audit, lock, openapi, captcha, etc.).
 ---
 
 # Coco Framework
 
-Coco is a high-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1). It ships replaceable "black-box" infrastructure — unified responses, global exception handling, TraceId, multi-tenancy, data permission, rate limiting, idempotency, distributed lock, object storage, audit, OpenAPI, code generation — while your business code stays plain Spring.
+Coco is a high-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1). It ships replaceable "black-box" infrastructure — unified responses, global exception handling, TraceId, multi-tenancy, data permission, rate limiting, idempotency, distributed lock, object storage, audit, OpenAPI — while your business code stays plain Spring.
 
 Docs site: https://patton174.github.io/coco-framework/
 
@@ -41,11 +41,13 @@ Everything is on/off via stable `CocoFeature` ids. Disable declaratively in `app
 coco:
   features:
     disabled:
-      - mybatis-plus   # cascades: also disables tenant, data-permission, codegen
+      - mybatis-plus   # cascades: also disables tenant, data-permission
       - tenant
 ```
 
-Or via `@CocoFeatures(disabled = { CocoFeature.TENANT })` on a `@Configuration`. Disabling a depended-on feature cascades to its dependents. Feature ids: `web`, `mybatis-plus`, `audit`, `security`, `tenant`, `data-permission`, `openapi`, `rate-limit`, `idempotency`, `scheduling`, `lock`, `storage`, `codegen`.
+Or via `@CocoFeatures(disabled = { CocoFeature.TENANT })` on a `@Configuration`. Disabling a depended-on feature cascades to its dependents. Feature ids: `web`, `mybatis-plus`, `audit`, `security`, `tenant`, `data-permission`, `openapi`, `rate-limit`, `idempotency`, `scheduling`, `lock`, `storage`, `messaging`, `cache`, `notification`, `captcha`.
+
+CRUD source generation is not a framework feature. It lives in the separate development-time tool [coco-generate](https://github.com/patton174/coco-generate); a `codegen` id left in the config fails the build from 3.0.0 on.
 
 Two distinct layers: `coco.features.disabled` decides whether a module is *assembled*; per-module `coco.<x>.enabled` decides whether an assembled module *acts* (e.g. `coco.idempotency.enabled: true`).
 
