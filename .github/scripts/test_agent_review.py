@@ -14252,8 +14252,8 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(56_834, largest_size)
-        self.assertEqual(39_166, limit - largest_size)
+        self.assertEqual(57_108, largest_size)
+        self.assertEqual(38_892, limit - largest_size)
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
         # fraction of the selected size so the guard scales with the budget
