@@ -84,7 +84,7 @@ class CocoFeaturesMojoTest {
         CocoFeatureManifest manifest = CocoFeatureManifestLoader.read(
                 Files.newInputStream(output.resolve(CocoFeatureManifestLoader.MANIFEST_LOCATION)));
         assertThat(manifest.enabledFeatureIds())
-                .contains("web", "mybatis-plus", "audit", "security", "openapi", "rate-limit", "idempotency", "codegen");
+                .contains("web", "mybatis-plus", "audit", "security", "openapi", "rate-limit", "idempotency");
         assertThat(manifest.enabledFeatureIds()).doesNotContain("tenant", "data-permission");
         assertThat(project.getModel().getDependencies())
                 .extracting(dependency -> dependency.getGroupId() + ":" + dependency.getArtifactId())
