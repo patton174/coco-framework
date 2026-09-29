@@ -933,6 +933,9 @@ jobs:
           HEAD_SHA: ${{ needs.bind.outputs.head_sha }}
         run: |
           mkdir -p "${RUNNER_TEMP}/agent-review-input"
+          # Formulate a minimal payload to satisfy mark-failed; it requires only
+          # repository and head_sha. A complete context binding is unnecessary here
+          # because this path only sets a FAILURE status without granting approvals.
           cat <<EOF > "${RUNNER_TEMP}/agent-review-input/metadata.json"
           {"repository": "${GITHUB_REPOSITORY}", "head_sha": "${HEAD_SHA}"}
           EOF
