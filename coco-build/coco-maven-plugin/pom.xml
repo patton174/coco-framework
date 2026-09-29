@@ -14,7 +14,7 @@
     <artifactId>coco-maven-plugin</artifactId>
     <packaging>maven-plugin</packaging>
     <name>Coco Maven Plugin</name>
-    <description>Build-time feature assembly and explicit source generation plugin for Coco Framework.</description>
+    <description>Build-time feature assembly and package pruning plugin for Coco Framework.</description>
 
     <dependencies>
         <dependency>
@@ -42,10 +42,6 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>coco-feature-model</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-codegen</artifactId>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

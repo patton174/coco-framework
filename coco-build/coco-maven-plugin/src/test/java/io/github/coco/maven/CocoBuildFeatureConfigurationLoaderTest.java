@@ -82,6 +82,25 @@ class CocoBuildFeatureConfigurationLoaderTest {
     }
 
     @Test
+    void rejectsRetiredCodegenFeatureWithMigrationGuidance() throws Exception {
+        Path resources = Files.createDirectories(this.tempDir.resolve("resources"));
+        Files.writeString(resources.resolve("application.yml"), """
+                coco:
+                  features:
+                    disabled:
+                      - codegen
+                """, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> new CocoBuildFeatureConfigurationLoader().load(resources))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Retired Coco feature id 'codegen'")
+                .hasMessageContaining("coco.features.disabled")
+                .hasMessageContaining("removed in Coco Framework 3.0.0")
+                .hasMessageContaining("https://github.com/patton174/coco-generate")
+                .hasMessageNotContaining("Valid feature ids");
+    }
+
+    @Test
     void rejectsUnknownPropertiesFeatureConfiguration() throws Exception {
         Path resources = Files.createDirectories(this.tempDir.resolve("resources"));
         Files.writeString(resources.resolve("application.properties"), """

@@ -882,6 +882,82 @@ jobs:
             --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
             --run-url "${run_url}"
 
+  # This job is the sole fallback that guarantees the jury gate is never left
+  # PENDING indefinitely. The trusted-publisher only runs when the full pipeline
+  # succeeds; when any upstream job (specialist binding mismatch, verifier crash,
+  # etc.) causes a failure or skips the publisher, the gate would otherwise stay
+  # PENDING forever. fail-closed runs whenever trusted-publisher did not succeed
+  # and publishes an explicit FAILURE status so the PR author knows the run
+  # ended in error and can re-trigger by re-approving the PR.
+  fail-closed:
+    name: Fail closed on jury error
+    needs: [prepare, specialists, verifiers, chair, continuity-verifiers, publisher-admission, trusted-publisher]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.ignored == 'false' &&
+      needs.prepare.outputs.trusted == 'true' &&
+      (needs.trusted-publisher.result == 'failure' ||
+       needs.specialists.result == 'failure' ||
+       needs.verifiers.result == 'failure' ||
+       needs.chair.result == 'failure' ||
+       needs.continuity-verifiers.result == 'failure' ||
+       needs.publisher-admission.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Checkout trusted reviewer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: .agent-review-base
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Download bound review metadata
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-review-input
+
+      - name: Publish explicit failure status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPECIALISTS_RES: ${{ needs.specialists.result }}
+          VERIFIERS_RES: ${{ needs.verifiers.result }}
+          CHAIR_RES: ${{ needs.chair.result }}
+          CONTINUITY_RES: ${{ needs.continuity-verifiers.result }}
+          ADMISSION_RES: ${{ needs.publisher-admission.result }}
+          PUBLISHER_RES: ${{ needs.trusted-publisher.result }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # Surface which stage failed so the author can diagnose without
+          # reading the full run log.
+          if [[ "${SPECIALISTS_RES}" == 'failure' ]]; then
+            description="Agent jury specialist run failed"
+          elif [[ "${VERIFIERS_RES}" == 'failure' ]]; then
+            description="Agent jury verifier run failed"
+          elif [[ "${CHAIR_RES}" == 'failure' ]]; then
+            description="Agent jury chair run failed"
+          elif [[ "${CONTINUITY_RES}" == 'failure' ]]; then
+            description="Agent jury continuity check failed"
+          elif [[ "${ADMISSION_RES}" == 'failure' ]]; then
+            description="Agent jury publisher admission failed"
+          elif [[ "${PUBLISHER_RES}" == 'failure' ]]; then
+            description="Agent jury publisher run failed"
+          else
+            description="Agent jury run did not complete"
+          fi
+          python3 .agent-review-base/.github/scripts/agent_review.py mark-failed \
+            --metadata "${RUNNER_TEMP}/agent-review-input/metadata.json" \
+            --description "${description}" \
+            --run-url "${run_url}"
+
   no-secret-publisher:
     name: Publish no-secret maintainer gate
     needs: [prepare, publisher-admission]
