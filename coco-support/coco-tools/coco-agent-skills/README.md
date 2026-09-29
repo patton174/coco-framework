@@ -1,10 +1,10 @@
 # @patton174/coco-agent-skills
 
-Let AI coding agents use the [Coco Framework](https://patton174.github.io/coco-framework/) — semantic documentation search, latest-version detection from Maven Central, and one-command MCP install for popular agents.
+Let AI coding agents use the [Coco Framework](https://cocoframwork.dev/) — semantic documentation search, latest-version detection from Maven Central, and one-command MCP install for popular agents.
 
 Coco is a high-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1, group `io.github.patton174`). This package gives an agent three abilities: search the docs by meaning, know the newest released version, and get itself wired in as an MCP server.
 
-**📖 Full documentation: [Agent skills](https://patton174.github.io/coco-framework/skills)** — [install guide](https://patton174.github.io/coco-framework/skills/install) · [tool and CLI reference](https://patton174.github.io/coco-framework/skills/usage)
+**📖 Full documentation: [Agent skills](https://cocoframwork.dev/skills)** — [install guide](https://cocoframwork.dev/skills/install) · [tool and CLI reference](https://cocoframwork.dev/skills/usage)
 
 ## Quick start
 
@@ -19,13 +19,13 @@ npx @patton174/coco-agent-skills search "how do I enable idempotency"
 npx @patton174/coco-agent-skills search "如何开启幂等"
 ```
 
-The MCP server exposes 7 tools over stdio: `coco_search_docs`, `coco_get_doc`, `coco_list_docs`, `coco_dependency_snippet`, `coco_get_latest_version`, `coco_check_version`, `coco_index_status`. See the [usage guide](https://patton174.github.io/coco-framework/skills/usage) for inputs and returns.
+The MCP server exposes 7 tools over stdio: `coco_search_docs`, `coco_get_doc`, `coco_list_docs`, `coco_dependency_snippet`, `coco_get_latest_version`, `coco_check_version`, `coco_index_status`. See the [usage guide](https://cocoframwork.dev/skills/usage) for inputs and returns.
 
 ## Embedding model
 
 The first search downloads `Xenova/bge-small-zh-v1.5` (q8 weights, ~95 MB) to your Transformers.js cache. No API keys, and no network at query time once cached. Behind a slow link to huggingface.co, set `HF_ENDPOINT=https://hf-mirror.com`.
 
-The model is bilingual by design. The docs are ~95% Chinese, and an English-only model scored 0/4 on Chinese queries in testing — asking 「如何开启分布式锁」 ranked the correct page 26th and returned generic overview prose instead. `bge-small-zh-v1.5` hits rank 1 on both Chinese and English queries, so one index serves both languages.
+The index includes Chinese and English documentation. Build-time indexing and runtime queries use the same bilingual model and quantized weights; locale filters let agents search either language.
 
 ---
 
@@ -64,3 +64,7 @@ npm test
 ```
 
 Tests run fully offline: version comparison and metadata parsing are pure, and search-ranking tests inject fake embeddings so no model is downloaded.
+
+### Release index generation
+
+The protected npm publication workflow rebuilds the bilingual index from the checked-out documentation before publishing, including dry runs. It rejects placeholder or empty indexes, missing locales, incomplete vectors and a source-commit mismatch. The committed index is a development snapshot; run `npm run build-index` after editing docs for local use. Published packages contain the freshly generated index.

@@ -1,50 +1,22 @@
-## What Coco Provides
+## Capabilities
 
 <table>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Web-Servlet%20Runtime-2563eb?style=flat-square" alt="Web"/></p>
-      <strong>Web Runtime</strong><br/>
-      Unified responses, exception responses, trace headers, request context, access logs, request signatures, encryption, and replay protection.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Security-Context%20Foundation-7c3aed?style=flat-square" alt="Security"/></p>
-      <strong>Security Foundation</strong><br/>
-      Principal context facade, resolver SPI, Web context bridge, trusted-header adapter, assertions, and propagation helpers.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Data-MyBatis--Plus-0891b2?style=flat-square" alt="Data"/></p>
-      <strong>Data Integration</strong><br/>
-      MyBatis-Plus interceptor assembly, pagination, SQL guard, tenant SQL isolation, and data-permission predicates.
-    </td>
+    <td width="33%"><strong>🌐 Consistent web requests</strong><p>Give every endpoint consistent behavior.</p><ul><li>Responses and exceptions</li><li>TraceId and access logs</li><li>Signatures, encryption and replay protection</li></ul></td>
+    <td width="33%"><strong>🗃 Data and permissions</strong><p>Integrate isolation into the query path.</p><ul><li>MyBatis-Plus and pagination</li><li>Tenant SQL isolation</li><li>Data-permission conditions</li></ul></td>
+    <td width="33%"><strong>⏱ Traffic and reliability</strong><p>Put boundaries around frequent and repeated requests.</p><ul><li>Rate limiting and idempotency</li><li>Locks and scheduling</li><li>Replaceable stores</li></ul></td>
   </tr>
   <tr>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Reliability-Flow%20Control-be123c?style=flat-square" alt="Reliability"/></p>
-      <strong>Reliability</strong><br/>
-      Rate limiting, idempotency, distributed locks, and scheduling — each with a process-local default and a replaceable store SPI.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Platform-Storage%20%26%20Audit-16a34a?style=flat-square" alt="Platform"/></p>
-      <strong>Platform</strong><br/>
-      Object storage SPI with content-addressed local reference implementation, structured audit pipeline, and OpenAPI metadata.
-    </td>
-    <td width="33%">
-      <p><img src="https://img.shields.io/badge/Config-Feature%20Control-f97316?style=flat-square" alt="Feature Control"/></p>
-      <strong>Feature Control</strong><br/>
-      Parent POM, BOM, one starter, declarative feature selection, dependency-aware plans, and runtime feature conditions.
-    </td>
+    <td width="33%"><strong>📦 Files and platform</strong><p>Let shared services grow with the application.</p><ul><li>Files and cache</li><li>Messaging and notifications</li><li>Captcha</li></ul></td>
+    <td width="33%"><strong>🔎 Audit and visibility</strong><p>Leave useful evidence of important actions.</p><ul><li>Structured audit events</li><li>Logs and context</li><li>OpenAPI metadata</li></ul></td>
+    <td width="33%"><strong>🧩 Features and extensions</strong><p>Ship the capabilities you need.</p><ul><li>Declarative feature selection</li><li>Build-time pruning</li><li>Bean and SPI overrides</li></ul></td>
   </tr>
 </table>
-
-**→ [Capability reference](https://patton174.github.io/coco-framework/features/web-runtime)** — every feature, its config keys, and its SPI.
 
 ## Boundary
 
 Coco owns **infrastructure**. Your application owns the **domain model, API semantics, authentication provider, and user/role/organization models**.
 
-That line is deliberate: the framework does not guess your business, it only turns the repetitive, cross-project infrastructure into replaceable black boxes. Every SPI can be overridden with a single `@Bean`.
+Use Spring beans and the documented extension interfaces to replace integrations. CRUD generation produces ordinary Java source that your application owns; it does not expose entities as APIs at runtime.
 
-CRUD belongs to code generation, not runtime entity exposure — generated code is readable Java source your project keeps, edits, or deletes.
-
-**→ [Boundary and design philosophy](https://patton174.github.io/coco-framework/overview)** — what each side is responsible for, and what stays out of scope.
+**→ [Boundary and design philosophy](https://cocoframwork.dev/en/overview)** — responsibilities and scope.

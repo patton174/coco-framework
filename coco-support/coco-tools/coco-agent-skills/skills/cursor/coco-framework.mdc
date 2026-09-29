@@ -1,12 +1,12 @@
 ---
-description: Use the Coco Framework (io.github.patton174) in Spring Boot Web services — add the starter, toggle features via coco.features.disabled, look up config via the coco MCP tools. Docs: https://patton174.github.io/coco-framework/
+description: Use the Coco Framework (io.github.patton174) in Spring Boot Web services — add the starter, toggle features via coco.features.disabled, look up config via the coco MCP tools. Docs: https://cocoframwork.dev/
 globs: ["**/pom.xml", "**/application*.yml", "**/application*.yaml", "**/*.java"]
 alwaysApply: false
 ---
 
 # Coco Framework
 
-High-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1). Ships replaceable black-box infrastructure; business code stays plain Spring. Docs: https://patton174.github.io/coco-framework/
+High-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1). Ships replaceable black-box infrastructure; business code stays plain Spring. Docs: https://cocoframwork.dev/
 
 ## Install
 
