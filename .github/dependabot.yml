@@ -66,3 +66,36 @@ updates:
           - "org.codehaus.mojo:*"
           - "org.sonatype.central:*"
           - "com.github.spotbugs:*"
+
+  - package-ecosystem: npm
+    directory: /coco-support/coco-tools/coco-agent-skills
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:45"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+    groups:
+      npm_and_yarn:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /website
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - "area: docs"
+    groups:
+      website-npm:
+        patterns:
+          - "*"
