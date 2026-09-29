@@ -241,11 +241,11 @@ trust domain、revision 和 path 判断，只拒绝同一 domain/revision/path �
 
 ### 预算
 
-- PR diff 超过 180,000 Unicode 字符时失败，要求拆分 PR；不静默截断，也不生成可供模型
+- PR diff 超过 300,000 Unicode 字符时失败，要求拆分 PR；不静默截断，也不生成可供模型
   继续裁决的部分 diff。
-- 单个 specialist 的 canonical 组装上下文上限为 384,000 字符。
+- 单个 specialist 的 canonical 组装上下文上限为 504,000 字符。
 - 受保护政策和所有命中规格最多 96,000 字符且不得裁剪；PR 意图最多 8,000 字符；完整
-  diff 预算为 180,000 字符；补充代码上下文总计最多 60,000 字符、每个来源最多 4,000
+  diff 预算为 300,000 字符；补充代码上下文总计最多 60,000 字符、每个来源最多 4,000
   字符，单个完整变更文件最多读取 12,000 字符。
 - 输出 schema、当前 task、固定 SHA 和省略清单不可被裁掉。
 - specialist 和 chair 的单次输出预算均为 8,192 tokens，verifier 的单次输出预算为
