@@ -65,7 +65,9 @@ jobs:
             .github/scripts/test_auto_merge.py \
             .github/scripts/test_contributor_gate.py \
             .github/scripts/verify_boot_archive_feature_coordinates.py \
-            .github/scripts/test_verify_boot_archive_feature_coordinates.py \n            .github/scripts/release_file_count_preflight.py \n            .github/scripts/test_release_file_count_preflight.py
+            .github/scripts/test_verify_boot_archive_feature_coordinates.py \
+            .github/scripts/release_file_count_preflight.py \
+            .github/scripts/test_release_file_count_preflight.py
           python .github/scripts/test_agent_review.py
           python .github/scripts/test_auto_merge.py
           python .github/scripts/test_contributor_gate.py

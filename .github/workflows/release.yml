@@ -129,7 +129,7 @@ jobs:
           --reactor-root . \
           --revision "${PREFLIGHT_REVISION}" \
           --inventory-output target/release-file-count-inventory.json \
-          --summary-output "${GITHUB_STEP_SUMMARY}"
+          --summary-output "${GITHUB_STEP_SUMMARY}" \
           --validate-config-only
 
   publish:
