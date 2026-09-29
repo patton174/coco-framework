@@ -27,7 +27,6 @@ coco-spring/
   coco-spring-boot-starter/
 coco-features/
   coco-audit/
-  coco-feature-codegen/  ... 2.x legacy compatibility surface ...
   coco-data-permission/
   coco-mybatis-plus/
   coco-openapi/
@@ -61,7 +60,7 @@ coco-support/
 
 ## 已发布兼容基线
 
-`v2.0.1` 已经向 Maven Central 发布 `coco-config`、`coco-feature-runtime`、`coco-feature-*`、`coco-test`、`coco-feature-codegen` 和 `coco-maven-plugin`。因此早期“在公开 2.0 前直接删除旧坐标”的假设已经失效，后续 2.x 迁移必须遵守以下规则：
+`v2.0.1` 已经向 Maven Central 发布 `coco-config`、`coco-feature-runtime`、`coco-feature-*`、`coco-test` 和 `coco-maven-plugin`。因此早期“在公开 2.0 前直接删除旧坐标”的假设已经失效，后续 2.x 迁移必须遵守以下规则：
 
 1. 新名称对应的制品成为框架内部和新业务项目的主路径；框架内部不得继续依赖仅为兼容保留的旧坐标。
 2. 每个已发布旧坐标在 2.x 内必须继续可解析，并提供与其原有公开类型、配置和运行行为兼容的传递表面。优先使用无源码兼容 JAR；只有经过 Maven Resolver、插件和真实消费项目验证后才可改为 relocation POM。
@@ -93,7 +92,7 @@ flowchart TD
 1. Agent Review 同时识别 1.x 路径和 2.0 目标路径，并为重命名的旧、新两侧注入完整规格。
 2. 先完成物理目录归组，不在同一 PR 中混入 Maven 坐标和 Java 包名变更。
 3. 再按 foundation、Spring 组合层和各 feature 分批重命名、扁平化或合并主实现模块；已发布旧坐标同步转换为 2.x 兼容门面，而不是直接删除。
-4. Framework 不再维护业务 samples。等价 HTTP + H2/MyBatis-Plus 验收由 `coco-admin/framework-acceptance` 承接；新生成能力由 `coco-generate` 承接。框架保留 `coco-feature-codegen` 和 `coco:generate` 作为 2.x legacy compatibility surface，只维护兼容和安全修复；框架不得依赖 `coco-generate`。
+4. Framework 不再维护业务 samples。等价 HTTP + H2/MyBatis-Plus 验收由 `coco-admin/framework-acceptance` 承接。
 5. 每个 PR 的完整 diff 必须低于 Agent Review 的 `300000` 字符硬上限；必选策略和规格必须完整装入 `52000` 字符预算，不能截断或静默遗漏。
 6. 每一步都必须通过 JDK 21 下的 Maven verify、release smoke、治理测试和当前 head 的三项合并门禁。
 
@@ -111,4 +110,3 @@ flowchart TD
 | `coco-config`, `coco-feature-runtime` | 实现合并到 `coco-spring-boot-autoconfigure`；旧坐标作为 2.x 无源码兼容门面保留 |
 | `coco-feature-*` | 对应的 `coco-*` 主 feature 制品；旧坐标作为 2.x 兼容门面保留 |
 | `coco-test` | `coco-test-support` 主制品；`coco-test` 作为 2.x 兼容门面保留 |
-| `coco-feature-codegen`, `coco:generate` | 2.x legacy compatibility surface；现有 API、`CocoFeature.CODEGEN` 和 goal 继续可用，新生成能力与模板扩展由 `coco-generate` 承接 |
