@@ -22,7 +22,6 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-generate` is a development-time source generator and template platform. Generated source may target Coco applications, but business applications must not require the generator at runtime.
 - `coco-admin` may use `coco-generate` during development; generated files are then reviewed, committed, and owned by the Admin repository.
 - No Framework business samples; `coco-admin/framework-acceptance` owns business/HTTP acceptance.
-- Existing public Codegen APIs and the `coco:generate` goal remain supported until a separately reviewed compatibility migration moves implementation ownership. Do not remove or duplicate them without a versioned migration path.
 
 ## Current Architecture
 
@@ -38,7 +37,6 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-feature-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
 - `coco-feature-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
 - `coco-feature-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
-- `coco-feature-codegen`/`coco:generate`: 2.x compatibility/security fixes only. New generation: `coco-generate`; framework must not depend on it.
 - `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
 - `coco-support/coco-document` contains repository architecture, release, audit, plan, and specification documents; `coco-support/coco-tools` contains development-only repository tools; `coco-support/coco-test` contains reusable test support.
 - `coco-feature-archive-smoke`: nonbusiness Failsafe fixture for package feature-manifest/`prune-package` indexes.
@@ -89,7 +87,7 @@ mvn -pl :module-artifact-id -am test
 Reactor checks:
 
 ```powershell
-mvn -B -pl :coco-feature-codegen,:coco-maven-plugin -am verify
+mvn -B -pl :coco-maven-plugin -am verify
 ```
 
 Admin owns HTTP acceptance; Generate owns new CRUD generation.
