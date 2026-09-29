@@ -39,7 +39,7 @@ class ApplicationCocoConfiguration {
 
 Features have dependency relationships. When you disable a feature that others depend on, the features that depend on it are **automatically disabled as well**, avoiding a half-assembled state.
 
-For example, disabling `mybatis-plus` cascades to disable `tenant`, `data-permission`, and `codegen`, which depend on it.
+For example, disabling `mybatis-plus` cascades to disable `tenant`, `data-permission`, which depend on it.
 
 ## Built-in feature identifiers
 
@@ -61,7 +61,6 @@ For example, disabling `mybatis-plus` cascades to disable `tenant`, `data-permis
 | `cache` | Two-level cache | — |
 | `notification` | Notification channels | — |
 | `captcha` | Captcha | — |
-| `codegen` | Code generation | `mybatis-plus` |
 
 ## Relationship to module-level switches
 

@@ -77,7 +77,6 @@ coco-framework
 +   +-- coco-feature-tenant
 +   +-- coco-feature-data-permission
 +   +-- coco-feature-openapi
-+   +-- coco-feature-codegen
 +-- coco-maven-plugin
 +-- coco-test
 +-- coco-support/coco-feature-archive-smoke
@@ -185,7 +184,6 @@ Standard features planned for later implementation:
 - `tenant`
 - `data-permission`
 - `openapi`
-- `codegen`
 
 All standard features are enabled by default unless disabled.
 
@@ -195,7 +193,6 @@ Planned dependencies:
 - `tenant` depends on `mybatis-plus` and `security`
 - `data-permission` depends on `mybatis-plus` and `security`
 - `openapi` depends on `web` and `security`
-- `codegen` depends on `mybatis-plus`
 
 If a base feature is disabled, dependent features are disabled automatically.
 

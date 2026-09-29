@@ -901,12 +901,12 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
     output = config.get("output_limits", {})
     return {
         "diff_chars": int(
-            legacy.get("diff_chars", context.get("pr_diff_hard_limit", 300000))
+            legacy.get("diff_chars", context.get("pr_diff_hard_limit", 960000))
         ),
         "assembled_context_chars": int(
             legacy.get(
                 "assembled_context_chars",
-                context.get("specialist_total_limit", 504000),
+                context.get("specialist_total_limit", 1164000),
             )
         ),
         "policy_chars": int(
@@ -919,7 +919,7 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
             legacy.get("intent_chars", context.get("pr_intent_limit", 8000))
         ),
         "patch_chars": int(
-            legacy.get("patch_chars", context.get("patch_limit", 300000))
+            legacy.get("patch_chars", context.get("patch_limit", 960000))
         ),
         "code_context_chars": int(
             legacy.get(
@@ -2043,8 +2043,8 @@ def build_context(
     if not re.fullmatch(r"[0-9a-f]{64}", model_config_sha256):
         raise ReviewError("Agent model configuration digest is invalid.")
     limits = normalized_limits(config)
-    max_diff = int(limits.get("diff_chars", 300000))
-    patch_limit = int(limits.get("patch_chars", 300000))
+    max_diff = int(limits.get("diff_chars", 960000))
+    patch_limit = int(limits.get("patch_chars", 960000))
     if patch_limit < max_diff:
         raise ReviewError(
             "Agent review patch_limit must cover the complete "
@@ -2131,7 +2131,7 @@ def build_context(
         },
         "omissions": omissions,
     }
-    max_context = int(limits.get("assembled_context_chars", 504000))
+    max_context = int(limits.get("assembled_context_chars", 1164000))
     while (
         len(canonical_json(context)) > max_context
         and context["untrusted"]["code_contexts"]

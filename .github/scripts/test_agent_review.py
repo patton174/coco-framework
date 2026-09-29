@@ -784,8 +784,8 @@ class AgentReviewTests(unittest.TestCase):
             review.configured_deferred_bot_authors(value),
         )
         limits = review.normalized_limits(value)
-        self.assertEqual(300_000, limits["diff_chars"])
-        self.assertEqual(504_000, limits["assembled_context_chars"])
+        self.assertEqual(960_000, limits["diff_chars"])
+        self.assertEqual(1_164_000, limits["assembled_context_chars"])
         self.assertEqual(96_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         explicit_section_budget = sum(
@@ -797,7 +797,7 @@ class AgentReviewTests(unittest.TestCase):
                 "code_context_chars",
             )
         )
-        self.assertEqual(464_000, explicit_section_budget)
+        self.assertEqual(1_124_000, explicit_section_budget)
         # Slack inside the assembled envelope after every explicit section. The
         # policy section may not be trimmed, so it must never be sized to consume
         # this remainder: an oversized policy route fails the run instead.
@@ -1495,9 +1495,9 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_normalized_limits_reads_output_tokens_with_legacy_priority(self) -> None:
         defaults = review.normalized_limits({})
-        self.assertEqual(300_000, defaults["diff_chars"])
-        self.assertEqual(300_000, defaults["patch_chars"])
-        self.assertEqual(504_000, defaults["assembled_context_chars"])
+        self.assertEqual(960_000, defaults["diff_chars"])
+        self.assertEqual(960_000, defaults["patch_chars"])
+        self.assertEqual(1_164_000, defaults["assembled_context_chars"])
         self.assertEqual(52_000, defaults["policy_chars"])
         self.assertEqual(60_000, defaults["code_context_chars"])
         self.assertEqual(4_000, defaults["per_file_chars"])
@@ -14307,8 +14307,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_491, largest_size)
-        self.assertEqual(38_509, limit - largest_size)
+        self.assertEqual(57_093, largest_size)
+        self.assertEqual(38_907, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
