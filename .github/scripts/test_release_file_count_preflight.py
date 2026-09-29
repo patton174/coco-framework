@@ -223,9 +223,10 @@ class ReleaseFileCountPreflightTests(unittest.TestCase):
         )
         counts = Counter(kind for module in modules for kind in module.artifacts)
 
-        self.assertEqual({"pom": 23, "main": 19, "sources": 16, "javadoc": 16}, counts)
+        self.assertEqual({"pom": 34, "main": 30, "sources": 26, "javadoc": 26}, counts)
         self.assertEqual(
             {
+                "coco-feature-mybatis-plus",
                 "coco-config",
                 "coco-feature-runtime",
                 "coco-spring-boot-starter",

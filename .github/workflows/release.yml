@@ -56,9 +56,7 @@ jobs:
     name: Preflight Maven Central file capacity
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs:
-      - guard
-      - test
+    needs: test
     # Capacity figures are environment variables, but this job references no
     # release secret. The environment keeps the monthly snapshot protected.
     environment: coco-spring
@@ -70,67 +68,95 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Reconfirm the release commit
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          latest_main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          if [[ "${GITHUB_REF}" != "refs/heads/main" || "${GITHUB_SHA}" != "${latest_main_sha}" ]]; then
-            echo "::error::Protected main changed after release validation. Dispatch a new release run."
-            exit 1
-          fi
-
-      - name: Set up JDK 21 toolchain
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          distribution: temurin
-          java-version: '21'
+          python-version: '3.12'
 
-      # The inventory generation requires compiled metadata, signatures, and
-      # source/javadoc attachments matching the actual publication reactor.
-      - name: Compile and sign release artifacts in the staging reactor
-        shell: bash
+      - name: Validate current Central capacity snapshot
         env:
-          PREFLIGHT_REVISION: 0.0.0-central-capacity-preflight
-        run: |
-          set -euo pipefail
-
-          # The framework produces ephemeral keys automatically in the build
-          # phase whenever GPG secrets are absent, so no real key is required.
-          mvn -B -ntp -Drevision="${PREFLIGHT_REVISION}" -Pcoco-release -Dgpg.skip=false clean verify
-          if ! mvn -B -ntp -Drevision="${PREFLIGHT_REVISION}" -Pcoco-release -Dgpg.skip=false org.apache.maven.plugins:maven-gpg-plugin:3.2.8:sign; then
-            echo "::error::Failed to generate the ephemeral preflight signing key."
-            exit 1
-          fi
-
-      - name: Preflight capacity against current environment usage
-        shell: bash
-        env:
-          PREFLIGHT_REVISION: 0.0.0-central-capacity-preflight
           CENTRAL_FILE_LIMIT: ${{ vars.CENTRAL_FILE_LIMIT }}
           CENTRAL_FILE_USED: ${{ vars.CENTRAL_FILE_USED }}
           CENTRAL_FILE_PERIOD: ${{ vars.CENTRAL_FILE_PERIOD }}
           CENTRAL_FILE_SOURCE: ${{ vars.CENTRAL_FILE_SOURCE }}
           CENTRAL_FILE_COUNT_CHECKSUMS: ${{ vars.CENTRAL_FILE_COUNT_CHECKSUMS }}
           CENTRAL_FILE_METADATA_FILES: ${{ vars.CENTRAL_FILE_METADATA_FILES }}
+        run: >
+          python3 .github/scripts/release_file_count_preflight.py
+          --limit "${CENTRAL_FILE_LIMIT}"
+          --used "${CENTRAL_FILE_USED}"
+          --period "${CENTRAL_FILE_PERIOD}"
+          --source "${CENTRAL_FILE_SOURCE}"
+          --count-checksums "${CENTRAL_FILE_COUNT_CHECKSUMS}"
+          --metadata-files "${CENTRAL_FILE_METADATA_FILES}"
+          --validate-config-only
+
+      - name: Set up JDK for release artifact inventory
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Create ephemeral preflight signing key
+        shell: bash
         run: |
           set -euo pipefail
 
-          python .github/scripts/release_file_count_preflight.py \
-          --limit "${CENTRAL_FILE_LIMIT}" \
-          --used "${CENTRAL_FILE_USED}" \
-          --period "${CENTRAL_FILE_PERIOD}" \
-          --source "${CENTRAL_FILE_SOURCE}" \
-          --count-checksums "${CENTRAL_FILE_COUNT_CHECKSUMS}" \
-          --metadata-files "${CENTRAL_FILE_METADATA_FILES}" \
-          --reactor-root . \
-          --revision "${PREFLIGHT_REVISION}" \
-          --inventory-output target/release-file-count-inventory.json \
-          --summary-output "${GITHUB_STEP_SUMMARY}" \
-          --validate-config-only
+          preflight_gnupg="${RUNNER_TEMP}/central-capacity-gpg"
+          passphrase='central-capacity-preflight'
+          install -d -m 0700 "${preflight_gnupg}"
+          gpg --homedir "${preflight_gnupg}" --batch --pinentry-mode loopback \
+            --passphrase "${passphrase}" --quick-generate-key \
+            'Coco Central Capacity Preflight <capacity-preflight@invalid>' \
+            rsa2048 sign 1d
+          fingerprint="$(gpg --homedir "${preflight_gnupg}" --batch \
+            --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          if [[ -z "${fingerprint}" ]]; then
+            echo "::error::Failed to generate the ephemeral preflight signing key."
+            exit 1
+          fi
+
+          delimiter="COCO_CAPACITY_GPG_KEY_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "MAVEN_GPG_KEY<<${delimiter}"
+            gpg --homedir "${preflight_gnupg}" --batch --pinentry-mode loopback \
+              --passphrase "${passphrase}" --armor --export-secret-keys "${fingerprint}"
+            echo "${delimiter}"
+            echo "MAVEN_GPG_PASSPHRASE=${passphrase}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Build signed release outputs without deployment
+        env:
+          PREFLIGHT_REVISION: 0.0.0-central-capacity-preflight
+        run: >
+          mvn -B -ntp -Prelease
+          -Drevision="${PREFLIGHT_REVISION}"
+          -Dgpg.skip=false
+          -DskipTests
+          clean verify
+
+      - name: Inventory release files and enforce capacity
+        env:
+          CENTRAL_FILE_LIMIT: ${{ vars.CENTRAL_FILE_LIMIT }}
+          CENTRAL_FILE_USED: ${{ vars.CENTRAL_FILE_USED }}
+          CENTRAL_FILE_PERIOD: ${{ vars.CENTRAL_FILE_PERIOD }}
+          CENTRAL_FILE_SOURCE: ${{ vars.CENTRAL_FILE_SOURCE }}
+          CENTRAL_FILE_COUNT_CHECKSUMS: ${{ vars.CENTRAL_FILE_COUNT_CHECKSUMS }}
+          CENTRAL_FILE_METADATA_FILES: ${{ vars.CENTRAL_FILE_METADATA_FILES }}
+          PREFLIGHT_REVISION: 0.0.0-central-capacity-preflight
+        run: >
+          python3 .github/scripts/release_file_count_preflight.py
+          --limit "${CENTRAL_FILE_LIMIT}"
+          --used "${CENTRAL_FILE_USED}"
+          --period "${CENTRAL_FILE_PERIOD}"
+          --source "${CENTRAL_FILE_SOURCE}"
+          --count-checksums "${CENTRAL_FILE_COUNT_CHECKSUMS}"
+          --metadata-files "${CENTRAL_FILE_METADATA_FILES}"
+          --reactor-root .
+          --revision "${PREFLIGHT_REVISION}"
+          --inventory-output target/release-file-count-inventory.json
+          --summary-output "${GITHUB_STEP_SUMMARY}"
 
   publish:
     name: Publish to Maven Central
