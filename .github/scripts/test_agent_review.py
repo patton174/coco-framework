@@ -766,12 +766,12 @@ class AgentReviewTests(unittest.TestCase):
                 for verifier in value["roles"]["verifiers"]
             )
         )
-        self.assertEqual(8192, value["output_limits"]["specialist_tokens"])
+        self.assertEqual(16384, value["output_limits"]["specialist_tokens"])
         # Verifiers emit one verification per specialist finding, so their output
         # scales with the number of findings while a specialist's does not. The
         # budget is raised above the specialist and chair figures for that reason.
-        self.assertEqual(16384, value["output_limits"]["verifier_tokens"])
-        self.assertEqual(8192, value["output_limits"]["chair_tokens"])
+        self.assertEqual(32768, value["output_limits"]["verifier_tokens"])
+        self.assertEqual(16384, value["output_limits"]["chair_tokens"])
         # Five specialists may each report up to specialist_findings P2/P3 items,
         # and a P2/P3 item needs no verifier AGREE to become an actionable group
         # (see nonblocking_consensus_finding_ids). A run with no P0/P1 therefore
@@ -1504,7 +1504,11 @@ class AgentReviewTests(unittest.TestCase):
         self.assertEqual(12_000, defaults["full_file_chars"])
         token_keys = ("specialist_tokens", "verifier_tokens", "chair_tokens")
         self.assertEqual(
-            {key: 8192 for key in token_keys},
+            {
+                "specialist_tokens": 16384,
+                "verifier_tokens": 32768,
+                "chair_tokens": 16384,
+            },
             {key: review.normalized_limits({})[key] for key in token_keys},
         )
 
