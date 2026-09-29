@@ -56,7 +56,9 @@ jobs:
     name: Preflight Maven Central file capacity
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: test
+    needs:
+      - guard
+      - test
     # Capacity figures are environment variables, but this job references no
     # release secret. The environment keeps the monthly snapshot protected.
     environment: coco-spring
@@ -92,7 +94,7 @@ jobs:
       - name: Compile and sign release artifacts in the staging reactor
         shell: bash
         env:
-          PREFLIGHT_REVISION: ${{ needs.guard.outputs.version }}
+          PREFLIGHT_REVISION: 0.0.0-central-capacity-preflight
         run: |
           set -euo pipefail
 
@@ -107,7 +109,7 @@ jobs:
       - name: Preflight capacity against current environment usage
         shell: bash
         env:
-          PREFLIGHT_REVISION: ${{ needs.guard.outputs.version }}
+          PREFLIGHT_REVISION: 0.0.0-central-capacity-preflight
           CENTRAL_FILE_LIMIT: ${{ vars.CENTRAL_FILE_LIMIT }}
           CENTRAL_FILE_USED: ${{ vars.CENTRAL_FILE_USED }}
           CENTRAL_FILE_PERIOD: ${{ vars.CENTRAL_FILE_PERIOD }}
