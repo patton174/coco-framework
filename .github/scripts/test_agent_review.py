@@ -823,7 +823,6 @@ class AgentReviewTests(unittest.TestCase):
         audit_logging_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-audit-logging.md"
         audit_independence_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-audit-feature-independence.md"
         logging_overflow_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-async-log-overflow-observability.md"
-        codegen_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
 
         def mapped_specs(path: str) -> set[str]:
             return {
@@ -942,13 +941,8 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-feature-audit",
                 "coco-features/coco-audit",
             ): audit_specs,
-            ("coco-features/coco-feature-codegen",): {
-                module_layout_spec,
-                codegen_spec,
-            },
             ("coco-maven-plugin", "coco-build/coco-maven-plugin"): {
                 module_layout_spec,
-                codegen_spec,
             },
         }
         # Candidate paths intentionally include future physical locations. This
@@ -1178,7 +1172,6 @@ class AgentReviewTests(unittest.TestCase):
             "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-audit-logging.md",
             "coco-support/coco-document/superpowers/specs/2026-07-10-coco-audit-feature-independence.md",
         }
-        codegen_spec = "coco-support/coco-document/superpowers/specs/2026-07-10-coco-default-crud-codegen.md"
         batches = {
             "build": [
                 "pom.xml",
@@ -1285,7 +1278,6 @@ class AgentReviewTests(unittest.TestCase):
             ],
             "web": ["coco-features/coco-feature-web/pom.xml"],
             "audit": ["coco-features/coco-feature-audit/pom.xml"],
-            "codegen": ["coco-features/coco-feature-codegen/pom.xml"],
         }
         module_entries = review.module_map(repository_root)
         modules_by_artifact = {
@@ -1320,7 +1312,6 @@ class AgentReviewTests(unittest.TestCase):
             "starter-and-core-features": base_policy | i18n_specs,
             "web": base_policy | web_specs,
             "audit": base_policy | audit_specs,
-            "codegen": base_policy | {codegen_spec},
         }
         for name, changed_paths in spring_cutover_policy_batches.items():
             with self.subTest(spring_cutover_policy_batch=name):

@@ -51,7 +51,7 @@ class CocoAnnotatedFeatureScannerTest {
                         disabled = { CocoFeature.DATA_PERMISSION })
                 public class DemoFeatureConfiguration {
 
-                    @CocoFeatures(enabled = { CocoFeature.CODEGEN })
+                    @CocoFeatures(enabled = { CocoFeature.CAPTCHA })
                     public static class NestedFeatureConfiguration {
                     }
                 }
@@ -61,7 +61,7 @@ class CocoAnnotatedFeatureScannerTest {
                 .scan(classesDirectory, classpath(classesDirectory));
 
         assertThat(selection.enabled()).containsExactly(CocoFeature.TENANT);
-        assertThat(selection.enabled()).doesNotContain(CocoFeature.CODEGEN);
+        assertThat(selection.enabled()).doesNotContain(CocoFeature.CAPTCHA);
         assertThat(selection.disabled()).containsExactly(CocoFeature.DATA_PERMISSION);
     }
 
