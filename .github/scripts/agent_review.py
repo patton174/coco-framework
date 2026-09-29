@@ -7908,12 +7908,13 @@ def command_mark_failed(args: argparse.Namespace) -> int:
         except StaleAgentReviewRun:
             print(canonical_json({"state": "stale"}))
             return 0
+    description = getattr(args, "description", None) or "Agent jury failed"
     publish_status(
         client,
         str(metadata["repository"]),
         str(metadata["head_sha"]),
         "failure",
-        "Agent jury preparation failed",
+        description,
         args.run_url,
     )
     return 0
@@ -8580,6 +8581,7 @@ def parser() -> argparse.ArgumentParser:
     failed.add_argument("--metadata", required=True, type=Path)
     failed.add_argument("--run-url", required=True)
     failed.add_argument("--require-run-ownership", action="store_true")
+    failed.add_argument("--description", default=None)
     failed.set_defaults(handler=command_mark_failed)
 
     admission = commands.add_parser("admit-publisher")

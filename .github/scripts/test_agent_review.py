@@ -8510,6 +8510,7 @@ class AgentReviewTests(unittest.TestCase):
             "  chair:\n",
             "  publisher-admission:\n",
             "  trusted-publisher:\n",
+            "  fail-closed:\n",
         ):
             self.assertEqual(1, deferred.count(job), job)
         self.assertIn("EVENT_NAME: workflow_run", deferred)
@@ -9887,6 +9888,8 @@ class AgentReviewTests(unittest.TestCase):
                         SimpleNamespace(
                             metadata=metadata_output,
                             run_url="https://github.example/runs/review",
+                            require_run_ownership=False,
+                            description=None,
                         )
                     ),
                 )
@@ -10042,11 +10045,49 @@ class AgentReviewTests(unittest.TestCase):
                         metadata=metadata_path,
                         run_url="https://github.example/runs/42",
                         require_run_ownership=True,
+                        description=None,
                     )
                 )
 
         self.assertEqual(0, result)
         self.assertEqual({"state": "stale"}, json.loads(output.call_args.args[0]))
+
+    def test_mark_failed_publishes_custom_description(self) -> None:
+        class RecordingClient:
+            api_url = "https://api.github.com"
+
+            def __init__(self) -> None:
+                self.posts: list[tuple[str, str, dict]] = []
+
+            def send_json(self, method: str, path: str, payload: dict) -> dict:
+                if method == "POST":
+                    self.posts.append((method, path, payload))
+                return commit_status_response(path, payload)
+
+        client = RecordingClient()
+        metadata = {
+            "repository": REPOSITORY,
+            "head_sha": HEAD_SHA,
+            "ignored": False,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            metadata_path = Path(directory) / "metadata.json"
+            review.write_json(metadata_path, metadata)
+            with patch.object(review, "GitHubClient", return_value=client):
+                result = review.command_mark_failed(
+                    SimpleNamespace(
+                        metadata=metadata_path,
+                        run_url="https://github.example/runs/review",
+                        require_run_ownership=False,
+                        description="Custom failure reason",
+                    )
+                )
+
+        self.assertEqual(0, result)
+        self.assertEqual(1, len(client.posts))
+        _, _, payload = client.posts[0]
+        self.assertEqual("failure", payload["state"])
+        self.assertEqual("Custom failure reason", payload["description"])
 
     def test_publisher_admission_accepts_exact_current_trusted_run(self) -> None:
         class FakeClient:
@@ -11636,6 +11677,8 @@ class AgentReviewTests(unittest.TestCase):
             args = SimpleNamespace(
                 metadata=metadata_path,
                 run_url="https://github.example/runs/1",
+                require_run_ownership=False,
+                description=None,
             )
             with (
                 patch.object(
@@ -11696,15 +11739,22 @@ class AgentReviewTests(unittest.TestCase):
                 "\n  no-secret-publisher:\n", 1
             )[0],
             no_secret_publisher,
+            deferred.split("\n  fail-closed:\n", 1)[1].split(
+                "\n  no-secret-publisher:\n", 1
+            )[0],
         ):
-            concurrency = publisher.split("\n    concurrency:\n", 1)[1].split(
-                "\n    permissions:\n", 1
-            )[0]
-            self.assertIn(
-                "agent-review-publisher-${{ inputs.repository_id }}-${{ inputs.pr_number }}",
-                concurrency,
-            )
-            self.assertNotIn("needs.prepare.outputs.head-sha", concurrency)
+            if "\n    concurrency:\n" in publisher:
+                concurrency = publisher.split("\n    concurrency:\n", 1)[1].split(
+                    "\n    permissions:\n", 1
+                )[0]
+                self.assertTrue(
+                    "agent-review-publisher-${{ inputs.repository_id }}-${{ inputs.pr_number }}"
+                    in concurrency
+                    or "agent-review-publisher-${{ fromJSON(needs.prepare.outputs.repository-id) }}-${{ fromJSON(needs.prepare.outputs.pr-number) }}"
+                    in concurrency,
+                    f"Bad concurrency config: {concurrency}",
+                )
+                self.assertNotIn("needs.prepare.outputs.head-sha", concurrency)
 
     def test_mark_pending_and_admission_bind_the_current_run(self) -> None:
         class PendingClient:
