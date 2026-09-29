@@ -766,12 +766,12 @@ class AgentReviewTests(unittest.TestCase):
                 for verifier in value["roles"]["verifiers"]
             )
         )
-        self.assertEqual(8192, value["output_limits"]["specialist_tokens"])
+        self.assertEqual(16384, value["output_limits"]["specialist_tokens"])
         # Verifiers emit one verification per specialist finding, so their output
         # scales with the number of findings while a specialist's does not. The
         # budget is raised above the specialist and chair figures for that reason.
-        self.assertEqual(16384, value["output_limits"]["verifier_tokens"])
-        self.assertEqual(8192, value["output_limits"]["chair_tokens"])
+        self.assertEqual(32768, value["output_limits"]["verifier_tokens"])
+        self.assertEqual(16384, value["output_limits"]["chair_tokens"])
         # Five specialists may each report up to specialist_findings P2/P3 items,
         # and a P2/P3 item needs no verifier AGREE to become an actionable group
         # (see nonblocking_consensus_finding_ids). A run with no P0/P1 therefore
@@ -784,8 +784,8 @@ class AgentReviewTests(unittest.TestCase):
             review.configured_deferred_bot_authors(value),
         )
         limits = review.normalized_limits(value)
-        self.assertEqual(180_000, limits["diff_chars"])
-        self.assertEqual(384_000, limits["assembled_context_chars"])
+        self.assertEqual(300_000, limits["diff_chars"])
+        self.assertEqual(504_000, limits["assembled_context_chars"])
         self.assertEqual(96_000, limits["policy_chars"])
         self.assertEqual(24, limits["max_context_files"])
         explicit_section_budget = sum(
@@ -797,7 +797,7 @@ class AgentReviewTests(unittest.TestCase):
                 "code_context_chars",
             )
         )
-        self.assertEqual(344_000, explicit_section_budget)
+        self.assertEqual(464_000, explicit_section_budget)
         # Slack inside the assembled envelope after every explicit section. The
         # policy section may not be trimmed, so it must never be sized to consume
         # this remainder: an oversized policy route fails the run instead.
@@ -1495,16 +1495,20 @@ class AgentReviewTests(unittest.TestCase):
 
     def test_normalized_limits_reads_output_tokens_with_legacy_priority(self) -> None:
         defaults = review.normalized_limits({})
-        self.assertEqual(180_000, defaults["diff_chars"])
-        self.assertEqual(180_000, defaults["patch_chars"])
-        self.assertEqual(384_000, defaults["assembled_context_chars"])
+        self.assertEqual(300_000, defaults["diff_chars"])
+        self.assertEqual(300_000, defaults["patch_chars"])
+        self.assertEqual(504_000, defaults["assembled_context_chars"])
         self.assertEqual(52_000, defaults["policy_chars"])
         self.assertEqual(60_000, defaults["code_context_chars"])
         self.assertEqual(4_000, defaults["per_file_chars"])
         self.assertEqual(12_000, defaults["full_file_chars"])
         token_keys = ("specialist_tokens", "verifier_tokens", "chair_tokens")
         self.assertEqual(
-            {key: 8192 for key in token_keys},
+            {
+                "specialist_tokens": 16384,
+                "verifier_tokens": 32768,
+                "chair_tokens": 16384,
+            },
             {key: review.normalized_limits({})[key] for key in token_keys},
         )
 
@@ -8061,7 +8065,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("git/ref/heads/main", workflow)
         self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', workflow)
         self.assertIn("needs: guard", workflow)
-        self.assertIn("needs: test", publish)
+        self.assertIn("needs:\n      - test\n      - central-capacity", publish)
         self.assertNotIn("contents: write", publish)
         self.assertIn("environment: coco-spring", publish)
         self.assertIn('central_wait_until="PUBLISHED"', publish)
@@ -14302,8 +14306,10 @@ class AgentReviewTests(unittest.TestCase):
                         largest_size = selected_size
 
         self.assertEqual(".github/agent-review/probe", largest_path)
-        self.assertEqual(57_461, largest_size)
-        self.assertEqual(38_539, limit - largest_size)
+
+        self.assertEqual(57_491, largest_size)
+        self.assertEqual(38_509, limit - largest_size)
+
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
         # fraction of the selected size so the guard scales with the budget

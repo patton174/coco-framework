@@ -341,7 +341,7 @@ jobs:
           pr_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls" \
             -f title='docs: maintain generated README' \
             -f "head=${REPOSITORY_OWNER}:${BRANCH}" \
-            -f base=main \
+            -f base=dev \
             -f "body=Automated README maintenance (${MODE}). Source fragments, protected content baseline, and generated roots passed offline tests and drift detection. This PR requires the normal protected-branch review and merge flow.")"
           pr_number="$(validate_pr "${pr_json}")"
           echo "Created README maintenance PR #${pr_number}."

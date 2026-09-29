@@ -901,12 +901,12 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
     output = config.get("output_limits", {})
     return {
         "diff_chars": int(
-            legacy.get("diff_chars", context.get("pr_diff_hard_limit", 180000))
+            legacy.get("diff_chars", context.get("pr_diff_hard_limit", 300000))
         ),
         "assembled_context_chars": int(
             legacy.get(
                 "assembled_context_chars",
-                context.get("specialist_total_limit", 384000),
+                context.get("specialist_total_limit", 504000),
             )
         ),
         "policy_chars": int(
@@ -919,7 +919,7 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
             legacy.get("intent_chars", context.get("pr_intent_limit", 8000))
         ),
         "patch_chars": int(
-            legacy.get("patch_chars", context.get("patch_limit", 180000))
+            legacy.get("patch_chars", context.get("patch_limit", 300000))
         ),
         "code_context_chars": int(
             legacy.get(
@@ -959,13 +959,13 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
         "response_bytes": int(legacy.get("response_bytes", 1048576)),
         "request_timeout_seconds": int(legacy.get("request_timeout_seconds", 180)),
         "specialist_tokens": int(
-            legacy.get("specialist_tokens", output.get("specialist_tokens", 8192))
+            legacy.get("specialist_tokens", output.get("specialist_tokens", 16384))
         ),
         "verifier_tokens": int(
-            legacy.get("verifier_tokens", output.get("verifier_tokens", 8192))
+            legacy.get("verifier_tokens", output.get("verifier_tokens", 32768))
         ),
         "chair_tokens": int(
-            legacy.get("chair_tokens", output.get("chair_tokens", 8192))
+            legacy.get("chair_tokens", output.get("chair_tokens", 16384))
         ),
     }
 
@@ -1988,12 +1988,17 @@ def pull_request_diff(
 ) -> str | None:
     if file_count > MAX_RAW_DIFF_FILES:
         return None
-    diff_bytes = client.get_raw(
-        f"repos/{repository}/pulls/{pr_number}",
-        "application/vnd.github.v3.diff",
-        max_bytes=1024 * 1024,
-    )
-    return diff_bytes.decode("utf-8", errors="replace")
+    try:
+        diff_bytes = client.get_raw(
+            f"repos/{repository}/pulls/{pr_number}",
+            "application/vnd.github.v3.diff",
+            max_bytes=1024 * 1024,
+        )
+        return diff_bytes.decode("utf-8", errors="replace")
+    except ReviewError as exc:
+        if "exceeded the bounded size" in str(exc).lower():
+            return None
+        raise
 
 
 def current_maintainer_approval(
@@ -2038,8 +2043,8 @@ def build_context(
     if not re.fullmatch(r"[0-9a-f]{64}", model_config_sha256):
         raise ReviewError("Agent model configuration digest is invalid.")
     limits = normalized_limits(config)
-    max_diff = int(limits.get("diff_chars", 180000))
-    patch_limit = int(limits.get("patch_chars", 180000))
+    max_diff = int(limits.get("diff_chars", 300000))
+    patch_limit = int(limits.get("patch_chars", 300000))
     if patch_limit < max_diff:
         raise ReviewError(
             "Agent review patch_limit must cover the complete "
@@ -2126,7 +2131,7 @@ def build_context(
         },
         "omissions": omissions,
     }
-    max_context = int(limits.get("assembled_context_chars", 384000))
+    max_context = int(limits.get("assembled_context_chars", 504000))
     while (
         len(canonical_json(context)) > max_context
         and context["untrusted"]["code_contexts"]
@@ -3110,6 +3115,7 @@ class AgentModelClient:
                 "temperature": 0,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
+                "stream": True,
             }
         elif self.protocol == "openai-chat-completions":
             value = {
@@ -3153,9 +3159,70 @@ class AgentModelClient:
         if self.protocol == "anthropic-messages":
             headers["x-api-key"] = self._api_key
             headers["anthropic-version"] = "2023-06-01"
+            headers["accept"] = "text/event-stream, application/json"
         else:
             headers["authorization"] = f"Bearer {self._api_key}"
         return headers
+
+    def read_stream_envelope(self, response: Any, provider: str) -> dict[str, Any]:
+        text_parts: list[str] = []
+        stop_reason = "end_turn"
+        total_bytes = 0
+        current_event = None
+        for raw_line in response:
+            total_bytes += len(raw_line)
+            if total_bytes > self.max_response_bytes:
+                raise ReviewError(f"{provider} response exceeded the bounded size.")
+            line_str = raw_line.decode("utf-8", errors="replace").strip()
+            if not line_str:
+                continue
+            if line_str.startswith("event:"):
+                current_event = line_str[6:].strip()
+            elif line_str.startswith("data:"):
+                payload_str = line_str[5:].strip()
+                if payload_str == "[DONE]":
+                    break
+                try:
+                    event_data = json.loads(payload_str)
+                except Exception:
+                    continue
+                if current_event == "content_block_delta":
+                    delta = event_data.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        text_parts.append(delta.get("text", ""))
+                elif current_event == "message_delta":
+                    delta = event_data.get("delta", {})
+                    if delta.get("stop_reason"):
+                        stop_reason = delta["stop_reason"]
+                elif current_event == "message_stop":
+                    break
+                elif "choices" in event_data:
+                    for choice in event_data.get("choices", []):
+                        delta = choice.get("delta", {})
+                        if "content" in delta and isinstance(delta["content"], str):
+                            text_parts.append(delta["content"])
+                        if choice.get("finish_reason"):
+                            stop_reason = (
+                                "max_tokens"
+                                if choice["finish_reason"] == "length"
+                                else "end_turn"
+                            )
+        if provider == "Anthropic":
+            return {
+                "content": [{"type": "text", "text": "".join(text_parts)}],
+                "stop_reason": stop_reason,
+            }
+        return {
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "".join(text_parts)},
+                    "finish_reason": (
+                        "length" if stop_reason == "max_tokens" else "stop"
+                    ),
+                }
+            ],
+        }
 
     def request_envelope(self, system: str, user: str, max_tokens: int) -> Any:
         request = urllib.request.Request(
@@ -3167,6 +3234,12 @@ class AgentModelClient:
         provider = "Anthropic" if self.protocol == "anthropic-messages" else "OpenAI"
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                headers = getattr(response, "headers", None)
+                content_type = (
+                    headers.get("content-type", "") if headers is not None else ""
+                )
+                if "text/event-stream" in content_type:
+                    return self.read_stream_envelope(response, provider)
                 body = response.read(self.max_response_bytes + 1)
                 if len(body) > self.max_response_bytes:
                     raise ReviewError(f"{provider} response exceeded the bounded size.")
@@ -3192,6 +3265,8 @@ class AgentModelClient:
                     "Anthropic API returned an invalid response envelope."
                 )
             block_type = block.get("type")
+            if block_type == "thinking":
+                continue
             if block_type == "refusal" and isinstance(block.get("text"), str):
                 raise ReviewError("Anthropic refused the review.")
             if block_type != "text" or not isinstance(block.get("text"), str):
