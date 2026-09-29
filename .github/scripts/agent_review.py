@@ -1988,12 +1988,17 @@ def pull_request_diff(
 ) -> str | None:
     if file_count > MAX_RAW_DIFF_FILES:
         return None
-    diff_bytes = client.get_raw(
-        f"repos/{repository}/pulls/{pr_number}",
-        "application/vnd.github.v3.diff",
-        max_bytes=1024 * 1024,
-    )
-    return diff_bytes.decode("utf-8", errors="replace")
+    try:
+        diff_bytes = client.get_raw(
+            f"repos/{repository}/pulls/{pr_number}",
+            "application/vnd.github.v3.diff",
+            max_bytes=1024 * 1024,
+        )
+        return diff_bytes.decode("utf-8", errors="replace")
+    except ReviewError as exc:
+        if "exceeded the bounded size" in str(exc).lower():
+            return None
+        raise
 
 
 def current_maintainer_approval(

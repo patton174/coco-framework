@@ -891,18 +891,20 @@ jobs:
   # ended in error and can re-trigger by re-approving the PR.
   fail-closed:
     name: Fail closed on jury error
-    needs: [prepare, specialists, verifiers, chair, continuity-verifiers, publisher-admission, trusted-publisher]
+    needs: [bind, prepare, specialists, verifiers, chair, continuity-verifiers, publisher-admission, trusted-publisher]
     if: >-
       always() &&
-      needs.prepare.result == 'success' &&
-      needs.prepare.outputs.ignored == 'false' &&
-      needs.prepare.outputs.trusted == 'true' &&
-      (needs.trusted-publisher.result == 'failure' ||
-       needs.specialists.result == 'failure' ||
-       needs.verifiers.result == 'failure' ||
-       needs.chair.result == 'failure' ||
-       needs.continuity-verifiers.result == 'failure' ||
-       needs.publisher-admission.result == 'failure')
+      needs.bind.result == 'success' &&
+      needs.bind.outputs.eligible == 'true' &&
+      (needs.prepare.result != 'success' ||
+       (needs.prepare.outputs.ignored == 'false' &&
+        needs.prepare.outputs.trusted == 'true' &&
+        (needs.trusted-publisher.result == 'failure' ||
+         needs.specialists.result == 'failure' ||
+         needs.verifiers.result == 'failure' ||
+         needs.chair.result == 'failure' ||
+         needs.continuity-verifiers.result == 'failure' ||
+         needs.publisher-admission.result == 'failure')))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -912,21 +914,37 @@ jobs:
       - name: Checkout trusted reviewer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.base-sha }}
+          ref: ${{ needs.bind.outputs.base_sha }}
           path: .agent-review-base
           persist-credentials: false
           sparse-checkout: .github/scripts
 
       - name: Download bound review metadata
+        if: needs.prepare.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
 
+      - name: Formulate fallback metadata
+        if: needs.prepare.result != 'success'
+        shell: bash
+        env:
+          HEAD_SHA: ${{ needs.bind.outputs.head_sha }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/agent-review-input"
+          # Formulate a minimal payload to satisfy mark-failed; it requires only
+          # repository and head_sha. A complete context binding is unnecessary here
+          # because this path only sets a FAILURE status without granting approvals.
+          cat <<EOF > "${RUNNER_TEMP}/agent-review-input/metadata.json"
+          {"repository": "${GITHUB_REPOSITORY}", "head_sha": "${HEAD_SHA}"}
+          EOF
+
       - name: Publish explicit failure status
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PREPARE_RES: ${{ needs.prepare.result }}
           SPECIALISTS_RES: ${{ needs.specialists.result }}
           VERIFIERS_RES: ${{ needs.verifiers.result }}
           CHAIR_RES: ${{ needs.chair.result }}
@@ -938,7 +956,9 @@ jobs:
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           # Surface which stage failed so the author can diagnose without
           # reading the full run log.
-          if [[ "${SPECIALISTS_RES}" == 'failure' ]]; then
+          if [[ "${PREPARE_RES}" != 'success' ]]; then
+            description="Agent jury preparation failed"
+          elif [[ "${SPECIALISTS_RES}" == 'failure' ]]; then
             description="Agent jury specialist run failed"
           elif [[ "${VERIFIERS_RES}" == 'failure' ]]; then
             description="Agent jury verifier run failed"
