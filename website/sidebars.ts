@@ -51,7 +51,6 @@ const sidebars: SidebarsConfig = {
         'features/captcha',
         'features/audit',
         'features/openapi',
-        'features/codegen',
         'features/infra',
       ],
     },

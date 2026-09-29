@@ -90,12 +90,6 @@ coco:
 **→ [Getting started](https://patton174.github.io/coco-framework/getting-started)** walks through a first service end to end.
 **→ [Feature toggles](https://patton174.github.io/coco-framework/feature-toggles)** lists every switch and its default.
 
-## CRUD source generation
-
-Standard CRUD scaffolding lives in the standalone [coco-generate](https://github.com/patton174/coco-generate) tool. It generates business-owned ordinary source during development — Controller, DTO, application service, domain repository, MyBatis-Plus infrastructure — and is not an application runtime dependency. It writes to `src/main/java` and refuses to overwrite existing files, so entities are never exposed automatically at runtime.
-
-**→ [Code generation](https://patton174.github.io/coco-framework/features/codegen)** covers the config format and templates.
-
 ## Production notes
 
 A few defaults are deliberately conservative, because the safe choice for a first adoption is not the right choice for a cluster. Each is off or process-local until you opt in:
