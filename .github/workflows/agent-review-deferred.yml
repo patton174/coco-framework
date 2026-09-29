@@ -944,7 +944,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-                    PREPARE_RES: ${{ needs.prepare.result }}
+          PREPARE_RES: ${{ needs.prepare.result }}
           SPECIALISTS_RES: ${{ needs.specialists.result }}
           VERIFIERS_RES: ${{ needs.verifiers.result }}
           CHAIR_RES: ${{ needs.chair.result }}
