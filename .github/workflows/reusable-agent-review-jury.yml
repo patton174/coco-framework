@@ -227,8 +227,19 @@ jobs:
           overwrite: true
           retention-days: 1
 
+      - name: Formulate fallback metadata
+        if: failure() && steps.context.outcome != 'success'
+        shell: bash
+        env:
+          HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/agent-review-input"
+          cat <<EOF > "${RUNNER_TEMP}/agent-review-input/metadata.json"
+          {"repository": "${GITHUB_REPOSITORY}", "head_sha": "${HEAD_SHA}"}
+          EOF
+
       - name: Fail closed when preparation cannot finish
-        if: failure() && steps.context.outcome == 'success'
+        if: failure()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
