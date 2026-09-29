@@ -8061,7 +8061,7 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("git/ref/heads/main", workflow)
         self.assertIn('"${GITHUB_SHA}" != "${latest_main_sha}"', workflow)
         self.assertIn("needs: guard", workflow)
-        self.assertIn("needs: test", publish)
+        self.assertIn("needs:\n      - test\n      - central-capacity", publish)
         self.assertNotIn("contents: write", publish)
         self.assertIn("environment: coco-spring", publish)
         self.assertIn('central_wait_until="PUBLISHED"', publish)
