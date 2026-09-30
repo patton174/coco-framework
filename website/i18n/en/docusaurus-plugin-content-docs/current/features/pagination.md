@@ -14,7 +14,7 @@ Modules involved:
 
 - `coco-api`: the persistence-agnostic `CocoPage` and `CocoPageRequest`.
 - `coco-context`: the thread-level context `CocoPageContext`, `CocoPageContextHolder`, and the sort item `CocoSortOrder`.
-- `coco-feature-web`: the entry interceptor `CocoPageInterceptor` and its configuration `CocoPageProperties`.
+- `coco-web`: the entry interceptor `CocoPageInterceptor` and its configuration `CocoPageProperties`.
 - `coco-feature-mybatis-plus`: the context injection interceptor `CocoPageContextInnerInterceptor`, the bridging utility `CocoPages`, and the sort allowlist annotation `@CocoSortable`.
 
 ## The Complete Pipeline

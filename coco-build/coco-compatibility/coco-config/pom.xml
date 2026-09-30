@@ -6,20 +6,21 @@
 
     <parent>
         <groupId>io.github.patton174</groupId>
-        <artifactId>coco-features</artifactId>
+        <artifactId>coco-framework</artifactId>
         <version>${revision}</version>
-        <relativePath>../pom.xml</relativePath>
+        <relativePath>../../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>coco-feature-runtime</artifactId>
-    <name>Coco Feature Runtime</name>
-    <!-- 7a compatibility only; direct consumers must use coco-spring-boot-autoconfigure. -->
-    <description>Deprecated compatibility facade retained only for migration batch 7a. Direct consumers must migrate to coco-spring-boot-autoconfigure, which now consolidates the APIs, implementations, and dependencies previously exposed through this artifact. This facade will be removed in batch 7b before the public 2.0 release.</description>
+    <artifactId>coco-config</artifactId>
+    <packaging>jar</packaging>
+    <name>Coco Config Compatibility</name>
+    <description>Source-free compatibility facade for the published coco-config coordinate. Its implementation lives in coco-spring-boot-autoconfigure, which direct consumers should depend on instead.</description>
 
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>coco-spring-boot-autoconfigure</artifactId>
+            <version>${project.version}</version>
         </dependency>
     </dependencies>
 </project>

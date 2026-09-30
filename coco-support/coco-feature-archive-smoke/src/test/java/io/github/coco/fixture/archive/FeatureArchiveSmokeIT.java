@@ -48,7 +48,8 @@ class FeatureArchiveSmokeIT {
             DISABLED_FEATURES.forEach(feature -> assertThat(featureStates.get(feature)).isFalse());
 
             Set<String> archiveLibraries = archiveLibraries(archive);
-            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-web-"));
+            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-web-"));
+            assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-web-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-audit-"));
             assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-audit-"));
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-security-"));

@@ -14,7 +14,7 @@ Coco 把分页和排序做成了一条对业务层透明的链路：前端通过
 
 - `coco-api`：持久层无关的 `CocoPage`、`CocoPageRequest`。
 - `coco-context`：线程级上下文 `CocoPageContext`、`CocoPageContextHolder`、排序项 `CocoSortOrder`。
-- `coco-feature-web`：入口拦截器 `CocoPageInterceptor` 及其配置 `CocoPageProperties`。
+- `coco-web`：入口拦截器 `CocoPageInterceptor` 及其配置 `CocoPageProperties`。
 - `coco-feature-mybatis-plus`：上下文注入拦截器 `CocoPageContextInnerInterceptor`、桥接工具 `CocoPages`、排序白名单注解 `@CocoSortable`。
 
 ## 完整链路
