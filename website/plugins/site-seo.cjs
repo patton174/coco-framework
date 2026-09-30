@@ -7,13 +7,14 @@ module.exports = function siteSeo() {
   return {
     name: 'coco-site-seo',
     async postBuild({outDir, siteConfig, i18n}) {
+      if (i18n.currentLocale !== i18n.defaultLocale) {
+        return;
+      }
       const sitemap = new URL(`${siteConfig.baseUrl}sitemap.xml`, siteConfig.url);
-      const extra = i18n.currentLocale === i18n.defaultLocale
-        ? i18n.locales
-            .filter(locale => locale !== i18n.defaultLocale)
-            .map(locale => `Sitemap: ${new URL(`${siteConfig.baseUrl}${locale}/sitemap.xml`, siteConfig.url)}`)
-            .join('\n')
-        : '';
+      const extra = i18n.locales
+        .filter(locale => locale !== i18n.defaultLocale)
+        .map(locale => `Sitemap: ${new URL(`${siteConfig.baseUrl}${locale}/sitemap.xml`, siteConfig.url)}`)
+        .join('\n');
       const lines = [
         'User-agent: *',
         'Allow: /',
