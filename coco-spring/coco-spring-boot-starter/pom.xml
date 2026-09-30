@@ -38,15 +38,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-runtime</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>coco-config</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>coco-feature-web</artifactId>
+            <artifactId>coco-web</artifactId>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -114,6 +106,18 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- Legacy facades stay on the test classpath only, so CocoSpringCompositionClasspathTest keeps
+             proving that their coexistence with the starter registers each auto-configuration once. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-feature-runtime</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>coco-config</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -30,8 +30,9 @@ import io.github.coco.api.feature.CocoFeature;
 public final class StandardCocoFeatures {
 
     private static final List<CocoFeatureDefinition> FEATURES = List.of(
-            feature(CocoFeature.WEB, "coco-feature-web",
-                    "io.github.coco.feature.web.CocoWebAutoConfiguration"),
+            feature(CocoFeature.WEB, "coco-web",
+                    "io.github.coco.feature.web.CocoWebAutoConfiguration",
+                    Set.of("coco-web", "coco-feature-web")),
             feature(CocoFeature.MYBATIS_PLUS, "coco-mybatis-plus",
                     "io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration",
                     Set.of(

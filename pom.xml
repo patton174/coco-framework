@@ -45,17 +45,19 @@
         <module>coco-foundation/coco-feature-model</module>
         <module>coco-foundation/coco-i18n</module>
         <module>coco-foundation/coco-logging</module>
-        <module>coco-spring/coco-config</module>
         <module>coco-spring/coco-spring-boot-autoconfigure</module>
         <module>coco-spring/coco-spring-boot-starter</module>
         <module>coco-features</module>
         <module>coco-build/coco-maven-plugin</module>
+        <module>coco-build/coco-compatibility/coco-config</module>
+        <module>coco-build/coco-compatibility/coco-feature-runtime</module>
         <module>coco-build/coco-compatibility/coco-feature-mybatis-plus</module>
         <module>coco-build/coco-compatibility/coco-feature-audit</module>
         <module>coco-build/coco-compatibility/coco-feature-openapi</module>
         <module>coco-build/coco-compatibility/coco-feature-tenant</module>
         <module>coco-build/coco-compatibility/coco-feature-data-permission</module>
         <module>coco-build/coco-compatibility/coco-feature-security</module>
+        <module>coco-build/coco-compatibility/coco-feature-web</module>
         <module>coco-support/coco-test</module>
         <module>coco-support/coco-feature-archive-smoke</module>
     </modules>
@@ -136,6 +138,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>coco-feature-model</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>coco-web</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>

@@ -1015,8 +1015,8 @@ class AgentReviewTests(unittest.TestCase):
         # The routing fixtures above can name planned paths. Keep physical
         # compatibility evidence in the canonical integration inputs instead.
         required_paths = {
-            "coco-spring/coco-config/pom.xml",
-            "coco-features/coco-feature-runtime/pom.xml",
+            "coco-build/coco-compatibility/coco-config/pom.xml",
+            "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
             "coco-build/coco-maven-plugin/pom.xml",
             "coco-build/coco-maven-plugin/src/test/java/io/github/coco/maven/CocoPackagePruneMojoTest.java",
             "coco-support/coco-feature-archive-smoke/pom.xml",
@@ -1280,7 +1280,10 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-notification/pom.xml",
                 "coco-features/coco-captcha/pom.xml",
             ],
-            "web": ["coco-features/coco-feature-web/pom.xml"],
+            "web": [
+                "coco-features/coco-feature-web/pom.xml",
+                "coco-features/coco-web/pom.xml",
+            ],
             "audit": [
                 "coco-features/coco-feature-audit/pom.xml",
                 "coco-features/coco-audit/pom.xml",
@@ -14314,8 +14317,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_280, largest_size)
-        self.assertEqual(38_720, limit - largest_size)
+        self.assertEqual(57_500, largest_size)
+        self.assertEqual(38_500, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a

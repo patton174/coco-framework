@@ -31,8 +31,8 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-context`, `coco-exception`, `coco-i18n`, and `coco-logging` contain reusable foundation infrastructure.
 - `coco-config` binds `coco.*` configuration and computes the final runtime feature plan.
 - `coco-feature-model` owns standard feature metadata, dependencies, manifest model, and feature resolution.
-- `coco-feature-runtime` filters auto-configuration by feature state.
-- `coco-feature-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
+- `coco-spring-boot-autoconfigure` filters auto-configuration by feature state and owns the former `coco-config` and `coco-feature-runtime` implementations; those two coordinates survive only as source-free facades under `coco-build/coco-compatibility`, and no framework module may depend on them.
+- `coco-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
 - `coco-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
 - `coco-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
 - `coco-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.

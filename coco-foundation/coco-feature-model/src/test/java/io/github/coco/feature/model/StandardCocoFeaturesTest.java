@@ -47,6 +47,9 @@ class StandardCocoFeaturesTest {
 
         assertEquals("io.github.coco.feature.web.CocoWebAutoConfiguration",
                 definitions.get(CocoFeature.WEB).autoConfigurationClassName());
+        assertEquals("coco-web", definitions.get(CocoFeature.WEB).artifactId());
+        assertTrue(definitions.get(CocoFeature.WEB).pruneArtifactIds().containsAll(
+                Set.of("coco-web", "coco-feature-web")));
         assertEquals("coco-mybatis-plus", definitions.get(CocoFeature.MYBATIS_PLUS).artifactId());
         assertTrue(definitions.get(CocoFeature.MYBATIS_PLUS).pruneArtifactIds().containsAll(
                 Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus")));
