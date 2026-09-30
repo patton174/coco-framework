@@ -11987,6 +11987,120 @@ class AgentReviewTests(unittest.TestCase):
                 "c" * 40,
             )
 
+    def test_anthropic_client_retries_transient_transport_failures(self) -> None:
+        class FakeResponse:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                return self.body[:limit]
+
+        payload = {
+            "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": '{"ok":true}'}],
+        }
+
+        def http_error(status: int) -> review.urllib.error.HTTPError:
+            return review.urllib.error.HTTPError(
+                "https://models.example.invalid/messages",
+                status,
+                "temporary",
+                None,
+                io.BytesIO(b"temporary"),
+            )
+
+        with patch.dict("os.environ", model_env("anthropic-messages"), clear=True):
+            client = review.AgentModelClient(config())
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=[
+                        http_error(520),
+                        FakeResponse(json.dumps(payload).encode()),
+                    ],
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                self.assertEqual(
+                    {"ok": True}, client.complete("system", "user", 100)
+                )
+            self.assertEqual(2, urlopen.call_count)
+            self.assertEqual(1, sleeper.call_count)
+            self.assertEqual(
+                review.MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS[0],
+                sleeper.call_args[0][0],
+            )
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=[http_error(520), http_error(524), http_error(502)],
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(
+                    review.ReviewError, "HTTP 502"
+                ) as raised:
+                    client.complete("system", "user", 100)
+            self.assertNotIsInstance(
+                raised.exception, review.RetryableModelOutputError
+            )
+            self.assertEqual(3, urlopen.call_count)
+            self.assertEqual(2, sleeper.call_count)
+            self.assertEqual(
+                review.MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS[1],
+                sleeper.call_args[0][0],
+            )
+
+            for status in (401, 403, 404):
+                with self.subTest(status=status):
+                    error = http_error(status)
+                    try:
+                        with (
+                            patch.object(
+                                review.urllib.request, "urlopen", side_effect=error
+                            ) as urlopen,
+                            patch.object(review.time, "sleep") as sleeper,
+                            patch("builtins.print"),
+                        ):
+                            with self.assertRaisesRegex(
+                                review.ReviewError, f"HTTP {status}"
+                            ):
+                                client.complete("system", "user", 100)
+                    finally:
+                        error.close()
+                    self.assertEqual(1, urlopen.call_count)
+                    sleeper.assert_not_called()
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=[
+                        review.urllib.error.URLError(TimeoutError("timeout")),
+                        FakeResponse(json.dumps(payload).encode()),
+                    ],
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                self.assertEqual(
+                    {"ok": True}, client.complete("system", "user", 100)
+                )
+            self.assertEqual(2, urlopen.call_count)
+            self.assertEqual(1, sleeper.call_count)
+
     def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:
         class FakeResponse:
             def __init__(self, body: bytes) -> None:
@@ -14317,8 +14431,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_500, largest_size)
-        self.assertEqual(38_500, limit - largest_size)
+        self.assertEqual(57_598, largest_size)
+        self.assertEqual(38_402, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
