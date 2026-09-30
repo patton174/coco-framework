@@ -6,7 +6,7 @@
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>${coco.version}</version>
+    <version>2.0.2</version>
     <relativePath/>
 </parent>
 
@@ -30,5 +30,5 @@ coco:
       - tenant
 ```
 
-**→ [快速开始](https://patton174.github.io/coco-framework/getting-started)** 完整走一遍第一个服务。
-**→ [特性开关](https://patton174.github.io/coco-framework/feature-toggles)** 列出全部开关及默认值。
+**→ [快速开始](https://cocoframwork.dev/getting-started)** 完整走一遍第一个服务。
+**→ [特性开关](https://cocoframwork.dev/feature-toggles)** 列出全部开关及默认值。

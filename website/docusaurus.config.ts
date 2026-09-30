@@ -6,15 +6,16 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Coco Framework',
-  tagline: '高约定的 Spring Boot Web 服务端框架，快速构建生产可用的 Java 服务',
-  favicon: 'img/logo.svg',
+  titleDelimiter: '·',
+  tagline: '少写基础设施，多写业务。',
+  favicon: 'img/brand/logo.svg',
 
   future: {
     v4: true,
   },
 
-  url: 'https://patton174.github.io',
-  baseUrl: '/coco-framework/',
+  url: process.env.COCO_SITE_URL || 'https://patton174.github.io',
+  baseUrl: process.env.COCO_BASE_URL || '/coco-framework/',
 
   organizationName: 'patton174',
   projectName: 'coco-framework',
@@ -22,27 +23,9 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
-
-  stylesheets: [
-    {
-      href: 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;500;600&display=swap',
-      rel: 'stylesheet',
-    },
-  ],
-
+  plugins: ['./plugins/site-seo.cjs'],
   headTags: [
-    {
-      tagName: 'link',
-      attributes: {rel: 'preconnect', href: 'https://fonts.googleapis.com'},
-    },
-    {
-      tagName: 'link',
-      attributes: {
-        rel: 'preconnect',
-        href: 'https://fonts.gstatic.com',
-        crossorigin: 'anonymous',
-      },
-    },
+    {tagName: 'link', attributes: {rel: 'apple-touch-icon', href: `${process.env.COCO_BASE_URL || '/coco-framework/'}img/brand/apple-touch-icon.png`}},
   ],
 
   i18n: {
@@ -65,6 +48,7 @@ const config: Config = {
             'https://github.com/patton174/coco-framework/tree/main/website/',
         },
         blog: false,
+        sitemap: {changefreq: 'weekly', priority: 0.5, ignorePatterns: ['**/404.html']},
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -73,7 +57,15 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/docusaurus-social-card.jpg',
+    image: 'img/brand/social-card.png',
+    metadata: [
+      {property: 'og:type', content: 'website'},
+      {property: 'og:site_name', content: 'Coco Framework'},
+      {property: 'og:image:width', content: '1200'},
+      {property: 'og:image:height', content: '630'},
+      {property: 'og:image:alt', content: 'Coco Framework — Less infrastructure. More product.'},
+      {name: 'keywords', content: 'Spring Boot, Java framework, Spring Boot starter, distributed lock, rate limiting, idempotency, multi-tenant, data permissions, audit logging'},
+    ],
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -81,7 +73,9 @@ const config: Config = {
       title: 'Coco Framework',
       logo: {
         alt: 'Coco Framework Logo',
-        src: 'img/logo.svg',
+        src: 'img/brand/logo.svg',
+        width: 32,
+        height: 32,
       },
       items: [
         {
@@ -96,6 +90,7 @@ const config: Config = {
           position: 'left',
           label: '技能',
         },
+        {to: '/releases', label: '更新日志', position: 'left'},
         {
           // Icon-only 文A / A文 switch — see src/theme/NavbarItem/ComponentTypes.
           type: 'custom-localeToggle',
@@ -150,8 +145,8 @@ const config: Config = {
       copyright: `Copyright © ${new Date().getFullYear()} Coco Framework · Apache-2.0 · Built with Docusaurus.`,
     },
     prism: {
-      theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      theme: {...prismThemes.github, styles: [...prismThemes.github.styles, {types: ['comment'], style: {color: '#626258'}}]},
+      darkTheme: {...prismThemes.dracula, styles: [...prismThemes.dracula.styles, {types: ['comment'], style: {color: '#a5afd0'}}]},
       additionalLanguages: ['java', 'yaml', 'properties', 'bash', 'json', 'sql'],
     },
   } satisfies Preset.ThemeConfig,

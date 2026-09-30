@@ -8,4 +8,4 @@ A few defaults are deliberately conservative, because the safe choice for a firs
 | **Replay protection** | `InMemoryCocoReplayStore`, process-local | Switch to the JDBC store (or your own) so reservations are atomic across instances. Coco runs no migrations — you own the schema |
 | **Async logging** | Bounded queue; `ERROR` and exceptions always synchronous | Replace `CocoAsyncLogDropListener` to feed drop counts into your metrics. This is overload observability, not durable delivery |
 
-**→ [SQL guard](https://patton174.github.io/coco-framework/features/mybatis-plus)** · **[Replay protection](https://patton174.github.io/coco-framework/features/request-security)** · **[Logging and infrastructure](https://patton174.github.io/coco-framework/features/infra)**
+**→ [SQL guard](https://cocoframwork.dev/en/features/mybatis-plus)** · **[Replay protection](https://cocoframwork.dev/en/features/request-security)** · **[Logging and infrastructure](https://cocoframwork.dev/en/features/infra)**

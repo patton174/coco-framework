@@ -1,0 +1,55 @@
+{
+  "lighthouseVersion": "12.8.2",
+  "fetchTime": "2026-09-07T07:49:42.408Z",
+  "requestedUrl": "https://cocoframwork.dev/",
+  "finalDisplayedUrl": "https://cocoframwork.dev/",
+  "runtimeError": null,
+  "configSettings": {
+    "formFactor": "mobile",
+    "throttlingMethod": "simulate",
+    "throttling": {
+      "rttMs": 150,
+      "throughputKbps": 1638.4,
+      "requestLatencyMs": 562.5,
+      "downloadThroughputKbps": 1474.5600000000002,
+      "uploadThroughputKbps": 675,
+      "cpuSlowdownMultiplier": 4
+    },
+    "screenEmulation": {
+      "mobile": true,
+      "width": 412,
+      "height": 823,
+      "deviceScaleFactor": 1.75,
+      "disabled": false
+    }
+  },
+  "scores": {
+    "performance": 86,
+    "accessibility": 100,
+    "best-practices": 100,
+    "seo": 100
+  },
+  "metrics": {
+    "first-contentful-paint": {
+      "numericValue": 2299.88,
+      "displayValue": "2.3 s"
+    },
+    "largest-contentful-paint": {
+      "numericValue": 3751.7929999999997,
+      "displayValue": "3.8 s"
+    },
+    "speed-index": {
+      "numericValue": 2389.8183980000845,
+      "displayValue": "2.4 s"
+    },
+    "total-blocking-time": {
+      "numericValue": 38,
+      "displayValue": "40 ms"
+    },
+    "cumulative-layout-shift": {
+      "numericValue": 0.0027392800406886636,
+      "displayValue": "0.003"
+    }
+  },
+  "limitations": "Single Lighthouse simulated-mobile lab run from the local machine to the live Cloudflare site; not a mainland-China field performance guarantee."
+}
