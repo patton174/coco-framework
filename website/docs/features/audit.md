@@ -4,7 +4,7 @@ title: 审计管道
 
 # 审计管道
 
-Coco 审计管道（`coco-feature-audit`）把框架和业务产生的“具有审计意义的动作”收敛成结构化的审计事件，再通过统一的发布器分发到一个或多个落地端。事件来源只依赖发布器、不感知具体落地端，因此 Web、Security、Tenant 等模块与最终存储实现保持解耦。模块绑定 `coco.audit` 命名空间，默认启用，并作为一个 Coco Feature（`CocoFeature.AUDIT`）参与自动装配。
+Coco 审计管道（`coco-audit`，旧坐标 `coco-feature-audit` 作为兼容门面继续可解析）把框架和业务产生的“具有审计意义的动作”收敛成结构化的审计事件，再通过统一的发布器分发到一个或多个落地端。事件来源只依赖发布器、不感知具体落地端，因此 Web、Security、Tenant 等模块与最终存储实现保持解耦。模块绑定 `coco.audit` 命名空间，默认启用，并作为一个 Coco Feature（`CocoFeature.AUDIT`）参与自动装配。
 
 ## 功能简介
 

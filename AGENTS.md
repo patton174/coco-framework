@@ -33,10 +33,11 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - `coco-feature-model` owns standard feature metadata, dependencies, manifest model, and feature resolution.
 - `coco-feature-runtime` filters auto-configuration by feature state.
 - `coco-feature-web` owns Servlet Web integration: response wrapping, exception response handling, trace, request context, access logging, signatures, encryption, process-local replay protection, and an explicitly selected JDBC replay-store reference implementation.
-- `coco-feature-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
-- `coco-feature-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
-- `coco-feature-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
-- `coco-feature-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-feature-openapi` adapts Coco metadata to SpringDoc when present.
+- `coco-mybatis-plus` owns MyBatis-Plus interceptors, pagination, and SQL guard integration.
+- `coco-tenant` owns tenant context and MyBatis-Plus tenant SQL isolation.
+- `coco-data-permission` owns data permission context, resource mapping, and MyBatis-Plus data-permission SQL conditions.
+- `coco-audit` provides the audit event pipeline, default structured logging, formatter and recorder SPI; `coco-openapi` adapts Coco metadata to SpringDoc when present.
+- Renamed feature modules keep their published `coco-feature-*` coordinate resolvable through a source-free facade under `coco-build/coco-compatibility`; the facade depends on the canonical artifact and owns no implementation.
 - `coco-maven-plugin` creates `META-INF/coco/features.json`, applies enabled feature dependencies, and prunes disabled feature artifacts from Spring Boot packages.
 - `coco-support/coco-document` contains repository architecture, release, audit, plan, and specification documents; `coco-support/coco-tools` contains development-only repository tools; `coco-support/coco-test` contains reusable test support.
 - `coco-feature-archive-smoke`: nonbusiness Failsafe fixture for package feature-manifest/`prune-package` indexes.

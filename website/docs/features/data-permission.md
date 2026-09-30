@@ -6,7 +6,7 @@ title: 数据权限
 
 ## 功能简介
 
-`coco-feature-data-permission` 基于 SQL 谓词注入实现行级数据权限过滤：在查询执行前，框架根据当前调用方持有的数据权限规则，自动向涉及的表追加过滤条件（如 `dept_id IN (...)` 或永假条件 `1 = 0`）。业务代码无需在每个查询里手写数据范围过滤，权限边界由框架统一保障。
+`coco-data-permission`（旧坐标 `coco-feature-data-permission` 作为兼容门面继续可解析）基于 SQL 谓词注入实现行级数据权限过滤：在查询执行前，框架根据当前调用方持有的数据权限规则，自动向涉及的表追加过滤条件（如 `dept_id IN (...)` 或永假条件 `1 = 0`）。业务代码无需在每个查询里手写数据范围过滤，权限边界由框架统一保障。
 
 与租户隔离类似，数据权限的“规则来源”与“SQL 生成”解耦：`CocoDataPermissionContext` 只表达“当前调用方对某资源拥有什么数据范围”，具体如何翻译成 SQL 由可替换的 `CocoDataPermissionSqlPredicateProvider` 决定。
 
@@ -47,7 +47,7 @@ title: 数据权限
 
 ## 如何启用接入
 
-功能随 `coco-feature-data-permission` 依赖自动装配，但 **SQL 拦截默认关闭**，必须显式开启并配置资源映射才生效。装配条件：
+功能随 `coco-data-permission` 依赖自动装配，但 **SQL 拦截默认关闭**，必须显式开启并配置资源映射才生效。装配条件：
 
 - 特性 `data-permission`、`mybatis-plus`、`security` 均未被禁用。
 - 类路径存在 `DataPermissionInterceptor` 与 `CocoMybatisPlusInterceptorCustomizer`。

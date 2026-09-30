@@ -49,9 +49,12 @@ class FeatureArchiveSmokeIT {
 
             Set<String> archiveLibraries = archiveLibraries(archive);
             assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-web-"));
-            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-audit-"));
-            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-security-"));
-            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-feature-openapi-"));
+            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-audit-"));
+            assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-audit-"));
+            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-security-"));
+            assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-security-"));
+            assertThat(archiveLibraries).anyMatch(name -> name.startsWith("coco-openapi-"));
+            assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-openapi-"));
             assertThat(featureStates).doesNotContainKey("codegen");
             assertThat(archiveLibraries).noneMatch(name -> name.startsWith("coco-feature-codegen-"));
             // FreeMarker entered business archives only through the codegen feature, so its absence is

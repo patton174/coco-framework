@@ -4,7 +4,7 @@ title: Audit Pipeline
 
 # Audit Pipeline
 
-The Coco audit pipeline (`coco-feature-audit`) converges the "audit-worthy actions" produced by the framework and the business into structured audit events, then distributes them to one or more sinks through a unified publisher. Event sources depend only on the publisher and are unaware of the specific sinks, so modules such as Web, Security, and Tenant stay decoupled from the final storage implementation. The module binds the `coco.audit` namespace, is enabled by default, and participates in auto-configuration as a Coco Feature (`CocoFeature.AUDIT`).
+The Coco audit pipeline (`coco-audit`; the former `coco-feature-audit` coordinate stays resolvable as a compatibility facade) converges the "audit-worthy actions" produced by the framework and the business into structured audit events, then distributes them to one or more sinks through a unified publisher. Event sources depend only on the publisher and are unaware of the specific sinks, so modules such as Web, Security, and Tenant stay decoupled from the final storage implementation. The module binds the `coco.audit` namespace, is enabled by default, and participates in auto-configuration as a Coco Feature (`CocoFeature.AUDIT`).
 
 ## Feature overview
 

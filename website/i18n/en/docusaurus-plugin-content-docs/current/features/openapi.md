@@ -4,7 +4,7 @@ title: OpenAPI Metadata
 
 # OpenAPI Metadata
 
-Coco OpenAPI metadata (`coco-feature-openapi`) provides a framework-level, rendering-library-agnostic contract for the basic information of API documentation, and automatically writes this metadata into SpringDoc's `OpenAPI.info` when a business project introduces SpringDoc. It is responsible only for the "documentation basic information" layer; it does not generate an endpoint inventory and does not take over route scanning. The module binds the `coco.openapi` namespace, is enabled by default, participates in auto-configuration as a Coco Feature (`CocoFeature.OPENAPI`), and loads after the Web and Security auto-configurations.
+Coco OpenAPI metadata (`coco-openapi`; the former `coco-feature-openapi` coordinate stays resolvable as a compatibility facade) provides a framework-level, rendering-library-agnostic contract for the basic information of API documentation, and automatically writes this metadata into SpringDoc's `OpenAPI.info` when a business project introduces SpringDoc. It is responsible only for the "documentation basic information" layer; it does not generate an endpoint inventory and does not take over route scanning. The module binds the `coco.openapi` namespace, is enabled by default, participates in auto-configuration as a Coco Feature (`CocoFeature.OPENAPI`), and loads after the Web and Security auto-configurations.
 
 ## Overview
 
