@@ -9,10 +9,22 @@ module.exports = function siteSeo() {
     async postBuild({outDir, siteConfig, i18n}) {
       const sitemap = new URL(`${siteConfig.baseUrl}sitemap.xml`, siteConfig.url);
       const extra = i18n.currentLocale === i18n.defaultLocale
-        ? i18n.locales.filter(locale => locale !== i18n.defaultLocale)
-          .map(locale => `Sitemap: ${new URL(`${siteConfig.baseUrl}${locale}/sitemap.xml`, siteConfig.url)}\n`).join('')
+        ? i18n.locales
+            .filter(locale => locale !== i18n.defaultLocale)
+            .map(locale => `Sitemap: ${new URL(`${siteConfig.baseUrl}${locale}/sitemap.xml`, siteConfig.url)}`)
+            .join('\n')
         : '';
-      await writeFile(path.join(outDir, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: ${sitemap}\n${extra}`);
+      const lines = [
+        'User-agent: *',
+        'Allow: /',
+        '',
+        `Sitemap: ${sitemap}`,
+      ];
+      if (extra) {
+        lines.push(extra);
+      }
+      lines.push('');
+      await writeFile(path.join(outDir, 'robots.txt'), lines.join('\n'));
     },
   };
 };
