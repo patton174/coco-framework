@@ -6,7 +6,7 @@ Use `coco-parent` as the application parent and add the single starter dependenc
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>${coco.version}</version>
+    <version>2.0.2</version>
     <relativePath/>
 </parent>
 
@@ -30,5 +30,5 @@ coco:
       - tenant
 ```
 
-**→ [Getting started](https://patton174.github.io/coco-framework/getting-started)** walks through a first service end to end.
-**→ [Feature toggles](https://patton174.github.io/coco-framework/feature-toggles)** lists every switch and its default.
+**→ [Getting started](https://cocoframwork.dev/en/getting-started)** walks through a first service end to end.
+**→ [Feature toggles](https://cocoframwork.dev/en/feature-toggles)** lists every switch and its default.

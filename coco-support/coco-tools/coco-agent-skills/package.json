@@ -1,6 +1,6 @@
 {
   "name": "@patton174/coco-agent-skills",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Let AI coding agents use the Coco Framework: semantic docs search, latest-version detection, and one-command MCP install.",
   "bin": {
@@ -30,7 +30,7 @@
     "url": "git+https://github.com/patton174/coco-framework.git",
     "directory": "coco-support/coco-tools/coco-agent-skills"
   },
-  "homepage": "https://patton174.github.io/coco-framework/skills",
+  "homepage": "https://cocoframwork.dev/skills",
   "bugs": {
     "url": "https://github.com/patton174/coco-framework/issues"
   },

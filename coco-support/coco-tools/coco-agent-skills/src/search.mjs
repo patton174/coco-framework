@@ -31,7 +31,7 @@ export const EMBEDDING_MODEL = 'Xenova/bge-small-zh-v1.5';
 /** 嵌入向量维度（随模型变化，供构建期与状态检查校验）。 */
 export const EMBEDDING_DIMENSION = 512;
 /** 文档站点基础地址。 */
-export const DOCS_BASE_URL = 'https://patton174.github.io/coco-framework/';
+export const DOCS_BASE_URL = 'https://cocoframwork.dev/';
 /**
  * 支持的文档语言，首项为站点默认语言（URL 不带前缀）。
  * <p>

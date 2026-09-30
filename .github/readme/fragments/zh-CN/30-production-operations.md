@@ -8,4 +8,4 @@
 | **防重放** | `InMemoryCocoReplayStore`，仅进程内有效 | 换成 JDBC 存储（或自己的实现），让键预留在多实例间原子。框架不执行迁移，表结构由你负责 |
 | **异步日志** | 有界队列；`ERROR` 与携带异常的记录始终同步写 | 替换 `CocoAsyncLogDropListener`，把丢弃计数接入你的监控。这是过载可观测性，不是投递保证 |
 
-**→ [SQL 防护](https://patton174.github.io/coco-framework/features/mybatis-plus)** · **[防重放](https://patton174.github.io/coco-framework/features/request-security)** · **[日志与基础设施](https://patton174.github.io/coco-framework/features/infra)**
+**→ [SQL 防护](https://cocoframwork.dev/features/mybatis-plus)** · **[防重放](https://cocoframwork.dev/features/request-security)** · **[日志与基础设施](https://cocoframwork.dev/features/infra)**
