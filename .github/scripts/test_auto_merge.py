@@ -564,51 +564,13 @@ class AutoMergeTests(unittest.TestCase):
         )
         self.assertEqual([merge.Candidate(17, None, "issues:unlabeled")], candidates)
 
-    def test_approved_review_event_binds_reviewed_pr_and_commit(self) -> None:
-        candidates = merge.event_candidates(
-            "pull_request_review",
-            {
-                "action": "submitted",
-                "review": {"state": "approved", "commit_id": HEAD_SHA},
-                "pull_request": {"number": 17},
-            },
-        )
-        self.assertEqual(
-            [merge.Candidate(17, HEAD_SHA, "pull_request_review:submitted")], candidates
-        )
-
-        missing_commit = merge.event_candidates(
-            "pull_request_review",
-            {
-                "action": "submitted",
-                "review": {"state": "approved"},
-                "pull_request": {"number": 17},
-            },
-        )
-        self.assertEqual(
-            [merge.Candidate(17, None, "pull_request_review:submitted")], missing_commit
-        )
-
-    def test_non_approved_review_events_yield_no_candidates(self) -> None:
-        for state in ("commented", "changes_requested", "dismissed"):
-            with self.subTest(state=state):
-                candidates = merge.event_candidates(
-                    "pull_request_review",
-                    {
-                        "action": "submitted",
-                        "review": {"state": state, "commit_id": HEAD_SHA},
-                        "pull_request": {"number": 17},
-                    },
-                )
-                self.assertEqual([], candidates)
-
-    def test_review_thread_events_cannot_enter_the_secret_bearing_workflow(
-        self,
-    ) -> None:
-        with self.assertRaisesRegex(
-            merge.ContractError, "Unsupported auto-merge event"
-        ):
-            merge.event_candidates("pull_request_review_thread", {})
+    def test_review_events_cannot_enter_the_secret_bearing_workflow(self) -> None:
+        for event_name in ("pull_request_review", "pull_request_review_thread"):
+            with self.subTest(event_name=event_name):
+                with self.assertRaisesRegex(
+                    merge.ContractError, "Unsupported auto-merge event"
+                ):
+                    merge.event_candidates(event_name, {})
 
     def test_workflow_run_without_associated_prs_falls_back_to_open_main_prs(
         self,
@@ -1799,8 +1761,6 @@ class AutoMergeTests(unittest.TestCase):
             "schedule:",
             "cron: '*/10 * * * *'",
             "issues:",
-            "pull_request_review:",
-            "types: [submitted]",
             "workflow_dispatch:",
             "incident_issue:",
             "Optional exact incident authorization Issue number",
@@ -1810,7 +1770,6 @@ class AutoMergeTests(unittest.TestCase):
             "types: [opened, closed, reopened, deleted, transferred, edited, labeled, unlabeled]",
             "ref: refs/heads/main",
             "environment: coco-agent",
-            "github.event.review.state == 'approved'",
             "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
             "client-id: ${{ vars.COCO_AGENT_APP_CLIENT_ID }}",
             "secrets.COCO_AGENT_APP_PRIVATE_KEY",
@@ -1842,6 +1801,7 @@ class AutoMergeTests(unittest.TestCase):
         ):
             self.assertIn(value, workflow)
         self.assertIn("persist-credentials: false", workflow)
+        self.assertNotIn("pull_request_review:", workflow)
         self.assertNotIn("pull_request_review_thread:", workflow)
         self.assertNotIn("pull_request_target:", workflow)
         self.assertNotIn("github.event.pull_request.head.sha", workflow)
