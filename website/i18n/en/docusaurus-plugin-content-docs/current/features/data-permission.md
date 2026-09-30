@@ -6,7 +6,7 @@ title: Data Permission
 
 ## Feature Overview
 
-`coco-feature-data-permission` implements row-level data permission filtering based on SQL predicate injection: before a query executes, the framework automatically appends filter conditions to the involved tables (such as `dept_id IN (...)` or the always-false condition `1 = 0`) according to the data permission rules held by the current caller. Business code does not need to hand-write data-scope filtering in every query; the permission boundary is uniformly guaranteed by the framework.
+`coco-data-permission` (the former `coco-feature-data-permission` coordinate stays resolvable as a compatibility facade) implements row-level data permission filtering based on SQL predicate injection: before a query executes, the framework automatically appends filter conditions to the involved tables (such as `dept_id IN (...)` or the always-false condition `1 = 0`) according to the data permission rules held by the current caller. Business code does not need to hand-write data-scope filtering in every query; the permission boundary is uniformly guaranteed by the framework.
 
 Similar to tenant isolation, the data permission "rule source" and "SQL generation" are decoupled: `CocoDataPermissionContext` only expresses "what data scope the current caller has over a given resource," while how it is translated into SQL is decided by the pluggable `CocoDataPermissionSqlPredicateProvider`.
 
@@ -47,7 +47,7 @@ Rules of the default predicate provider `DefaultCocoDataPermissionSqlPredicatePr
 
 ## How to Enable and Integrate
 
-The feature is auto-configured along with the `coco-feature-data-permission` dependency, but **SQL interception is disabled by default** and must be explicitly enabled with a configured resource mapping to take effect. Wiring conditions:
+The feature is auto-configured along with the `coco-data-permission` dependency, but **SQL interception is disabled by default** and must be explicitly enabled with a configured resource mapping to take effect. Wiring conditions:
 
 - None of the features `data-permission`, `mybatis-plus`, and `security` are disabled.
 - `DataPermissionInterceptor` and `CocoMybatisPlusInterceptorCustomizer` are present on the classpath.

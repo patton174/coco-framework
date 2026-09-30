@@ -1261,13 +1261,17 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-spring/coco-spring-boot-starter/pom.xml",
                 "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
                 "coco-features/coco-feature-data-permission/pom.xml",
+                "coco-features/coco-data-permission/pom.xml",
                 "coco-features/coco-feature-mybatis-plus/pom.xml",
                 "coco-features/coco-mybatis-plus/pom.xml",
                 "coco-features/coco-feature-openapi/pom.xml",
+                "coco-features/coco-openapi/pom.xml",
                 "coco-features/coco-rate-limit/pom.xml",
                 "coco-features/coco-idempotency/pom.xml",
                 "coco-features/coco-feature-security/pom.xml",
+                "coco-features/coco-security/pom.xml",
                 "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-tenant/pom.xml",
                 "coco-features/coco-lock/pom.xml",
                 "coco-features/coco-scheduling/pom.xml",
                 "coco-features/coco-storage/pom.xml",
@@ -1277,7 +1281,10 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-captcha/pom.xml",
             ],
             "web": ["coco-features/coco-feature-web/pom.xml"],
-            "audit": ["coco-features/coco-feature-audit/pom.xml"],
+            "audit": [
+                "coco-features/coco-feature-audit/pom.xml",
+                "coco-features/coco-audit/pom.xml",
+            ],
         }
         module_entries = review.module_map(repository_root)
         modules_by_artifact = {
@@ -14307,8 +14314,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_093, largest_size)
-        self.assertEqual(38_907, limit - largest_size)
+        self.assertEqual(57_280, largest_size)
+        self.assertEqual(38_720, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a

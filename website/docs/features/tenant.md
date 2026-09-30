@@ -6,7 +6,7 @@ title: 多租户隔离
 
 ## 功能简介
 
-`coco-feature-tenant` 基于 MyBatis-Plus 的 SQL 自动改写实现行级多租户隔离：业务代码照常编写查询，框架在 SQL 执行前自动为涉及的表追加 `tenant_id = ?` 条件，`INSERT` 时自动补齐租户字段。租户的识别方式与隔离机制解耦——`CocoTenantContext` 只表达“当前调用方属于哪个租户”，不绑定 HTTP Header、JWT Claim 或数据库字段。
+`coco-tenant`（旧坐标 `coco-feature-tenant` 作为兼容门面继续可解析）基于 MyBatis-Plus 的 SQL 自动改写实现行级多租户隔离：业务代码照常编写查询，框架在 SQL 执行前自动为涉及的表追加 `tenant_id = ?` 条件，`INSERT` 时自动补齐租户字段。租户的识别方式与隔离机制解耦——`CocoTenantContext` 只表达“当前调用方属于哪个租户”，不绑定 HTTP Header、JWT Claim 或数据库字段。
 
 模块的核心组成：
 
@@ -31,7 +31,7 @@ title: 多租户隔离
 
 ## 如何启用接入
 
-功能随 `coco-feature-tenant` 依赖自动装配，无需额外注解。装配条件：
+功能随 `coco-tenant` 依赖自动装配，无需额外注解。装配条件：
 
 - 特性 `tenant`、`mybatis-plus`、`security` 均未被禁用。
 - 类路径存在 `TenantLineInnerInterceptor` 与 `CocoMybatisPlusInterceptorCustomizer`。

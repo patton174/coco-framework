@@ -9,8 +9,8 @@
         <version>${revision}</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
-    <artifactId>coco-feature-tenant</artifactId>
-    <name>Coco Feature Tenant</name>
+    <artifactId>coco-tenant</artifactId>
+    <name>Coco Tenant</name>
     <description>Tenant context and MyBatis-Plus SQL isolation feature implementation.</description>
 
     <dependencies>

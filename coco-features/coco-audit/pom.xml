@@ -9,8 +9,8 @@
         <version>${revision}</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
-    <artifactId>coco-feature-audit</artifactId>
-    <name>Coco Feature Audit</name>
+    <artifactId>coco-audit</artifactId>
+    <name>Coco Audit</name>
     <description>Audit event publishing and access log recording feature implementation.</description>
 
     <dependencies>

@@ -9,8 +9,8 @@
         <version>${revision}</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
-    <artifactId>coco-feature-security</artifactId>
-    <name>Coco Feature Security</name>
+    <artifactId>coco-security</artifactId>
+    <name>Coco Security</name>
     <description>Security context feature implementation.</description>
 
     <dependencies>
