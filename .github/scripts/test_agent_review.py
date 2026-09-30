@@ -14317,8 +14317,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_500, largest_size)
-        self.assertEqual(38_500, limit - largest_size)
+        self.assertEqual(57_786, largest_size)
+        self.assertEqual(38_214, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
