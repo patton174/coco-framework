@@ -101,6 +101,7 @@ CONTINUITY_VERIFIER_ROLES = ("evidence-verifier", "policy-skeptic")
 FINDING_ISSUE_CONVERGENCE_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 GITHUB_LOOKUP_JITTER_RATIO = 0.25
+MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS = (2.0, 8.0)
 GITHUB_TRANSIENT_TRANSPORT_ERRORS = (
     TimeoutError,
     ConnectionResetError,
@@ -263,6 +264,16 @@ def retryable_github_http_status(status: int, headers: Any = None) -> bool:
         bool(normalized.get("retry-after"))
         or normalized.get("x-ratelimit-remaining") == "0"
     )
+
+
+def retryable_model_http_status(status: int) -> bool:
+    return status in {408, 429} or 500 <= status <= 599
+
+
+def retryable_model_transport_error(error: BaseException) -> bool:
+    if isinstance(error, TimeoutError):
+        return True
+    return isinstance(error, urllib.error.URLError) and retryable_url_error(error)
 
 
 def retryable_url_error(error: urllib.error.URLError) -> bool:
@@ -3224,6 +3235,25 @@ class AgentModelClient:
             ],
         }
 
+    def retry_transport_after(
+        self, attempt: int, provider: str, exc: BaseException
+    ) -> None:
+        delay = MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS[attempt]
+        payload: dict[str, Any] = {
+            "delay_seconds": delay,
+            "error_type": type(exc).__name__,
+            "event": "model-transport-retry",
+            "model": self.model,
+            "provider": provider,
+            "retry": attempt + 1,
+            "retry_limit": len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS),
+        }
+        if isinstance(exc, urllib.error.HTTPError):
+            payload["http_status"] = exc.code
+            exc.close()
+        print("model-transport-retry " + canonical_json(payload), file=sys.stderr)
+        time.sleep(delay)
+
     def request_envelope(self, system: str, user: str, max_tokens: int) -> Any:
         request = urllib.request.Request(
             self.endpoint,
@@ -3232,25 +3262,40 @@ class AgentModelClient:
             headers=self.request_headers(),
         )
         provider = "Anthropic" if self.protocol == "anthropic-messages" else "OpenAI"
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                headers = getattr(response, "headers", None)
-                content_type = (
-                    headers.get("content-type", "") if headers is not None else ""
-                )
-                if "text/event-stream" in content_type:
-                    return self.read_stream_envelope(response, provider)
-                body = response.read(self.max_response_bytes + 1)
-                if len(body) > self.max_response_bytes:
-                    raise ReviewError(f"{provider} response exceeded the bounded size.")
-        except urllib.error.HTTPError as exc:
-            raise ReviewError(f"{provider} API returned HTTP {exc.code}.") from None
-        except (urllib.error.URLError, TimeoutError):
-            raise ReviewError(f"{provider} API transport failed.") from None
-        try:
-            return json.loads(body)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise ReviewError(f"{provider} API returned invalid JSON.") from None
+        for attempt in range(len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    headers = getattr(response, "headers", None)
+                    content_type = (
+                        headers.get("content-type", "") if headers is not None else ""
+                    )
+                    if "text/event-stream" in content_type:
+                        return self.read_stream_envelope(response, provider)
+                    body = response.read(self.max_response_bytes + 1)
+                    if len(body) > self.max_response_bytes:
+                        raise ReviewError(
+                            f"{provider} response exceeded the bounded size."
+                        )
+            except urllib.error.HTTPError as exc:
+                if attempt < len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) and (
+                    retryable_model_http_status(exc.code)
+                ):
+                    self.retry_transport_after(attempt, provider, exc)
+                    continue
+                exc.close()
+                raise ReviewError(f"{provider} API returned HTTP {exc.code}.") from None
+            except (urllib.error.URLError, TimeoutError) as exc:
+                if attempt < len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) and (
+                    retryable_model_transport_error(exc)
+                ):
+                    self.retry_transport_after(attempt, provider, exc)
+                    continue
+                raise ReviewError(f"{provider} API transport failed.") from None
+            try:
+                return json.loads(body)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise ReviewError(f"{provider} API returned invalid JSON.") from None
+        raise AssertionError("Model transport retry loop terminated unexpectedly.")
 
     @staticmethod
     def parse_anthropic_envelope(envelope: Any) -> ModelTextResponse:
