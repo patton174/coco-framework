@@ -12030,9 +12030,7 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
             ):
-                self.assertEqual(
-                    {"ok": True}, client.complete("system", "user", 100)
-                )
+                self.assertEqual({"ok": True}, client.complete("system", "user", 100))
             self.assertEqual(2, urlopen.call_count)
             self.assertEqual(1, sleeper.call_count)
             self.assertEqual(
@@ -12049,13 +12047,9 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
             ):
-                with self.assertRaisesRegex(
-                    review.ReviewError, "HTTP 502"
-                ) as raised:
+                with self.assertRaisesRegex(review.ReviewError, "HTTP 502") as raised:
                     client.complete("system", "user", 100)
-            self.assertNotIsInstance(
-                raised.exception, review.RetryableModelOutputError
-            )
+            self.assertNotIsInstance(raised.exception, review.RetryableModelOutputError)
             self.assertEqual(3, urlopen.call_count)
             self.assertEqual(2, sleeper.call_count)
             self.assertEqual(
@@ -12095,11 +12089,23 @@ class AgentReviewTests(unittest.TestCase):
                 patch.object(review.time, "sleep") as sleeper,
                 patch("builtins.print"),
             ):
-                self.assertEqual(
-                    {"ok": True}, client.complete("system", "user", 100)
-                )
+                self.assertEqual({"ok": True}, client.complete("system", "user", 100))
             self.assertEqual(2, urlopen.call_count)
             self.assertEqual(1, sleeper.call_count)
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=review.urllib.error.URLError("connection failed"),
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "transport failed"):
+                    client.complete("system", "user", 100)
+            self.assertEqual(1, urlopen.call_count)
+            sleeper.assert_not_called()
 
     def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:
         class FakeResponse:

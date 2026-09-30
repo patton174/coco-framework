@@ -270,6 +270,12 @@ def retryable_model_http_status(status: int) -> bool:
     return status in {408, 429} or 500 <= status <= 599
 
 
+def retryable_model_transport_error(error: BaseException) -> bool:
+    if isinstance(error, TimeoutError):
+        return True
+    return isinstance(error, urllib.error.URLError) and retryable_url_error(error)
+
+
 def retryable_url_error(error: urllib.error.URLError) -> bool:
     reason = error.reason
     if isinstance(reason, urllib.error.URLError):
@@ -3245,9 +3251,7 @@ class AgentModelClient:
         if isinstance(exc, urllib.error.HTTPError):
             payload["http_status"] = exc.code
             exc.close()
-        print(
-            "model-transport-retry " + canonical_json(payload), file=sys.stderr
-        )
+        print("model-transport-retry " + canonical_json(payload), file=sys.stderr)
         time.sleep(delay)
 
     def request_envelope(self, system: str, user: str, max_tokens: int) -> Any:
@@ -3260,9 +3264,7 @@ class AgentModelClient:
         provider = "Anthropic" if self.protocol == "anthropic-messages" else "OpenAI"
         for attempt in range(len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) + 1):
             try:
-                with urllib.request.urlopen(
-                    request, timeout=self.timeout
-                ) as response:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     headers = getattr(response, "headers", None)
                     content_type = (
                         headers.get("content-type", "") if headers is not None else ""
@@ -3283,7 +3285,9 @@ class AgentModelClient:
                 exc.close()
                 raise ReviewError(f"{provider} API returned HTTP {exc.code}.") from None
             except (urllib.error.URLError, TimeoutError) as exc:
-                if attempt < len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS):
+                if attempt < len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) and (
+                    retryable_model_transport_error(exc)
+                ):
                     self.retry_transport_after(attempt, provider, exc)
                     continue
                 raise ReviewError(f"{provider} API transport failed.") from None
