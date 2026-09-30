@@ -600,6 +600,30 @@ def event_candidates(
             )
         return deduplicate_candidates(candidates)
 
+    if event_name == "pull_request_review":
+        review = require_mapping(event.get("review"), "pull_request_review event")
+        if review.get("state") != "approved":
+            return []
+        pull_request = require_mapping(
+            event.get("pull_request"), "pull_request_review pull request"
+        )
+        commit_id = review.get("commit_id")
+        expected_head = (
+            valid_sha(commit_id, "pull_request_review commit SHA")
+            if commit_id
+            else None
+        )
+        return [
+            Candidate(
+                positive_integer(
+                    pull_request.get("number"),
+                    "pull_request_review pull request number",
+                ),
+                expected_head,
+                "pull_request_review:submitted",
+            )
+        ]
+
     if event_name == "schedule":
         return []
 
