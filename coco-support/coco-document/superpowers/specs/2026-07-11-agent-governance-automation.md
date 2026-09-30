@@ -189,13 +189,14 @@ Issue 事件必须从严格 marker 解析 PR，再读取 GitHub 当前 head；�
 ## 自动合并
 
 自动合并 workflow 只执行受保护默认分支中的脚本，并使用 GitHub App installation token。触发可以来自
-CI/Agent workflow 完成、绑定 Issue 关闭/重开、人工 approved review 提交、受保护 `main` 上的定时扫描和
-手动 dispatch，但事件只提供候选 PR 号，不能直接授权合并。review thread 变化由十分钟定时扫描发现。
-`pull_request_review` 仅限 `submitted` 且 `state == approved` 的评审事件触发（提交 approved review 需
-write 权限），工作流入口必须显式过滤非 approved 状态，Python 层对非 approved 状态返回空候选；工作流必须保持
-显式 `ref: refs/heads/main` 与 `persist-credentials: false` checkout，事件未受保护的 PR merge ref 不得被
-检出，事件只提供候选 PR 号与评审时 commit SHA。`pull_request_review_thread` 不得进入持有 App 私钥的
-`coco-agent` environment。
+CI/Agent workflow 完成、绑定 Issue 关闭/重开、受保护 `main` 上的定时扫描和手动 dispatch，但事件只提供候选
+PR 号，不能直接授权合并。人工 approved review 由无密钥的 `Agent Review Jury` 路由 workflow 监听；其 approval
+路由完成后经 `workflow_run` 唤醒自动合并（workflow_run 始终从默认分支执行，可通过 `coco-agent` 的
+main-only 部署分支限制，实测批准后数十秒内完成评估合并）。review thread 变化由十分钟定时扫描发现。
+`pull_request_review` 与 `pull_request_review_thread` 不得直接触发自动合并或任何持有 App 私钥的
+environment workflow：PR 系事件运行在 `refs/pull/*/merge`，`coco-agent` 的 main-only 部署分支限制会直接
+拒绝该部署（2026-09-30 实测两连 failure）；且 PR 系事件按 PR merge ref 上的 workflow 定义执行，会让 PR head
+的 workflow 代码进入持密工作流的触发路径。Python 层对两个事件名一律 fail closed。
 
 自动合并使用三个相互分离的客户端能力：普通 `github.token` 只读取 PR、review、check、status 和 Issue；
 专用 Coco App 单独铸造只含 `Administration: read` 的短期 token，且客户端只暴露 `main` branch protection
