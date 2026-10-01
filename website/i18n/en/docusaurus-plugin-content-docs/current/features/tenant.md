@@ -6,7 +6,7 @@ title: Multi-tenancy Isolation
 
 ## Overview
 
-`coco-feature-tenant` implements row-level multi-tenancy isolation based on MyBatis-Plus's automatic SQL rewriting: business code writes queries as usual, and before the SQL executes the framework automatically appends a `tenant_id = ?` condition to the involved tables, and automatically fills in the tenant field on `INSERT`. Tenant identification is decoupled from the isolation mechanism — `CocoTenantContext` only expresses "which tenant the current caller belongs to" and is not bound to an HTTP Header, a JWT Claim, or a database field.
+`coco-tenant` (the former `coco-feature-tenant` coordinate stays resolvable as a compatibility facade) implements row-level multi-tenancy isolation based on MyBatis-Plus's automatic SQL rewriting: business code writes queries as usual, and before the SQL executes the framework automatically appends a `tenant_id = ?` condition to the involved tables, and automatically fills in the tenant field on `INSERT`. Tenant identification is decoupled from the isolation mechanism — `CocoTenantContext` only expresses "which tenant the current caller belongs to" and is not bound to an HTTP Header, a JWT Claim, or a database field.
 
 The module's core components:
 
@@ -31,7 +31,7 @@ Tenant isolation is built on top of MyBatis-Plus's `TenantLineInnerInterceptor`.
 
 ## How to enable and integrate
 
-The feature is auto-configured along with the `coco-feature-tenant` dependency, with no extra annotation required. Auto-configuration conditions:
+The feature is auto-configured along with the `coco-tenant` dependency, with no extra annotation required. Auto-configuration conditions:
 
 - The features `tenant`, `mybatis-plus`, and `security` are all not disabled.
 - `TenantLineInnerInterceptor` and `CocoMybatisPlusInterceptorCustomizer` are present on the classpath.

@@ -4,7 +4,7 @@ title: OpenAPI 元数据
 
 # OpenAPI 元数据
 
-Coco OpenAPI 元数据（`coco-feature-openapi`）提供一份框架级、与渲染库无关的 API 文档基础信息契约，并在业务项目引入 SpringDoc 时把这份元数据自动写入 SpringDoc 的 `OpenAPI.info`。它只负责“文档基础信息”这一层，不生成接口清单、不接管路由扫描。模块绑定 `coco.openapi` 命名空间，默认启用，作为 Coco Feature（`CocoFeature.OPENAPI`）参与自动装配，并在 Web 与 Security 自动配置之后加载。
+Coco OpenAPI 元数据（`coco-openapi`，旧坐标 `coco-feature-openapi` 作为兼容门面继续可解析）提供一份框架级、与渲染库无关的 API 文档基础信息契约，并在业务项目引入 SpringDoc 时把这份元数据自动写入 SpringDoc 的 `OpenAPI.info`。它只负责“文档基础信息”这一层，不生成接口清单、不接管路由扫描。模块绑定 `coco.openapi` 命名空间，默认启用，作为 Coco Feature（`CocoFeature.OPENAPI`）参与自动装配，并在 Web 与 Security 自动配置之后加载。
 
 ## 功能简介
 

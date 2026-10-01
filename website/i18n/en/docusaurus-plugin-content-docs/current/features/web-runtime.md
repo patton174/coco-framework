@@ -4,7 +4,7 @@ title: Web Runtime
 
 # Web Runtime
 
-The Coco Web Runtime (`coco-feature-web`) consolidates the response structure, exception handling, tracing, and request-body reading that would otherwise be scattered across controllers into a stable, configurable set of infrastructure. It is bound to the `coco.web` namespace, and its capabilities are decoupled from one another: trace metadata does not pollute the business response structure, and exception responses follow the same response-body rules as normal responses.
+The Coco Web Runtime (`coco-web`; the former `coco-feature-web` coordinate stays resolvable as a compatibility facade) consolidates the response structure, exception handling, tracing, and request-body reading that would otherwise be scattered across controllers into a stable, configurable set of infrastructure. It is bound to the `coco.web` namespace, and its capabilities are decoupled from one another: trace metadata does not pollute the business response structure, and exception responses follow the same response-body rules as normal responses.
 
 ## Unified response wrapping
 

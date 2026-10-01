@@ -4,7 +4,7 @@ title: Security Context and Security Response Headers
 
 # Security Context and Security Response Headers
 
-This chapter covers two related but independent capabilities: first, the security context bridging provided by the security feature module (`coco-feature-security`), which bridges principal information written by a trusted upstream into the current thread; and second, the security response headers and CORS cross-origin configuration provided by the Web module (`coco-feature-web`).
+This chapter covers two related but independent capabilities: first, the security context bridging provided by the security feature module (`coco-security`; the former `coco-feature-security` coordinate stays resolvable as a compatibility facade), which bridges principal information written by a trusted upstream into the current thread; and second, the security response headers and CORS cross-origin configuration provided by the Web module (`coco-web`).
 
 ## Security Context Bridging
 

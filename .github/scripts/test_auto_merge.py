@@ -1800,6 +1800,7 @@ class AutoMergeTests(unittest.TestCase):
             "cancel-in-progress: false",
         ):
             self.assertIn(value, workflow)
+        self.assertIn("persist-credentials: false", workflow)
         self.assertNotIn("pull_request_review:", workflow)
         self.assertNotIn("pull_request_review_thread:", workflow)
         self.assertNotIn("pull_request_target:", workflow)

@@ -47,9 +47,27 @@ class StandardCocoFeaturesTest {
 
         assertEquals("io.github.coco.feature.web.CocoWebAutoConfiguration",
                 definitions.get(CocoFeature.WEB).autoConfigurationClassName());
+        assertEquals("coco-web", definitions.get(CocoFeature.WEB).artifactId());
+        assertTrue(definitions.get(CocoFeature.WEB).pruneArtifactIds().containsAll(
+                Set.of("coco-web", "coco-feature-web")));
         assertEquals("coco-mybatis-plus", definitions.get(CocoFeature.MYBATIS_PLUS).artifactId());
         assertTrue(definitions.get(CocoFeature.MYBATIS_PLUS).pruneArtifactIds().containsAll(
                 Set.of("coco-mybatis-plus", "coco-feature-mybatis-plus")));
+        assertEquals("coco-audit", definitions.get(CocoFeature.AUDIT).artifactId());
+        assertTrue(definitions.get(CocoFeature.AUDIT).pruneArtifactIds().containsAll(
+                Set.of("coco-audit", "coco-feature-audit")));
+        assertEquals("coco-openapi", definitions.get(CocoFeature.OPENAPI).artifactId());
+        assertTrue(definitions.get(CocoFeature.OPENAPI).pruneArtifactIds().containsAll(
+                Set.of("coco-openapi", "coco-feature-openapi")));
+        assertEquals("coco-tenant", definitions.get(CocoFeature.TENANT).artifactId());
+        assertTrue(definitions.get(CocoFeature.TENANT).pruneArtifactIds().containsAll(
+                Set.of("coco-tenant", "coco-feature-tenant")));
+        assertEquals("coco-data-permission", definitions.get(CocoFeature.DATA_PERMISSION).artifactId());
+        assertTrue(definitions.get(CocoFeature.DATA_PERMISSION).pruneArtifactIds().containsAll(
+                Set.of("coco-data-permission", "coco-feature-data-permission")));
+        assertEquals("coco-security", definitions.get(CocoFeature.SECURITY).artifactId());
+        assertTrue(definitions.get(CocoFeature.SECURITY).pruneArtifactIds().containsAll(
+                Set.of("coco-security", "coco-feature-security")));
         assertEquals(Set.of(), definitions.get(CocoFeature.AUDIT).dependencies());
         assertEquals(Set.of(CocoFeature.MYBATIS_PLUS, CocoFeature.SECURITY),
                 definitions.get(CocoFeature.TENANT).dependencies());

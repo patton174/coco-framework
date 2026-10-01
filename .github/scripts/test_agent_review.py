@@ -1015,8 +1015,8 @@ class AgentReviewTests(unittest.TestCase):
         # The routing fixtures above can name planned paths. Keep physical
         # compatibility evidence in the canonical integration inputs instead.
         required_paths = {
-            "coco-spring/coco-config/pom.xml",
-            "coco-features/coco-feature-runtime/pom.xml",
+            "coco-build/coco-compatibility/coco-config/pom.xml",
+            "coco-build/coco-compatibility/coco-feature-runtime/pom.xml",
             "coco-build/coco-maven-plugin/pom.xml",
             "coco-build/coco-maven-plugin/src/test/java/io/github/coco/maven/CocoPackagePruneMojoTest.java",
             "coco-support/coco-feature-archive-smoke/pom.xml",
@@ -1261,13 +1261,17 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-spring/coco-spring-boot-starter/pom.xml",
                 "coco-spring/coco-spring-boot-starter/src/test/java/io/github/coco/spring/boot/CocoSpringDependencyCutoverTest.java",
                 "coco-features/coco-feature-data-permission/pom.xml",
+                "coco-features/coco-data-permission/pom.xml",
                 "coco-features/coco-feature-mybatis-plus/pom.xml",
                 "coco-features/coco-mybatis-plus/pom.xml",
                 "coco-features/coco-feature-openapi/pom.xml",
+                "coco-features/coco-openapi/pom.xml",
                 "coco-features/coco-rate-limit/pom.xml",
                 "coco-features/coco-idempotency/pom.xml",
                 "coco-features/coco-feature-security/pom.xml",
+                "coco-features/coco-security/pom.xml",
                 "coco-features/coco-feature-tenant/pom.xml",
+                "coco-features/coco-tenant/pom.xml",
                 "coco-features/coco-lock/pom.xml",
                 "coco-features/coco-scheduling/pom.xml",
                 "coco-features/coco-storage/pom.xml",
@@ -1276,8 +1280,14 @@ class AgentReviewTests(unittest.TestCase):
                 "coco-features/coco-notification/pom.xml",
                 "coco-features/coco-captcha/pom.xml",
             ],
-            "web": ["coco-features/coco-feature-web/pom.xml"],
-            "audit": ["coco-features/coco-feature-audit/pom.xml"],
+            "web": [
+                "coco-features/coco-feature-web/pom.xml",
+                "coco-features/coco-web/pom.xml",
+            ],
+            "audit": [
+                "coco-features/coco-feature-audit/pom.xml",
+                "coco-features/coco-audit/pom.xml",
+            ],
         }
         module_entries = review.module_map(repository_root)
         modules_by_artifact = {
@@ -11977,6 +11987,126 @@ class AgentReviewTests(unittest.TestCase):
                 "c" * 40,
             )
 
+    def test_anthropic_client_retries_transient_transport_failures(self) -> None:
+        class FakeResponse:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, limit: int) -> bytes:
+                return self.body[:limit]
+
+        payload = {
+            "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": '{"ok":true}'}],
+        }
+
+        def http_error(status: int) -> review.urllib.error.HTTPError:
+            return review.urllib.error.HTTPError(
+                "https://models.example.invalid/messages",
+                status,
+                "temporary",
+                None,
+                io.BytesIO(b"temporary"),
+            )
+
+        with patch.dict("os.environ", model_env("anthropic-messages"), clear=True):
+            client = review.AgentModelClient(config())
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=[
+                        http_error(520),
+                        FakeResponse(json.dumps(payload).encode()),
+                    ],
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                self.assertEqual({"ok": True}, client.complete("system", "user", 100))
+            self.assertEqual(2, urlopen.call_count)
+            self.assertEqual(1, sleeper.call_count)
+            self.assertEqual(
+                review.MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS[0],
+                sleeper.call_args[0][0],
+            )
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=[http_error(520), http_error(524), http_error(502)],
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "HTTP 502") as raised:
+                    client.complete("system", "user", 100)
+            self.assertNotIsInstance(raised.exception, review.RetryableModelOutputError)
+            self.assertEqual(3, urlopen.call_count)
+            self.assertEqual(2, sleeper.call_count)
+            self.assertEqual(
+                review.MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS[1],
+                sleeper.call_args[0][0],
+            )
+
+            for status in (401, 403, 404):
+                with self.subTest(status=status):
+                    error = http_error(status)
+                    try:
+                        with (
+                            patch.object(
+                                review.urllib.request, "urlopen", side_effect=error
+                            ) as urlopen,
+                            patch.object(review.time, "sleep") as sleeper,
+                            patch("builtins.print"),
+                        ):
+                            with self.assertRaisesRegex(
+                                review.ReviewError, f"HTTP {status}"
+                            ):
+                                client.complete("system", "user", 100)
+                    finally:
+                        error.close()
+                    self.assertEqual(1, urlopen.call_count)
+                    sleeper.assert_not_called()
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=[
+                        review.urllib.error.URLError(TimeoutError("timeout")),
+                        FakeResponse(json.dumps(payload).encode()),
+                    ],
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                self.assertEqual({"ok": True}, client.complete("system", "user", 100))
+            self.assertEqual(2, urlopen.call_count)
+            self.assertEqual(1, sleeper.call_count)
+
+            with (
+                patch.object(
+                    review.urllib.request,
+                    "urlopen",
+                    side_effect=review.urllib.error.URLError("connection failed"),
+                ) as urlopen,
+                patch.object(review.time, "sleep") as sleeper,
+                patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(review.ReviewError, "transport failed"):
+                    client.complete("system", "user", 100)
+            self.assertEqual(1, urlopen.call_count)
+            sleeper.assert_not_called()
+
     def test_anthropic_client_classifies_retryable_model_output_failures(self) -> None:
         class FakeResponse:
             def __init__(self, body: bytes) -> None:
@@ -14307,8 +14437,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_093, largest_size)
-        self.assertEqual(38_907, limit - largest_size)
+        self.assertEqual(57_987, largest_size)
+        self.assertEqual(38_013, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
@@ -15404,7 +15534,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 relationship.replace(self.candidate["candidate_sha256"], "d" * 64, 1)
             )
 
-    def test_candidate_inventory_rejects_duplicate_canonical_anchor(self) -> None:
+    def test_candidate_inventory_allows_duplicate_canonical_anchor(self) -> None:
         duplicate_material = {
             **{
                 key: value
@@ -15434,7 +15564,10 @@ class CrossHeadContinuityTest(unittest.TestCase):
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 return []
 
-        with self.assertRaisesRegex(review.ReviewError, "duplicate anchors"):
+        # Two candidates sharing one canonical anchor are valid input; ADOPT
+        # selects by previous_issue_number, so the run must proceed.
+        self.assertEqual(
+            [],
             review.synchronize_finding_issues(
                 Client(),
                 REPOSITORY,
@@ -15451,7 +15584,8 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 continuity_context=context,
                 continuity_adopted={},
                 continuity_proof_sha256="f" * 64,
-            )
+            ),
+        )
 
     def test_v2_finding_recovery_revalidates_without_legacy_head_access(self) -> None:
         stable_id = self.groups[0]["current_group_id"]
