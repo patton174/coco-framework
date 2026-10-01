@@ -15534,7 +15534,7 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 relationship.replace(self.candidate["candidate_sha256"], "d" * 64, 1)
             )
 
-    def test_candidate_inventory_rejects_duplicate_canonical_anchor(self) -> None:
+    def test_candidate_inventory_allows_duplicate_canonical_anchor(self) -> None:
         duplicate_material = {
             **{
                 key: value
@@ -15564,7 +15564,10 @@ class CrossHeadContinuityTest(unittest.TestCase):
             def paginate(self, path: str, limit: int = 1000) -> list[dict]:
                 return []
 
-        with self.assertRaisesRegex(review.ReviewError, "duplicate anchors"):
+        # Two candidates sharing one canonical anchor are valid input; ADOPT
+        # selects by previous_issue_number, so the run must proceed.
+        self.assertEqual(
+            [],
             review.synchronize_finding_issues(
                 Client(),
                 REPOSITORY,
@@ -15581,7 +15584,8 @@ class CrossHeadContinuityTest(unittest.TestCase):
                 continuity_context=context,
                 continuity_adopted={},
                 continuity_proof_sha256="f" * 64,
-            )
+            ),
+        )
 
     def test_v2_finding_recovery_revalidates_without_legacy_head_access(self) -> None:
         stable_id = self.groups[0]["current_group_id"]

@@ -7150,10 +7150,9 @@ def synchronize_finding_issues(
         }
         if len(continuity_candidates) != len(candidates):
             raise ReviewError("Continuity candidate inventory is ambiguous.")
-        if len(
-            {canonical_json(candidate["anchor"]) for candidate in normalized_candidates}
-        ) != len(normalized_candidates):
-            raise ReviewError("Continuity candidate inventory has duplicate anchors.")
+        # Candidates may share one canonical anchor: two distinct findings can sit
+        # at the same file, category, severity, and line range. ADOPT selects by
+        # previous_issue_number, so anchor collisions cannot create ambiguity.
         if continuity_adopted is None or continuity_proof_sha256 is None:
             raise ReviewError("Continuity verifier consensus is missing.")
         require_sha256(continuity_proof_sha256, "Continuity proof SHA-256")
