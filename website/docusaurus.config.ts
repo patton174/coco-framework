@@ -70,12 +70,12 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'Coco Framework',
+      title: '',
       logo: {
         alt: 'Coco Framework Logo',
-        src: 'img/brand/logo.svg',
-        width: 32,
-        height: 32,
+        src: 'img/brand/logo-horizontal-light.png',
+        srcDark: 'img/brand/logo-horizontal-dark.png',
+        height: 36,
       },
       items: [
         {

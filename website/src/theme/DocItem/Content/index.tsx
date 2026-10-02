@@ -1,10 +1,11 @@
 import type {ReactNode} from 'react';
-import {useState, useCallback} from 'react';
+import {useState, useCallback, useRef} from 'react';
 import Content from '@theme-original/DocItem/Content';
 import type ContentType from '@theme/DocItem/Content';
 import type {WrapperProps} from '@docusaurus/types';
 import {useDoc} from '@docusaurus/plugin-content-docs/client';
 import Translate from '@docusaurus/Translate';
+import {gsap} from 'gsap';
 import styles from './styles.module.css';
 import {useDocMotion} from './useDocMotion';
 
@@ -28,9 +29,15 @@ export default function ContentWrapper(props: Props): ReactNode {
   const {contentRef, progressRef} = useDocMotion(metadata.permalink);
   const rawUrl = rawUrlFromEditUrl(metadata.editUrl);
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const btnRef = useRef<HTMLButtonElement>(null);
 
   const onCopy = useCallback(async () => {
     if (!rawUrl) return;
+    if (btnRef.current) {
+      gsap.timeline()
+        .to(btnRef.current, {scale: 0.92, duration: 0.1, ease: 'power2.in'})
+        .to(btnRef.current, {scale: 1, duration: 0.35, ease: 'back.out(2.2)'});
+    }
     try {
       const res = await fetch(rawUrl);
       if (!res.ok) throw new Error(String(res.status));
@@ -45,10 +52,13 @@ export default function ContentWrapper(props: Props): ReactNode {
 
   return (
     <>
-      <div className={styles.readingTrack} aria-hidden="true"><div ref={progressRef} className={styles.readingProgress} /></div>
+      <div className={styles.readingTrack} aria-hidden="true">
+        <div ref={progressRef} className={styles.readingProgress} />
+      </div>
       {rawUrl && (
         <div className={styles.copyBar}>
           <button
+            ref={btnRef}
             type="button"
             className={styles.copyBtn}
             data-state={state}
