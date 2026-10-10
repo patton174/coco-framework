@@ -2,6 +2,7 @@ package io.github.coco.spring.boot.banner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -64,11 +65,47 @@ class CocoSpringApplicationRunListenerTest {
         try {
             CocoSpringApplicationRunListener listener =
                     new CocoSpringApplicationRunListener(new SpringApplication(Object.class), new String[0]);
-            listener.started(context, Duration.ofMillis(1234));
+            listener.ready(context, Duration.ofMillis(1234));
 
-            assertFalse(sink.records().isEmpty());
+            assertEquals(1, sink.records().size());
             assertEquals("lifecycle", sink.records().get(0).handle().name());
             assertEquals("io.github.coco.lifecycle.test", sink.records().get(0).handle().loggerName());
+            assertTrue(sink.records().get(0).message().startsWith("◂ ready app=sample-app"));
+            assertFalse(sink.records().get(0).message().contains(System.lineSeparator()));
+        }
+        finally {
+            context.close();
+        }
+    }
+
+    /**
+     * <p>
+     * started 阶段不再输出生命周期日志，启动完成信息只在 ready 阶段以单行输出。
+     * </p>
+     */
+    @Test
+    void startedPhaseDoesNotWriteLifecycleRecords() {
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        context.setId("sample-app");
+
+        CapturingCocoLogSink sink = new CapturingCocoLogSink();
+        CocoLogHandleRegistry registry = new CocoLogHandleRegistry();
+        registry.register(CocoLogHandle.of(CocoLogHandles.LIFECYCLE, "io.github.coco.lifecycle.test",
+                CocoLogLevel.INFO));
+
+        context.registerBean(CocoLogHandleRegistry.class, () -> registry);
+        context.registerBean(CocoLogSink.class, () -> sink);
+        context.registerBean(CocoLogManager.class, () -> new CocoLogManager(registry, sink));
+        context.registerBean(CocoLifecycleLogger.class,
+                () -> new CocoLifecycleLogger(context.getBean(CocoLogManager.class)));
+        context.refresh();
+
+        try {
+            CocoSpringApplicationRunListener listener =
+                    new CocoSpringApplicationRunListener(new SpringApplication(Object.class), new String[0]);
+            listener.started(context, Duration.ofMillis(1234));
+
+            assertTrue(sink.records().isEmpty());
         }
         finally {
             context.close();

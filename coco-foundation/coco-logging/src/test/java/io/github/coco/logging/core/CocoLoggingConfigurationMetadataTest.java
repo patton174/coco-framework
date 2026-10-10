@@ -39,10 +39,10 @@ class CocoLoggingConfigurationMetadataTest {
         assertTrue(content.contains("\"name\": \"coco.logging.console-pattern\""));
         assertTrue(content.contains("\"name\": \"coco.logging.async.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.logging.async.queue-capacity\""));
-        assertTrue(content.contains("\"name\": \"coco.logging.node-renderer.enabled\""));
-        assertTrue(content.contains("\"name\": \"coco.logging.node-renderer.jar-only\""));
-        assertTrue(content.contains("\"name\": \"coco.logging.node-renderer.command\""));
-        assertTrue(content.contains("\"name\": \"coco.logging.node-renderer.color\""));
+        assertFalse(content.contains("\"name\": \"coco.logging.node-renderer.enabled\""));
+        assertFalse(content.contains("\"name\": \"coco.logging.node-renderer.jar-only\""));
+        assertFalse(content.contains("\"name\": \"coco.logging.node-renderer.command\""));
+        assertFalse(content.contains("\"name\": \"coco.logging.node-renderer.color\""));
         assertTrue(content.contains("\"name\": \"coco.logging.access-log.enabled\""));
         assertTrue(content.contains("\"name\": \"coco.logging.access-log.level\""));
         assertTrue(content.contains("\"name\": \"coco.logging.access-log.style\""));

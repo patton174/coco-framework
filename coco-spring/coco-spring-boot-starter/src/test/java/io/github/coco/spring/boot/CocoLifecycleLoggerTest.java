@@ -18,7 +18,7 @@ import org.springframework.context.support.GenericApplicationContext;
 /**
  * Coco 生命周期日志测试。
  * <p>
- * 验证应用启动完成日志使用 Coco 自己的多行结构化文本，而不是 Spring Boot 原始启动摘要。
+ * 验证应用启动完成日志只输出一条 Coco 单行文本，而不是 Spring Boot 原始启动摘要或多条键值记录。
  * </p>
  * <p>
  * 项目信息：
@@ -34,20 +34,22 @@ import org.springframework.context.support.GenericApplicationContext;
 class CocoLifecycleLoggerTest {
 
     @Test
-    void formatsReadyMessageAsSingleLine() {
+    void formatsReadyMessageAsSingleLineWithRuntimeFields() {
         GenericApplicationContext context = new GenericApplicationContext();
         context.setId("sample");
         CocoLifecycleLogger logger = new CocoLifecycleLogger();
 
         String message = logger.readyMessage(context, Duration.ofMillis(1234));
 
-        assertEquals("◂ ready app=sample profiles=default time=1234ms", message);
+        assertTrue(message.startsWith("◂ ready app=sample profiles=default time=1234ms"));
+        assertTrue(message.contains(" java=" + System.getProperty("java.version")));
+        assertTrue(message.endsWith(" pid=" + ProcessHandle.current().pid()));
         assertFalse(message.contains(System.lineSeparator()));
         assertFalse(message.contains("Started "));
     }
 
     @Test
-    void writesStartedRuntimeFieldsAsIndependentInfoRecords() {
+    void writesReadyAsSingleInfoRecord() {
         GenericApplicationContext context = new GenericApplicationContext();
         context.setId("sample");
         List<String> messages = new ArrayList<>();
@@ -56,31 +58,12 @@ class CocoLifecycleLoggerTest {
         CocoLogManager logManager = new CocoLogManager(registry, record -> messages.add(record.message()));
         CocoLifecycleLogger logger = new CocoLifecycleLogger(logManager);
 
-        logger.started(context, Duration.ofMillis(1000));
+        logger.ready(context, Duration.ofMillis(1000));
 
-        assertEquals(5, messages.size());
-        assertEquals("app sample", messages.get(0));
-        assertEquals("profiles default", messages.get(1));
-        assertEquals("time 1000ms", messages.get(2));
-        assertTrue(messages.get(3).startsWith("java "));
-        assertTrue(messages.get(4).startsWith("pid "));
+        assertEquals(1, messages.size());
+        assertTrue(messages.get(0).startsWith("◂ ready app=sample"));
         assertFalse(messages.stream().anyMatch(message -> message.contains("startup")));
         assertFalse(messages.stream().anyMatch(message -> message.contains("workdir")));
-    }
-
-    @Test
-    void formatsStartedMessageWithoutStartupHeader() {
-        GenericApplicationContext context = new GenericApplicationContext();
-        context.setId("sample");
-        CocoLifecycleLogger logger = new CocoLifecycleLogger();
-
-        String message = logger.startedMessage(context, Duration.ofMillis(1000));
-
-        assertTrue(message.contains("app sample"));
-        assertTrue(message.contains(System.lineSeparator() + "profiles default"));
-        assertTrue(message.contains(System.lineSeparator() + "time 1000ms"));
-        assertFalse(message.contains("▸ startup"));
-        assertFalse(message.contains("workdir"));
     }
 
     @Test

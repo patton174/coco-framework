@@ -85,12 +85,12 @@ public class ReportService {
 
 ### 功能简介
 
-`CocoLoggingProperties` 绑定 `coco.logging` 命名空间，控制 Coco 默认控制台日志格式、Spring 原始启动日志降噪、异步日志输出、Node 终端渲染器以及访问日志。其中：
+`CocoLoggingProperties` 绑定 `coco.logging` 命名空间，控制 Coco 默认控制台日志格式、Spring 原始启动日志降噪、异步日志输出以及访问日志。其中：
 
 - **控制台格式**：默认使用带颜色高亮、包含时间、级别、`COCO` 标记、logger、线程名的模式串。
 - **Spring 降噪**：默认降低 Spring 与容器的原始启动日志噪音。
 - **异步日志**：默认开启，框架日志通过进程内有界队列异步写出，减少日志 I/O 对业务线程的阻塞；队列默认容量 1024，配置为非正数时回退默认值。
-- **Node 终端渲染器**：默认仅在 `java -jar` 启动场景启用，用一个 Node.js 子进程接管控制台输出做美化渲染。
+- **启动日志**：应用启动完成只输出一条单行日志（`◂ ready app=… profiles=… time=…ms port=… java=… pid=…`）。
 
 ### 关键配置项
 
@@ -103,10 +103,6 @@ public class ReportService {
 | `coco.logging.console-pattern` | `String` | 见下 | 默认控制台日志格式；传空回退默认值 |
 | `coco.logging.async.enabled` | `boolean` | `true` | 是否启用异步日志输出 |
 | `coco.logging.async.queue-capacity` | `int` | `1024` | 异步日志队列容量；非正数回退默认值 |
-| `coco.logging.node-renderer.enabled` | `boolean` | `true` | 是否启用 Node 终端日志渲染器 |
-| `coco.logging.node-renderer.jar-only` | `boolean` | `true` | 是否仅在 `java -jar` 场景接管日志输出 |
-| `coco.logging.node-renderer.command` | `String` | `node` | Node.js 命令；为空回退 `node` |
-| `coco.logging.node-renderer.color` | `String` | `always` | 颜色模式，支持 `always` / `auto` / `never` |
 
 默认控制台格式：
 
@@ -119,4 +115,4 @@ public class ReportService {
 - Jackson 定制仅在类路径存在 Jackson 3.x 的 `JsonMapper` 时生效，且面向 `tools.jackson.*` 包；沿用 Jackson 2.x（`com.fasterxml.jackson.*`）的项目不适用本约定。
 - `long-to-string` 默认开启会让所有 `Long` 字段以字符串返回，前端与接口契约需按字符串处理；确需数字类型的场景可关闭该项。
 - 上下文传播在**任务提交时**捕获快照，因此提交动作必须发生在持有上下文的线程（如 Web 请求线程）中；脱离请求上下文提交的任务不会凭空获得上下文。
-- Node 终端渲染器依赖运行环境具备可用的 `node` 命令，默认只在打包成 jar 运行时接管输出；开发期 IDE 运行不受影响。
+- 控制台颜色交给 Spring Boot：`java -jar` 下是否输出 ANSI 色码由 `spring.output.ansi.enabled`（默认自动探测）决定，输出重定向到文件或 journald 时不会带色码。

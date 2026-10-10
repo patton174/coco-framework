@@ -85,12 +85,12 @@ Bound to the prefix `coco.common.i18n` (corresponding to `CocoI18nProperties`):
 
 ### Feature Overview
 
-`CocoLoggingProperties` binds to the `coco.logging` namespace, controlling Coco's default console log format, noise reduction of Spring's original startup logs, async log output, the Node terminal renderer, and access logs. Among them:
+`CocoLoggingProperties` binds to the `coco.logging` namespace, controlling Coco's default console log format, noise reduction of Spring's original startup logs, async log output, and access logs. Among them:
 
 - **Console format**: By default it uses a pattern string with color highlighting that includes the time, level, the `COCO` marker, logger, and thread name.
 - **Spring noise reduction**: By default it reduces the noise of Spring's and the container's original startup logs.
 - **Async logging**: Enabled by default; framework logs are written out asynchronously through an in-process bounded queue, reducing the blocking of business threads by log I/O. The queue defaults to a capacity of 1024, falling back to the default when configured as a non-positive value.
-- **Node terminal renderer**: Enabled by default only in the `java -jar` startup scenario, using a Node.js subprocess to take over console output for polished rendering.
+- **Startup log**: Application startup completion is reported as a single line (`◂ ready app=… profiles=… time=…ms port=… java=… pid=…`).
 
 ### Key Configuration Items
 
@@ -103,10 +103,6 @@ Bound to the prefix `coco.logging` (corresponding to `CocoLoggingProperties`):
 | `coco.logging.console-pattern` | `String` | see below | Default console log format; passing empty falls back to the default |
 | `coco.logging.async.enabled` | `boolean` | `true` | Whether to enable async log output |
 | `coco.logging.async.queue-capacity` | `int` | `1024` | Async log queue capacity; a non-positive value falls back to the default |
-| `coco.logging.node-renderer.enabled` | `boolean` | `true` | Whether to enable the Node terminal log renderer |
-| `coco.logging.node-renderer.jar-only` | `boolean` | `true` | Whether to take over log output only in the `java -jar` scenario |
-| `coco.logging.node-renderer.command` | `String` | `node` | Node.js command; empty falls back to `node` |
-| `coco.logging.node-renderer.color` | `String` | `always` | Color mode, supporting `always` / `auto` / `never` |
 
 Default console format:
 
@@ -119,4 +115,4 @@ Default console format:
 - Jackson customization takes effect only when Jackson 3.x's `JsonMapper` is present on the classpath, and it targets the `tools.jackson.*` package; projects still using Jackson 2.x (`com.fasterxml.jackson.*`) are not covered by this convention.
 - `long-to-string` being enabled by default causes all `Long` fields to be returned as strings, so the frontend and interface contract must handle them as strings; you can disable this option for scenarios that genuinely require a numeric type.
 - Context propagation captures the snapshot **when the task is submitted**, so the submission action must happen on a thread holding the context (such as a Web request thread); a task submitted outside the request context will not gain context out of nowhere.
-- The Node terminal renderer relies on an available `node` command in the runtime environment and by default only takes over output when running as a packaged jar; running from an IDE during development is not affected.
+- Console colors are left to Spring Boot: under `java -jar`, whether ANSI color codes are emitted is decided by `spring.output.ansi.enabled` (auto-detected by default), so output redirected to a file or journald carries no color codes.
