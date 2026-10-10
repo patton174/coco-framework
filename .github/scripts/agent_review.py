@@ -58,11 +58,78 @@ CONTRIBUTOR_BRANCH_RE = re.compile(r"^dev-[A-Za-z0-9](?:[A-Za-z0-9._-]{0,38})$")
 # brackets that no valid ref may hold. Each prefix maps to the ONE identity
 # allowed to use it, so a spoofed `dependabot/x` branch from an ordinary account
 # is still rejected -- the prefix alone never grants the exemption.
-EXEMPT_BRANCH_PREFIX_OWNERS = {
-    "dependabot/": "dependabot[bot]",
-    "codex/": "coco-framework-agent[bot]",
-}
-EXEMPT_BRANCH_PREFIXES = tuple(EXEMPT_BRANCH_PREFIX_OWNERS)
+DEPENDABOT_BRANCH_PREFIX = "dependabot/"
+DEPENDABOT_LOGIN = "dependabot[bot]"
+AGENT_APP_LOGIN = "coco-framework-agent[bot]"
+# Agent branches are owned by the single Coco agent App whatever the tool that
+# produced them, so the prefix is a label, not an identity. The list lives in a
+# repository variable so a new tool needs no change to this protected gate; the
+# default keeps today's behaviour when the variable is unset.
+DEFAULT_AGENT_BRANCH_PREFIXES = ("codex/",)
+# One lowercase segment plus a trailing slash. Single-segment prefixes cannot be
+# prefixes of one another, so a branch always resolves to exactly one prefix.
+AGENT_BRANCH_PREFIX_RE = re.compile(r"^[a-z][a-z0-9-]*/$")
+
+
+def parse_agent_branch_prefixes(raw: str | None) -> tuple[str, ...]:
+    """Parse the complete list of agent branch prefixes, failing closed.
+
+    An unset or blank value yields the default. A configured value is the whole
+    list, never an addition to the default, and any malformed entry invalidates
+    the configuration instead of being skipped, so a typo cannot silently widen
+    or narrow the set of branches the agent App may open pull requests from.
+    """
+
+    if raw is None or not raw.strip():
+        return DEFAULT_AGENT_BRANCH_PREFIXES
+    prefixes: list[str] = []
+    for entry in raw.split(","):
+        item = entry.strip()
+        if not item:
+            continue
+        if AGENT_BRANCH_PREFIX_RE.fullmatch(item) is None:
+            raise ReviewError(
+                f"Agent branch prefix '{item}' must be one lowercase segment "
+                "followed by '/', for example 'claude/'."
+            )
+        if item == DEPENDABOT_BRANCH_PREFIX:
+            raise ReviewError(
+                f"Agent branch prefix '{item}' is reserved for {DEPENDABOT_LOGIN}."
+            )
+        if item not in prefixes:
+            prefixes.append(item)
+    if not prefixes:
+        raise ReviewError("Agent branch prefixes must name at least one prefix.")
+    return tuple(prefixes)
+
+
+def exempt_branch_prefix_owners(raw_agent_prefixes: str | None) -> dict[str, str]:
+    """Map every exempt branch prefix to the one identity that may use it."""
+
+    owners = exempt_branch_prefix_owners_without_agents()
+    for prefix in parse_agent_branch_prefixes(raw_agent_prefixes):
+        owners[prefix] = AGENT_APP_LOGIN
+    return owners
+
+
+def exempt_branch_prefix_owners_without_agents() -> dict[str, str]:
+    """Exemptions that do not depend on the configurable agent prefix list."""
+
+    return {DEPENDABOT_BRANCH_PREFIX: DEPENDABOT_LOGIN}
+
+
+def looks_like_agent_branch(branch: str) -> bool:
+    """Whether a branch is shaped like `<single-segment>/<name>`, other than Dependabot's.
+
+    Used only when the agent prefix list is invalid, to decide whether a pull
+    request is one the broken configuration could have affected. Contributor
+    branches are `dev-<login>` and contain no slash, so they never match.
+    """
+
+    head, separator, rest = branch.partition("/")
+    return bool(separator and rest) and f"{head}/" != DEPENDABOT_BRANCH_PREFIX
+
+
 PR_ROUTE_DIRECT = "direct-secret"
 PR_ROUTE_DEFERRED = "deferred-secret"
 PR_ROUTE_NO_SECRET = "no-secret"

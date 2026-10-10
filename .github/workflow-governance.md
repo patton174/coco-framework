@@ -220,7 +220,8 @@ satisfy the protected merge contract.
 ## Repository Automations
 
 The Agent contribution workflow opens pull requests for existing same-repository
-`codex/*` branches without checking out or executing their contents. A dispatch
+agent branches (prefixes from the `COCO_AGENT_BRANCH_PREFIXES` repository
+variable, default `codex/`) without checking out or executing their contents. A dispatch
 from current protected `main` must bind the exact head SHA; the workflow verifies
 repository identity, branch state, and the compare result before requesting an
 App token. Existing pull requests are reused only when their App author,
