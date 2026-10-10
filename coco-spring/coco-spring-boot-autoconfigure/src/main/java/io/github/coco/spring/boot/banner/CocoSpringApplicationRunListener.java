@@ -3,7 +3,6 @@ package io.github.coco.spring.boot.banner;
 import java.time.Duration;
 
 import io.github.coco.logging.lifecycle.CocoLifecycleLogger;
-import io.github.coco.spring.boot.logging.CocoNodeLogRendererBootstrap;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.SpringApplicationRunListener;
@@ -48,9 +47,6 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
     @Override
     public void environmentPrepared(ConfigurableBootstrapContext bootstrapContext,
             ConfigurableEnvironment environment) {
-        if (environment.getProperty("coco.logging.enabled", Boolean.class, true)) {
-            CocoNodeLogRendererBootstrap.install(environment);
-        }
         if (environment.getProperty("coco.banner.enabled", Boolean.class, true)
                 && !environment.containsProperty("spring.banner.location")) {
             this.application.setBanner(new CocoSpringBanner());
@@ -89,9 +85,7 @@ public final class CocoSpringApplicationRunListener implements SpringApplication
      */
     @Override
     public void started(ConfigurableApplicationContext context, Duration timeTaken) {
-        if (context.getEnvironment().getProperty("coco.logging.enabled", Boolean.class, true)) {
-            lifecycleLogger(context).started(context, timeTaken);
-        }
+        // 启动完成日志统一由 ready 阶段输出，避免同一事件产生多行重复记录。
     }
 
     /**
