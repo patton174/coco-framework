@@ -1,10 +1,10 @@
-import type {ReactNode} from 'react';
+import type {MouseEvent, ReactNode} from 'react';
 import clsx from 'clsx';
 import useIsBrowser from '@docusaurus/useIsBrowser';
 import {translate} from '@docusaurus/Translate';
 import type {Props} from '@theme/ColorModeToggle';
 import type {ColorMode} from '@docusaurus/theme-common';
-import {Sun, Moon, MonitorSmartphone} from 'lucide-react';
+import Icon from '@site/src/components/Icon';
 import styles from './styles.module.css';
 
 function getNextColorMode(
@@ -62,6 +62,39 @@ function ariaLabel(colorMode: ColorMode | null): string {
   );
 }
 
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => {ready: Promise<void>; finished: Promise<void>};
+};
+
+/**
+ * Switches the theme inside a View Transition: the new palette is revealed as a circle growing from
+ * the toggle, instead of every surface snapping at once. Falls back to an instant switch when the
+ * API is missing or the user prefers reduced motion.
+ */
+function switchTheme(button: HTMLElement, apply: () => void): void {
+  const doc = document as ViewTransitionDocument;
+  if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    apply();
+    return;
+  }
+  const rect = button.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  const html = document.documentElement;
+  html.setAttribute('data-theme-transition', '');
+  // Docusaurus writes data-theme / data-theme-choice synchronously inside setColorMode, and the toggle
+  // icons are driven by those attributes, so the DOM shows the new theme when the callback returns.
+  const transition = doc.startViewTransition(apply);
+  transition.ready.then(() => {
+    html.animate(
+      {clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`]},
+      {duration: 620, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)'},
+    );
+  }).catch(() => undefined);
+  transition.finished.finally(() => html.removeAttribute('data-theme-transition'));
+}
+
 export default function ColorModeToggle({
   className,
   buttonClassName,
@@ -70,6 +103,10 @@ export default function ColorModeToggle({
   onChange,
 }: Props): ReactNode {
   const isBrowser = useIsBrowser();
+  const onClick = (event: MouseEvent<HTMLButtonElement>) => {
+    const next = getNextColorMode(value, respectPrefersColorScheme);
+    switchTheme(event.currentTarget, () => onChange(next));
+  };
   return (
     <div className={clsx(styles.toggle, className)}>
       <button
@@ -80,16 +117,13 @@ export default function ColorModeToggle({
           buttonClassName,
         )}
         type="button"
-        onClick={() => onChange(getNextColorMode(value, respectPrefersColorScheme))}
+        onClick={onClick}
         disabled={!isBrowser}
         title={label(value)}
         aria-label={ariaLabel(value)}>
-        <Sun aria-hidden size={18} strokeWidth={2.1}
-          className={clsx(styles.toggleIcon, styles.lightToggleIcon)} />
-        <Moon aria-hidden size={18} strokeWidth={2.1}
-          className={clsx(styles.toggleIcon, styles.darkToggleIcon)} />
-        <MonitorSmartphone aria-hidden size={18} strokeWidth={2.1}
-          className={clsx(styles.toggleIcon, styles.systemToggleIcon)} />
+        <Icon name="sun" size={20} className={clsx(styles.toggleIcon, styles.lightToggleIcon)} />
+        <Icon name="moon" size={20} className={clsx(styles.toggleIcon, styles.darkToggleIcon)} />
+        <Icon name="auto" size={20} className={clsx(styles.toggleIcon, styles.systemToggleIcon)} />
       </button>
     </div>
   );

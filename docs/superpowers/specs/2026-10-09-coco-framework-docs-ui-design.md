@@ -167,3 +167,95 @@
 - 不改变现有文档链接、`#capabilities` 锚点、站点元数据、Markdown 复制功能和双语路由。
 - 在可测环境中 Lighthouse 移动端达到 LCP < 2.5s、CLS < 0.1；记录无法稳定测量的环境限制。
 - `npm run typecheck`、`npm run check-translations` 和 `npm run build` 在 `website` 目录通过，并运行一次 `codegraph sync .` 更新索引。
+
+---
+
+## 7. 修订 2026-10-09（二）：Claude 风格的复古雅致方向
+
+> 本节追加于首版验收之后，**取代** §4.1 的色板、字体与气质描述；§1-§3 与 §4.2-§6 的结构、信息架构、无障碍、响应式与验收要求继续有效，除非本节明确覆盖。逐 token 的可实现取值与对比度计算见 `website/.agents/tasks/design-note.md`。
+
+### 7.1 触发原因与对 §3 的修正
+
+用户在浏览器实际验收后反馈：“现在的样式好丑，不如之前的呢”，希望“复古、但是高雅”，并推荐 Claude 风格。对照截图（`.superpowers/sdd/2026-10-09-coco-framework-docs-ui-redesign/visual/`），当前的冷灰 + teal 方案存在三个问题：全站只有一种无衬线字体，缺少层级与个性；冷灰白底配 teal 像通用 SaaS 后台，没有品牌温度（与 terracotta 的 Logo 也不协调）；平铺的细线和同质化版块读起来单薄。
+
+§3 曾把“奶油色、棕橙色”列为问题。本次修正该判断：真正粗糙的是**渐变文字 H1、整块 tinted 色带、厚重阴影、卡片浮起、颗粒叠层和发光**，而不是暖色本身。保留暖色的温度，去掉这些处理。
+
+### 7.2 气质
+
+像一本排得很好的书，或 Anthropic/Claude 的官网：安静、文学感、克制。不使用拟物、像素字体、重纹理、霓虹、玻璃拟态、大面积渐变或发光。复古感只来自四件事：暖纸色表面、衬线标题、细线与双线分隔、等宽字母间距的小标签。不引入纸张噪点图（`custom.css` 的测试也禁止 `feTurbulence`）。
+
+### 7.3 色板（实际取值）
+
+| 令牌 | 浅色（纸） | 深色（暖炭） | 用途 |
+| --- | --- | --- | --- |
+| `--coco-canvas` | `#f5f0e8` | `#1f1e1d` | 页面、导航、侧栏背景 |
+| `--coco-surface` | `#faf8f3` | `#262624` | 更亮一档的纸：面板、分页、按钮底 |
+| `--coco-surface-muted` | `#ece6da` | `#2f2d2a` | 更深一档的纸：表头、活动项、页脚、代码标题栏 |
+| `--coco-text` | `#3d3929` | `#d9d4c7` | 正文 |
+| `--coco-heading` | `#141413` | `#faf9f5` | 标题、强调文字（新增） |
+| `--coco-text-muted` | `#655d4e` | `#aaa496` | 次要文字、小标签 |
+| `--coco-border` | `#d9d0be` | `#3b3935` | 发丝线 |
+| `--coco-rule-strong` | `#877d6a` | `#857f70` | 双线、次按钮描边（新增，≥3:1） |
+| `--coco-accent` | `#a5432a` | `#e38c6c` | 链接与小号强调文字（已压暗/提亮到过 AA） |
+| `--coco-clay` | `#c96442` | `#d97757` | Claude 标志性陶土色，仅用于填充、规线、进度线、激活标记、大号数字（新增） |
+| `--coco-code-bg` | `#eee8dc` | `#191817` | 代码区 |
+| `--coco-code-border` | `#d2c8b3` | `#35332f` | 代码边框 |
+| `--coco-code-highlight` | `#ebddd0` | `#2c221d` | 代码高亮行底色（新增；实色，保证语法色仍 ≥ 4.5:1） |
+| `--coco-focus` | `#a5432a` | `#e38c6c` | `:focus-visible` 外环 |
+
+原始陶土色 `#c96442` 在奶油底上只有约 3.4:1，不能直接用作文字。因此**文字类用途一律使用压暗后的 `--coco-accent`**，`--coco-clay` 只用于非文字或 ≥24px 的大号元素。圆角、间距、`--coco-shadow-subtle` 的令牌名不变，阴影值降到近乎无感。
+
+### 7.4 字体与密度
+
+- 衬线（全站正文与标题，2026-10-10 用户确认）：`'Newsreader Variable'`（`@fontsource-variable/newsreader`，OFL-1.1，仅 wght 轴，拉丁子集约 56 KB）接 `'Iowan Old Style', Charter, Georgia` 与 `'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif`。CJK 字形走系统衬线回退，不下载中文 Web 字体（Noto Serif SC 单页约 0.9 MB，不值得）。标题字重 500，避免 Windows 宋体被合成粗体。
+- 无衬线仅用于 UI 外壳（按钮、标签、分页、页脚标题）；等宽沿用 JetBrains Mono。
+- 紧凑排版：正文 18px、行高 1.62，阅读列保持 72ch；h2 上边距 2rem、h3 1.5rem，导航栏高 3.25rem，表格/提示框/引用块内边距收紧；斜体只用于拉丁数字，不用于中文。
+
+### 7.5 复古细节（克制且一致）
+
+细线 + 双线分隔（双线只用在首屏下沿、文档标题下沿、页脚上沿三处）；等宽、全大写、字母间距的小标签（章节 `01 / CAPABILITIES`）；衬线斜体步骤数字；扁平矩形按钮（主按钮为陶土实心，次按钮为描边）；提示框改为纸色底加左侧细规线；表格采用书籍式三线表，不做斑马纹；代码块为比页面更深一档的暖纸面板。圆角最大 8px，无厚阴影、无发光、无渐变。
+
+### 7.6 本次修订不变的约束
+
+令牌名、公开锚点（`#capabilities`、`#architecture`、`#getting-started`、`#ecosystem`、`#community`）、每页单一 H1 且标题不跳级、SSR/无 JS 即为最终内容、`prefers-reduced-motion` 行为、390px 无页面级横向溢出、`landing.ts` 中英字段结构一致、术语统一为 `Coco Framework`、`Starter`、`Features`、`Foundation`。首页取消进入动画（`.entered`），仅保留颜色类的 150ms 过渡。
+
+### 7.7 追加验收
+
+- 浅色与深色下，所有 `--coco-text`、`--coco-text-muted`、`--coco-accent` 与 `--coco-canvas`、`--coco-surface`、`--coco-surface-muted`、`--coco-code-bg` 的组合 ≥ 4.5:1，`--coco-focus` ≥ 3:1（`scripts/test-docs-ui.mjs` 会从 CSS 令牌计算）。
+- Prism 五类语法色在 `--coco-code-bg` 上 ≥ 4.5:1。
+- 在 Windows Chrome 与 macOS Safari/Chrome 上人工查看中文标题，确认没有合成粗体、没有位图宋体的锯齿。
+- 浅色、深色、中文、英文四个组合下，首页与“快速开始”页都没有 teal 残留色，也没有渐变文字。
+
+---
+
+## 8. 修订 2026-10-09（三）：视口驱动的布局与动效
+
+> 本节追加于 §7 验收之后。色板、字体与复古细节沿用 §7；本节**覆盖** §7.6 中“首页取消进入动画”一句，并补充布局与动效规则。
+
+### 8.1 触发原因
+
+用户在约 1024×490 的屏幕上验收后反馈：“没有任何动画效果，且没对齐视口，要根据视口宽高来，重新设计”。当时首屏内容挤在约 575px 宽的居中窄栏，右侧约 40% 留空，首屏没有铺满，页面完全静止。裁定：用户推翻“首页无动效”，改为 JS 门控的动效，并保留无 JS 与减少动效时的最终态。
+
+### 8.2 布局系统
+
+- 令牌（`custom.css`）：`--coco-gutter: clamp(1.25rem, 5vw, 7.5rem)`；`--coco-container: min(108rem, 100% - 2 × gutter)`；`--coco-viewport-h: calc(100svh - navbar)`（不支持 `svh` 时回退 `100vh`）。
+- 字号同时受宽和高约束：`--coco-step-hero: max(2.25rem, min(1rem + 4.6vw, 11.5vh, 7.25rem))`，`--coco-step-2/3` 同样带 `vh` 上限；正文 `--coco-step-0: clamp(1rem, 0.9rem + 0.25vw, 1.25rem)`；区块间距 `--coco-section-space: clamp(3rem, 3.5vw + 4vh, 9rem)`。
+- 首屏：`.hero` 最小高度为 `max(20rem, --coco-viewport-h)`，内部 grid 垂直居中。宽度 ≥1024px，或 ≥720px 宽且 ≤600px 高的横屏，采用两栏（文案 1.08fr / 代码面板 1fr），四项数据横跨底部；更窄时单栏，代码面板位于 CTA 之后。≥1024px 且高度 ≥700px 时标题拆为 “Coco / Framework” 两行，上限 `min(1rem + 5.2vw, 11vh, 8.5rem)`。高度 ≤640px、≤440px 两档逐级收紧行距与间距，数据值与标签同行，保证 1024×500、844×390 首屏完整。
+- 文档页：导航与文档框架在超宽屏居中，侧栏与 TOC 的最大高度按视口计算，阅读列保持 65–75ch。
+
+### 8.3 动效
+
+- 门控：`docusaurus.config.ts` 的内联头部脚本在首帧前给 `<html>` 设置 `data-coco-motion`（减少动效或缺少 `IntersectionObserver` 时不设置）。CSS 只在该属性与 `prefers-reduced-motion: no-preference` 同时成立时隐藏或动画。首页 hook 把属性置为 `armed`；4 秒内未置为 `armed` 则脚本移除属性，所有内容直接显示。
+- 首屏入场为纯 CSS 关键帧，首帧即开始，不等待水合：版本号与细线 → 标题两词 → 定位语 → 简介 → 两个 CTA → 代码面板 → 代码逐行擦入（clip-path）→ 接入说明。位移 10–24px，时长 650–900ms，`cubic-bezier(0.22, 1, 0.36, 1)`，错峰 70–90ms，无回弹。
+- 滚动出现：`[data-reveal]` 进入视口时由 hook 设置 `data-in`，800ms 透明度 + 18px 上移，同屏错峰 80ms（上限 480ms）；分隔细线随后画出；步骤数字按 clip-path 从左向右显现；架构分层自 Foundation 向上依次落下（-14px）；数据在可见时 1200ms 递增计数（ease-out cubic，预留最终宽度，无布局位移）。
+- 微交互：箭头图标 2–3px 位移；链接下划线与卡片顶线以 scaleX 画出；不抬升、不加阴影；主题切换按钮不抬升。
+- 仅动画 `transform`、`opacity`、`clip-path`，CLS ≤ 0.05。键盘焦点落入未显示的区块时立即显示；打印前全部显示。
+- 文档页保持安静：仅在真实路由切换时做 220ms 透明度过渡（首次挂载不淡入，保留 `previousRoute` 判断），外加阅读进度细线。
+- 无 JS：属性不存在，全部内容为最终态。减少动效：无入场、无出现、无计数、无位移，复制成功/失败反馈照常。
+
+### 8.4 追加验收
+
+- 所有视口无页面级横向溢出；首屏高度 ≥（视口高 − 导航）× 90%，首屏内容不被裁切，两个 CTA 在首屏内。
+- ≥1024px 宽时首屏内容横跨容器宽度 ≥80%，两栏并排；单栏时代码面板位于 CTA 之后。
+- 动效帧、无 JS、阻断脚本后的 4 秒兜底、减少动效、键盘焦点显示均由 `scripts/check-docs-ui-browser.mjs` 覆盖；`scripts/test-docs-ui.mjs` 校验门控、减少动效回退与视口令牌。
+- 截图供人工查看时，单边不超过 1600px（`visual/review/`）。

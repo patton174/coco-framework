@@ -1,0 +1,26 @@
+/* Hairline glyphs. Transitions are transform-only; the global reduced-motion rule turns them off. */
+.glyph {
+  display: inline-block;
+  flex-shrink: 0;
+  overflow: hidden;
+  vertical-align: middle;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.glyph path { vector-effect: non-scaling-stroke; transform-box: view-box; transition: transform 420ms var(--coco-ease-out); }
+
+/* Line arrow: the tail stretches from its start while the head travels with it. */
+.line .tail { transform-origin: 3px 8px; }
+.down .tail { transform-origin: 8px 3px; }
+:is(a, button, [data-glyph-host]):is(:hover, :focus-visible) .line .tail { transform: scaleX(1.375); }
+:is(a, button, [data-glyph-host]):is(:hover, :focus-visible) .line .head { transform: translateX(6px); }
+:is(a, button, [data-glyph-host]):is(:hover, :focus-visible) .down .tail { transform: scaleY(1.375); }
+:is(a, button, [data-glyph-host]):is(:hover, :focus-visible) .down .head { transform: translateY(6px); }
+
+/* Corner arrow: one copy exits top-right, the next arrives from bottom-left. */
+.corner .enter { transform: translate(-11px, 11px); }
+:is(a, button, [data-glyph-host]):is(:hover, :focus-visible) .corner .exit { transform: translate(11px, -11px); }
+:is(a, button, [data-glyph-host]):is(:hover, :focus-visible) .corner .enter { transform: none; }

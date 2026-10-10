@@ -1,0 +1,87 @@
+/* Hero companion: a small editor window. Quiet by position and width, but its code stays readable.
+   The code size follows the panel width (container units) so the longest line always fits: about 2.9% of
+   the panel width, between 12px and 14.4px. */
+.root { min-width: 0; container-type: inline-size; }
+
+.panel {
+  --ifm-pre-padding: clamp(0.875rem, 0.6rem + 0.6vw, 1.25rem);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--coco-code-bg);
+  border: 1px solid var(--coco-code-border);
+  border-radius: var(--coco-radius-md);
+}
+
+/* Top bar: file tabs on the left, the language of the active file on the right. */
+.bar { display: flex; align-items: stretch; background: var(--coco-surface-muted); border-bottom: 1px solid var(--coco-code-border); }
+.tabs { display: flex; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 38px;
+  padding: 0 clamp(0.75rem, 0.5rem + 0.5vw, 1.125rem);
+  font: 500 0.75rem/1 var(--coco-font-mono);
+  color: var(--coco-text-muted);
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--coco-code-border);
+  cursor: pointer;
+  transition: color 200ms ease, background-color 200ms ease;
+}
+.tab:hover { color: var(--coco-heading); }
+.tab[aria-selected='true'] { color: var(--coco-heading); background: var(--coco-code-bg); }
+.tab:focus-visible { outline-offset: -3px; }
+/* The selected tab carries a clay rule; it hands over from the side of the previously selected tab. */
+.tab::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--coco-clay); transform: scaleX(0); transform-origin: left; }
+.tab[aria-selected='true']::after { transform: scaleX(1); }
+.panel[data-from='left'] .tab::after { transform-origin: right; }
+.panel[data-from='left'] .tab[aria-selected='true']::after { transform-origin: left; }
+.panel[data-from='right'] .tab::after { transform-origin: left; }
+.panel[data-from='right'] .tab[aria-selected='true']::after { transform-origin: right; }
+.lang { flex-shrink: 0; align-self: center; margin-left: auto; padding-inline: clamp(0.75rem, 0.5rem + 0.5vw, 1.125rem); font: 500 0.75rem/1 var(--coco-font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--coco-text-muted); }
+
+/* All panes share one cell: the panel always has the height of the tallest sample. */
+.panes { display: grid; }
+.pane { grid-area: 1 / 1; min-width: 0; }
+.pane[inert] { visibility: hidden; }
+.pane :global(.theme-code-block) { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+.pane pre { margin: 0; border-radius: 0; background: var(--coco-code-bg) !important; font-size: 0.8125rem; font-size: clamp(0.75rem, 2.9cqi, 0.9rem); line-height: 1.75; overflow-x: auto; }
+.pane :global(.token-line) { display: block; }
+
+/* Status bar: one line that says what the active file is for. */
+.note { display: flex; align-items: center; min-height: 36px; margin: 0; padding: 0.5rem var(--ifm-pre-padding); font-size: var(--coco-step--1); line-height: 1.4; color: var(--coco-text-muted); background: var(--coco-surface-muted); border-top: 1px solid var(--coco-code-border); }
+
+/* Narrow panels (small laptops, phones): drop the language tag and tighten the tabs until all three fit. */
+@container (max-width: 28rem) {
+  .lang { display: none; }
+  .tab { padding-inline: 0.75rem; }
+}
+@container (max-width: 22rem) {
+  .tab { padding-inline: 0.5rem; font-size: 0.6875rem; }
+}
+
+/* Phone landscape (about 330px of height below the navbar): the status bar steps aside, the rest tightens. */
+@media (min-width: 720px) and (max-height: 440px) {
+  .note { display: none; }
+  .tab { min-height: 32px; }
+  .pane pre { line-height: 1.55; }
+}
+
+@keyframes paneIn { from { opacity: 0; transform: translate3d(0, 6px, 0); } }
+@keyframes lineIn { from { opacity: 0; clip-path: inset(0 100% 0 0); } to { opacity: 1; clip-path: inset(0 0 0 0); } }
+@keyframes noteIn { from { opacity: 0; transform: translate3d(0, 4px, 0); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .tab::after { transition: transform 460ms var(--coco-ease-out); }
+  .panes .pane[data-switched] { animation: paneIn 360ms var(--coco-ease-out); }
+  /* Extra specificity: these must win over the homepage's first-paint line wipe (html[data-coco-motion] .aside .token-line:nth-child(n)). */
+  .root .panes .pane[data-switched] :global(.token-line) { animation: lineIn 520ms var(--coco-ease-out) backwards; }
+  .root .panes .pane[data-switched] :global(.token-line:nth-child(2)) { animation-delay: 50ms; }
+  .root .panes .pane[data-switched] :global(.token-line:nth-child(3)) { animation-delay: 100ms; }
+  .root .panes .pane[data-switched] :global(.token-line:nth-child(4)) { animation-delay: 150ms; }
+  .root .panes .pane[data-switched] :global(.token-line:nth-child(5)) { animation-delay: 200ms; }
+  .note[data-switched] { animation: noteIn 360ms var(--coco-ease-out) 80ms backwards; }
+}

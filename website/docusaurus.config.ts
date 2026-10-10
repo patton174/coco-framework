@@ -1,8 +1,23 @@
-import {themes as prismThemes} from 'prism-react-renderer';
+import type {PrismTheme} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
+
+// CSS variables keep syntax colors in sync with both surface themes, including SSR.
+const codeTheme: PrismTheme = {
+  plain: {color: 'var(--coco-text)', backgroundColor: 'var(--coco-code-bg)'},
+  styles: [
+    {types: ['comment', 'prolog', 'doctype', 'cdata', 'namespace'], style: {color: 'var(--coco-text-muted)'}},
+    {types: ['string', 'attr-value', 'inserted'], style: {color: 'var(--coco-code-string)'}},
+    {types: ['atrule', 'keyword', 'attr-name', 'selector'], style: {color: 'var(--coco-code-keyword)'}},
+    {types: ['function', 'function-variable', 'deleted', 'tag'], style: {color: 'var(--coco-code-function)'}},
+    {types: ['entity', 'url', 'symbol', 'number', 'boolean', 'variable', 'constant', 'property', 'regex'], style: {color: 'var(--coco-code-literal)'}},
+    {types: ['class-name', 'builtin'], style: {color: 'var(--coco-code-type)'}},
+  ],
+};
+
+const homeMotionGate = `(function(){var d=document.documentElement;try{if(!('IntersectionObserver' in window)||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;d.setAttribute('data-coco-motion','');setTimeout(function(){if(d.getAttribute('data-coco-motion')!=='armed')d.removeAttribute('data-coco-motion');},4000);}catch(e){d.removeAttribute('data-coco-motion');}})();`;
 
 const config: Config = {
   title: 'Coco Framework',
@@ -23,9 +38,14 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
-  plugins: ['./plugins/site-seo.cjs'],
+  plugins: ['./plugins/site-seo.cjs', './plugins/mobile-routes.cjs'],
+  clientModules: ['./src/clientModules/routeTransition.ts'],
   headTags: [
     {tagName: 'link', attributes: {rel: 'apple-touch-icon', href: `${process.env.COCO_BASE_URL || '/coco-framework/'}img/brand/apple-touch-icon.png`}},
+    // Motion gate, set before first paint: CSS only hides or animates content under html[data-coco-motion].
+    // No JS or reduced motion: attribute never set, content renders in its final state. Safety net: if the
+    // homepage motion hook has not armed (attribute value "armed") within 4s, the attribute is removed.
+    {tagName: 'script', attributes: {}, innerHTML: homeMotionGate},
   ],
 
   i18n: {
@@ -48,7 +68,8 @@ const config: Config = {
             'https://github.com/patton174/coco-framework/tree/main/website/',
         },
         blog: false,
-        sitemap: {changefreq: 'weekly', priority: 0.5, ignorePatterns: ['**/404.html']},
+        // /m/ is the phone shell of the same documents: it is noindex, canonical to the desktop page, and kept out of the sitemap.
+        sitemap: {changefreq: 'weekly', priority: 0.5, ignorePatterns: ['**/404.html', '**/m/**', '**/m']},
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -70,12 +91,13 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: '',
+      // The brand is the core mark (C arc + dot, see static/img/brand/README.md) beside live serif text,
+      // so the name is crisp at any scale and set in the same face as the headings. No alt: the title names the link.
+      title: 'Coco Framework',
       logo: {
-        alt: 'Coco Framework Logo',
-        src: 'img/brand/logo-horizontal-light.png',
-        srcDark: 'img/brand/logo-horizontal-dark.png',
-        height: 36,
+        src: 'img/brand/mark-clay.svg',
+        srcDark: 'img/brand/mark-clay-dark.svg',
+        height: 30,
       },
       items: [
         {
@@ -90,7 +112,12 @@ const config: Config = {
           position: 'left',
           label: '技能',
         },
-        {to: '/releases', label: '更新日志', position: 'left'},
+        {
+          type: 'docSidebar',
+          sidebarId: 'releasesSidebar',
+          position: 'left',
+          label: '更新日志',
+        },
         {
           // Icon-only 文A / A文 switch — see src/theme/NavbarItem/ComponentTypes.
           type: 'custom-localeToggle',
@@ -145,8 +172,8 @@ const config: Config = {
       copyright: `Copyright © ${new Date().getFullYear()} Coco Framework · Apache-2.0 · Built with Docusaurus.`,
     },
     prism: {
-      theme: {...prismThemes.github, styles: [...prismThemes.github.styles, {types: ['comment'], style: {color: '#626258'}}]},
-      darkTheme: {...prismThemes.dracula, styles: [...prismThemes.dracula.styles, {types: ['comment'], style: {color: '#a5afd0'}}]},
+      theme: codeTheme,
+      darkTheme: codeTheme,
       additionalLanguages: ['java', 'yaml', 'properties', 'bash', 'json', 'sql'],
     },
   } satisfies Preset.ThemeConfig,

@@ -29,6 +29,27 @@
   "doc.copyMarkdown.idle": {
     "message": "Copy as Markdown"
   },
+  "doc.copyMarkdown.loading": {
+    "message": "Copying Markdown"
+  },
+  "doc.pageActions.more": {
+    "message": "More page actions"
+  },
+  "doc.pageActions.copyHint": {
+    "message": "Paste into an AI assistant or your notes"
+  },
+  "doc.pageActions.viewRaw": {
+    "message": "View Markdown source"
+  },
+  "doc.pageActions.viewRawHint": {
+    "message": "Open the source file in a new tab"
+  },
+  "doc.pageActions.edit": {
+    "message": "Edit on GitHub"
+  },
+  "doc.pageActions.editHint": {
+    "message": "Suggest a change"
+  },
   "theme.ErrorPageContent.title": {
     "message": "This page crashed.",
     "description": "The title of the fallback page when the page crashed"
@@ -284,10 +305,6 @@
     "message": "Collapse the dropdown",
     "description": "The ARIA label of the button to collapse the mobile dropdown navbar item"
   },
-  "theme.navbar.mobileSidebarSecondaryMenu.backButtonLabel": {
-    "message": "← Back to main menu",
-    "description": "The label of the back button to return to main menu, inside the mobile navbar sidebar secondary menu (notably used to display the docs sidebar)"
-  },
   "theme.docs.sidebar.toggleSidebarButtonAriaLabel": {
     "message": "Toggle navigation bar",
     "description": "The ARIA label for hamburger menu button of mobile navigation"
@@ -364,5 +381,9 @@
   },
   "home.hero.cta.learn": {
     "message": "Learn More"
+  },
+  "coco.navbar.mobileSidebar.back": {
+    "message": "Back to main menu",
+    "description": "Back button of the narrow-window navigation drawer, from the docs sidebar to the main menu"
   }
 }

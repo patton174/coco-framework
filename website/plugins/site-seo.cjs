@@ -18,6 +18,9 @@ module.exports = function siteSeo() {
       const lines = [
         'User-agent: *',
         'Allow: /',
+        // The phone shell duplicates the desktop pages (noindex + canonical); crawlers should not spend budget on it.
+        `Disallow: ${siteConfig.baseUrl}m/`,
+        `Disallow: ${siteConfig.baseUrl}en/m/`,
         '',
         `Sitemap: ${sitemap}`,
       ];
