@@ -79,13 +79,19 @@ export function useDocMotion(route: string) {
         el.style.setProperty('--reveal-delay', `${Math.min(order++ * STAGGER_MS, 280)}ms`);
         show(el);
       }
-    }, {rootMargin: '0px 0px -8% 0px', threshold: 0.08});
+    // No negative margin and a threshold of 0: a block counts as soon as one pixel is visible, so a figure
+    // that sits at the very end of the page (inside the last 8% of the viewport) is still revealed.
+    }, {rootMargin: '0px', threshold: 0});
     for (const el of blocks) {
       if (el.getBoundingClientRect().top < window.innerHeight) show(el);
       else observer.observe(el);
     }
     // Focus or find-in-page must never land in a transparent block; printing shows everything.
     const revealAll = () => blocks.forEach(show);
+    // Safety net: once the page is scrolled to its end, nothing below may stay transparent.
+    const onScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) revealAll();
+    };
     const onFocus = (event: FocusEvent) => {
       const block = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-reveal-block]');
       if (block) show(block);
@@ -94,10 +100,12 @@ export function useDocMotion(route: string) {
     html.setAttribute('data-coco-doc-motion', '');
     root.addEventListener('focusin', onFocus);
     window.addEventListener('beforeprint', revealAll);
+    window.addEventListener('scroll', onScroll, {passive: true});
     return () => {
       observer.disconnect();
       root.removeEventListener('focusin', onFocus);
       window.removeEventListener('beforeprint', revealAll);
+      window.removeEventListener('scroll', onScroll);
       html.removeAttribute('data-coco-doc-motion');
     };
   }, [route]);

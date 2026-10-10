@@ -1,4 +1,9 @@
 {
+  // Type checking only; Docusaurus bundles with its own tooling.
+  //
+  // This intentionally does not `extends: "@docusaurus/tsconfig"`. That base still sets `baseUrl`, which
+  // TypeScript 7 removed (TS5102), so extending it fails outright. Every other option of the base is mirrored
+  // here, with `paths` made self-contained. Revisit once @docusaurus/tsconfig drops `baseUrl`.
   "compilerOptions": {
     "allowJs": true,
     "esModuleInterop": true,
