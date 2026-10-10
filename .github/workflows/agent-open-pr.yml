@@ -74,7 +74,12 @@ jobs:
           fi
           prefix_matched=false
           configured_prefix_count=0
-          IFS=',' read -r -a prefix_entries <<< "${agent_prefixes}"
+          # The variable may span several lines. -d '' lets read run past newlines
+          # (the default stops at the first one and would silently drop every
+          # later prefix), and it returns non-zero at EOF, which set -e must not
+          # treat as a failure. The trailing newline stays in the last entry and
+          # is removed by the trim below, like the leading one in Python's strip().
+          IFS=',' read -r -d '' -a prefix_entries <<< "${agent_prefixes}" || true
           for prefix_entry in "${prefix_entries[@]}"; do
             # Trim both ends only: whitespace inside an entry is malformed and must
             # be rejected, exactly as parse_agent_branch_prefixes rejects it.

@@ -14823,6 +14823,18 @@ class GovernedBaseBranchTest(unittest.TestCase):
             "codex/,,claude/",
             "codex/,codex/",
             "\tclaude/\t",
+            # A repository variable can span lines. The bash block must read all of
+            # it, not stop at the first newline, and agree with the Python parser
+            # on every shape (a newline is whitespace around an entry, but never a
+            # separator between two entries).
+            "codex/,\nclaude/",
+            "codex/\n,claude/",
+            "\nclaude/\n",
+            "codex/,\nclaude/\n",
+            "codex/\nclaude/",
+            "codex/,\nClaude/",
+            "codex/,\ndependabot/",
+            "\n,\n",
             "a-b/",
             "ab1/",
             "Claude/",
@@ -14857,6 +14869,11 @@ class GovernedBaseBranchTest(unittest.TestCase):
             ("claude/work", None, False),
             ("claude/work", "claude/", True),
             ("claude/work", "codex/, claude/", True),
+            # Regression for the multi-line variable: a prefix that is only on a
+            # later line must still admit its branch.
+            ("claude/work", "codex/,\nclaude/", True),
+            ("cursor/work", "codex/,\nclaude/\n,\ncursor/\n", True),
+            ("cursor/work", "codex/,\nclaude/", False),
             ("claude/a/b-c.d", "claude/", True),
             ("codex/", "codex/", False),
             ("claude/work/", "claude/", False),
