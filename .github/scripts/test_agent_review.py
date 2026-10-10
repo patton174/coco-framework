@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1111,7 +1113,8 @@ class AgentReviewTests(unittest.TestCase):
             "vars.COCO_AGENT_APP_BOT_ID",
             "GITHUB_REPOSITORY_ID",
             '"${GITHUB_SHA}" != "${main_sha}"',
-            "^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+            "^[a-z][a-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+            "vars.COCO_AGENT_BRANCH_PREFIXES",
             "'$value | @uri'",
             # Dispatch stays bound to main (main_sha trust check above), but the
             # pull request targets the integration branch, so head currency is
@@ -14437,8 +14440,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_987, largest_size)
-        self.assertEqual(38_013, limit - largest_size)
+        self.assertEqual(59_195, largest_size)
+        self.assertEqual(36_805, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
@@ -14730,16 +14733,144 @@ class GovernedBaseBranchTest(unittest.TestCase):
                 "dependabot/": "dependabot[bot]",
                 "codex/": "coco-framework-agent[bot]",
             },
-            review.EXEMPT_BRANCH_PREFIX_OWNERS,
+            review.exempt_branch_prefix_owners(None),
         )
+        for configured in (None, "claude/", "codex/,claude/"):
+            owners = review.exempt_branch_prefix_owners(configured)
+            for prefix, owner in owners.items():
+                with self.subTest(configured=configured, prefix=prefix):
+                    self.assertTrue(prefix.endswith("/"))
+                    self.assertTrue(owner.endswith("[bot]"))
+
+    def test_agent_branch_prefix_configuration_parses_fail_closed(self) -> None:
+        for raw in (None, "", "   "):
+            with self.subTest(unset=raw):
+                self.assertEqual(
+                    review.DEFAULT_AGENT_BRANCH_PREFIXES,
+                    review.parse_agent_branch_prefixes(raw),
+                )
         self.assertEqual(
-            set(review.EXEMPT_BRANCH_PREFIXES),
-            set(review.EXEMPT_BRANCH_PREFIX_OWNERS),
+            ("codex/", "claude/"),
+            review.parse_agent_branch_prefixes(" codex/ , claude/ ,, codex/"),
         )
-        for prefix, owner in review.EXEMPT_BRANCH_PREFIX_OWNERS.items():
-            with self.subTest(prefix=prefix):
-                self.assertTrue(prefix.endswith("/"))
-                self.assertTrue(owner.endswith("[bot]"))
+        # A configured list is the complete set, not an addition to the default.
+        self.assertEqual(("claude/",), review.parse_agent_branch_prefixes("claude/"))
+        for raw in (
+            "Claude/",
+            "claude",
+            "a/b/",
+            "9claude/",
+            "a_b/",
+            "claude /",
+            "claude/,x y/",
+            "dependabot/",
+            "claude/,dependabot/",
+            ",,",
+        ):
+            with self.subTest(rejected=raw):
+                with self.assertRaises(review.ReviewError):
+                    review.parse_agent_branch_prefixes(raw)
+
+    def test_open_pr_workflow_prefix_rule_matches_the_python_parser(self) -> None:
+        # agent-open-pr.yml checks out nothing, so it restates the prefix shape
+        # rule in bash. Run that exact block against many configurations and
+        # require the same accept/reject decision as parse_agent_branch_prefixes,
+        # so the two copies cannot drift apart unnoticed.
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not available")
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-open-pr.yml"
+        ).read_text(encoding="utf-8")
+        start = workflow.index(
+            "          # The prefix list is the same repository variable"
+        )
+        marker = (
+            'echo "::error::Head branch is not a valid agent contribution branch."\n'
+            "            exit 1\n"
+            "          fi\n"
+        )
+        block = textwrap.dedent(
+            "set -euo pipefail\n"
+            + workflow[start : workflow.index(marker) + len(marker)]
+        )
+
+        def workflow_decision(branch: str, configured: str | None) -> tuple[bool, bool]:
+            """Return (configuration accepted, branch accepted) for the bash block."""
+
+            environment = {**os.environ, "HEAD_BRANCH": branch}
+            environment.pop("AGENT_BRANCH_PREFIXES", None)
+            if configured is not None:
+                environment["AGENT_BRANCH_PREFIXES"] = configured
+            completed = subprocess.run(
+                [bash, "-c", block],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            output = completed.stdout + completed.stderr
+            return "COCO_AGENT_BRANCH_PREFIXES" not in output, completed.returncode == 0
+
+        configurations = (
+            None,
+            "",
+            "   ",
+            "codex/",
+            "claude/",
+            "codex/, claude/",
+            " claude/ ",
+            "codex/,,claude/",
+            "codex/,codex/",
+            "\tclaude/\t",
+            "a-b/",
+            "ab1/",
+            "Claude/",
+            "claude",
+            "a/b/",
+            "9claude/",
+            "-x/",
+            "a_b/",
+            "a.b/",
+            "claude /",
+            "cl aude/",
+            "claude/,x y/",
+            "claude/,dependabot/",
+            ",,",
+            " , ",
+        )
+        for configured in configurations:
+            try:
+                review.parse_agent_branch_prefixes(configured)
+                python_accepts = True
+            except review.ReviewError:
+                python_accepts = False
+            with self.subTest(configured=configured):
+                workflow_accepts, _ = workflow_decision("zz-probe/x", configured)
+                self.assertEqual(python_accepts, workflow_accepts)
+
+        # Branch decisions: the workflow must agree with the prefix list the gate
+        # would use, including the ref-name hazards the workflow also rejects.
+        branches = (
+            ("codex/work", None, True),
+            ("codex/work", "claude/", False),
+            ("claude/work", None, False),
+            ("claude/work", "claude/", True),
+            ("claude/work", "codex/, claude/", True),
+            ("claude/a/b-c.d", "claude/", True),
+            ("codex/", "codex/", False),
+            ("claude/work/", "claude/", False),
+            ("claude/a..b", "claude/", False),
+            ("claude/a//b", "claude/", False),
+            ("claude/a@{b", "claude/", False),
+            ("claude/x.lock", "claude/", False),
+            ("dev-someone", "codex/", False),
+            ("dependabot/pip/x", "codex/", False),
+        )
+        for branch, configured, expected in branches:
+            with self.subTest(branch=branch, configured=configured):
+                _, accepted = workflow_decision(branch, configured)
+                self.assertEqual(expected, accepted)
 
 
 class CrossHeadContinuityTest(unittest.TestCase):

@@ -40,6 +40,7 @@ jobs:
         shell: bash
         env:
           COCO_ALLOWED_BOTS: ${{ vars.COCO_ALLOWED_BOTS }}
+          COCO_AGENT_BRANCH_PREFIXES: ${{ vars.COCO_AGENT_BRANCH_PREFIXES }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           REPOSITORY_ID: ${{ github.repository_id }}
@@ -51,4 +52,5 @@ jobs:
             --repository-id "${REPOSITORY_ID}" \
             --event-path "${GITHUB_EVENT_PATH}" \
             --allowed-bots "${COCO_ALLOWED_BOTS}" \
+            --agent-branch-prefixes "${COCO_AGENT_BRANCH_PREFIXES}" \
             --run-url "${run_url}"
