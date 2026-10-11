@@ -12604,7 +12604,7 @@ class AgentReviewTests(unittest.TestCase):
                     name.lower(): value for name, value in request.header_items()
                 }
                 self.assertIsNotNone(headers.get(auth_header))
-                self.assertEqual(180, captured["timeout"])
+                self.assertEqual(420, captured["timeout"])
                 self.assertEqual(1048577, response.read_limit)
                 if protocol == "openai-chat-completions":
                     self.assertEqual(
@@ -12941,6 +12941,135 @@ class AgentReviewTests(unittest.TestCase):
                 client.complete("system", "user", 100)
         self.assertEqual(9, response.read_limit)
         self.assertEqual(7, captured["timeout"])
+
+    def test_timing_tunables_have_new_defaults_in_code_and_config(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            defaults = review.normalized_limits({})
+            self.assertEqual(420, defaults["request_timeout_seconds"])
+            self.assertEqual(900, defaults["max_request_timeout_seconds"])
+            self.assertEqual(3, defaults["completion_max_attempts"])
+            self.assertEqual((2.0, 8.0), defaults["transport_retry_backoff_seconds"])
+            self.assertEqual(900, review.MAX_MODEL_REQUEST_TIMEOUT_SECONDS)
+            path = Path(__file__).resolve().parents[1] / "agent-review/config.json"
+            shipped = review.normalized_limits(review.load_config(path))
+            for key in (
+                "request_timeout_seconds",
+                "max_request_timeout_seconds",
+                "completion_max_attempts",
+                "transport_retry_backoff_seconds",
+            ):
+                self.assertEqual(defaults[key], shipped[key], key)
+
+    def test_timing_tunables_precedence_is_env_then_config_then_default(self) -> None:
+        from_config = {
+            "limits": {
+                "request_timeout_seconds": 500,
+                "max_request_timeout_seconds": 800,
+                "completion_max_attempts": 2,
+                "transport_retry_backoff_seconds": [1, 3.5],
+            }
+        }
+        with patch.dict("os.environ", {}, clear=True):
+            limits = review.normalized_limits(from_config)
+        self.assertEqual(500, limits["request_timeout_seconds"])
+        self.assertEqual(800, limits["max_request_timeout_seconds"])
+        self.assertEqual(2, limits["completion_max_attempts"])
+        self.assertEqual((1.0, 3.5), limits["transport_retry_backoff_seconds"])
+
+        environment = {
+            "COCO_AGENT_REQUEST_TIMEOUT_SECONDS": "600",
+            "COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS": "1200",
+            "COCO_AGENT_COMPLETION_MAX_ATTEMPTS": "4",
+            "COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS": "5, 15,30",
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            limits = review.normalized_limits(from_config)
+        self.assertEqual(600, limits["request_timeout_seconds"])
+        self.assertEqual(1200, limits["max_request_timeout_seconds"])
+        self.assertEqual(4, limits["completion_max_attempts"])
+        self.assertEqual((5.0, 15.0, 30.0), limits["transport_retry_backoff_seconds"])
+
+        # Empty (unset repository variable) falls through to the config value.
+        blanks = {name: "" for name in environment}
+        with patch.dict("os.environ", blanks, clear=True):
+            limits = review.normalized_limits(from_config)
+        self.assertEqual(500, limits["request_timeout_seconds"])
+        self.assertEqual(2, limits["completion_max_attempts"])
+
+    def test_timing_tunables_reject_invalid_values_fail_closed(self) -> None:
+        invalid_environment = [
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "abc"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "0"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "-5"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "1.5"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "99999"),
+            ("COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS", "x"),
+            ("COCO_AGENT_COMPLETION_MAX_ATTEMPTS", "0"),
+            ("COCO_AGENT_COMPLETION_MAX_ATTEMPTS", "11"),
+            ("COCO_AGENT_COMPLETION_MAX_ATTEMPTS", "two"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "a,b"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "-1"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "1,2,3,4,5,6"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "999"),
+        ]
+        for name, value in invalid_environment:
+            with self.subTest(name=name, value=value):
+                with patch.dict("os.environ", {name: value}, clear=True):
+                    with self.assertRaises(review.ReviewError):
+                        review.normalized_limits({})
+        invalid_config = [
+            {"request_timeout_seconds": "420"},
+            {"request_timeout_seconds": 0},
+            {"request_timeout_seconds": True},
+            {"completion_max_attempts": 99},
+            {"transport_retry_backoff_seconds": "2,8"},
+            {"transport_retry_backoff_seconds": []},
+            {"transport_retry_backoff_seconds": [-1]},
+        ]
+        for limits in invalid_config:
+            with self.subTest(limits=limits):
+                with patch.dict("os.environ", {}, clear=True):
+                    with self.assertRaises(review.ReviewError):
+                        review.normalized_limits({"limits": limits})
+
+    def test_model_client_applies_timing_tunables(self) -> None:
+        environment = model_env("openai-responses")
+        environment["COCO_AGENT_REQUEST_TIMEOUT_SECONDS"] = "850"
+        environment["COCO_AGENT_COMPLETION_MAX_ATTEMPTS"] = "5"
+        environment["COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS"] = "1"
+        with patch.dict("os.environ", environment, clear=True):
+            client = review.AgentModelClient(config())
+        self.assertEqual(850, client.timeout)
+        self.assertEqual(5, client.completion_max_attempts)
+        self.assertEqual((1.0,), client.transport_retry_backoff)
+
+        # The cap is itself tunable: a timeout above it is rejected.
+        environment = model_env("openai-responses")
+        environment["COCO_AGENT_REQUEST_TIMEOUT_SECONDS"] = "901"
+        with patch.dict("os.environ", environment, clear=True):
+            with self.assertRaisesRegex(review.ReviewError, "timeout"):
+                review.AgentModelClient(config())
+        environment["COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS"] = "1000"
+        with patch.dict("os.environ", environment, clear=True):
+            self.assertEqual(901, review.AgentModelClient(config()).timeout)
+
+    def test_completion_attempt_limit_follows_client_tunable(self) -> None:
+        class StubClient:
+            supports_fragment_continuation = False
+            completion_max_attempts = 5
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, *_args: object) -> dict:
+                self.calls += 1
+                raise review.RetryableModelOutputError("truncated")
+
+        client = StubClient()
+        with patch("builtins.print"):
+            with self.assertRaises(review.RetryableModelOutputError):
+                review.complete_with_shape_repair(client, "s", "{}", 10, lambda r: r)
+        self.assertEqual(5, client.calls)
 
     def test_model_api_key_does_not_leak_from_provider_failures(self) -> None:
         api_key = "coco-model-api-key-sentinel-for-redaction"
