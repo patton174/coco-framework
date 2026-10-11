@@ -1,0 +1,73 @@
+/* One background for the whole page: the same paper grain behind every chapter, one thread that winds from the
+ * first screen to the last, and one motif per chapter hung on that thread. Nothing here has a fill, so no chapter
+ * is lighter or darker than its neighbours. */
+
+.page { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+
+/* Paper grain: SVG turbulence tiled once, flat alpha, no blend modes (identical in both themes' structure). */
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .24 0 0 0 0 .2 0 0 0 0 .13 0 0 0 .12 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:global([data-theme='dark']) .grain {
+  opacity: 0.6;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .96 0 0 0 0 .93 0 0 0 0 .88 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* The thread: a faint track for the whole route and a clay line drawn along it by the page position (--page-p). */
+.thread { display: none; position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.thread path { fill: none; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.threadTrack { stroke: var(--coco-border); stroke-width: 1; opacity: 0.8; }
+.threadInk { stroke: var(--coco-clay); stroke-width: 1.25; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0.55; }
+:global([data-theme='dark']) .threadInk { opacity: 0.6; }
+
+/* ---- Chapter motifs ---- */
+.stage { display: none; position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.modules, .planes, .system {
+  --size: clamp(18rem, 46vh, 34rem);
+  position: absolute;
+  width: var(--size);
+  height: var(--size);
+  overflow: visible;
+}
+/* Each motif sits in its chapter's empty area and stays inside the chapter's screen: the modules under the
+   heading, the layers beside the stack, the system in the open corner next to the repositories. */
+.modules { left: calc(var(--size) * -0.06); bottom: 3%; }
+.planes { right: calc(var(--size) * -0.12); top: 50%; --size: clamp(18rem, 42vh, 30rem); height: calc(var(--size) * 1.05); margin-top: calc(var(--size) * -0.5); }
+.system { right: 3%; top: 2%; --size: clamp(16rem, 40vh, 28rem); }
+
+.modules :is(path, circle),
+.planes :is(path, circle),
+.system :is(path, circle, ellipse, line, rect) {
+  fill: none;
+  stroke: var(--coco-clay);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  opacity: 0.4;
+  vector-effect: non-scaling-stroke;
+}
+:global([data-theme='dark']) :is(.modules, .planes, .system) :is(path, circle, ellipse, line, rect) { opacity: 0.5; }
+.planes .fold { opacity: 0.24; }
+:global([data-theme='dark']) .planes .fold { opacity: 0.32; }
+/* Generate's orbit is the looser, quieter one: it only passes by, so it carries no tether. */
+.system .loose { opacity: 0.24; }
+
+@media (min-width: 997px) {
+  .thread, .stage { display: block; }
+}
+
+/* Motifs fade out toward the copy, so text only ever meets the faint end of a line. */
+.modules { -webkit-mask-image: linear-gradient(to right, #000 0%, #000 45%, transparent 82%); mask-image: linear-gradient(to right, #000 0%, #000 45%, transparent 82%); }
+.planes, .system { -webkit-mask-image: linear-gradient(to left, #000 0%, #000 45%, transparent 82%); mask-image: linear-gradient(to left, #000 0%, #000 45%, transparent 82%); }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* useStory moves the dashoffset of each stroke (and of the thread) directly; this is only the undrawn start. */
+  :global(html[data-coco-motion]) .threadInk { stroke-dashoffset: 1; }
+  :global(html[data-coco-motion]) :is(.modules, .planes) :is(path, circle),
+  :global(html[data-coco-motion]) .system :is(path, circle, ellipse, line, rect) { stroke-dashoffset: 1; }
+}

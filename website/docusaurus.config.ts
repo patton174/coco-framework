@@ -23,7 +23,8 @@ const config: Config = {
   title: 'Coco Framework',
   titleDelimiter: '·',
   tagline: '少写基础设施，多写业务。',
-  favicon: 'img/brand/logo.svg',
+  // The tab icon is the two-bean mark on a transparent ground (no tile), recoloured for dark browser chrome.
+  favicon: 'img/brand/favicon.svg',
 
   future: {
     v4: true,
@@ -91,14 +92,9 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      // The brand is the core mark (C arc + dot, see static/img/brand/README.md) beside live serif text,
-      // so the name is crisp at any scale and set in the same face as the headings. No alt: the title names the link.
+      // The brand is live serif text only (no mark beside it): crisp at any scale and set in the same face as
+      // the headings. The mark itself lives in the favicon, social cards and the mobile shell.
       title: 'Coco Framework',
-      logo: {
-        src: 'img/brand/mark-clay.svg',
-        srcDark: 'img/brand/mark-clay-dark.svg',
-        height: 30,
-      },
       items: [
         {
           type: 'docSidebar',

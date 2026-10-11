@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import {STAGGER_MS} from '@site/src/components/HomeMotion/useHomeMotion';
 import styles from './styles.module.css';
 
-export type StoryArtKind = 'route' | 'connector' | 'ripples';
+export type StoryArtKind = 'route' | 'connector' | 'stars';
 
 /**
  * Timeline attributes read by useStory. A stroke starts `t` ms after the first element of its chapter
@@ -56,18 +56,46 @@ function Connector(): ReactNode {
   );
 }
 
-// ---- Chapter 5: ripples around a single point -------------------------------------------------------------
-function Ripples(): ReactNode {
+// ---- Chapter 5: a star with three ways to reach it -------------------------------------------------------
+// The closing chapter asks for a GitHub star and offers three doors (discussions, issues, contributing). The star is
+// drawn first, then each door as a line out to a node, in the order the links appear.
+const STAR_CENTER = 300;
+function starPath(outer: number, inner: number): string {
+  const points: string[] = [];
+  for (let vertex = 0; vertex < 10; vertex += 1) {
+    const radius = vertex % 2 === 0 ? outer : inner;
+    const angle = (-90 + vertex * 36) * (Math.PI / 180);
+    points.push(`${(STAR_CENTER + Math.cos(angle) * radius).toFixed(1)},${(STAR_CENTER + Math.sin(angle) * radius).toFixed(1)}`);
+  }
+  return `M${points.join('L')}Z`;
+}
+const STAR = starPath(74, 30);
+const DOORS = [[118, 168], [506, 214], [430, 500]] as const;
+const FAINT = [[70, 380], [250, 530], [540, 380], [360, 80]] as const;
+
+function Stars(): ReactNode {
   return (
     <>
-      <circle cx={300} cy={300} r={6} pathLength={1} {...beat(0, 300)} />
-      {[90, 150, 210, 270].map((radius, position) => <circle key={radius} cx={300} cy={300} r={radius} pathLength={1} {...beat(200 + position * 260, 1000)} />)}
+      <path d={STAR} pathLength={1} {...beat(0, 800)} />
+      <circle cx={STAR_CENTER} cy={STAR_CENTER} r={118} pathLength={1} {...beat(500, 700)} />
+      {DOORS.map(([x, y], door) => {
+        const angle = Math.atan2(y - STAR_CENTER, x - STAR_CENTER);
+        const from = [STAR_CENTER + Math.cos(angle) * 118, STAR_CENTER + Math.sin(angle) * 118];
+        return (
+          <g key={door}>
+            <line x1={from[0].toFixed(1)} y1={from[1].toFixed(1)} x2={x} y2={y} pathLength={1} {...beat(900 + door * 280, 420)} />
+            <circle cx={x} cy={y} r={9} pathLength={1} {...beat(1250 + door * 280, 320)} />
+            <circle cx={x} cy={y} r={3} pathLength={1} {...beat(1450 + door * 280, 200)} />
+          </g>
+        );
+      })}
+      {FAINT.map(([x, y], dot) => <path key={dot} d={`M${x - 6},${y}h12M${x},${y - 6}v12`} pathLength={1} {...beat(1900 + dot * 120, 250)} />)}
     </>
   );
 }
 
-const shapes: Record<StoryArtKind, () => ReactNode> = {route: Route, connector: Connector, ripples: Ripples};
-const viewBoxes: Record<StoryArtKind, string | undefined> = {route: '0 0 1200 160', connector: undefined, ripples: '0 0 600 600'};
+const shapes: Record<StoryArtKind, () => ReactNode> = {route: Route, connector: Connector, stars: Stars};
+const viewBoxes: Record<StoryArtKind, string | undefined> = {route: '0 0 1200 160', connector: undefined, stars: '0 0 600 600'};
 
 /** A line drawing attached to one figure of a homepage chapter, drawn on a timeline (see useStory). */
 export default function StoryArt({kind}: {kind: StoryArtKind}): ReactNode {

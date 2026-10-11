@@ -7,25 +7,6 @@ import type {ColorMode} from '@docusaurus/theme-common';
 import Icon from '@site/src/components/Icon';
 import styles from './styles.module.css';
 
-function getNextColorMode(
-  colorMode: ColorMode | null,
-  respectPrefersColorScheme: boolean,
-): ColorMode | null {
-  if (!respectPrefersColorScheme) {
-    return colorMode === 'dark' ? 'light' : 'dark';
-  }
-  switch (colorMode) {
-    case null:
-      return 'light';
-    case 'light':
-      return 'dark';
-    case 'dark':
-      return null;
-    default:
-      throw new Error(`unexpected color mode ${colorMode}`);
-  }
-}
-
 function label(colorMode: ColorMode | null): string {
   switch (colorMode) {
     case null:
@@ -98,13 +79,15 @@ function switchTheme(button: HTMLElement, apply: () => void): void {
 export default function ColorModeToggle({
   className,
   buttonClassName,
-  respectPrefersColorScheme,
   value,
   onChange,
 }: Props): ReactNode {
   const isBrowser = useIsBrowser();
   const onClick = (event: MouseEvent<HTMLButtonElement>) => {
-    const next = getNextColorMode(value, respectPrefersColorScheme);
+    // Two states, sun and moon: flip the theme that is actually showing (it may come from the system setting),
+    // so one click always changes what the reader sees.
+    const shown = document.documentElement.getAttribute('data-theme');
+    const next: ColorMode = shown === 'dark' ? 'light' : 'dark';
     switchTheme(event.currentTarget, () => onChange(next));
   };
   return (
@@ -121,9 +104,9 @@ export default function ColorModeToggle({
         disabled={!isBrowser}
         title={label(value)}
         aria-label={ariaLabel(value)}>
-        <Icon name="sun" size={20} className={clsx(styles.toggleIcon, styles.lightToggleIcon)} />
-        <Icon name="moon" size={20} className={clsx(styles.toggleIcon, styles.darkToggleIcon)} />
-        <Icon name="auto" size={20} className={clsx(styles.toggleIcon, styles.systemToggleIcon)} />
+        {/* The crescent's ink box is smaller than the sun's rays at equal size, so it is drawn larger. */}
+        <Icon name="sun" size={23} className={clsx(styles.toggleIcon, styles.sunIcon)} />
+        <Icon name="moon" size={25} className={clsx(styles.toggleIcon, styles.moonIcon)} />
       </button>
     </div>
   );

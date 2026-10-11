@@ -92,7 +92,8 @@ export function useHomeMotion(rootRef: RefObject<HTMLElement | null>): void {
           reveal(entry.target as HTMLElement, order++);
         }
       }, {rootMargin: '0px 0px -6% 0px', threshold: 0.12});
-      const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'));
+      // Blocks with data-at are cued by the scrubbed line art (useStory), not by entering the viewport.
+      const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]:not([data-at])'));
       // Everything already on the first screen reveals now, even if it sits inside the observer's bottom margin.
       const firstScreen = blocks.filter(el => el.getBoundingClientRect().top < window.innerHeight);
       blocks.filter(el => !firstScreen.includes(el)).forEach(el => observer?.observe(el));

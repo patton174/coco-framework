@@ -5,6 +5,7 @@
 
 .toggleButton {
   -webkit-tap-highlight-color: transparent;
+  position: relative;
   align-items: center;
   display: flex;
   justify-content: center;
@@ -20,23 +21,35 @@
   color: var(--coco-accent);
 }
 
+/* Sun and moon are stacked in the same spot. The resolved theme (data-theme, which also follows the system
+   setting) decides which one is shown; the other turns away and shrinks, so the swap is a hand-over rather than
+   a cut. rotate/scale are individual properties, so nothing here needs a matrix. */
 .toggleIcon {
-  display: none;
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  rotate: -80deg;
+  scale: 0.5;
+}
+.moonIcon { rotate: 80deg; }
+
+:global([data-theme='light']) .sunIcon,
+:global([data-theme='dark']) .moonIcon {
+  opacity: 1;
+  rotate: 0deg;
+  scale: 1;
 }
 
-:global([data-theme-choice='system']) .systemToggleIcon,
-:global([data-theme-choice='light']) .lightToggleIcon,
-:global([data-theme-choice='dark']) .darkToggleIcon {
-  display: initial;
-}
+/* Without a resolved theme yet (first paint), the sun is the default. */
+:global(html:not([data-theme])) .sunIcon { opacity: 1; rotate: 0deg; scale: 1; }
 
-/* The icon that becomes visible turns in place (a CSS animation restarts whenever display changes);
-   it never moves vertically. */
-@keyframes iconIn {
-  from { opacity: 0; rotate: -90deg; scale: 0.6; }
-}
 @media (prefers-reduced-motion: no-preference) {
-  .toggleIcon { animation: iconIn 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .toggleIcon {
+    transition: opacity 360ms ease, rotate 620ms cubic-bezier(0.22, 1, 0.36, 1), scale 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .toggleButton:hover .sunIcon { rotate: 45deg; }
+  .toggleButton:hover .moonIcon { rotate: -14deg; }
 }
 
 .toggleButtonDisabled {

@@ -11,6 +11,8 @@ import {useStory} from '@site/src/components/HomeMotion/useStory';
 import StoryArt, {Outline, RowLine, ROUTE_ARRIVALS_MS, CONNECTOR_ARRIVAL_MS, rowDelay, tierDelay} from '@site/src/components/StoryArt';
 import {CornerArrow, LineArrow} from '@site/src/components/Glyphs';
 import StarterTabs from '@site/src/components/StarterTabs';
+import {ChapterArt, PageBackdrop} from '@site/src/components/PageArt';
+import Partner from '@site/src/components/Partner';
 import styles from './index.module.css';
 
 const featureIcons = [Globe, Database, Gauge, FileBox, Fingerprint, Settings2];
@@ -58,6 +60,8 @@ export default function Home(): ReactNode {
         <script type="application/ld+json">{JSON.stringify(schema)}</script>
       </Head>
       <main ref={rootRef} className={styles.home} data-coco-home="">
+        <PageBackdrop />
+        <span className={styles.railInk} data-rail-ink="" aria-hidden="true" />
         <header className={styles.hero}>
           <div className={`${styles.container} ${styles.heroGrid}`}>
             <div className={styles.copy}>
@@ -89,7 +93,9 @@ export default function Home(): ReactNode {
         </header>
 
         <section id="capabilities" className={styles.section} aria-labelledby="capabilities-title">
+          <ChapterArt kind="modules" />
           <div className={`${styles.container} ${styles.split}`}>
+            <Partner chapter="capabilities" />
             <div className={styles.lede} data-reveal="">
               <p className={styles.eyebrow} data-node="" aria-hidden="true">01 / Capabilities</p>
               <h2 id="capabilities-title">{t.featuresTitle}</h2>
@@ -100,7 +106,7 @@ export default function Home(): ReactNode {
               {t.features.map(([name, value, items, path], position) => {
                 const Icon = featureIcons[position];
                 return (
-                  <li className={styles.cap} key={path} data-reveal="" data-delay={rowDelay(position)} data-glyph-host="">
+                  <li className={styles.cap} key={path} data-reveal="" data-at={rowDelay(position)} data-glyph-host="">
                     <RowLine position={position} last={position === t.features.length - 1} />
                     <span className={styles.capIndex} aria-hidden="true">{index(position)}</span>
                     <div className={styles.capBody}>
@@ -117,7 +123,9 @@ export default function Home(): ReactNode {
         </section>
 
         <section id="architecture" className={styles.section} aria-labelledby="architecture-title">
+          <ChapterArt kind="planes" />
           <div className={`${styles.container} ${styles.split} ${styles.splitCenter}`}>
+            <Partner chapter="architecture" />
             <div className={styles.lede} data-reveal="">
               <p className={styles.eyebrow} data-node="" aria-hidden="true">02 / Architecture</p>
               <h2 id="architecture-title">{t.architectureTitle}</h2>
@@ -128,7 +136,7 @@ export default function Home(): ReactNode {
             <ol className={styles.tiers}>
               {t.layers.map(([name, description], position) => (
                 // Business code sits on top; each layer below is wider, ending in the shared foundation.
-                <li className={styles.tier} key={name} data-tier={position} data-reveal="stack" data-delay={tierDelay(t.layers.length - 1 - position)}>
+                <li className={styles.tier} key={name} data-tier={position} data-reveal="stack" data-at={tierDelay(t.layers.length - 1 - position)}>
                   <Outline start={tierDelay(t.layers.length - 1 - position)} accent={position === t.layers.length - 1} />
                   <strong>{name}</strong>
                   <p>{description}</p>
@@ -140,6 +148,7 @@ export default function Home(): ReactNode {
 
         <section id="getting-started" className={styles.section} aria-labelledby="getting-started-title">
           <div className={`${styles.container} ${styles.stairs}`}>
+            <Partner chapter="getting-started" />
             <div className={styles.lede} data-reveal="">
               <p className={styles.eyebrow} data-node="" aria-hidden="true">03 / Getting started</p>
               <h2 id="getting-started-title">{t.quickTitle}</h2>
@@ -149,7 +158,7 @@ export default function Home(): ReactNode {
               <StoryArt kind="route" />
               <ol className={styles.steps}>
               {t.steps.map(([name, description], position) => (
-                <li key={name} data-reveal="" data-delay={Math.round(ROUTE_ARRIVALS_MS[position])}><span className={styles.stepNumber} aria-hidden="true">{index(position)}</span><h3>{name}</h3><p>{description}</p></li>
+                <li key={name} data-reveal="" data-at={Math.round(ROUTE_ARRIVALS_MS[position])}><span className={styles.stepNumber} aria-hidden="true">{index(position)}</span><h3>{name}</h3><p>{description}</p></li>
               ))}
               </ol>
             </div>
@@ -157,7 +166,9 @@ export default function Home(): ReactNode {
         </section>
 
         <section id="ecosystem" className={styles.section} aria-labelledby="ecosystem-title">
+          <ChapterArt kind="system" />
           <div className={styles.container}>
+            <Partner chapter="ecosystem" />
             <div className={styles.sectionHead} data-reveal="">
               <p className={styles.eyebrow} data-node="" aria-hidden="true">04 / Ecosystem</p>
               <h2 id="ecosystem-title">{t.ecosystemTitle}</h2>
@@ -166,7 +177,7 @@ export default function Home(): ReactNode {
             <div className={styles.repos}>
               <StoryArt kind="connector" />
               {t.ecosystem.map(([name, description, repo], position) => (
-                <article key={repo} className={position === 0 ? `${styles.repo} ${styles.repoFeatured}` : styles.repo} data-reveal="" data-delay={position === 0 ? 0 : CONNECTOR_ARRIVAL_MS + (position - 1) * 140} data-glyph-host="">
+                <article key={repo} className={position === 0 ? `${styles.repo} ${styles.repoFeatured}` : styles.repo} data-reveal="" data-at={position === 0 ? 0 : CONNECTOR_ARRIVAL_MS + (position - 1) * 140} data-glyph-host="">
                   <h3><a href={`https://github.com/patton174/${repo}`}>{name}</a></h3>
                   <p>{description}</p>
                   <span className={styles.repoSlug}>{repo}<CornerArrow size={14} /></span>
@@ -178,7 +189,7 @@ export default function Home(): ReactNode {
 
         <section id="community" className={styles.section} aria-labelledby="community-title">
           <div className={styles.container}>
-            <StoryArt kind="ripples" />
+            <StoryArt kind="stars" />
             <div className={styles.closing} data-reveal="">
               <p className={styles.eyebrow} data-node="" aria-hidden="true">05 / Community</p>
               <h2 id="community-title">{t.communityTitle}</h2>

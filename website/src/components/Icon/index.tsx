@@ -7,8 +7,8 @@ import type {ReactNode, SVGProps} from 'react';
  */
 export type IconName =
   | 'home' | 'book' | 'spark' | 'history' | 'dots' | 'list' | 'share' | 'sun' | 'moon' | 'auto'
-  | 'translate' | 'github' | 'chevron' | 'close' | 'arrow-left' | 'arrow-right' | 'desktop'
-  | 'check' | 'copy' | 'link' | 'external';
+  | 'globe' | 'github' | 'chevron' | 'close' | 'arrow-left' | 'arrow-right' | 'desktop'
+  | 'check' | 'copy' | 'link' | 'external' | 'menu' | 'star';
 
 const shapes: Record<IconName, ReactNode> = {
   home: <path d="M4 11.2 12 4l8 7.2V19a1.5 1.5 0 0 1-1.5 1.5H15v-5.5H9v5.5H5.5A1.5 1.5 0 0 1 4 19z" />,
@@ -37,7 +37,12 @@ const shapes: Record<IconName, ReactNode> = {
       <path d="M12 4.2a7.8 7.8 0 0 0 0 15.6z" fill="currentColor" />
     </>
   ),
-  translate: <path d="M4 6.5h9M8.5 4.3v2.2M6.2 6.5c.3 3 2.6 5.5 5.8 6.8M12.3 6.5c-.7 3-3 5.6-7.3 7.4M12.8 19.7l3.9-8.9 3.9 8.9M14.2 16.6h5" />,
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5S9.6 5.8 12 3.5zM5 7.6c2 1.1 4.4 1.6 7 1.6s5-.5 7-1.6M5 16.4c2-1.1 4.4-1.6 7-1.6s5 .5 7 1.6" />
+    </>
+  ),
   github: (
     <path
       fill="currentColor"
@@ -53,6 +58,8 @@ const shapes: Record<IconName, ReactNode> = {
   check: <path d="M5 12.5 9.8 17.3 19 7.2" />,
   copy: <path d="M9 9h9.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1zM5.5 15V5a1 1 0 0 1 1-1H15" />,
   link: <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />,
+  menu: <path d="M4.5 8h15M4.5 16h10" />,
+  star: <path d="M12 3.6l2.5 5.3 5.8.8-4.2 4 1 5.8L12 16.7l-5.1 2.8 1-5.8-4.2-4 5.8-.8z" />,
   external: <path d="M10 5.5H6A1.5 1.5 0 0 0 4.5 7v11A1.5 1.5 0 0 0 6 19.5h11a1.5 1.5 0 0 0 1.5-1.5v-4M13.5 4.5h6v6M19.5 4.5 11 13" />,
 };
 

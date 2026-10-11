@@ -9,6 +9,8 @@ interface Props {
   title: string;
   closeLabel: string;
   onClose: () => void;
+  /** Taller panel for long menus. */
+  tall?: boolean;
   children: ReactNode;
 }
 
@@ -19,7 +21,7 @@ const focusable = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1
  * Closed sheets are inert, so they take no focus and no screen-reader attention. While open, the page behind
  * does not scroll (overscroll-behavior) and focus stays inside.
  */
-export default function Sheet({open, title, closeLabel, onClose, children}: Props): ReactNode {
+export default function Sheet({open, title, closeLabel, onClose, tall = false, children}: Props): ReactNode {
   const id = useId();
   const panel = useRef<HTMLDivElement>(null);
   const drag = useRef<{y: number; dy: number} | null>(null);
@@ -70,7 +72,7 @@ export default function Sheet({open, title, closeLabel, onClose, children}: Prop
   return (
     <div className={clsx(styles.sheetRoot, open && styles.sheetOpen)} inert={!open}>
       <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
-      <div ref={panel} className={styles.sheet} role="dialog" aria-modal="true" aria-labelledby={id}>
+      <div ref={panel} className={clsx(styles.sheet, tall && styles.sheetTall)} role="dialog" aria-modal="true" aria-labelledby={id}>
         <div
           className={styles.grip}
           onPointerDown={onPointerDown}

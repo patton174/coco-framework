@@ -72,7 +72,7 @@ interface ShellProps {
 }
 
 /**
- * The mobile app shell: slim top bar, bottom tab bar, bottom sheets for contents and the menu. It replaces
+ * The mobile app shell: slim top bar and one bottom sheet for navigation and preferences. It replaces
  * Docusaurus's own Layout entirely on /m/ routes, so no desktop navbar, drawer or footer is rendered or hydrated.
  */
 function Shell({children, toc = [], desktopPath, title, description, canonicalPath, document: isDoc = false, prev, next}: ShellProps): ReactNode {
@@ -80,7 +80,7 @@ function Shell({children, toc = [], desktopPath, title, description, canonicalPa
   const {siteConfig} = useDocusaurusContext();
   const {colorMode, setColorMode, colorModeChoice} = useColorMode();
   const location = useLocation();
-  const [sheet, setSheet] = useState<'toc' | 'more' | 'tree' | null>(null);
+  const [sheet, setSheet] = useState<'toc' | 'menu' | null>(null);
   const [toast, setToast] = useState('');
   const [progress, setProgress] = useState(0);
   const [activeId, setActiveId] = useState('');
@@ -229,26 +229,13 @@ function Shell({children, toc = [], desktopPath, title, description, canonicalPa
               </svg>
             </button>
           ) : null}
-          <button type="button" className={styles.iconButton} onClick={() => setSheet('more')} aria-label={t.more} aria-haspopup="dialog">
-            <Icon name="dots" />
+          <button type="button" className={styles.iconButton} onClick={() => setSheet('menu')} aria-label={t.menu} aria-haspopup="dialog">
+            <Icon name="menu" />
           </button>
         </div>
       </header>
 
       <main id="m-content" className={styles.main}>{children}</main>
-
-      <nav className={styles.tabs} aria-label={t.menuTitle}>
-        {tabs.map(tab => (
-          <Link key={tab.key} to={tab.to} className={clsx(styles.tab, section === tab.key && styles.tabActive)} aria-current={section === tab.key ? 'page' : undefined}>
-            <Icon name={tab.icon} size={22} />
-            <span>{tab.label}</span>
-          </Link>
-        ))}
-        <button type="button" className={styles.tab} onClick={() => setSheet('tree')} aria-haspopup="dialog" disabled={section === 'home'}>
-          <Icon name="list" size={22} />
-          <span>{t.chapters}</span>
-        </button>
-      </nav>
 
       <Sheet open={sheet === 'toc'} title={t.onPage} closeLabel={t.close} onClose={close}>
         <ul className={styles.toc}>
@@ -260,11 +247,23 @@ function Shell({children, toc = [], desktopPath, title, description, canonicalPa
         </ul>
       </Sheet>
 
-      <Sheet open={sheet === 'tree'} title={t.chapters} closeLabel={t.close} onClose={close}>
-        <Tree items={tree} current={here} />
-      </Sheet>
-
-      <Sheet open={sheet === 'more'} title={t.moreTitle} closeLabel={t.close} onClose={close}>
+      <Sheet open={sheet === 'menu'} title={t.menu} closeLabel={t.close} onClose={close} tall>
+        <nav className={styles.sections} aria-label={t.sections}>
+          {tabs.map(tab => (
+            <Link key={tab.key} to={tab.to} className={clsx(styles.sectionLink, section === tab.key && styles.sectionActive)} aria-current={section === tab.key ? 'page' : undefined}>
+              <Icon name={tab.icon} size={22} />
+              <span>{tab.label}</span>
+              <Icon name="arrow-right" size={16} />
+            </Link>
+          ))}
+        </nav>
+        {section !== 'home' && tree.length > 0 ? (
+          <>
+            <h3 className={styles.menuLabel}>{t.chapters}</h3>
+            <Tree items={tree} current={here} />
+          </>
+        ) : null}
+        <h3 className={styles.menuLabel}>{t.settings}</h3>
         <div className={styles.more}>
           <div className={styles.segment} role="group" aria-label={t.appearance}>
             {([['light', 'sun', t.light], ['dark', 'moon', t.dark], [null, 'auto', t.auto]] as const).map(([value, icon, label]) => (
@@ -274,7 +273,7 @@ function Shell({children, toc = [], desktopPath, title, description, canonicalPa
             ))}
           </div>
           <button type="button" className={styles.row} onClick={switchLocale}>
-            <Icon name="translate" /><span>{t.language}</span><em>{t.otherLanguage}</em>
+            <Icon name="globe" /><span>{t.language}</span><em>{t.otherLanguage}</em>
           </button>
           {isDoc ? (
             <button type="button" className={styles.row} onClick={() => { close(); void share(); }}>

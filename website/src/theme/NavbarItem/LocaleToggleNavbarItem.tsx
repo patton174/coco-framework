@@ -7,7 +7,7 @@ import Icon from '@site/src/components/Icon';
 
 /**
  * Icon-only locale switch: a single click flips between the two configured
- * locales. Uses lucide's translate glyph to match the sibling theme toggle;
+ * locales. Uses the hairline globe from the shared icon set;
  * the target language is carried by the tooltip and aria-label rather than
  * visible text, so the control stays the same 32px square as its neighbours.
  *
@@ -65,7 +65,7 @@ export default function LocaleToggleNavbarItem({
           ? `menu__link navbar-locale-toggle--mobile ${className ?? ''}`
           : `navbar__item navbar__link navbar-locale-toggle ${className ?? ''}`
       }>
-      <Icon name="translate" size={20} className="navbar-locale-toggle__icon" />
+      <Icon name="globe" size={mobile ? 20 : 23} className="navbar-locale-toggle__icon" />
       {mobile && <span>{targetLabel}</span>}
     </Link>
   );

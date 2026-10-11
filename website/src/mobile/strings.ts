@@ -16,6 +16,7 @@ const zh = {
     stable: '稳定版', start: '快速开始', explore: '功能导览', allDocs: '全部文档',
     samples: '接入示例', facts: '项目基本信息', readGuide: '阅读指南',
     skip: '跳到正文', progress: '阅读进度', section: '所属章节',
+    menu: '菜单', sections: '栏目', settings: '偏好设置',
 } as const;
 
 export type Strings = { -readonly [K in keyof typeof zh]: string };
@@ -32,6 +33,7 @@ const en: Strings = {
     stable: 'Stable', start: 'Get started', explore: 'Explore features', allDocs: 'All docs',
     samples: 'Setup samples', facts: 'Project facts', readGuide: 'Read the guide',
     skip: 'Skip to content', progress: 'Reading progress', section: 'Section',
+    menu: 'Menu', sections: 'Sections', settings: 'Preferences',
 };
 
 export const stringsFor = (locale: string): Strings => (locale === 'en' ? en : zh);

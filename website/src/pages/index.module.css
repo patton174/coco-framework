@@ -13,6 +13,8 @@
 /* ---------- First screen ---------- */
 .hero {
   --hero-gap: clamp(0.75rem, 2.6vh, 2rem);
+  position: relative;
+  overflow-x: clip;
   display: flex;
   flex-direction: column;
   /* The first screen is exactly one viewport tall, so the next section never peeks in at the bottom. */
@@ -20,6 +22,8 @@
   padding-block: clamp(0.75rem, 5vh, 4.5rem);
 }
 .heroGrid {
+  position: relative;
+  z-index: 1;
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -141,14 +145,15 @@
 .textLink:is(:hover, :focus-visible) > span::after { transform: scaleX(1); transform-origin: left; }
 
 /* Story rail (wide screens): a thin line in the left margin grows with the scroll; each chapter lights a node.
- * useStory measures the nodes and sets --rail-x / --rail-top / --rail-h / --rail-p on main. */
-.home[data-rail]::before, .home[data-rail]::after { content: ''; display: none; position: absolute; left: var(--rail-x); top: var(--rail-top); width: 1px; height: var(--rail-h); }
+ * useStory measures the nodes and sets --rail-x / --rail-top / --rail-h on main; the rail progress is scaled directly. */
+.home[data-rail]::before, .railInk { content: ''; display: none; position: absolute; left: var(--rail-x); top: var(--rail-top); width: 1px; height: var(--rail-h); }
 .home[data-rail]::before { background: var(--coco-border); }
-.home[data-rail]::after { background: var(--coco-clay); transform-origin: top; transform: scaleY(var(--rail-p, 1)); }
+/* A real element, not a pseudo-element: useStory scales it directly, so no per-frame variable reaches the page. */
+.railInk { background: var(--coco-clay); transform-origin: top; }
 .eyebrow[data-node]::before, .release[data-node]::after { content: ''; display: none; position: absolute; left: -28px; top: 50%; width: 9px; height: 9px; box-sizing: border-box; margin-top: -4.5px; border: 1px solid var(--coco-rule-strong); border-radius: 50%; background: var(--coco-canvas); transition: background-color 400ms ease, border-color 400ms ease; }
 .eyebrow[data-node][data-lit]::before, .release[data-node][data-lit]::after { background: var(--coco-clay); border-color: var(--coco-clay); }
 @media (min-width: 997px) {
-  .home[data-rail]::before, .home[data-rail]::after, .eyebrow[data-node]::before, .release[data-node]::after { display: block; }
+  .home[data-rail]::before, .home[data-rail] .railInk, .eyebrow[data-node]::before, .release[data-node]::after { display: block; }
 }
 
 /* Copy on one side, a distinct figure on the other (capabilities, architecture). */
@@ -168,9 +173,12 @@
 .cap h3 a:focus-visible::after { outline: 2px solid var(--coco-focus); outline-offset: 2px; }
 .cap h3 svg { color: var(--coco-clay); }
 .cap:hover h3 a { color: var(--coco-accent); text-decoration: none; }
-.cap p { margin: 0; font-size: 0.9375em; color: var(--coco-text-muted); }
-.cap ul { display: flex; flex-wrap: wrap; margin: 0; padding: 0; list-style: none; font-size: 0.8125em; color: var(--coco-text-muted); }
-.cap ul li + li::before { content: '\00b7'; margin-inline: 0.5rem; color: var(--coco-clay); }
+/* Small CJK text is sans: the only installed Han serif is a heavy cut, so every weight renders bold.
+   Latin glyphs keep Newsreader, so TraceId and OpenAPI still match the headings. */
+.cap p, .cap ul { font-family: 'Newsreader Variable', var(--coco-font-sans); }
+.cap p { margin: 0; font-size: 0.9375em; line-height: 1.55; color: var(--coco-text); }
+.cap ul { display: flex; flex-wrap: wrap; gap: 0 1rem; margin: 0.125rem 0 0; padding: 0; list-style: none; font-size: 0.8125em; line-height: 1.6; color: var(--coco-text-muted); }
+.cap ul li { white-space: nowrap; }
 .capIcon { margin-top: 0.2em; color: var(--coco-clay); stroke-width: 1.5; transition: color 200ms ease; }
 .cap:hover .capIcon { color: var(--coco-accent); }
 
