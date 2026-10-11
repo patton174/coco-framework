@@ -5,7 +5,6 @@ const sidebars: SidebarsConfig = {
     'overview',
     'getting-started',
     'feature-toggles',
-    {type: 'category', label: '更新日志', link: {type: 'doc', id: 'releases/index'}, items: ['releases/2.0.3']},
     {
       type: 'category',
       label: '核心 Web',
@@ -56,6 +55,8 @@ const sidebars: SidebarsConfig = {
       ],
     },
   ],
+  // Its own sidebar, so the navbar marks exactly one tab on /releases (it used to light up 文档 as well).
+  releasesSidebar: ['releases/index', 'releases/2.0.3'],
   skillsSidebar: [
     'skills/overview',
     'skills/install',

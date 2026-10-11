@@ -31,7 +31,18 @@ const EN = {
   数据访问: 'Data Access',
   流控与可靠性: 'Rate Limiting & Reliability',
   对象存储: 'Object Storage',
+  '复制为 Markdown': 'Copy as Markdown',
+  '正在复制 Markdown': 'Copying Markdown',
+  '已复制 Markdown': 'Copied Markdown',
+  复制失败: 'Copy failed',
+  更多页面操作: 'More page actions',
+  '粘贴给 AI 助手或笔记': 'Paste into an AI assistant or your notes',
+  '查看 Markdown 原文': 'View Markdown source',
+  在新标签页打开源文件: 'Open the source file in a new tab',
+  '在 GitHub 上编辑': 'Edit on GitHub',
+  提交修改建议: 'Suggest a change',
   'npm · 技能包': 'npm · Skills Package',
+  回到主菜单: 'Back to main menu',
 
   // doc sidebar categories
   多租户与权限: 'Multi-tenancy & Permissions',
@@ -39,6 +50,7 @@ const EN = {
 };
 
 const FILES = [
+  'i18n/en/code.json',
   'i18n/en/docusaurus-theme-classic/navbar.json',
   'i18n/en/docusaurus-theme-classic/footer.json',
   'i18n/en/docusaurus-plugin-content-docs/current.json',
@@ -49,6 +61,7 @@ const FILES = [
  * as unused but never deletes them, so they linger and confuse future edits.
  */
 const STALE_KEYS = {
+  'i18n/en/docusaurus-plugin-content-docs/current.json': ['sidebar.docsSidebar.category.更新日志'],
   'i18n/en/docusaurus-theme-classic/footer.json': ['link.title.更多'],
 };
 
