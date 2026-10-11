@@ -3471,6 +3471,22 @@ class AgentModelClient:
             envelope.get("content"), list
         ):
             raise ReviewError("Anthropic API returned an invalid response envelope.")
+        stop_reason = envelope.get("stop_reason")
+        if stop_reason == "tool_use":
+            # Requests declare no tools, so a tool call is a hallucinated
+            # response (observed with Gemini-backed gateways); a fresh attempt
+            # normally returns the JSON report. Checked before block parsing
+            # because tool_use blocks carry no text and would otherwise fail
+            # closed as an invalid envelope before the retry can trigger.
+            raise RetryableModelOutputError(
+                "Agent model emitted a tool call although no tools were declared.",
+                stop_reason="tool_use",
+                response_chars=sum(
+                    len(block["text"])
+                    for block in envelope["content"]
+                    if isinstance(block, dict) and isinstance(block.get("text"), str)
+                ),
+            )
         text_blocks: list[str] = []
         for block in envelope["content"]:
             if not isinstance(block, dict):
@@ -3487,7 +3503,6 @@ class AgentModelClient:
                     "Anthropic API returned an invalid response envelope."
                 )
             text_blocks.append(block["text"])
-        stop_reason = envelope.get("stop_reason")
         if stop_reason not in {"end_turn", "max_tokens"}:
             raise ReviewError(
                 f"Anthropic response did not complete (stop_reason={stop_reason!r})."
@@ -3729,7 +3744,7 @@ class AgentModelClient:
                 partial_text=response.text,
             )
         try:
-            value = json.loads(response.text)
+            value = json.loads(strip_single_code_fence(response.text))
         except json.JSONDecodeError as exc:
             raise RetryableModelOutputError(
                 "Agent output was not strict JSON.",
@@ -3740,6 +3755,22 @@ class AgentModelClient:
         if not isinstance(value, dict):
             raise ReviewError("Agent output must be a JSON object.")
         return value
+
+
+SINGLE_CODE_FENCE = re.compile(
+    r"\A```(?:json)?[ \t]*\r?\n(?P<body>.*?)\r?\n```\Z", re.DOTALL | re.IGNORECASE
+)
+
+
+def strip_single_code_fence(text: str) -> str:
+    """Unwrap output that is exactly one fenced block and nothing else.
+
+    Models routinely wrap a valid report in a ```json fence despite the prompt.
+    Any text outside the fence still fails strict parsing.
+    """
+
+    match = SINGLE_CODE_FENCE.match(text.strip())
+    return match.group("body") if match else text
 
 
 def retryable_stop_reason(value: str) -> str:
@@ -3766,7 +3797,7 @@ def complete_fragment_json(
             partial_text=combined,
         )
     try:
-        value = json.loads(combined)
+        value = json.loads(strip_single_code_fence(combined))
     except json.JSONDecodeError as exc:
         raise RetryableModelOutputError(
             "Agent output was not strict JSON.",

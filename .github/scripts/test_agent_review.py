@@ -16258,6 +16258,55 @@ class ReviewToolSandboxTest(unittest.TestCase):
             )
 
 
+class StripSingleCodeFenceTest(unittest.TestCase):
+    def test_unwraps_exact_json_fence(self) -> None:
+        self.assertEqual(
+            '{"a": 1}', review.strip_single_code_fence('```json\n{"a": 1}\n```')
+        )
+        self.assertEqual(
+            '{"a": 1}', review.strip_single_code_fence('  ```\n{"a": 1}\n```\n')
+        )
+
+    def test_leaves_bare_json_untouched(self) -> None:
+        self.assertEqual('{"a": 1}', review.strip_single_code_fence('{"a": 1}'))
+
+    def test_text_outside_fence_still_fails_strict_parse(self) -> None:
+        for text in (
+            'Here is the report:\n```json\n{"a": 1}\n```',
+            '```json\n{"a": 1}\n```\nDone.',
+            '```json\n{"a": 1}\n```\n```json\n{"b": 2}\n```',
+        ):
+            with self.assertRaises(json.JSONDecodeError):
+                json.loads(review.strip_single_code_fence(text))
+
+
+class AnthropicToolUseHallucinationTest(unittest.TestCase):
+    def test_tool_use_stop_reason_is_retryable(self) -> None:
+        envelope = {"content": [], "stop_reason": "tool_use"}
+        with self.assertRaises(review.RetryableModelOutputError) as ctx:
+            review.AgentModelClient.parse_anthropic_envelope(envelope)
+        self.assertEqual("tool_use", ctx.exception.stop_reason)
+
+    def test_tool_use_block_without_text_is_retryable(self) -> None:
+        envelope = {
+            "content": [
+                {"type": "text", "text": "abc"},
+                {"type": "tool_use", "id": "t1", "name": "x", "input": {}},
+            ],
+            "stop_reason": "tool_use",
+        }
+        with self.assertRaises(review.RetryableModelOutputError) as ctx:
+            review.AgentModelClient.parse_anthropic_envelope(envelope)
+        self.assertEqual("tool_use", ctx.exception.stop_reason)
+        self.assertEqual(3, ctx.exception.response_chars)
+
+    def test_other_incomplete_stop_reasons_still_fail_closed(self) -> None:
+        envelope = {"content": [], "stop_reason": "refusal"}
+        with self.assertRaises(review.ReviewError) as ctx:
+            review.AgentModelClient.parse_anthropic_envelope(envelope)
+        self.assertNotIsInstance(ctx.exception, review.RetryableModelOutputError)
+
+
 class AgenticHarnessTest(unittest.TestCase):
     def setUp(self) -> None:
         # Real context so tools resolve against the vetted catalog: S002 is the
