@@ -263,3 +263,46 @@ test('static /m/ links point at documents that exist', () => {
     assert.ok(permalinks.has(link.slice(2)), `${link} has no matching document permalink`);
   }
 });
+
+// Phone code blocks: the corner language tag and the copy/wrap buttons share the top-right corner, so on touch
+// screens (where the buttons are always visible) the tag must be switched off. The language selectors use
+// :where() so they stay at base specificity and the touch rule that hides the tag always wins.
+test('code block language tag steps aside on touch screens instead of overlapping the buttons', () => {
+  const sheet = css;
+  const tags = [];
+  sheet.walkRules(rule => {
+    if (/theme-code-block.*::after/.test(rule.selector) && rule.nodes.some(node => node.prop === 'content' && node.value !== 'none')) tags.push(rule.selector);
+  });
+  assert.ok(tags.length >= 8, 'language tags are still defined');
+  for (const selector of tags) assert.match(selector, /:where\(\.language-/, `${selector} must use :where() for the language class`);
+  let hidden = false;
+  sheet.walkAtRules('media', media => {
+    if (!/hover:\s*none/.test(media.params)) return;
+    media.walkRules(rule => {
+      if (rule.selector === '.markdown .theme-code-block::after') rule.walkDecls('content', decl => { hidden ||= decl.value === 'none'; });
+    });
+  });
+  assert.ok(hidden, '@media (hover: none) must set the tag content to none');
+});
+
+// A production build rewrites siteConfig.baseUrl per locale (/en/ for English), so building a locale switch
+// from it alone yields /en/en/... or never leaves the English site. The shell must go through useSiteBase().
+test('mobile locale links are built from the locale-free site base', () => {
+  assert.doesNotMatch(read('src/mobile/MobileShell.tsx'), /siteConfig\.baseUrl/);
+  assert.doesNotMatch(read('src/mobile/MobileDocRoute.tsx'), /siteConfig\.baseUrl/);
+  assert.match(read('src/mobile/useMobile.ts'), /export function useSiteBase/);
+});
+
+// The reading-progress ring updates on every scroll frame; a React state there re-renders the whole shell.
+test('mobile scroll progress is written to the DOM, not held in React state', () => {
+  const shell = read('src/mobile/MobileShell.tsx');
+  assert.doesNotMatch(shell, /setProgress|\[progress, /);
+  assert.match(shell, /ringRef\.current\.style\.strokeDashoffset/);
+  // Declarations, not text: the bar once used backdrop-filter, which a phone GPU re-blurs on every scroll frame.
+  postcss.parse(read('src/mobile/styles.module.css')).walkDecls(/backdrop-filter$/, decl => assert.fail(`${decl.parent.selector} must not use ${decl.prop}`));
+});
+
+// A superseded view transition rejects `finished` with AbortError; it must be caught before `finally`.
+test('theme switch swallows the AbortError of an interrupted view transition', () => {
+  assert.match(read('src/theme/ColorModeToggle/index.tsx'), /transition\.finished\.catch\(/);
+});
