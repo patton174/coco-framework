@@ -25,7 +25,7 @@ jobs:
       github.event.workflow_run.head_repository.id == fromJSON(github.repository_id) &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_BIND_MIN || '10') }}
     permissions:
       actions: read
       contents: read
@@ -85,7 +85,7 @@ jobs:
     needs: bind
     if: needs.bind.outputs.eligible == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_PREPARE_MIN || '15') }}
     environment: coco-agent-model
     permissions:
       contents: read
@@ -291,7 +291,7 @@ jobs:
       needs.prepare.outputs.trusted == 'true' &&
       needs.prepare.outputs.ignored == 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_SPECIALIST_MIN || '30') }}
     environment: coco-agent-model
     permissions:
       actions: read
@@ -325,6 +325,10 @@ jobs:
           COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
+          COCO_AGENT_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_COMPLETION_MAX_ATTEMPTS: ${{ vars.COCO_AGENT_COMPLETION_MAX_ATTEMPTS }}
+          COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS: ${{ vars.COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS }}
           ROLE: ${{ matrix.id }}
         run: |
           set -euo pipefail
@@ -368,7 +372,7 @@ jobs:
       needs.prepare.outputs.ignored == 'false' &&
       needs.specialists.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_VERIFIER_MIN || '30') }}
     environment: coco-agent-model
     permissions:
       actions: read
@@ -409,6 +413,10 @@ jobs:
           COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
+          COCO_AGENT_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_COMPLETION_MAX_ATTEMPTS: ${{ vars.COCO_AGENT_COMPLETION_MAX_ATTEMPTS }}
+          COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS: ${{ vars.COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS }}
           ROLE: ${{ matrix.id }}
         run: |
           set -euo pipefail
@@ -454,7 +462,7 @@ jobs:
       needs.specialists.result == 'success' &&
       needs.verifiers.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_CHAIR_MIN || '30') }}
     environment: coco-agent-model
     permissions:
       actions: read
@@ -498,6 +506,10 @@ jobs:
           COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
+          COCO_AGENT_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_COMPLETION_MAX_ATTEMPTS: ${{ vars.COCO_AGENT_COMPLETION_MAX_ATTEMPTS }}
+          COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS: ${{ vars.COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS }}
         run: |
           set -euo pipefail
           for variable in COCO_AGENT_MODEL_PROTOCOL COCO_AGENT_MODEL_BASE_URL COCO_AGENT_MODEL_THINKING COCO_AGENT_MODEL COCO_AGENT_MODEL_API_KEY; do
@@ -543,7 +555,7 @@ jobs:
       needs.verifiers.result == 'success' &&
       needs.chair.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_CONTINUITY_MIN || '30') }}
     environment: coco-agent-model
     permissions:
       actions: read
@@ -597,6 +609,10 @@ jobs:
           COCO_AGENT_MODEL_THINKING: ${{ vars.COCO_AGENT_MODEL_THINKING }}
           COCO_AGENT_MODEL: ${{ vars.COCO_AGENT_MODEL }}
           COCO_AGENT_MODEL_API_KEY: ${{ secrets.COCO_AGENT_MODEL_API_KEY }}
+          COCO_AGENT_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS: ${{ vars.COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS }}
+          COCO_AGENT_COMPLETION_MAX_ATTEMPTS: ${{ vars.COCO_AGENT_COMPLETION_MAX_ATTEMPTS }}
+          COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS: ${{ vars.COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS }}
           ROLE: ${{ matrix.id }}
         run: |
           set -euo pipefail
@@ -629,7 +645,7 @@ jobs:
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.ignored == 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_PUBLISH_MIN || '5') }}
     permissions:
       actions: read
       contents: read
@@ -729,7 +745,7 @@ jobs:
       needs.publisher-admission.result == 'success' &&
       needs.publisher-admission.outputs.admitted == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_PUBLISH_MIN || '5') }}
     environment: coco-agent
     concurrency:
       group: >-
@@ -906,7 +922,7 @@ jobs:
          needs.continuity-verifiers.result == 'failure' ||
          needs.publisher-admission.result == 'failure')))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_PUBLISH_MIN || '5') }}
     permissions:
       contents: read
       statuses: write
@@ -991,7 +1007,7 @@ jobs:
       needs.publisher-admission.result == 'success' &&
       needs.publisher-admission.outputs.admitted == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ fromJSON(vars.COCO_AGENT_TIMEOUT_PUBLISH_MIN || '5') }}
     concurrency:
       group: >-
         agent-review-publisher-${{ fromJSON(needs.prepare.outputs.repository-id) }}-${{ fromJSON(needs.prepare.outputs.pr-number) }}
