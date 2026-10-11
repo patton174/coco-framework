@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readdirSync, readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import postcss from 'postcss';
 import {parse} from '@babel/parser';
@@ -237,4 +237,29 @@ test('Markdown copy feedback is announced, localized and does not bounce', () =>
   assert.ok(elements.some(node => node.name.name === 'button' && attribute(node, 'disabled')), 'in-flight copy must prevent duplicate requests');
   assert.ok(elements.some(node => node.name.name === 'button' && attribute(node, 'aria-label')?.type === 'JSXExpressionContainer'), 'button name must use its localized label');
   assert.doesNotMatch(source, /gsap|<svg/);
+});
+
+// Static mobile links must resolve to a real document: the mobile plugin registers one /m/ route per doc
+// permalink, so a link to anything else would render the not-found page on a phone.
+test('static /m/ links point at documents that exist', () => {
+  const permalinks = new Set();
+  const walk = dir => {
+    for (const entry of readdirSync(new URL(`../docs/${dir}`, import.meta.url), {withFileTypes: true})) {
+      const rel = dir ? `${dir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { walk(rel); continue; }
+      if (!/\.mdx?$/.test(entry.name)) continue;
+      const slug = /^slug:\s*(\S+)/m.exec(read(`docs/${rel}`).split(/^---$/m)[1] ?? '')?.[1];
+      permalinks.add(slug ?? `/${rel.replace(/\.mdx?$/, '').replace(/\/index$/, '')}`);
+    }
+  };
+  walk('');
+  const links = new Set();
+  for (const file of ['src/mobile/MobileHome.tsx', 'src/mobile/MobileShell.tsx']) {
+    for (const match of read(file).matchAll(/to: '(\/m(?:\/[^']*)?)'/g)) links.add(match[1]);
+  }
+  assert.ok(links.has('/m/skills'), 'the skills entries are still checked');
+  for (const link of links) {
+    if (link === '/m') continue;
+    assert.ok(permalinks.has(link.slice(2)), `${link} has no matching document permalink`);
+  }
 });

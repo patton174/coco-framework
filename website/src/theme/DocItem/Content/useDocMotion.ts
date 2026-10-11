@@ -19,6 +19,8 @@ const STAGGER_MS = 70;
 // Module scope, not a ref: DocItem remounts on every doc route, so a ref would always start empty and
 // the doc-to-doc transition would never run. Null until the first doc has rendered (hydration).
 const previousRoute: {current: string | null} = {current: null};
+// Same idea for the reveal effect, which cannot share previousRoute: useGSAP updates that one first.
+const revealedRoute: {current: string | null} = {current: null};
 
 export function useDocMotion(route: string) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -82,8 +84,14 @@ export function useDocMotion(route: string) {
     // No negative margin and a threshold of 0: a block counts as soon as one pixel is visible, so a figure
     // that sits at the very end of the page (inside the last 8% of the viewport) is still revealed.
     }, {rootMargin: '0px', threshold: 0});
+    // On a client-side navigation Docusaurus resets the scroll only after this layout effect, so the offset
+    // still belongs to the previous page. Measure from the top of the new article in that case; otherwise a
+    // block far below the fold would count as visible and be revealed without its settle animation.
+    const resetsScroll = revealedRoute.current !== null && revealedRoute.current !== route && !window.location.hash;
+    revealedRoute.current = route;
+    const scrolled = resetsScroll ? window.scrollY : 0;
     for (const el of blocks) {
-      if (el.getBoundingClientRect().top < window.innerHeight) show(el);
+      if (el.getBoundingClientRect().top + scrolled < window.innerHeight) show(el);
       else observer.observe(el);
     }
     // Focus or find-in-page must never land in a transparent block; printing shows everything.
