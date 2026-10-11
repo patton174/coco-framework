@@ -3471,6 +3471,22 @@ class AgentModelClient:
             envelope.get("content"), list
         ):
             raise ReviewError("Anthropic API returned an invalid response envelope.")
+        stop_reason = envelope.get("stop_reason")
+        if stop_reason == "tool_use":
+            # Requests declare no tools, so a tool call is a hallucinated
+            # response (observed with Gemini-backed gateways); a fresh attempt
+            # normally returns the JSON report. Checked before block parsing
+            # because tool_use blocks carry no text and would otherwise fail
+            # closed as an invalid envelope before the retry can trigger.
+            raise RetryableModelOutputError(
+                "Agent model emitted a tool call although no tools were declared.",
+                stop_reason="tool_use",
+                response_chars=sum(
+                    len(block["text"])
+                    for block in envelope["content"]
+                    if isinstance(block, dict) and isinstance(block.get("text"), str)
+                ),
+            )
         text_blocks: list[str] = []
         for block in envelope["content"]:
             if not isinstance(block, dict):
@@ -3487,16 +3503,6 @@ class AgentModelClient:
                     "Anthropic API returned an invalid response envelope."
                 )
             text_blocks.append(block["text"])
-        stop_reason = envelope.get("stop_reason")
-        if stop_reason == "tool_use":
-            # Requests declare no tools, so a tool call is a hallucinated
-            # response (observed with Gemini-backed gateways); a fresh attempt
-            # normally returns the JSON report.
-            raise RetryableModelOutputError(
-                "Agent model emitted a tool call although no tools were declared.",
-                stop_reason="tool_use",
-                response_chars=sum(len(part) for part in text_blocks),
-            )
         if stop_reason not in {"end_turn", "max_tokens"}:
             raise ReviewError(
                 f"Anthropic response did not complete (stop_reason={stop_reason!r})."

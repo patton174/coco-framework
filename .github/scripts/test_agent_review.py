@@ -16287,6 +16287,19 @@ class AnthropicToolUseHallucinationTest(unittest.TestCase):
             review.AgentModelClient.parse_anthropic_envelope(envelope)
         self.assertEqual("tool_use", ctx.exception.stop_reason)
 
+    def test_tool_use_block_without_text_is_retryable(self) -> None:
+        envelope = {
+            "content": [
+                {"type": "text", "text": "abc"},
+                {"type": "tool_use", "id": "t1", "name": "x", "input": {}},
+            ],
+            "stop_reason": "tool_use",
+        }
+        with self.assertRaises(review.RetryableModelOutputError) as ctx:
+            review.AgentModelClient.parse_anthropic_envelope(envelope)
+        self.assertEqual("tool_use", ctx.exception.stop_reason)
+        self.assertEqual(3, ctx.exception.response_chars)
+
     def test_other_incomplete_stop_reasons_still_fail_closed(self) -> None:
         envelope = {"content": [], "stop_reason": "refusal"}
         with self.assertRaises(review.ReviewError) as ctx:
