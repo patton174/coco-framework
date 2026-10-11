@@ -195,6 +195,51 @@ Legacy README-maintenance `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` secrets and
 the `CLAUDE_MODEL` variable may remain until that automation is migrated in a
 separate change. Agent Review must not reference or inherit them.
 
+Optional Agent review timing variables. Every one is optional: an unset or empty
+repository variable falls back to the default below. Model-call precedence is
+environment variable (from the repository variable) > `limits` in
+`.github/agent-review/config.json` > built-in default. Invalid values (not an
+integer, or outside the allowed range) fail closed with a `ReviewError`; they
+never silently fall back.
+
+| Repository variable | Default | Meaning |
+| --- | --- | --- |
+| `COCO_AGENT_REQUEST_TIMEOUT_SECONDS` | `420` | Per-request socket timeout for one model call (1 to the cap). `limits.request_timeout_seconds` in config. |
+| `COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS` | `900` | Upper bound accepted for the request timeout (1 to 3600). `limits.max_request_timeout_seconds` in config. |
+| `COCO_AGENT_COMPLETION_MAX_ATTEMPTS` | `3` | Bounded completions per role call, covering truncation continuation and protocol correction (1 to 10). `limits.completion_max_attempts` in config. |
+| `COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS` | `2,8` | Comma-separated delays between transport retries; the count is the retry count (1 to 5 delays, each 0 to 120 seconds). `limits.transport_retry_backoff_seconds` (list) in config. |
+| `COCO_AGENT_TIMEOUT_PREPARE_MIN` | `15` | `timeout-minutes` of the prepare job. |
+| `COCO_AGENT_TIMEOUT_SPECIALIST_MIN` | `30` | `timeout-minutes` of each specialist job. |
+| `COCO_AGENT_TIMEOUT_VERIFIER_MIN` | `30` | `timeout-minutes` of each verifier job. |
+| `COCO_AGENT_TIMEOUT_CHAIR_MIN` | `30` | `timeout-minutes` of the chair job. |
+| `COCO_AGENT_TIMEOUT_CONTINUITY_MIN` | `30` | `timeout-minutes` of each continuity verifier job. |
+| `COCO_AGENT_TIMEOUT_PUBLISH_MIN` | `5` | `timeout-minutes` of the publisher admission, publisher, no-secret publisher, and fail-closed jobs. |
+| `COCO_AGENT_TIMEOUT_BIND_MIN` | `10` | `timeout-minutes` of the deferred bind job. |
+
+Keep each model-stage job timeout above the worst case the script itself allows,
+roughly `completion_max_attempts x (request_timeout x (1 + transport retries) +
+backoff)`, otherwise the runner kills the job before the script fails closed and
+no artifact is uploaded. With the defaults one slow attempt is 420 s, so the
+30-minute stage timeouts cover about three full attempts under normal gateway
+latency; raise the stage timeout whenever you raise the request timeout or the
+attempt count. The job-level `timeout-minutes` values are read from the `vars`
+context by the workflow YAML on `main`; the request and attempt knobs are read
+by `agent_review.py` from the protected base checkout (see below).
+
+Which ref each file executes from: `agent-review-deferred.yml` is a
+`workflow_run` workflow; GitHub runs the copy on the default branch and every job
+is gated on `github.ref == 'refs/heads/main'`, so its YAML (job timeouts, env
+wiring) takes effect only once it reaches `main`. This is the workflow that runs
+the model jobs. `agent-review.yml` and `reusable-agent-review-jury.yml` run
+under `pull_request_target` from the pull request's base branch; their model
+jobs are gated on `inputs.allow_deferred`, which the no-secret route never sets,
+so their timeouts matter only for prepare and the publishers. `agent_review.py`
+and `.github/agent-review/config.json` are not read from `main` or from the PR
+head: every job checks out the pull request's base commit into
+`.agent-review-base/`, so these files take effect for a pull request when they
+exist on that pull request's base branch (`dev` for ordinary pull requests, `main`
+for promotion pull requests).
+
 Dedicated Agent identity configuration:
 
 - environment `coco-agent`, restricted to the exact `main` branch;
@@ -220,7 +265,8 @@ satisfy the protected merge contract.
 ## Repository Automations
 
 The Agent contribution workflow opens pull requests for existing same-repository
-`codex/*` branches without checking out or executing their contents. A dispatch
+agent branches (prefixes from the `COCO_AGENT_BRANCH_PREFIXES` repository
+variable, default `codex/`) without checking out or executing their contents. A dispatch
 from current protected `main` must bind the exact head SHA; the workflow verifies
 repository identity, branch state, and the compare result before requesting an
 App token. Existing pull requests are reused only when their App author,

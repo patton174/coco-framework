@@ -58,11 +58,78 @@ CONTRIBUTOR_BRANCH_RE = re.compile(r"^dev-[A-Za-z0-9](?:[A-Za-z0-9._-]{0,38})$")
 # brackets that no valid ref may hold. Each prefix maps to the ONE identity
 # allowed to use it, so a spoofed `dependabot/x` branch from an ordinary account
 # is still rejected -- the prefix alone never grants the exemption.
-EXEMPT_BRANCH_PREFIX_OWNERS = {
-    "dependabot/": "dependabot[bot]",
-    "codex/": "coco-framework-agent[bot]",
-}
-EXEMPT_BRANCH_PREFIXES = tuple(EXEMPT_BRANCH_PREFIX_OWNERS)
+DEPENDABOT_BRANCH_PREFIX = "dependabot/"
+DEPENDABOT_LOGIN = "dependabot[bot]"
+AGENT_APP_LOGIN = "coco-framework-agent[bot]"
+# Agent branches are owned by the single Coco agent App whatever the tool that
+# produced them, so the prefix is a label, not an identity. The list lives in a
+# repository variable so a new tool needs no change to this protected gate; the
+# default keeps today's behaviour when the variable is unset.
+DEFAULT_AGENT_BRANCH_PREFIXES = ("codex/",)
+# One lowercase segment plus a trailing slash. Single-segment prefixes cannot be
+# prefixes of one another, so a branch always resolves to exactly one prefix.
+AGENT_BRANCH_PREFIX_RE = re.compile(r"^[a-z][a-z0-9-]*/$")
+
+
+def parse_agent_branch_prefixes(raw: str | None) -> tuple[str, ...]:
+    """Parse the complete list of agent branch prefixes, failing closed.
+
+    An unset or blank value yields the default. A configured value is the whole
+    list, never an addition to the default, and any malformed entry invalidates
+    the configuration instead of being skipped, so a typo cannot silently widen
+    or narrow the set of branches the agent App may open pull requests from.
+    """
+
+    if raw is None or not raw.strip():
+        return DEFAULT_AGENT_BRANCH_PREFIXES
+    prefixes: list[str] = []
+    for entry in raw.split(","):
+        item = entry.strip()
+        if not item:
+            continue
+        if AGENT_BRANCH_PREFIX_RE.fullmatch(item) is None:
+            raise ReviewError(
+                f"Agent branch prefix '{item}' must be one lowercase segment "
+                "followed by '/', for example 'claude/'."
+            )
+        if item == DEPENDABOT_BRANCH_PREFIX:
+            raise ReviewError(
+                f"Agent branch prefix '{item}' is reserved for {DEPENDABOT_LOGIN}."
+            )
+        if item not in prefixes:
+            prefixes.append(item)
+    if not prefixes:
+        raise ReviewError("Agent branch prefixes must name at least one prefix.")
+    return tuple(prefixes)
+
+
+def exempt_branch_prefix_owners(raw_agent_prefixes: str | None) -> dict[str, str]:
+    """Map every exempt branch prefix to the one identity that may use it."""
+
+    owners = exempt_branch_prefix_owners_without_agents()
+    for prefix in parse_agent_branch_prefixes(raw_agent_prefixes):
+        owners[prefix] = AGENT_APP_LOGIN
+    return owners
+
+
+def exempt_branch_prefix_owners_without_agents() -> dict[str, str]:
+    """Exemptions that do not depend on the configurable agent prefix list."""
+
+    return {DEPENDABOT_BRANCH_PREFIX: DEPENDABOT_LOGIN}
+
+
+def looks_like_agent_branch(branch: str) -> bool:
+    """Whether a branch is shaped like `<single-segment>/<name>`, other than Dependabot's.
+
+    Used only when the agent prefix list is invalid, to decide whether a pull
+    request is one the broken configuration could have affected. Contributor
+    branches are `dev-<login>` and contain no slash, so they never match.
+    """
+
+    head, separator, rest = branch.partition("/")
+    return bool(separator and rest) and f"{head}/" != DEPENDABOT_BRANCH_PREFIX
+
+
 PR_ROUTE_DIRECT = "direct-secret"
 PR_ROUTE_DEFERRED = "deferred-secret"
 PR_ROUTE_NO_SECRET = "no-secret"
@@ -111,10 +178,20 @@ GITHUB_TRANSIENT_TRANSPORT_ERRORS = (
     ssl.SSLEOFError,
     ssl.SSLZeroReturnError,
 )
+# Operator-tunable model timing knobs. Precedence: COCO_AGENT_* environment
+# variable > config.json "limits" entry > the built-in default below. The
+# gateway can take several minutes per request, so the defaults leave room for
+# one slow request per attempt; the workflow job timeouts must stay above
+# attempts x request timeout (see the Agent review documentation).
 MODEL_COMPLETION_MAX_ATTEMPTS = 3
+DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS = 420
+ABSOLUTE_MAX_MODEL_REQUEST_TIMEOUT_SECONDS = 3600
+ABSOLUTE_MAX_MODEL_COMPLETION_ATTEMPTS = 10
+MAX_MODEL_TRANSPORT_RETRY_BACKOFF_STEPS = 5
+MAX_MODEL_TRANSPORT_RETRY_DELAY_SECONDS = 120.0
 MAX_MODEL_CONTINUATION_CHARS = 96_000
 MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
-MAX_MODEL_REQUEST_TIMEOUT_SECONDS = 300
+MAX_MODEL_REQUEST_TIMEOUT_SECONDS = 900
 MODEL_PROTOCOL_ENDPOINTS = {
     "anthropic-messages": "messages",
     "openai-chat-completions": "chat/completions",
@@ -906,7 +983,73 @@ def require_actionable_issue_group_limit(
         )
 
 
-def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
+def positive_integer_tunable(
+    environment_name: str,
+    configured: Any,
+    default: int,
+    maximum: int,
+    label: str,
+) -> int:
+    """Resolve env var > config.json limits entry > default, fail closed."""
+    raw = os.environ.get(environment_name, "")
+    if raw != "":
+        if not re.fullmatch(r"[0-9]{1,6}", raw):
+            raise ReviewError(f"{environment_name} must be a positive integer.")
+        value = int(raw)
+        source = environment_name
+    elif configured is not None:
+        if type(configured) is not int:
+            raise ReviewError(f"Agent review limits.{label} must be an integer.")
+        value = configured
+        source = f"limits.{label}"
+    else:
+        value = default
+        source = label
+    if not 1 <= value <= maximum:
+        raise ReviewError(f"{source} must be between 1 and {maximum}.")
+    return value
+
+
+def transport_retry_backoff_tunable(configured: Any) -> tuple[float, ...]:
+    """Resolve the transport retry delays; the tuple length is the retry count."""
+    raw = os.environ.get("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "")
+    if raw != "":
+        parts: list[Any] = raw.split(",")
+        source = "COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS"
+    elif configured is not None:
+        if not isinstance(configured, list):
+            raise ReviewError(
+                "Agent review limits.transport_retry_backoff_seconds must be a list."
+            )
+        parts = list(configured)
+        source = "limits.transport_retry_backoff_seconds"
+    else:
+        return MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS
+    if not 1 <= len(parts) <= MAX_MODEL_TRANSPORT_RETRY_BACKOFF_STEPS:
+        raise ReviewError(
+            f"{source} must contain 1 to {MAX_MODEL_TRANSPORT_RETRY_BACKOFF_STEPS} "
+            "delays."
+        )
+    delays: list[float] = []
+    for part in parts:
+        if isinstance(part, str):
+            if not re.fullmatch(r"[0-9]{1,3}(\.[0-9]{1,3})?", part.strip()):
+                raise ReviewError(f"{source} delays must be non-negative numbers.")
+            delay = float(part.strip())
+        elif type(part) in (int, float):
+            delay = float(part)
+        else:
+            raise ReviewError(f"{source} delays must be non-negative numbers.")
+        if not 0 <= delay <= MAX_MODEL_TRANSPORT_RETRY_DELAY_SECONDS:
+            raise ReviewError(
+                f"{source} delays must be between 0 and "
+                f"{MAX_MODEL_TRANSPORT_RETRY_DELAY_SECONDS:g} seconds."
+            )
+        delays.append(delay)
+    return tuple(delays)
+
+
+def normalized_limits(config: dict[str, Any]) -> dict[str, Any]:
     legacy = config.get("limits", {})
     context = config.get("context_budget", {})
     output = config.get("output_limits", {})
@@ -968,7 +1111,30 @@ def normalized_limits(config: dict[str, Any]) -> dict[str, int]:
             )
         ),
         "response_bytes": int(legacy.get("response_bytes", 1048576)),
-        "request_timeout_seconds": int(legacy.get("request_timeout_seconds", 180)),
+        "request_timeout_seconds": positive_integer_tunable(
+            "COCO_AGENT_REQUEST_TIMEOUT_SECONDS",
+            legacy.get("request_timeout_seconds"),
+            DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS,
+            ABSOLUTE_MAX_MODEL_REQUEST_TIMEOUT_SECONDS,
+            "request_timeout_seconds",
+        ),
+        "max_request_timeout_seconds": positive_integer_tunable(
+            "COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS",
+            legacy.get("max_request_timeout_seconds"),
+            MAX_MODEL_REQUEST_TIMEOUT_SECONDS,
+            ABSOLUTE_MAX_MODEL_REQUEST_TIMEOUT_SECONDS,
+            "max_request_timeout_seconds",
+        ),
+        "completion_max_attempts": positive_integer_tunable(
+            "COCO_AGENT_COMPLETION_MAX_ATTEMPTS",
+            legacy.get("completion_max_attempts"),
+            MODEL_COMPLETION_MAX_ATTEMPTS,
+            ABSOLUTE_MAX_MODEL_COMPLETION_ATTEMPTS,
+            "completion_max_attempts",
+        ),
+        "transport_retry_backoff_seconds": transport_retry_backoff_tunable(
+            legacy.get("transport_retry_backoff_seconds")
+        ),
         "specialist_tokens": int(
             legacy.get("specialist_tokens", output.get("specialist_tokens", 16384))
         ),
@@ -3113,9 +3279,11 @@ class AgentModelClient:
             raise ReviewError("Agent model request limits are invalid.") from exc
         self.max_response_bytes = limits["response_bytes"]
         self.timeout = limits["request_timeout_seconds"]
+        self.completion_max_attempts = limits["completion_max_attempts"]
+        self.transport_retry_backoff = limits["transport_retry_backoff_seconds"]
         if not 1 <= self.max_response_bytes <= MAX_MODEL_RESPONSE_BYTES:
             raise ReviewError("Agent model response_bytes limit is invalid.")
-        if not 1 <= self.timeout <= MAX_MODEL_REQUEST_TIMEOUT_SECONDS:
+        if not 1 <= self.timeout <= limits["max_request_timeout_seconds"]:
             raise ReviewError("Agent model request timeout limit is invalid.")
 
     def request_payload(self, system: str, user: str, max_tokens: int) -> bytes:
@@ -3238,7 +3406,7 @@ class AgentModelClient:
     def retry_transport_after(
         self, attempt: int, provider: str, exc: BaseException
     ) -> None:
-        delay = MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS[attempt]
+        delay = self.transport_retry_backoff[attempt]
         payload: dict[str, Any] = {
             "delay_seconds": delay,
             "error_type": type(exc).__name__,
@@ -3246,7 +3414,7 @@ class AgentModelClient:
             "model": self.model,
             "provider": provider,
             "retry": attempt + 1,
-            "retry_limit": len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS),
+            "retry_limit": len(self.transport_retry_backoff),
         }
         if isinstance(exc, urllib.error.HTTPError):
             payload["http_status"] = exc.code
@@ -3262,7 +3430,7 @@ class AgentModelClient:
             headers=self.request_headers(),
         )
         provider = "Anthropic" if self.protocol == "anthropic-messages" else "OpenAI"
-        for attempt in range(len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) + 1):
+        for attempt in range(len(self.transport_retry_backoff) + 1):
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     headers = getattr(response, "headers", None)
@@ -3277,7 +3445,7 @@ class AgentModelClient:
                             f"{provider} response exceeded the bounded size."
                         )
             except urllib.error.HTTPError as exc:
-                if attempt < len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) and (
+                if attempt < len(self.transport_retry_backoff) and (
                     retryable_model_http_status(exc.code)
                 ):
                     self.retry_transport_after(attempt, provider, exc)
@@ -3285,7 +3453,7 @@ class AgentModelClient:
                 exc.close()
                 raise ReviewError(f"{provider} API returned HTTP {exc.code}.") from None
             except (urllib.error.URLError, TimeoutError) as exc:
-                if attempt < len(MODEL_TRANSPORT_RETRY_BACKOFF_SECONDS) and (
+                if attempt < len(self.transport_retry_backoff) and (
                     retryable_model_transport_error(exc)
                 ):
                     self.retry_transport_after(attempt, provider, exc)
@@ -3746,7 +3914,10 @@ def complete_with_shape_repair(
     current_system = system
     current_user = user
     partial_text = ""
-    for attempt in range(1, MODEL_COMPLETION_MAX_ATTEMPTS + 1):
+    max_attempts = getattr(client, "completion_max_attempts", None)
+    if type(max_attempts) is not int or max_attempts < 1:
+        max_attempts = MODEL_COMPLETION_MAX_ATTEMPTS
+    for attempt in range(1, max_attempts + 1):
         try:
             if getattr(client, "supports_fragment_continuation", False) is True:
                 report = complete_fragment_json(
@@ -3759,12 +3930,12 @@ def complete_with_shape_repair(
             else:
                 report = client.complete(current_system, current_user, max_tokens)
         except RetryableModelOutputError as exc:
-            if attempt == MODEL_COMPLETION_MAX_ATTEMPTS:
+            if attempt == max_attempts:
                 raise
             print(
                 "::warning::Agent output was incomplete or not strict JSON; "
                 f"attempting bounded completion {attempt + 1}/"
-                f"{MODEL_COMPLETION_MAX_ATTEMPTS}; "
+                f"{max_attempts}; "
                 f"stop_reason={retryable_stop_reason(exc.stop_reason)}; "
                 f"response_chars={exc.response_chars}; "
                 f"accumulated_chars={exc.accumulated_chars}."
@@ -3831,12 +4002,12 @@ binding contract; no partial response can be published.""",
                 return validated_report
             return report
         except ReportShapeError as exc:
-            if attempt == MODEL_COMPLETION_MAX_ATTEMPTS:
+            if attempt == max_attempts:
                 raise
             print(
                 "::warning::Agent report violated the protected output contract; "
                 f"attempting bounded protocol correction {attempt + 1}/"
-                f"{MODEL_COMPLETION_MAX_ATTEMPTS}."
+                f"{max_attempts}."
             )
             correction = """## Protected protocol correction
 The previous response was parseable JSON and passed protected identity binding,

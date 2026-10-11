@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       head_branch:
-        description: Existing same-repository codex branch
+        description: Existing same-repository agent branch (prefix from COCO_AGENT_BRANCH_PREFIXES, default codex/)
         required: true
         type: string
       head_sha:
@@ -42,6 +42,7 @@ jobs:
           HEAD_BRANCH: ${{ inputs.head_branch }}
           HEAD_SHA: ${{ inputs.head_sha }}
           PR_TITLE: ${{ inputs.title }}
+          AGENT_BRANCH_PREFIXES: ${{ vars.COCO_AGENT_BRANCH_PREFIXES }}
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF}" != 'refs/heads/main' ]]; then
@@ -61,13 +62,53 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "${HEAD_BRANCH}" =~ ^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$ \
+          # The prefix list is the same repository variable the Contributor gate
+          # reads (contributor_gate.py). Unset or blank keeps the codex/ default.
+          # A configured list is the complete set, and any malformed entry fails
+          # the dispatch instead of being skipped. This job checks out nothing, so
+          # the shape rule is restated here; test_agent_review.py compares it with
+          # agent_review.parse_agent_branch_prefixes so the two cannot drift.
+          agent_prefixes="${AGENT_BRANCH_PREFIXES:-}"
+          if [[ -z "${agent_prefixes//[[:space:]]/}" ]]; then
+            agent_prefixes='codex/'
+          fi
+          prefix_matched=false
+          configured_prefix_count=0
+          # The variable may span several lines. -d '' lets read run past newlines
+          # (the default stops at the first one and would silently drop every
+          # later prefix), and it returns non-zero at EOF, which set -e must not
+          # treat as a failure. The trailing newline stays in the last entry and
+          # is removed by the trim below, like the leading one in Python's strip().
+          IFS=',' read -r -d '' -a prefix_entries <<< "${agent_prefixes}" || true
+          for prefix_entry in "${prefix_entries[@]}"; do
+            # Trim both ends only: whitespace inside an entry is malformed and must
+            # be rejected, exactly as parse_agent_branch_prefixes rejects it.
+            prefix="${prefix_entry#"${prefix_entry%%[![:space:]]*}"}"
+            prefix="${prefix%"${prefix##*[![:space:]]}"}"
+            if [[ -z "${prefix}" ]]; then
+              continue
+            fi
+            if [[ ! "${prefix}" =~ ^[a-z][a-z0-9-]*/$ || "${prefix}" == 'dependabot/' ]]; then
+              echo "::error::COCO_AGENT_BRANCH_PREFIXES contains an invalid agent branch prefix."
+              exit 1
+            fi
+            configured_prefix_count=$((configured_prefix_count + 1))
+            if [[ "${HEAD_BRANCH}" == "${prefix}"* && "${#HEAD_BRANCH}" -gt "${#prefix}" ]]; then
+              prefix_matched=true
+            fi
+          done
+          if (( configured_prefix_count == 0 )); then
+            echo "::error::COCO_AGENT_BRANCH_PREFIXES must name at least one prefix."
+            exit 1
+          fi
+          if [[ "${prefix_matched}" != 'true' \
+             || ! "${HEAD_BRANCH}" =~ ^[a-z][a-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._/-]*$ \
              || "${HEAD_BRANCH}" == */ \
              || "${HEAD_BRANCH}" == *..* \
              || "${HEAD_BRANCH}" == *//* \
              || "${HEAD_BRANCH}" == *'@{'* \
              || "${HEAD_BRANCH}" == *.lock ]]; then
-            echo "::error::Head branch is not a valid codex contribution branch."
+            echo "::error::Head branch is not a valid agent contribution branch."
             exit 1
           fi
           if [[ ! "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ \

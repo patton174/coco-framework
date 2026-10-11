@@ -4,6 +4,12 @@
   "managed_comment_marker": "<!-- agent-jury:v1 -->",
   "max_actionable_issue_groups": 24,
   "agentic_roles": [],
+  "limits": {
+    "request_timeout_seconds": 420,
+    "max_request_timeout_seconds": 900,
+    "completion_max_attempts": 3,
+    "transport_retry_backoff_seconds": [2.0, 8.0]
+  },
   "deferred_bot_authors": [
     {
       "login": "dependabot[bot]",

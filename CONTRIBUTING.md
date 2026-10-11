@@ -75,8 +75,10 @@ Complete the pull request template with the intent, affected modules,
 compatibility impact, and exact verification performed. Link the governing
 Issue when one exists. Review generated code before committing it.
 
-Maintainer-authored changes must be pushed to a same-repository `codex/*`
-branch and submitted through the protected `Open Agent Pull Request` workflow
+Maintainer-authored changes must be pushed to a same-repository agent branch
+(`codex/*` by default; the allowed prefixes are the repository variable
+`COCO_AGENT_BRANCH_PREFIXES`, for example `codex/,claude/`) and submitted through
+the protected `Open Agent Pull Request` workflow
 from current `main`. The Coco App becomes the pull request author so the human
 maintainer can provide the required current-head CODEOWNER approval. Do not open
 an owner-authored pull request directly, because GitHub does not allow its author
@@ -84,8 +86,11 @@ to approve it.
 
 Branch names must be `dev-<your-github-login>` with your own login as the
 suffix; `dev-someone-else` is rejected. Fork pull requests are not accepted.
-`dependabot/*` and `codex/*` are exempt from that naming, each usable only by
-its own bot.
+`dependabot/*` and the configured agent prefixes are exempt from that naming,
+each usable only by its own bot. The agent prefix is a label, not an identity:
+only the Coco App may use it, so a human cannot borrow it. A prefix takes effect
+for the Contributor gate once it is on `dev`, and for the `Open Agent Pull
+Request` workflow once that change has been promoted to `main`.
 
 A pull request into `dev` must pass `CI gate`, `Agent jury gate`,
 `Agent issue gate`, and `Contributor gate`, plus one current CODEOWNER approval
@@ -119,12 +124,15 @@ Maven 坐标、feature 契约、安全策略或仓库治理的破坏性变更，
 `codegraph sync .`。
 
 验证命令与 README 生成方式见上方英文部分。PR 必须写明变更意图、影响模块、
-兼容性和实际执行的验证。维护者自己的改动必须推送到同仓库 `codex/*` 分支，并从最新
+兼容性和实际执行的验证。维护者自己的改动必须推送到同仓库 agent 分支（默认 `codex/*`，
+允许的前缀由仓库变量 `COCO_AGENT_BRANCH_PREFIXES` 决定，例如 `codex/,claude/`），并从最新
 `main` 运行受保护的 `Open Agent Pull Request` 工作流，由 Coco App 作为 PR 作者，
 维护者再提供当前 head 的人工审批。
 
 分支名必须是 `dev-<你的 GitHub 用户名>`，后缀须为本人用户名；`dev-别人的名字` 会被
-拒绝。不接受 fork PR。`dependabot/*` 与 `codex/*` 豁免该命名，且各自只有对应 bot 可用。
+拒绝。不接受 fork PR。`dependabot/*` 与已配置的 agent 前缀豁免该命名，且各自只有对应 bot 可用；
+agent 前缀只是标签而不是身份，只有 Coco App 能使用，人类账号无法借用。新增前缀对 Contributor gate
+在进入 `dev` 后生效，对 `Open Agent Pull Request` 工作流则要等该改动晋升到 `main` 后才生效。
 
 提到 `dev` 的 PR 必须通过 `CI gate`、`Agent jury gate`、`Agent issue gate` 和
 `Contributor gate`，并获得当前 CODEOWNER 审批、解决全部评审会话。`main` 的晋级规则见
