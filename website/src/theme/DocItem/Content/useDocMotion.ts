@@ -88,9 +88,12 @@ export function useDocMotion(route: string) {
     }
     // Focus or find-in-page must never land in a transparent block; printing shows everything.
     const revealAll = () => blocks.forEach(show);
-    // Safety net: once the page is scrolled to its end, nothing below may stay transparent.
+    // Safety net: once the page is scrolled to its end, nothing below may stay transparent. Everything is
+    // revealed at that point, so the listener removes itself instead of re-walking the blocks on every scroll.
     const onScroll = () => {
-      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) revealAll();
+      if (window.innerHeight + window.scrollY < document.documentElement.scrollHeight - 2) return;
+      revealAll();
+      window.removeEventListener('scroll', onScroll);
     };
     const onFocus = (event: FocusEvent) => {
       const block = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-reveal-block]');
