@@ -44,7 +44,7 @@ protection token 请求和使用，不得用于修改 branch protection。`Agent
 不得发布 gate。自动合并的可信度来自精确条件复核和分支保护，而不是管理员绕过。
 App 私钥只进入受保护 `main` 的 `workflow_run` publisher、计划或合并任务，不进入 source 或
 PR-head 代码。`pull_request_target` 调用 reusable 时 environment ref 绑定 PR head，因此 source
-不得调用 secret-backed job；环境不得放宽到 `codex/*`，密钥不得迁移到 repository secrets。
+不得调用 secret-backed job；环境不得放宽到任何 agent 分支前缀（如 `codex/*`、`claude/*`），密钥不得迁移到 repository secrets。
 
 同仓有效 `User`、精确 App、固定 Dependabot 先 no-secret marker；eligible run
 仅 `deferred + ignored`。仅 `refs/heads/main` `workflow_run` 在 API 解析
@@ -56,10 +56,29 @@ identity 或 PR binding 的可信输入。延迟入口不 checkout
 PR head/merge ref，不消费 source artifact/cache。其他 bot/fork 与非固定同仓身份无密钥路径，返回
 `eligible=false`；完整评审不替代当前 head 人类维护者批准。
 
-维护者自己的改动必须推送到同仓库 `codex/*` 分支，并从受保护的最新 `main` 手动运行
+维护者自己的改动必须推送到同仓库 agent 分支（前缀见下），并从受保护的最新 `main` 手动运行
 `Open Agent Pull Request` workflow。该 workflow 绑定精确 branch SHA，并由专用 App 创建或
 复用 PR，使 App 成为作者、维护者可以提供 required current-head approval。维护者不得直接
 创建自己无法审批的 PR，也不得直接推送 `main`。
+
+### Agent 分支前缀
+
+agent 分支前缀不写死在代码里，由仓库变量 `COCO_AGENT_BRANCH_PREFIXES` 给出完整清单（逗号分隔，
+例如 `codex/,claude/`；两端空白会被忽略，空项跳过）。变量未设置或为空时回退 `codex/`，因此不配置
+变量不会改变既有行为；一旦配置，清单即全集，要继续接受 `codex/` 必须把它写进清单。
+
+- 每个前缀必须匹配 `^[a-z][a-z0-9-]*/$`（单段、小写、以 `/` 结尾，因此不同前缀互不为前缀），且不得是
+  `dependabot/`。任何非法项使整个配置无效，绝不忽略非法项后继续放行，也绝不因此放宽任何分支。
+  配置无效时：`Open Agent Pull Request` 直接拒绝派发；Contributor gate 对形如 `<单段>/<名称>`
+  的 agent 形态分支发布失败状态并点名该变量，而 `dev-<login>` 与 `dependabot/` 分支不依赖该清单，
+  照常按各自规则裁决，避免一个变量笔误锁死全部贡献者。
+- 所有 agent 前缀都只属于同一个专用 App（`coco-framework-agent[bot]`）。前缀本身不授予任何身份，
+  Contributor gate 仍校验 PR 作者与 allow-listed user id，普通账号即便使用清单中的前缀也被拒绝。
+- 两处读取同一个变量：`dev` 上的 Contributor gate（取受保护 base 的脚本）与 `main` 上的
+  `Open Agent Pull Request`（取受保护 `main` 的 workflow）。前缀形状规则在 `agent_review.py` 与
+  workflow 中各有一份，协议测试逐项比对二者对同一输入的接受与拒绝结果，防止漂移。
+- 上线顺序：新增前缀的代码先合入 `dev`（门禁才认识它），再随 `dev → main` 晋升进入 `main`
+  （workflow 才会派发它）；晋升之前只能用 `codex/`。
 
 ## README 源模型
 

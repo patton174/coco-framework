@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1111,7 +1113,8 @@ class AgentReviewTests(unittest.TestCase):
             "vars.COCO_AGENT_APP_BOT_ID",
             "GITHUB_REPOSITORY_ID",
             '"${GITHUB_SHA}" != "${main_sha}"',
-            "^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+            "^[a-z][a-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._/-]*$",
+            "vars.COCO_AGENT_BRANCH_PREFIXES",
             "'$value | @uri'",
             # Dispatch stays bound to main (main_sha trust check above), but the
             # pull request targets the integration branch, so head currency is
@@ -12601,7 +12604,7 @@ class AgentReviewTests(unittest.TestCase):
                     name.lower(): value for name, value in request.header_items()
                 }
                 self.assertIsNotNone(headers.get(auth_header))
-                self.assertEqual(180, captured["timeout"])
+                self.assertEqual(420, captured["timeout"])
                 self.assertEqual(1048577, response.read_limit)
                 if protocol == "openai-chat-completions":
                     self.assertEqual(
@@ -12938,6 +12941,135 @@ class AgentReviewTests(unittest.TestCase):
                 client.complete("system", "user", 100)
         self.assertEqual(9, response.read_limit)
         self.assertEqual(7, captured["timeout"])
+
+    def test_timing_tunables_have_new_defaults_in_code_and_config(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            defaults = review.normalized_limits({})
+            self.assertEqual(420, defaults["request_timeout_seconds"])
+            self.assertEqual(900, defaults["max_request_timeout_seconds"])
+            self.assertEqual(3, defaults["completion_max_attempts"])
+            self.assertEqual((2.0, 8.0), defaults["transport_retry_backoff_seconds"])
+            self.assertEqual(900, review.MAX_MODEL_REQUEST_TIMEOUT_SECONDS)
+            path = Path(__file__).resolve().parents[1] / "agent-review/config.json"
+            shipped = review.normalized_limits(review.load_config(path))
+            for key in (
+                "request_timeout_seconds",
+                "max_request_timeout_seconds",
+                "completion_max_attempts",
+                "transport_retry_backoff_seconds",
+            ):
+                self.assertEqual(defaults[key], shipped[key], key)
+
+    def test_timing_tunables_precedence_is_env_then_config_then_default(self) -> None:
+        from_config = {
+            "limits": {
+                "request_timeout_seconds": 500,
+                "max_request_timeout_seconds": 800,
+                "completion_max_attempts": 2,
+                "transport_retry_backoff_seconds": [1, 3.5],
+            }
+        }
+        with patch.dict("os.environ", {}, clear=True):
+            limits = review.normalized_limits(from_config)
+        self.assertEqual(500, limits["request_timeout_seconds"])
+        self.assertEqual(800, limits["max_request_timeout_seconds"])
+        self.assertEqual(2, limits["completion_max_attempts"])
+        self.assertEqual((1.0, 3.5), limits["transport_retry_backoff_seconds"])
+
+        environment = {
+            "COCO_AGENT_REQUEST_TIMEOUT_SECONDS": "600",
+            "COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS": "1200",
+            "COCO_AGENT_COMPLETION_MAX_ATTEMPTS": "4",
+            "COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS": "5, 15,30",
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            limits = review.normalized_limits(from_config)
+        self.assertEqual(600, limits["request_timeout_seconds"])
+        self.assertEqual(1200, limits["max_request_timeout_seconds"])
+        self.assertEqual(4, limits["completion_max_attempts"])
+        self.assertEqual((5.0, 15.0, 30.0), limits["transport_retry_backoff_seconds"])
+
+        # Empty (unset repository variable) falls through to the config value.
+        blanks = {name: "" for name in environment}
+        with patch.dict("os.environ", blanks, clear=True):
+            limits = review.normalized_limits(from_config)
+        self.assertEqual(500, limits["request_timeout_seconds"])
+        self.assertEqual(2, limits["completion_max_attempts"])
+
+    def test_timing_tunables_reject_invalid_values_fail_closed(self) -> None:
+        invalid_environment = [
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "abc"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "0"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "-5"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "1.5"),
+            ("COCO_AGENT_REQUEST_TIMEOUT_SECONDS", "99999"),
+            ("COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS", "x"),
+            ("COCO_AGENT_COMPLETION_MAX_ATTEMPTS", "0"),
+            ("COCO_AGENT_COMPLETION_MAX_ATTEMPTS", "11"),
+            ("COCO_AGENT_COMPLETION_MAX_ATTEMPTS", "two"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "a,b"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "-1"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "1,2,3,4,5,6"),
+            ("COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS", "999"),
+        ]
+        for name, value in invalid_environment:
+            with self.subTest(name=name, value=value):
+                with patch.dict("os.environ", {name: value}, clear=True):
+                    with self.assertRaises(review.ReviewError):
+                        review.normalized_limits({})
+        invalid_config = [
+            {"request_timeout_seconds": "420"},
+            {"request_timeout_seconds": 0},
+            {"request_timeout_seconds": True},
+            {"completion_max_attempts": 99},
+            {"transport_retry_backoff_seconds": "2,8"},
+            {"transport_retry_backoff_seconds": []},
+            {"transport_retry_backoff_seconds": [-1]},
+        ]
+        for limits in invalid_config:
+            with self.subTest(limits=limits):
+                with patch.dict("os.environ", {}, clear=True):
+                    with self.assertRaises(review.ReviewError):
+                        review.normalized_limits({"limits": limits})
+
+    def test_model_client_applies_timing_tunables(self) -> None:
+        environment = model_env("openai-responses")
+        environment["COCO_AGENT_REQUEST_TIMEOUT_SECONDS"] = "850"
+        environment["COCO_AGENT_COMPLETION_MAX_ATTEMPTS"] = "5"
+        environment["COCO_AGENT_TRANSPORT_RETRY_BACKOFF_SECONDS"] = "1"
+        with patch.dict("os.environ", environment, clear=True):
+            client = review.AgentModelClient(config())
+        self.assertEqual(850, client.timeout)
+        self.assertEqual(5, client.completion_max_attempts)
+        self.assertEqual((1.0,), client.transport_retry_backoff)
+
+        # The cap is itself tunable: a timeout above it is rejected.
+        environment = model_env("openai-responses")
+        environment["COCO_AGENT_REQUEST_TIMEOUT_SECONDS"] = "901"
+        with patch.dict("os.environ", environment, clear=True):
+            with self.assertRaisesRegex(review.ReviewError, "timeout"):
+                review.AgentModelClient(config())
+        environment["COCO_AGENT_MAX_REQUEST_TIMEOUT_SECONDS"] = "1000"
+        with patch.dict("os.environ", environment, clear=True):
+            self.assertEqual(901, review.AgentModelClient(config()).timeout)
+
+    def test_completion_attempt_limit_follows_client_tunable(self) -> None:
+        class StubClient:
+            supports_fragment_continuation = False
+            completion_max_attempts = 5
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, *_args: object) -> dict:
+                self.calls += 1
+                raise review.RetryableModelOutputError("truncated")
+
+        client = StubClient()
+        with patch("builtins.print"):
+            with self.assertRaises(review.RetryableModelOutputError):
+                review.complete_with_shape_repair(client, "s", "{}", 10, lambda r: r)
+        self.assertEqual(5, client.calls)
 
     def test_model_api_key_does_not_leak_from_provider_failures(self) -> None:
         api_key = "coco-model-api-key-sentinel-for-redaction"
@@ -14437,8 +14569,8 @@ class AgentReviewTests(unittest.TestCase):
 
         self.assertEqual(".github/agent-review/probe", largest_path)
 
-        self.assertEqual(57_987, largest_size)
-        self.assertEqual(38_013, limit - largest_size)
+        self.assertEqual(59_195, largest_size)
+        self.assertEqual(36_805, limit - largest_size)
 
         # The policy section may not be trimmed, so a route that outgrows the
         # budget fails the run rather than degrading. Headroom is asserted as a
@@ -14730,16 +14862,161 @@ class GovernedBaseBranchTest(unittest.TestCase):
                 "dependabot/": "dependabot[bot]",
                 "codex/": "coco-framework-agent[bot]",
             },
-            review.EXEMPT_BRANCH_PREFIX_OWNERS,
+            review.exempt_branch_prefix_owners(None),
         )
+        for configured in (None, "claude/", "codex/,claude/"):
+            owners = review.exempt_branch_prefix_owners(configured)
+            for prefix, owner in owners.items():
+                with self.subTest(configured=configured, prefix=prefix):
+                    self.assertTrue(prefix.endswith("/"))
+                    self.assertTrue(owner.endswith("[bot]"))
+
+    def test_agent_branch_prefix_configuration_parses_fail_closed(self) -> None:
+        for raw in (None, "", "   "):
+            with self.subTest(unset=raw):
+                self.assertEqual(
+                    review.DEFAULT_AGENT_BRANCH_PREFIXES,
+                    review.parse_agent_branch_prefixes(raw),
+                )
         self.assertEqual(
-            set(review.EXEMPT_BRANCH_PREFIXES),
-            set(review.EXEMPT_BRANCH_PREFIX_OWNERS),
+            ("codex/", "claude/"),
+            review.parse_agent_branch_prefixes(" codex/ , claude/ ,, codex/"),
         )
-        for prefix, owner in review.EXEMPT_BRANCH_PREFIX_OWNERS.items():
-            with self.subTest(prefix=prefix):
-                self.assertTrue(prefix.endswith("/"))
-                self.assertTrue(owner.endswith("[bot]"))
+        # A configured list is the complete set, not an addition to the default.
+        self.assertEqual(("claude/",), review.parse_agent_branch_prefixes("claude/"))
+        for raw in (
+            "Claude/",
+            "claude",
+            "a/b/",
+            "9claude/",
+            "a_b/",
+            "claude /",
+            "claude/,x y/",
+            "dependabot/",
+            "claude/,dependabot/",
+            ",,",
+        ):
+            with self.subTest(rejected=raw):
+                with self.assertRaises(review.ReviewError):
+                    review.parse_agent_branch_prefixes(raw)
+
+    def test_open_pr_workflow_prefix_rule_matches_the_python_parser(self) -> None:
+        # agent-open-pr.yml checks out nothing, so it restates the prefix shape
+        # rule in bash. Run that exact block against many configurations and
+        # require the same accept/reject decision as parse_agent_branch_prefixes,
+        # so the two copies cannot drift apart unnoticed.
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not available")
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/agent-open-pr.yml"
+        ).read_text(encoding="utf-8")
+        start = workflow.index(
+            "          # The prefix list is the same repository variable"
+        )
+        marker = (
+            'echo "::error::Head branch is not a valid agent contribution branch."\n'
+            "            exit 1\n"
+            "          fi\n"
+        )
+        block = textwrap.dedent(
+            "set -euo pipefail\n"
+            + workflow[start : workflow.index(marker) + len(marker)]
+        )
+
+        def workflow_decision(branch: str, configured: str | None) -> tuple[bool, bool]:
+            """Return (configuration accepted, branch accepted) for the bash block."""
+
+            environment = {**os.environ, "HEAD_BRANCH": branch}
+            environment.pop("AGENT_BRANCH_PREFIXES", None)
+            if configured is not None:
+                environment["AGENT_BRANCH_PREFIXES"] = configured
+            completed = subprocess.run(
+                [bash, "-c", block],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            output = completed.stdout + completed.stderr
+            return "COCO_AGENT_BRANCH_PREFIXES" not in output, completed.returncode == 0
+
+        configurations = (
+            None,
+            "",
+            "   ",
+            "codex/",
+            "claude/",
+            "codex/, claude/",
+            " claude/ ",
+            "codex/,,claude/",
+            "codex/,codex/",
+            "\tclaude/\t",
+            # A repository variable can span lines. The bash block must read all of
+            # it, not stop at the first newline, and agree with the Python parser
+            # on every shape (a newline is whitespace around an entry, but never a
+            # separator between two entries).
+            "codex/,\nclaude/",
+            "codex/\n,claude/",
+            "\nclaude/\n",
+            "codex/,\nclaude/\n",
+            "codex/\nclaude/",
+            "codex/,\nClaude/",
+            "codex/,\ndependabot/",
+            "\n,\n",
+            "a-b/",
+            "ab1/",
+            "Claude/",
+            "claude",
+            "a/b/",
+            "9claude/",
+            "-x/",
+            "a_b/",
+            "a.b/",
+            "claude /",
+            "cl aude/",
+            "claude/,x y/",
+            "claude/,dependabot/",
+            ",,",
+            " , ",
+        )
+        for configured in configurations:
+            try:
+                review.parse_agent_branch_prefixes(configured)
+                python_accepts = True
+            except review.ReviewError:
+                python_accepts = False
+            with self.subTest(configured=configured):
+                workflow_accepts, _ = workflow_decision("zz-probe/x", configured)
+                self.assertEqual(python_accepts, workflow_accepts)
+
+        # Branch decisions: the workflow must agree with the prefix list the gate
+        # would use, including the ref-name hazards the workflow also rejects.
+        branches = (
+            ("codex/work", None, True),
+            ("codex/work", "claude/", False),
+            ("claude/work", None, False),
+            ("claude/work", "claude/", True),
+            ("claude/work", "codex/, claude/", True),
+            # Regression for the multi-line variable: a prefix that is only on a
+            # later line must still admit its branch.
+            ("claude/work", "codex/,\nclaude/", True),
+            ("cursor/work", "codex/,\nclaude/\n,\ncursor/\n", True),
+            ("cursor/work", "codex/,\nclaude/", False),
+            ("claude/a/b-c.d", "claude/", True),
+            ("codex/", "codex/", False),
+            ("claude/work/", "claude/", False),
+            ("claude/a..b", "claude/", False),
+            ("claude/a//b", "claude/", False),
+            ("claude/a@{b", "claude/", False),
+            ("claude/x.lock", "claude/", False),
+            ("dev-someone", "codex/", False),
+            ("dependabot/pip/x", "codex/", False),
+        )
+        for branch, configured, expected in branches:
+            with self.subTest(branch=branch, configured=configured):
+                _, accepted = workflow_decision(branch, configured)
+                self.assertEqual(expected, accepted)
 
 
 class CrossHeadContinuityTest(unittest.TestCase):

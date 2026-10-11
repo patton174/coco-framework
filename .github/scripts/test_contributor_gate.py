@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import agent_review as review
 import contributor_gate as gate
 
 REPOSITORY = "patton174/coco-framework"
@@ -140,7 +141,8 @@ class BranchNamingTest(unittest.TestCase):
 
     def test_agent_bot_may_use_its_own_codex_prefix(self) -> None:
         # The App login contains brackets, so dev-<login> is not a legal ref name;
-        # the codex/ prefix is its exemption.
+        # the agent prefix is its exemption. codex/ is the default when the
+        # repository variable is unset.
         gate.evaluate_branch_naming("codex/some-work", AGENT_LOGIN, AGENT_ID, bots())
 
     def test_human_cannot_use_the_agent_prefix(self) -> None:
@@ -157,6 +159,61 @@ class BranchNamingTest(unittest.TestCase):
             gate.evaluate_branch_naming(
                 "dependabot/pip/x", AGENT_LOGIN, AGENT_ID, bots()
             )
+
+    def test_configured_agent_prefix_is_accepted_for_the_agent_app(self) -> None:
+        owners = review.exempt_branch_prefix_owners("codex/,claude/")
+        for branch in ("codex/some-work", "claude/some-work"):
+            with self.subTest(branch=branch):
+                gate.evaluate_branch_naming(
+                    branch, AGENT_LOGIN, AGENT_ID, bots(), owners
+                )
+
+    def test_configured_agent_prefix_still_rejects_a_human(self) -> None:
+        # The prefix is a label, never an identity: naming a branch claude/x does
+        # not let an ordinary account borrow the agent exemption.
+        owners = review.exempt_branch_prefix_owners("codex/,claude/")
+        with self.assertRaisesRegex(gate.ReviewError, "reserved for"):
+            gate.evaluate_branch_naming(
+                "claude/some-work", "patton174", 1, bots(), owners
+            )
+
+    def test_configured_agent_prefix_rejects_the_wrong_bot_id(self) -> None:
+        owners = review.exempt_branch_prefix_owners("claude/")
+        with self.assertRaisesRegex(gate.ReviewError, "does not match"):
+            gate.evaluate_branch_naming(
+                "claude/some-work", AGENT_LOGIN, AGENT_ID + 1, bots(), owners
+            )
+
+    def test_claude_prefix_is_not_exempt_without_configuration(self) -> None:
+        # Opening the prefix is an explicit repository decision; the default list
+        # stays codex/ only, so claude/ falls through to the dev-<login> rule.
+        with self.assertRaisesRegex(gate.ReviewError, "must be named dev-"):
+            gate.evaluate_branch_naming(
+                "claude/some-work", AGENT_LOGIN, AGENT_ID, bots()
+            )
+
+    def test_configured_list_is_the_complete_set(self) -> None:
+        # Configuring claude/ alone retires codex/ rather than adding to it.
+        owners = review.exempt_branch_prefix_owners("claude/")
+        with self.assertRaisesRegex(gate.ReviewError, "must be named dev-"):
+            gate.evaluate_branch_naming(
+                "codex/some-work", AGENT_LOGIN, AGENT_ID, bots(), owners
+            )
+
+    def test_agent_prefix_requires_the_agent_app_to_be_allow_listed(self) -> None:
+        owners = review.exempt_branch_prefix_owners("claude/")
+        with self.assertRaisesRegex(gate.ReviewError, "not\n?.*allow-listed"):
+            gate.evaluate_branch_naming(
+                "claude/some-work",
+                AGENT_LOGIN,
+                AGENT_ID,
+                {DEPENDABOT_LOGIN.lower(): DEPENDABOT_ID},
+                owners,
+            )
+
+    def test_bare_agent_prefix_without_a_suffix_is_not_exempt(self) -> None:
+        owners = review.exempt_branch_prefix_owners("claude/")
+        self.assertIsNone(gate.exempt_prefix("claude/", owners))
 
     def test_login_length_boundary_matches_the_github_limit(self) -> None:
         # A GitHub login is at most 39 characters, so dev-<login> must admit 39
@@ -181,14 +238,18 @@ class BranchNamingTest(unittest.TestCase):
             )
 
     def test_every_exempt_prefix_declares_exactly_one_owner(self) -> None:
-        self.assertEqual(
-            set(gate.EXEMPT_BRANCH_PREFIXES),
-            set(gate.EXEMPT_BRANCH_PREFIX_OWNERS),
-        )
-        for prefix, owner in gate.EXEMPT_BRANCH_PREFIX_OWNERS.items():
-            with self.subTest(prefix=prefix):
-                self.assertTrue(prefix.endswith("/"))
-                self.assertTrue(owner.endswith("[bot]"))
+        for configured in (None, "claude/", "codex/,claude/"):
+            owners = review.exempt_branch_prefix_owners(configured)
+            with self.subTest(configured=configured):
+                for prefix, owner in owners.items():
+                    self.assertTrue(prefix.endswith("/"))
+                    self.assertTrue(owner.endswith("[bot]"))
+                # Every agent prefix belongs to the one agent App, Dependabot's to
+                # Dependabot, so no prefix can resolve to two identities.
+                agent_prefixes = [p for p in owners if p != "dependabot/"]
+                self.assertTrue(agent_prefixes)
+                self.assertEqual({AGENT_LOGIN}, {owners[p] for p in agent_prefixes})
+                self.assertEqual(DEPENDABOT_LOGIN, owners["dependabot/"])
 
 
 class AuthorizationTest(unittest.TestCase):
@@ -273,7 +334,10 @@ class EndToEndTest(unittest.TestCase):
     """Drive main() so status publication and exit codes are covered."""
 
     def run_gate(
-        self, event: dict, permissions: dict[str, str]
+        self,
+        event: dict,
+        permissions: dict[str, str],
+        agent_prefixes: str = "",
     ) -> tuple[int, FakeClient]:
         captured: dict[str, FakeClient] = {}
         original_client = gate.GitHubClient
@@ -300,11 +364,100 @@ class EndToEndTest(unittest.TestCase):
                         "https://github.example/runs/1",
                         "--allowed-bots",
                         ALLOWED_BOTS,
+                        "--agent-branch-prefixes",
+                        agent_prefixes,
                     ]
                 )
         finally:
             gate.GitHubClient = original_client  # type: ignore[assignment]
         return code, captured.get("client", FakeClient())
+
+    def agent_event(self, branch: str) -> dict:
+        event = pull_request_event(branch=branch, author_login=AGENT_LOGIN)
+        event["pull_request"]["user"] = {
+            "login": AGENT_LOGIN,
+            "id": AGENT_ID,
+            "type": "Bot",
+        }
+        return event
+
+    def test_configured_agent_prefix_publishes_success(self) -> None:
+        code, client = self.run_gate(
+            self.agent_event("claude/some-work"), {}, "codex/,claude/"
+        )
+        self.assertEqual(0, code)
+        _path, payload = client.statuses[0]
+        self.assertEqual("success", payload["state"])
+
+    def test_unconfigured_claude_prefix_publishes_failure(self) -> None:
+        code, client = self.run_gate(self.agent_event("claude/some-work"), {})
+        self.assertEqual(1, code)
+        _path, payload = client.statuses[0]
+        self.assertEqual("failure", payload["state"])
+        self.assertIn("must be named dev-", payload["description"])
+
+    def test_invalid_prefix_configuration_refuses_agent_branches_with_its_reason(
+        self,
+    ) -> None:
+        # A typo in the repository variable must not be skipped over or mistaken
+        # for a misnamed branch: even the default codex/ branch is refused, and
+        # the status names the configuration.
+        for configured in ("Claude/", "claude", "claude/,dependabot/", ",,"):
+            with self.subTest(configured=configured):
+                code, client = self.run_gate(
+                    self.agent_event("codex/some-work"), {}, configured
+                )
+                self.assertEqual(1, code)
+                _path, payload = client.statuses[0]
+                self.assertEqual("failure", payload["state"])
+                self.assertIn("Agent branch prefix", payload["description"])
+                self.assertIn("COCO_AGENT_BRANCH_PREFIXES", payload["description"])
+                self.assertNotIn("must be named dev-", payload["description"])
+
+    def test_invalid_prefix_configuration_does_not_lock_out_other_branches(
+        self,
+    ) -> None:
+        # Human and Dependabot branches do not depend on the agent prefix list, so
+        # a typo in that variable must not block every contributor. It also must
+        # not widen anything: the same typo still refuses an agent-shaped branch.
+        human_code, human_client = self.run_gate(
+            pull_request_event(), {"patton174": "admin"}, "Claude/"
+        )
+        self.assertEqual(0, human_code)
+        self.assertEqual("success", human_client.statuses[0][1]["state"])
+
+        dependabot_event = pull_request_event(
+            branch="dependabot/pip/ruff-1.0",
+            author_login=DEPENDABOT_LOGIN,
+            author_id=DEPENDABOT_ID,
+        )
+        dependabot_event["pull_request"]["user"]["type"] = "Bot"
+        dependabot_code, dependabot_client = self.run_gate(
+            dependabot_event, {}, "Claude/"
+        )
+        self.assertEqual(0, dependabot_code)
+        self.assertEqual("success", dependabot_client.statuses[0][1]["state"])
+
+        agent_code, agent_client = self.run_gate(
+            self.agent_event("claude/some-work"), {}, "Claude/"
+        )
+        self.assertEqual(1, agent_code)
+        self.assertEqual("failure", agent_client.statuses[0][1]["state"])
+
+    def test_agent_branch_shape_detection(self) -> None:
+        for branch in ("codex/x", "claude/x", "someone/feature/y"):
+            with self.subTest(agent_shaped=branch):
+                self.assertTrue(review.looks_like_agent_branch(branch))
+        for branch in (
+            "dev-patton174",
+            "dependabot/pip/x",
+            "dev",
+            "main",
+            "claude/",
+            "",
+        ):
+            with self.subTest(not_agent_shaped=branch):
+                self.assertFalse(review.looks_like_agent_branch(branch))
 
     def test_compliant_pull_request_publishes_success(self) -> None:
         code, client = self.run_gate(pull_request_event(), {"patton174": "admin"})

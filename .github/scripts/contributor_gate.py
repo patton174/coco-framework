@@ -13,9 +13,11 @@ Checks, in order, all fail-closed:
 2. Head must live in this repository, never a fork.
 3. The author must be a repository collaborator with write access or an
    allow-listed project bot.
-4. Branch name must match `dev-<login>` or an exempt prefix.
+4. Branch name must match `dev-<login>` or an exempt prefix. Exempt prefixes are
+   `dependabot/` plus the agent prefixes from the `COCO_AGENT_BRANCH_PREFIXES`
+   repository variable (default `codex/`).
 5. An exempt prefix additionally requires the exact upstream bot identity, so a
-   spoofed `dependabot/` branch from anyone else is still rejected.
+   spoofed `dependabot/` or agent branch from anyone else is still rejected.
 6. For `dev-<login>`, the suffix must be the pull request author, so one
    contributor cannot open work under another's name.
 
@@ -35,12 +37,13 @@ from typing import Any
 from agent_review import (
     CONTRIBUTOR_BRANCH_RE,
     CONTRIBUTOR_STATUS_CONTEXT,
-    EXEMPT_BRANCH_PREFIX_OWNERS,
-    EXEMPT_BRANCH_PREFIXES,
     INTEGRATION_BRANCH,
     SHA_RE,
     GitHubClient,
     ReviewError,
+    exempt_branch_prefix_owners,
+    exempt_branch_prefix_owners_without_agents,
+    looks_like_agent_branch,
     publish_status,
     read_json,
     require_repository,
@@ -89,24 +92,37 @@ def author_identity(pull_request: dict[str, Any]) -> tuple[str, str, int]:
     return login, user_type, user_id
 
 
-def exempt_prefix(branch: str) -> str | None:
-    for prefix in EXEMPT_BRANCH_PREFIXES:
+def exempt_prefix(branch: str, owners: dict[str, str] | None = None) -> str | None:
+    """Return the exempt prefix a branch uses, or None for an ordinary branch.
+
+    `owners` is the prefix-to-identity map in force; omitting it means the
+    defaults (Dependabot plus the default agent prefix), which keeps callers that
+    predate the configurable agent prefixes working unchanged.
+    """
+
+    mapping = owners if owners is not None else exempt_branch_prefix_owners(None)
+    for prefix in mapping:
         if branch.startswith(prefix) and len(branch) > len(prefix):
             return prefix
     return None
 
 
 def evaluate_branch_naming(
-    branch: str, author_login: str, author_bot_id: int, allowed_bots: dict[str, int]
+    branch: str,
+    author_login: str,
+    author_bot_id: int,
+    allowed_bots: dict[str, int],
+    owners: dict[str, str] | None = None,
 ) -> None:
     """Enforce the naming contract, including the identity behind an exemption."""
 
-    prefix = exempt_prefix(branch)
+    mapping = owners if owners is not None else exempt_branch_prefix_owners(None)
+    prefix = exempt_prefix(branch, mapping)
     if prefix is not None:
         # A prefix alone proves nothing: require the one identity that owns it, so
         # an ordinary account cannot borrow the exemption by naming a branch
         # `dependabot/anything`.
-        expected_login = EXEMPT_BRANCH_PREFIX_OWNERS[prefix]
+        expected_login = mapping[prefix]
         expected_bot_id = allowed_bots.get(expected_login.lower())
         if expected_bot_id is None:
             raise ReviewError(
@@ -216,6 +232,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--event-path", required=True)
     parser.add_argument("--run-url", required=True)
     parser.add_argument("--allowed-bots", default="")
+    parser.add_argument("--agent-branch-prefixes", default="")
     args = parser.parse_args(argv)
 
     repository = require_repository(args.repository)
@@ -246,7 +263,25 @@ def main(argv: list[str]) -> int:
         authorization = evaluate_authorization(
             client, repository, author_login, author_bot_id, allowed_bots
         )
-        evaluate_branch_naming(branch, author_login, author_bot_id, allowed_bots)
+        # An invalid prefix list is a repository misconfiguration. It must never
+        # widen the exemption, but it also must not lock every contributor out:
+        # human and Dependabot branches do not depend on the list, so only a
+        # branch that looks like an agent branch is refused, with the real reason.
+        try:
+            owners = exempt_branch_prefix_owners(args.agent_branch_prefixes)
+        except ReviewError as misconfiguration:
+            if not looks_like_agent_branch(branch):
+                owners = exempt_branch_prefix_owners_without_agents()
+            else:
+                # The status description is capped at 140 characters, so the
+                # variable name goes first and the detail follows.
+                raise ReviewError(
+                    "COCO_AGENT_BRANCH_PREFIXES is invalid, agent branches are "
+                    f"refused: {misconfiguration}"
+                ) from misconfiguration
+        evaluate_branch_naming(
+            branch, author_login, author_bot_id, allowed_bots, owners
+        )
     except ReviewError as exc:
         publish_status(
             client,
