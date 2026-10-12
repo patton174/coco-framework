@@ -95,7 +95,10 @@ for p in pages:
         image = (page.meta.get("og:image") or [""])[0]
         check(is_home or "/img/social/" in image, f"og:image is not a per-page card: {image}")
         if "/img/social/" in image:
-            check((root / image.split("cocoframework.dev/", 1)[1]).is_file(), f"share card missing: {image}")
+            # Resolve from /img/social/ so any host or baseUrl prefix (e.g. the GitHub Pages default build) still maps into build/.
+            card_path = urlparse(image).path
+            card = root / card_path[card_path.index("/img/social/") + 1:]
+            check(card.is_file(), f"share card missing: {image}")
         types ={t for s in page.schemas for t in ([s["@type"]] if isinstance(s["@type"], str) else s["@type"])}
         is_doc = p.relative_to(root).as_posix() not in ["index.html", "en/index.html"]
         check(not is_doc or "TechArticle" in types, "documentation page missing TechArticle schema")
