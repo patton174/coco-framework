@@ -73,7 +73,9 @@ function switchTheme(button: HTMLElement, apply: () => void): void {
       {duration: 620, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)'},
     );
   }).catch(() => undefined);
-  transition.finished.finally(() => html.removeAttribute('data-theme-transition'));
+  // A second click skips the running transition and rejects `finished` with AbortError; swallow it before
+  // `finally`, which would otherwise re-throw it as an unhandled rejection.
+  transition.finished.catch(() => undefined).finally(() => html.removeAttribute('data-theme-transition'));
 }
 
 export default function ColorModeToggle({

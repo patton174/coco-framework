@@ -26,6 +26,18 @@ export interface Mobile extends MobileData {
   docFor: (mobilePath: string) => MobileDoc | undefined;
 }
 
+/**
+ * Site root without the locale segment. Docusaurus rewrites siteConfig.baseUrl per locale in a production build
+ * (`/` for the default locale, `/en/` for English), so the locale has to be stripped before it is re-applied.
+ */
+export function useSiteBase(): string {
+  const {siteConfig, i18n} = useDocusaurusContext();
+  const base = siteConfig.baseUrl.replace(/\/+$/, '');
+  if (i18n.currentLocale === i18n.defaultLocale) return base;
+  const suffix = `/${i18n.currentLocale}`;
+  return base.endsWith(suffix) ? base.slice(0, -suffix.length) : base;
+}
+
 /** Plugin data (coco-mobile-routes) plus the locale strings, memoised for the shell. */
 export function useMobile(): Mobile {
   const data = usePluginData('coco-mobile-routes') as MobileData | undefined;
