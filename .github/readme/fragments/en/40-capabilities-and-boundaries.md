@@ -1,22 +1,23 @@
-## Capabilities
+## Features
 
-<table>
-  <tr>
-    <td width="33%"><strong>🌐 Consistent web requests</strong><p>Give every endpoint consistent behavior.</p><ul><li>Responses and exceptions</li><li>TraceId and access logs</li><li>Signatures, encryption and replay protection</li></ul></td>
-    <td width="33%"><strong>🗃 Data and permissions</strong><p>Integrate isolation into the query path.</p><ul><li>MyBatis-Plus and pagination</li><li>Tenant SQL isolation</li><li>Data-permission conditions</li></ul></td>
-    <td width="33%"><strong>⏱ Traffic and reliability</strong><p>Put boundaries around frequent and repeated requests.</p><ul><li>Rate limiting and idempotency</li><li>Locks and scheduling</li><li>Replaceable stores</li></ul></td>
-  </tr>
-  <tr>
-    <td width="33%"><strong>📦 Files and platform</strong><p>Let shared services grow with the application.</p><ul><li>Files and cache</li><li>Messaging and notifications</li><li>Captcha</li></ul></td>
-    <td width="33%"><strong>🔎 Audit and visibility</strong><p>Leave useful evidence of important actions.</p><ul><li>Structured audit events</li><li>Logs and context</li><li>OpenAPI metadata</li></ul></td>
-    <td width="33%"><strong>🧩 Features and extensions</strong><p>Ship the capabilities you need.</p><ul><li>Declarative feature selection</li><li>Build-time pruning</li><li>Bean and SPI overrides</li></ul></td>
-  </tr>
-</table>
+| Area | What you get |
+|---|---|
+| Web | Unified response, global exceptions, TraceId, access log, CORS, security headers, field-level validation errors |
+| Request security | Signature, encryption, replay protection |
+| Data | MyBatis-Plus, pagination, tenant SQL isolation, data-permission filters |
+| Traffic control | Rate limiting (sliding window, token bucket), idempotency, distributed locks, scheduling |
+| Platform | File storage, local and Redis cache, messaging, notification channels, captcha (image, slider, SMS) |
+| Observability | Audit events, OpenAPI metadata |
 
-## Boundary
+All of this ships in the latest release, **v2.0.3**.
 
-Coco owns **infrastructure**. Your application owns the **domain model, API semantics, authentication provider, and user/role/organization models**.
+## What Coco does not do
 
-Use Spring beans and the documented extension interfaces to replace integrations. CRUD generation produces ordinary Java source that your application owns; it does not expose entities as APIs at runtime.
+Coco handles infrastructure. Your application keeps:
 
-**→ [Boundary and design philosophy](https://cocoframework.dev/en/overview)** — responsibilities and scope.
+- the domain model and API design
+- login and authentication
+- the user, role and organization model
+- database schema and migrations
+
+Every extension point is a normal Spring `@Bean`, so you can replace any default with your own. CRUD generation, when you want it, produces ordinary Java source that you own. It does not expose entities at runtime. More in [Overview](https://cocoframework.dev/en/overview).

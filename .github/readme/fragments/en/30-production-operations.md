@@ -1,11 +1,11 @@
-## Production notes
+## Before production
 
-A few defaults are deliberately conservative, because the safe choice for a first adoption is not the right choice for a cluster. Each is off or process-local until you opt in:
+Some defaults are chosen for a quick first run, not for a cluster. Check these three:
 
-| Concern | Default | For production |
-|---------|---------|----------------|
-| **SQL guard** | Disabled, so existing maintenance SQL keeps working | Review your SQL, then enable `block-attack` / `illegal-sql` — the guard may reject legitimate statements it cannot validate |
-| **Replay protection** | `InMemoryCocoReplayStore`, process-local | Switch to the JDBC store (or your own) so reservations are atomic across instances. Coco runs no migrations — you own the schema |
-| **Async logging** | Bounded queue; `ERROR` and exceptions always synchronous | Replace `CocoAsyncLogDropListener` to feed drop counts into your metrics. This is overload observability, not durable delivery |
+| Feature | Default | What to do |
+|---|---|---|
+| **SQL guard** | Off | Review your SQL first, then enable `block-attack` / `illegal-sql`. It may reject valid statements it cannot verify. [Docs](https://cocoframework.dev/en/features/mybatis-plus) |
+| **Replay protection** | In-memory, one process only | With more than one instance, switch to the JDBC store or your own. Coco does not create tables; you manage the schema. [Docs](https://cocoframework.dev/en/features/request-security) |
+| **Async logging** | Bounded queue; errors are always written synchronously | Plug a `CocoAsyncLogDropListener` into your metrics to see dropped logs. It reports overload, it does not guarantee delivery. [Docs](https://cocoframework.dev/en/features/infra) |
 
-**→ [SQL guard](https://cocoframework.dev/en/features/mybatis-plus)** · **[Replay protection](https://cocoframework.dev/en/features/request-security)** · **[Logging and infrastructure](https://cocoframework.dev/en/features/infra)**
+Also, only response wrapping, exception handling and TraceId work with zero setup. Most other features are opt-in, and some need Redis or a database. Each feature page lists its defaults.
