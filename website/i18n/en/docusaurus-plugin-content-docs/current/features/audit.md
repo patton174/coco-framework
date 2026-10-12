@@ -1,5 +1,6 @@
 ---
 title: Audit Pipeline
+description: "Coco audit pipeline: collect audit-worthy actions as structured events and publish them to one or more sinks without coupling Web, Security or Tenant to storage."
 ---
 
 # Audit Pipeline

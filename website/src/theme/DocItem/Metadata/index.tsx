@@ -22,6 +22,21 @@ export default function DocItemMetadata(): ReactNode {
   const description = metadata.description || (i18n.currentLocale === 'en'
     ? `${metadata.title}: configuration and integration guide for Coco Framework on Spring Boot.`
     : `${metadata.title}：Coco Framework 的配置、接入与扩展指南，适用于 Spring Boot 应用。`);
+  const en = i18n.currentLocale === 'en';
+  // Absolute, locale-aware URL of this page; Docusaurus's own BreadcrumbList covers the trail.
+  const pageUrl = `${siteConfig.url}${metadata.permalink}`;
+  const article = {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: metadata.title,
+    description,
+    url: pageUrl,
+    mainEntityOfPage: pageUrl,
+    inLanguage: en ? 'en' : 'zh-Hans',
+    isPartOf: {'@type': 'WebSite', name: 'Coco Framework', url: `${siteConfig.url}${siteConfig.baseUrl}`},
+    about: {'@type': 'SoftwareApplication', name: 'Coco Framework', url: 'https://github.com/patton174/coco-framework'},
+    author: {'@type': 'Organization', name: 'Coco Framework', url: 'https://github.com/patton174/coco-framework'},
+  };
   return <>
     <PageMetadata title={metadata.title} description={description}
       keywords={frontMatter.keywords ?? ['Spring Boot', 'Coco Framework', metadata.title]}
@@ -30,6 +45,7 @@ export default function DocItemMetadata(): ReactNode {
       <meta name="twitter:title" content={`${metadata.title} · Coco Framework`} />
       <meta name="twitter:description" content={description} />
       <link rel="alternate" media="only screen and (max-width: 640px)" href={phoneUrl} />
+      <script type="application/ld+json">{JSON.stringify(article)}</script>
     </Head>
   </>;
 }

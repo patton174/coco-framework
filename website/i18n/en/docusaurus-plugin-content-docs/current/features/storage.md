@@ -1,5 +1,6 @@
 ---
 title: Object Storage
+description: "Implementation-agnostic object storage SPI with a secure local streaming reference. Coco handles content and metadata; authorization and naming stay with you."
 ---
 
 # Object Storage

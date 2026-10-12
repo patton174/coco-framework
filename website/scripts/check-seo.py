@@ -39,8 +39,25 @@ class Page(HTMLParser):
             self.schemas.append(json.loads(self.schema))
             self.in_schema = False
 
-pages = [p for p in root.rglob("*.html") if p.name != "404.html"]
+def is_phone_twin(p):
+    rel = p.relative_to(root).as_posix()
+    return rel.startswith(("m/", "en/m/")) or rel in ("m.html", "en/m.html")
+
+
+all_pages = [p for p in root.rglob("*.html") if p.name != "404.html"]
+pages = [p for p in all_pages if not is_phone_twin(p)]
+# The phone shell under /m/ duplicates the desktop pages: it must stay out of the index and point at its desktop twin.
+for p in all_pages:
+    if not is_phone_twin(p):
+        continue
+    twin = Page()
+    twin.feed(p.read_text(encoding="utf-8"))
+    if "noindex" not in ",".join(twin.meta.get("robots", [])):
+        errors.append(f"{p.relative_to(root)}: phone page must be noindex")
+    if not [a for a in twin.links if a.get("rel") == "canonical"]:
+        errors.append(f"{p.relative_to(root)}: phone page missing canonical")
 canonicals = set()
+descriptions = {}
 for p in pages:
     page = Page()
     page.feed(p.read_text(encoding="utf-8"))
@@ -50,6 +67,18 @@ for p in pages:
     check(page.h1 == 1, f"expected one h1, got {page.h1}")
     for key in ["description", "og:title", "og:description", "og:image", "og:url", "og:type", "og:site_name", "twitter:card", "twitter:title", "twitter:description", "twitter:image", "keywords"]:
         check(len(page.meta.get(key, [])) == 1 and bool(page.meta[key][0].strip()), f"missing/duplicate {key}")
+    # /m/ pages are noindex twins of the desktop pages; their descriptions are not search snippets.
+    indexable = "noindex" not in ",".join(page.meta.get("robots", []))
+    if indexable and len(page.meta.get("description", [])) == 1:
+        text = page.meta["description"][0].strip()
+        floor = 40 if p.relative_to(root).parts[0] == "en" else 20  # CJK carries more per character
+        check(floor <= len(text) <= 175, f"description length {len(text)} outside {floor}-175: {text[:40]!r}")
+        descriptions.setdefault((p.relative_to(root).parts[0] == "en", text), []).append(p.relative_to(root).as_posix())
+    if indexable:
+        types = {t for s in page.schemas for t in ([s["@type"]] if isinstance(s["@type"], str) else s["@type"])}
+        is_doc = p.relative_to(root).as_posix() not in ["index.html", "en/index.html"]
+        check(not is_doc or "TechArticle" in types, "documentation page missing TechArticle schema")
+        check(is_doc or "WebSite" in types, "home page missing WebSite schema")
     canonical = [a["href"] for a in page.links if a.get("rel") == "canonical"]
     check(len(canonical) == 1, "canonical missing/duplicate")
     if len(canonical) == 1:
@@ -65,6 +94,9 @@ for p in pages:
             check(False, f"external page-load dependency {resource}")
     if p.relative_to(root).as_posix() in ["index.html", "en/index.html"]:
         check(any("SoftwareApplication" in s.get("@type", []) and s.get("programmingLanguage") == "Java" for s in page.schemas), "missing software schema")
+for (_, text), owners in descriptions.items():
+    if len(owners) > 1:
+        errors.append(f"duplicate description {text[:40]!r}: {', '.join(owners)}")
 for sitemap in [root / "sitemap.xml", root / "en/sitemap.xml"]:
     doc = ET.parse(sitemap)
     for node in doc.findall(".//{*}loc"):

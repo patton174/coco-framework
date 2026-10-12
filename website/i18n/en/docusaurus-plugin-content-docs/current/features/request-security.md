@@ -1,5 +1,6 @@
 ---
 title: Request Security (Encryption / Signing / Replay Protection)
+description: "Three independently toggleable Coco Web filters: AES-GCM request decryption, HMAC-SHA256 signature verification and replay protection, under coco.web."
 ---
 
 # Request Security (Encryption / Signing / Replay Protection)

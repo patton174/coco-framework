@@ -1,5 +1,6 @@
 ---
 title: Cache
+description: "Two-tier Spring cache for Coco: in-process Caffeine L1, shared Redis L2, with pub/sub invalidation so every instance stays consistent. Works with @Cacheable."
 ---
 
 # Cache

@@ -1,5 +1,6 @@
 ---
 title: Captcha
+description: "Type-agnostic captcha SPI for Coco with image, slider and SMS-code flows, local reference implementations and a replaceable answer store. Off by default."
 ---
 
 # Captcha

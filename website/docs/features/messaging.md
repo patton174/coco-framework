@@ -1,5 +1,6 @@
 ---
 title: 消息与事件
+description: "Coco 进程内发布/订阅：用 CocoMessagePublisher 发布，@CocoMessageListener 订阅，通过配置决定投递方式、失败处理和关闭行为。"
 ---
 
 # 消息与事件

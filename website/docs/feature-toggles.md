@@ -2,6 +2,7 @@
 slug: /feature-toggles
 sidebar_position: 3
 title: 特性开关
+description: "用稳定的 CocoFeature 标识，通过 YAML 或 @CocoFeatures 启停 Coco Framework 的每项内置能力，并列出全部开关及其默认值。"
 ---
 
 # 特性开关

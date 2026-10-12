@@ -1,5 +1,6 @@
 ---
 title: Idempotency
+description: "Request idempotency for write APIs: an Idempotency-Key header gives each request one successful execution, with lease-based deduplication and HTTP 409 on repeats."
 ---
 
 # Idempotency

@@ -1,5 +1,6 @@
 ---
 title: 基础设施约定
+description: "Coco 在 Spring Boot 之上统一的基础设施约定：Jackson 序列化、异步线程池与上下文传播、国际化消息和日志，均通过 coco.* 命名空间配置。"
 ---
 
 # 基础设施约定

@@ -1,5 +1,6 @@
 ---
 title: Pagination and Sorting
+description: "Pagination and sorting that stay out of business code: Coco parses and validates query parameters, then injects them into IPage with whitelisted sort fields."
 ---
 
 # Pagination and Sorting

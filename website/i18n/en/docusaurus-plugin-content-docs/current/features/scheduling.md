@@ -1,5 +1,6 @@
 ---
 title: Dynamic Scheduled Tasks
+description: "Dynamic scheduled tasks on Spring TaskScheduler: @CocoScheduled with stable names, overlap policies and result observation, plus runtime register and cancel."
 ---
 
 # Dynamic Scheduled Tasks

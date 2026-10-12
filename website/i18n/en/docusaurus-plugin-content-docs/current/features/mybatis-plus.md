@@ -1,5 +1,6 @@
 ---
 title: MyBatis-Plus Integration
+description: "How Coco assembles one MybatisPlusInterceptor chain so pagination, tenant isolation and data permission SQL rewriting run in a stable order without interfering."
 ---
 
 # MyBatis-Plus Integration

@@ -2,6 +2,7 @@
 slug: /skills
 sidebar_position: 1
 title: Skills Overview
+description: "Agent Skills let AI coding assistants search Coco documentation in Chinese and English, read pages and get dependency snippets over MCP."
 ---
 
 # Agent Skills

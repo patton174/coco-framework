@@ -1,5 +1,6 @@
 ---
 title: Security Context and Security Response Headers
+description: "Bridge a trusted upstream principal into the current thread with coco-security, and configure security response headers and CORS through coco-web."
 ---
 
 # Security Context and Security Response Headers

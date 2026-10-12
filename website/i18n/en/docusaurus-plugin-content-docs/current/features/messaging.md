@@ -1,5 +1,6 @@
 ---
 title: Messaging and Events
+description: "In-process publish/subscribe for Coco: publish with CocoMessagePublisher, subscribe with @CocoMessageListener, and configure delivery, failure handling and shutdown."
 ---
 
 # Messaging and Events

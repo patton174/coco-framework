@@ -1,5 +1,6 @@
 ---
 title: 安全上下文与安全响应头
+description: "用 coco-security 把可信上游写入的主体信息桥接到当前线程，并通过 coco-web 配置安全响应头与 CORS 跨域。"
 ---
 
 # 安全上下文与安全响应头

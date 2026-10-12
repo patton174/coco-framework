@@ -1,5 +1,6 @@
 ---
 title: 多租户隔离
+description: "基于 MyBatis-Plus SQL 自动改写的行级多租户隔离：Coco 自动追加 tenant_id 条件并在 INSERT 时填充，租户识别与隔离机制解耦。"
 ---
 
 # 多租户隔离
