@@ -1,6 +1,7 @@
 ---
 title: Infrastructure Conventions
 description: "Safe defaults Coco applies on top of Spring Boot: Jackson serialization, async thread pools with context propagation, i18n messages and logging, under coco.* namespaces."
+seo_title: "Infrastructure Defaults for Spring Boot"
 ---
 
 # Infrastructure Conventions

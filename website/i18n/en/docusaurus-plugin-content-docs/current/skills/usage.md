@@ -3,6 +3,7 @@ slug: /skills/usage
 sidebar_position: 3
 title: Usage Guide
 description: "Use the Coco Agent Skills: seven MCP tools for agents, CLI commands for humans and CI, dependency snippet styles and index freshness checks."
+seo_title: "Agent Skills Usage: MCP Tools and CLI"
 ---
 
 # Usage Guide

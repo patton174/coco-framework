@@ -1,6 +1,7 @@
 ---
 title: 分布式锁
 description: "用 @CocoLock 声明分布式锁：以 AOP 切面完成获取、执行、释放，并由看门狗在方法执行期间自动续约，避免长任务租约过期被抢占。"
+seo_title: "Spring Boot 分布式锁 @CocoLock"
 ---
 
 # 分布式锁

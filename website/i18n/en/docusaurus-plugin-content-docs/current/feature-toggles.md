@@ -3,6 +3,7 @@ slug: /feature-toggles
 sidebar_position: 3
 title: Feature Toggles
 description: "Enable or disable every Coco Framework capability with stable CocoFeature IDs, using YAML or @CocoFeatures, with each switch and its default listed."
+seo_title: "Feature Toggles: Switch Coco Features in YAML"
 ---
 
 # Feature Toggles

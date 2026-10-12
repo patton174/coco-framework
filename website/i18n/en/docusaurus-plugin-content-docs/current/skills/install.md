@@ -3,6 +3,7 @@ slug: /skills/install
 sidebar_position: 2
 title: Quick Install
 description: "Install Coco Agent Skills with one command: it writes the MCP configuration and skill files for Claude Code, Codex, Cursor and other agents."
+seo_title: "Install Coco Agent Skills with One Command"
 ---
 
 # Quick Install

@@ -1,6 +1,7 @@
 ---
 title: Distributed Lock
 description: "Distributed locks with @CocoLock: acquire, run and release as an AOP aspect, with a watchdog that renews the lease while long-running methods execute."
+seo_title: "Spring Boot Distributed Lock: @CocoLock"
 ---
 
 # Distributed Lock

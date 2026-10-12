@@ -1,6 +1,7 @@
 ---
 title: OpenAPI 元数据
 description: "Coco OpenAPI 元数据：提供与渲染库无关的 API 文档基础信息约定，业务项目引入 SpringDoc 时自动写入 OpenAPI.info。"
+seo_title: "OpenAPI 元数据与 SpringDoc"
 ---
 
 # OpenAPI 元数据

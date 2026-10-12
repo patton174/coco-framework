@@ -67,10 +67,12 @@ const config: Config = {
           routeBasePath: '/',
           editUrl:
             'https://github.com/patton174/coco-framework/tree/main/website/',
+          // Git commit time per document; feeds the sitemap <lastmod>. CI must check out full history.
+          showLastUpdateTime: true,
         },
         blog: false,
         // /m/ is the phone shell of the same documents: it is noindex, canonical to the desktop page, and kept out of the sitemap.
-        sitemap: {changefreq: 'weekly', priority: 0.5, ignorePatterns: ['**/404.html', '**/m/**', '**/m']},
+        sitemap: {lastmod: 'date', changefreq: 'weekly', priority: 0.5, ignorePatterns: ['**/404.html', '**/m/**', '**/m']},
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -81,6 +83,9 @@ const config: Config = {
   themeConfig: {
     image: 'img/brand/social-card.png',
     metadata: [
+      // Search Console ownership (HTML tag method). Built into every deployment, so the GitHub Pages URL prefix
+      // and the custom domain verify with the same token. Not a secret; it only proves control of the site.
+      {name: 'google-site-verification', content: 't5EgGuNWZ2_VdsT5X_pp0RWlqX2OqJ2vcy3zYHcOoPE'},
       {property: 'og:type', content: 'website'},
       {property: 'og:site_name', content: 'Coco Framework'},
       {property: 'og:image:width', content: '1200'},

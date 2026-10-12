@@ -1,6 +1,7 @@
 ---
 title: Web Runtime
 description: "Coco Web runtime: a consistent response structure, exception handling, tracing and request-body reading as configurable infrastructure under coco.web."
+seo_title: "Web Runtime: Responses, Errors, Tracing"
 ---
 
 # Web Runtime

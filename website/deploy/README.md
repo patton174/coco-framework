@@ -51,6 +51,19 @@ curl -fI http://127.0.0.1:18081/
 回滚时用同样方式指向上一个 release，保留旧目录直到确认发布成功。
 回滚后的旧页面可能引用旧哈希资源，发布时应将上一版本 assets 合并保留到新版本 assets，避免打开中的页面或边缘缓存引用失效。
 
+## 搜索引擎通知
+
+每次发布并确认线上可访问后，在 `website` 目录通知 IndexNow（Bing、Yandex 等）：
+
+```sh
+npm run indexnow -- --dry-run   # 只列出将提交的 URL
+npm run indexnow
+```
+
+密钥文件 `static/<key>.txt` 随站点发布，内容与文件名相同，按协议公开。
+脚本只读取 sitemap 中属于 `cocoframework.dev` 的地址，因此必须用该域名的环境变量构建。
+Google 不支持 IndexNow，靠 sitemap 的 `lastmod`（取自文档最后一次提交时间）和 Search Console。
+
 ## 检查
 
 ```sh

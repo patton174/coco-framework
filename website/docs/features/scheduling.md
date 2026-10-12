@@ -1,6 +1,7 @@
 ---
 title: 动态定时任务
 description: "基于 Spring TaskScheduler 的动态定时任务：@CocoScheduled 提供稳定任务名、重叠执行策略和结果观测，并支持运行时注册、替换与取消。"
+seo_title: "Spring Boot 动态定时任务"
 ---
 
 # 动态定时任务

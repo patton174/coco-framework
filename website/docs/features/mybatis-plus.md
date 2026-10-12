@@ -1,6 +1,7 @@
 ---
 title: MyBatis-Plus 集成
 description: "Coco 如何接管 MybatisPlusInterceptor 装配，把分页、租户隔离、数据权限等 SQL 改写能力按稳定顺序编排在同一条拦截器链上。"
+seo_title: "MyBatis-Plus 拦截器链集成"
 ---
 
 # MyBatis-Plus 集成

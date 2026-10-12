@@ -1,6 +1,7 @@
 ---
 title: Multi-tenancy Isolation
 description: "Row-level multi-tenancy for MyBatis-Plus: Coco appends tenant_id conditions to SQL and fills it on INSERT, with tenant identification decoupled from isolation."
+seo_title: "Multi-Tenancy Isolation for MyBatis-Plus"
 ---
 
 # Multi-tenancy Isolation

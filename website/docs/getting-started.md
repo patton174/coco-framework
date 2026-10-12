@@ -3,6 +3,7 @@ slug: /getting-started
 sidebar_position: 2
 title: 快速开始
 description: "约 5 分钟把 Coco Framework 接入 Spring Boot 应用：添加依赖、编写 Controller、启动应用并按需启用特性。"
+seo_title: "快速开始：5 分钟接入 Spring Boot Starter"
 ---
 
 # 快速开始

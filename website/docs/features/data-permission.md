@@ -1,6 +1,7 @@
 ---
 title: 数据权限
 description: "基于 SQL 谓词注入的行级数据权限：Coco 按调用方的数据范围为 MyBatis-Plus 查询自动追加过滤条件，业务代码无需手写数据范围过滤。"
+seo_title: "MyBatis-Plus 行级数据权限"
 ---
 
 # 数据权限

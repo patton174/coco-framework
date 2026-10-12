@@ -1,6 +1,7 @@
 ---
 title: 幂等
 description: "写接口请求幂等：客户端携带 Idempotency-Key，Coco 以租约去重，同一个键只成功处理一次，重复请求返回 HTTP 409。"
+seo_title: "Spring Boot 接口幂等"
 ---
 
 # 幂等

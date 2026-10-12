@@ -3,6 +3,7 @@ slug: /skills/usage
 sidebar_position: 3
 title: 使用指南
 description: "Coco Agent 技能用法：面向 Agent 的 7 个 MCP 工具、面向人和 CI 的 CLI 命令、依赖片段样式与索引新鲜度检查。"
+seo_title: "Agent 技能用法：MCP 工具与命令行"
 ---
 
 # 使用指南

@@ -9,6 +9,7 @@
     "start:en": "docusaurus start --locale en",
     "prebuild": "node scripts/fill-en-translations.mjs --check",
     "build": "docusaurus build",
+    "indexnow": "node scripts/indexnow.mjs",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",

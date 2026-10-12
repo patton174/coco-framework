@@ -1,6 +1,7 @@
 ---
 title: Notification
 description: "Channel-agnostic notification SPI for SMS, email and in-app messages. Coco ships local reference channels; your application brings its own vendor SDK."
+seo_title: "Notification SPI: SMS, Email and In-App"
 ---
 
 # Notification
