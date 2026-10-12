@@ -1,549 +1,494 @@
-/**
- * Coco Framework — warm cocoa / terracotta editorial-technical theme.
- */
-
-@import '@fontsource-variable/bricolage-grotesque';
 @import '@fontsource-variable/jetbrains-mono';
+/* Latin serif for the whole reading surface (56 KB, weight axis only). CJK glyphs fall through to the
+   system serif stack below, so Chinese pages never download a web font. */
+@import '@fontsource-variable/newsreader/wght.css';
 
+/*
+ * Warm paper + ink + clay. Serif throughout (headings and body), mono for Latin-only labels.
+ * The --ifm-* mappings below live on :root and rely on future.v4 CSS cascade layers
+ * (unlayered rules beat Infima). Keep that flag, or repeat them under html[data-theme='dark'].
+ */
 :root {
-  /* Terracotta accent — deliberately not the default blue/purple dev-docs palette. */
-  --ifm-color-primary: #b4441f;
-  --ifm-color-primary-dark: #a23d1c;
-  --ifm-color-primary-darker: #993a1a;
-  --ifm-color-primary-darkest: #7e3016;
-  --ifm-color-primary-light: #c64b22;
-  --ifm-color-primary-lighter: #d15026;
-  --ifm-color-primary-lightest: #e0693d;
+  color-scheme: light;
+  --coco-canvas: #f5f0e8;
+  --coco-surface: #faf8f3;
+  --coco-surface-muted: #ece6da;
+  --coco-text: #3d3929;
+  --coco-heading: #141413;
+  --coco-text-muted: #655d4e;
+  --coco-border: #d9d0be;
+  --coco-rule-strong: #877d6a;
+  --coco-accent: #a5432a;
+  --coco-accent-strong: #86351f;
+  --coco-clay: #c96442;
+  --coco-button-bg: #a5432a;
+  --coco-button-text: #fffdf8;
+  --coco-button-hover: #86351f;
+  --coco-code-bg: #eee8dc;
+  --coco-code-border: #d2c8b3;
+  --coco-code-keyword: #9c3d1f;
+  --coco-code-string: #566a24;
+  --coco-code-function: #7c3a68;
+  --coco-code-literal: #8a5412;
+  --coco-code-type: #3f5f8a;
+  --coco-code-highlight: #ebddd0;
+  --coco-focus: #a5432a;
+  --coco-danger: #b3261e;
+  --coco-callout-note: #7b7467;
+  --coco-callout-info: #5a6f8a;
+  --coco-callout-tip: #5e7a35;
+  --coco-callout-warning: #a8741a;
+  --coco-callout-danger: #b3261e;
+  --coco-radius-sm: 4px;
+  --coco-radius-md: 8px;
+  --coco-space-1: 4px;
+  --coco-space-2: 8px;
+  --coco-space-3: 12px;
+  --coco-space-4: 16px;
+  --coco-space-5: 20px;
+  --coco-space-6: 24px;
+  --coco-space-7: 28px;
+  --coco-space-8: 32px;
+  --coco-shadow-subtle: 0 1px 2px rgb(61 41 20 / 8%);
+  --coco-font-serif: 'Newsreader Variable', 'Iowan Old Style', Charter, Georgia,
+    'Source Han Serif SC', 'Source Han Serif CN', 'Noto Serif SC', 'Noto Serif CJK SC',
+    'Songti SC', STSong, SimSun, serif;
+  --coco-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC',
+    'Helvetica Neue', Arial, sans-serif;
+  --coco-font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo,
+    Consolas, 'Liberation Mono', monospace;
 
-  --coco-cream: #faf6f0;
-  --coco-cream-deep: #f3ece1;
-  --coco-espresso: #2b1d16;
-  --coco-espresso-soft: #4a3529;
-  --coco-amber: #e08a1e;
-  --coco-border: rgba(43, 29, 22, 0.12);
+  /*
+   * Viewport-driven layout. Gutter and container follow the viewport width; display sizes are
+   * min() of a width-based and a height-based size, so short screens (1024x500, phone landscape)
+   * compose the first screen as well as 1920x1080 or 2560x1440.
+   */
+  /* Scroll thumb: halfway between the strong rule and the page, so it reads as a hint rather than a bar. */
+  --coco-scroll-thumb: color-mix(in srgb, var(--coco-rule-strong) 55%, var(--coco-canvas));
+  --ifm-scrollbar-size: 8px;
+  --ifm-scrollbar-track-background-color: transparent;
+  --ifm-scrollbar-thumb-background-color: var(--coco-scroll-thumb);
+  --ifm-scrollbar-thumb-hover-background-color: var(--coco-rule-strong);
+  --coco-gutter: clamp(1.25rem, 6vw, 9rem);
+  --coco-container-max: 80rem;
+  --coco-container: min(var(--coco-container-max), 100% - 2 * var(--coco-gutter));
+  --coco-viewport-h: calc(100vh - var(--ifm-navbar-height));
+  --coco-step--1: clamp(0.8125rem, 0.76rem + 0.14vw, 0.9375rem);
+  --coco-step-0: clamp(1rem, 0.9rem + 0.25vw, 1.25rem);
+  --coco-step-1: clamp(1.0625rem, 0.95rem + 0.45vw, 1.5rem);
+  --coco-step-2: max(1.5rem, min(1.05rem + 1.1vw, 4.4vh, 2.375rem));
+  --coco-step-3: max(1.75rem, min(1.15rem + 1.75vw, 7vh, 3.5rem));
+  --coco-step-hero: max(2.25rem, min(1rem + 3.6vw, 9.5vh, 5.25rem));
+  --coco-section-space: clamp(2.5rem, 2vw + 2.5vh, 5rem);
+  --coco-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --doc-sidebar-width: clamp(16.5rem, 13rem + 4vw, 20rem);
 
-  --ifm-background-color: var(--coco-cream);
-  --ifm-background-surface-color: #ffffff;
-  --ifm-font-color-base: var(--coco-espresso);
-  --ifm-heading-color: var(--coco-espresso);
-
-  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC',
-    Helvetica, Arial, sans-serif;
-  --ifm-heading-font-family: 'Bricolage Grotesque Variable', var(--ifm-font-family-base);
-  --ifm-font-family-monospace: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular,
-    Menlo, Consolas, monospace;
-
-  --ifm-code-font-size: 92%;
-  --ifm-heading-font-weight: 700;
-  --ifm-h1-font-size: 2.6rem;
-  --ifm-global-radius: 10px;
-  --docusaurus-highlighted-code-line-bg: rgba(180, 68, 31, 0.12);
+  --ifm-color-primary: var(--coco-accent);
+  --ifm-color-primary-dark: #933c25;
+  --ifm-color-primary-darker: #8f3a24;
+  --ifm-color-primary-darkest: #732f1d;
+  --ifm-color-primary-light: #b1482d;
+  --ifm-color-primary-lighter: #b64a2e;
+  --ifm-color-primary-lightest: #c65032;
+  --ifm-background-color: var(--coco-canvas);
+  --ifm-background-surface-color: var(--coco-surface);
+  --ifm-font-color-base: var(--coco-text);
+  --ifm-font-color-secondary: var(--coco-text-muted);
+  --ifm-heading-color: var(--coco-heading);
+  --ifm-link-color: var(--coco-accent);
+  --ifm-link-hover-color: var(--coco-accent-strong);
+  --ifm-font-family-base: var(--coco-font-serif);
+  --ifm-heading-font-family: var(--coco-font-serif);
+  --ifm-font-family-monospace: var(--coco-font-mono);
+  --ifm-heading-font-weight: 600;
+  --ifm-line-height-base: 1.62;
+  --ifm-leading-desktop: 0.875;
+  --ifm-code-font-size: 90%;
+  --ifm-global-radius: var(--coco-radius-md);
+  --ifm-button-border-radius: var(--coco-radius-sm);
+  --ifm-navbar-background-color: var(--coco-canvas);
+  --ifm-navbar-link-color: var(--coco-text);
+  --ifm-navbar-link-hover-color: var(--coco-accent);
+  --ifm-navbar-height: 3.25rem;
+  --ifm-navbar-shadow: none;
+  --ifm-menu-color: var(--coco-text-muted);
+  --ifm-menu-color-active: var(--coco-accent);
+  --ifm-menu-color-background-active: var(--coco-surface-muted);
+  --ifm-menu-color-background-hover: var(--coco-surface-muted);
+  --ifm-toc-border-color: var(--coco-border);
+  --ifm-hr-border-color: var(--coco-border);
+  --ifm-table-border-color: var(--coco-border);
+  --ifm-code-background: var(--coco-code-bg);
+  --ifm-pre-background: var(--coco-code-bg);
+  --ifm-footer-background-color: var(--coco-surface-muted);
+  --ifm-footer-color: var(--coco-text);
+  --ifm-footer-link-color: var(--coco-text-muted);
+  --ifm-footer-link-hover-color: var(--coco-accent);
+  --ifm-footer-title-color: var(--coco-text-muted);
+  --docusaurus-highlighted-code-line-bg: var(--coco-code-highlight);
+  --ifm-color-emphasis-0: var(--coco-surface);
+  --ifm-color-emphasis-100: var(--coco-surface-muted);
+  --ifm-color-emphasis-200: var(--coco-border);
+  --ifm-color-emphasis-300: var(--coco-border);
+  --ifm-color-emphasis-400: var(--coco-rule-strong);
+  --ifm-color-emphasis-500: var(--coco-rule-strong);
+  --ifm-color-emphasis-600: var(--coco-text-muted);
+  --ifm-color-emphasis-700: var(--coco-text-muted);
+  --ifm-color-emphasis-800: var(--coco-text);
+  --ifm-color-emphasis-900: var(--coco-text);
+  --ifm-color-emphasis-1000: var(--coco-heading);
 }
 
 [data-theme='dark'] {
-  --ifm-color-primary: #f0873a;
-  --ifm-color-primary-dark: #ed7620;
-  --ifm-color-primary-darker: #e46d18;
-  --ifm-color-primary-darkest: #bc5914;
-  --ifm-color-primary-light: #f39854;
-  --ifm-color-primary-lighter: #f5a162;
-  --ifm-color-primary-lightest: #f8bd91;
-
-  --coco-cream: #1c1512;
-  --coco-cream-deep: #241a15;
-  --coco-espresso: #f3e9df;
-  --coco-espresso-soft: #cdbcae;
-  --coco-border: rgba(243, 233, 223, 0.12);
-
-  --ifm-background-color: #1c1512;
-  --ifm-background-surface-color: #241a15;
-  --ifm-font-color-base: #f3e9df;
-  --ifm-heading-color: #f8f2ea;
-  --docusaurus-highlighted-code-line-bg: rgba(240, 135, 58, 0.16);
+  color-scheme: dark;
+  --coco-canvas: #1f1e1d;
+  --coco-surface: #262624;
+  --coco-surface-muted: #2f2d2a;
+  --coco-text: #d9d4c7;
+  --coco-heading: #faf9f5;
+  --coco-text-muted: #aaa496;
+  --coco-border: #3b3935;
+  --coco-rule-strong: #857f70;
+  --coco-accent: #e38c6c;
+  --coco-accent-strong: #f0a88c;
+  --coco-clay: #d97757;
+  /* White label on a slightly deeper clay: #fff on #d97757 is only 3.1:1, on #b9573a it is 4.7:1. */
+  --coco-button-bg: #b9573a;
+  --coco-button-text: #ffffff;
+  --coco-button-hover: #a84f31;
+  --coco-code-bg: #191817;
+  --coco-code-border: #35332f;
+  --coco-code-keyword: #e59a7d;
+  --coco-code-string: #b5c77f;
+  --coco-code-function: #e2bc6e;
+  --coco-code-literal: #8cc4ba;
+  --coco-code-type: #aeb9e8;
+  --coco-code-highlight: #2c221d;
+  --coco-focus: #e38c6c;
+  --coco-danger: #f2a097;
+  --coco-callout-note: #9a9486;
+  --coco-callout-info: #8da4c4;
+  --coco-callout-tip: #9bb36a;
+  --coco-callout-warning: #d9a441;
+  --coco-callout-danger: #e5857a;
+  --coco-shadow-subtle: 0 1px 2px rgb(0 0 0 / 35%);
+  --ifm-color-primary-dark: #ca7d60;
+  --ifm-color-primary-darker: #c4795d;
+  --ifm-color-primary-darkest: #9f624c;
+  --ifm-color-primary-light: #f39674;
+  --ifm-color-primary-lighter: #fa9a77;
+  --ifm-color-primary-lightest: #ffa882;
 }
 
-html {
-  scroll-behavior: smooth;
+/* Small viewport units keep the first screen inside mobile browser chrome. */
+@supports (height: 100svh) {
+  :root { --coco-viewport-h: calc(100svh - var(--ifm-navbar-height)); }
 }
 
-/* --- Scrollbars: slim, palette-matched, no chrome-grey ---
-   `scrollbar-*` is the standard (Firefox + Chromium 121+); the ::-webkit rules
-   below cover older Chromium and Safari, which ignore the standard properties.
-   Both are declared so the appearance is the same either way. */
-html {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ifm-color-primary) 42%, transparent)
-    transparent;
+/* Scrollbars: a slim, soft thumb on a transparent track for the page and every inner scroller (code, tables,
+   sidebar, TOC). The gutter is always reserved, so pages with and without a scrollbar do not shift sideways. */
+html { scroll-behavior: smooth; scrollbar-gutter: stable; }
+/* Chromium and Safari: a pill thumb inset in a transparent track, no arrow buttons (the standard
+   properties would bring back the native arrows, and also disable these pseudo-elements). */
+@supports selector(::-webkit-scrollbar) {
+  .thin-scrollbar { scrollbar-width: auto; }
+  *::-webkit-scrollbar { width: 12px; height: 12px; background: transparent; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background-color: var(--coco-scroll-thumb); background-clip: content-box; border: 3px solid transparent; border-radius: 999px; min-height: 40px; min-width: 40px; }
+  *::-webkit-scrollbar-thumb:hover { background-color: var(--coco-rule-strong); }
+  *::-webkit-scrollbar-thumb:active { background-color: var(--coco-text-muted); }
+  *::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  *::-webkit-scrollbar-corner { background: transparent; }
 }
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* Firefox: the standard properties. */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--coco-scroll-thumb) transparent; }
 }
+body { letter-spacing: 0; font-kerning: normal; }
+h1, h2, h3 { letter-spacing: 0; text-wrap: balance; overflow-wrap: anywhere; }
+p { text-wrap: pretty; }
+::selection { background: color-mix(in srgb, var(--coco-clay) 28%, transparent); color: var(--coco-heading); }
+hr { height: 0; background: none; border: 0; border-top: 1px solid var(--coco-border); margin-block: 2rem; }
+strong { font-weight: 600; color: var(--coco-heading); }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+:focus-visible { outline: 2px solid var(--coco-focus); outline-offset: 3px; }
+
+.button { min-height: 44px; padding: 0.5rem 1.25rem; font: 600 0.9375rem/1.4 var(--coco-font-sans); box-shadow: none; transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease; }
+.button:active { transform: none; }
+.button--primary { color: var(--coco-button-text); background-color: var(--coco-button-bg); border-color: var(--coco-button-bg); }
+.button--primary:hover, .button--primary:focus, .button--primary:active { color: var(--coco-button-text); background-color: var(--coco-button-hover); border-color: var(--coco-button-hover); }
+.button--secondary { color: var(--coco-heading); background: transparent; border: 1px solid var(--coco-rule-strong); }
+.button--secondary:hover { color: var(--coco-heading); background: var(--coco-surface-muted); border-color: var(--coco-heading); }
+
+.navbar { background: var(--coco-canvas); border-bottom: 1px solid var(--coco-border); box-shadow: none; }
+/* Keep filtering off the navbar itself: it traps the fixed mobile drawer. */
+.navbar::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+/* Brand: the mark plus live text in the heading face (Latin, so serif is allowed below 24px). */
+.navbar__brand { gap: 0.625rem; color: var(--coco-heading); transition: opacity 200ms ease; }
+.navbar__brand:hover { color: var(--coco-heading); text-decoration: none; }
+.navbar__logo { flex-shrink: 0; height: 1.875rem; margin: 0; }
+.navbar__title { font-family: var(--coco-font-serif); font-size: 1.3125rem; font-weight: 500; line-height: 1; letter-spacing: 0; font-synthesis: none; white-space: nowrap; color: var(--coco-heading); }
+/* Phones: the name must never be cut ("Coco Framew…"), so the brand scales down with the free width. */
+@media (max-width: 480px) {
+  .navbar__brand { gap: 0.5rem; }
+  .navbar__logo { height: 1.625rem; }
+  .navbar__title { font-size: 1.125rem; }
 }
-
-::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ifm-color-primary) 38%, transparent);
-  border-radius: 999px;
-  /* Transparent border + content-box clip insets the thumb, so it reads as a
-     floating pill rather than a bar wedged against the page edge. */
-  border: 2px solid transparent;
-  background-clip: content-box;
+@media (max-width: 380px) {
+  .navbar__title { font-size: 1.0625rem; }
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--ifm-color-primary) 65%, transparent);
-  background-clip: content-box;
+/* Smallest phones: the GitHub shortcut yields its room to the name (it stays in the footer). */
+@media (max-width: 340px) {
+  .navbar__title { font-size: 1rem; }
+  .navbar__items--right .navbar-github-link { display: none; }
 }
-
-::-webkit-scrollbar-corner {
-  background: transparent;
+.navbar__link { font-size: 0.9375rem; font-weight: 500; transition: color 200ms ease; }
+.navbar__link--active { color: var(--coco-accent); }
+/* Section tabs: an underline on the navbar's bottom edge grows from the centre (muted on hover, clay when
+   active), so moving between Docs, Skills and Releases hands the marker over instead of snapping. */
+.navbar__items:not(.navbar__items--right) > .navbar__link { position: relative; }
+.navbar__items:not(.navbar__items--right) > .navbar__link::after {
+  content: ''; position: absolute; left: var(--ifm-navbar-item-padding-horizontal); right: var(--ifm-navbar-item-padding-horizontal);
+  bottom: calc((100% - var(--ifm-navbar-height)) / 2); height: 2px; background: var(--coco-rule-strong);
+  transform: scaleX(0); transition: transform 420ms var(--coco-ease-out), background-color 200ms ease;
 }
+.navbar__items:not(.navbar__items--right) > .navbar__link:hover::after { transform: scaleX(0.6); }
+.navbar__items:not(.navbar__items--right) > .navbar__link--active::after { transform: scaleX(1); background: var(--coco-clay); }
+.navbar__items--right { gap: var(--coco-space-3); }
+.navbar__items--right > div[class*='navbarSearchContainer']:empty { display: none; }
+.navbar-sidebar__brand { border-bottom: 1px solid var(--coco-border); padding: var(--coco-space-3) var(--coco-space-4); box-shadow: none; }
+.navbar-sidebar { background: var(--coco-canvas); }
+/* Drawer back bar: a slim row with a hairline arrow, no tinted band across the full width. */
+.navbar-sidebar__back { display: flex; align-items: center; gap: 0.625rem; width: 100%; min-height: 48px; margin: 0 0 var(--coco-space-2); padding: 0 var(--coco-space-4); font: 600 0.875rem/1.4 var(--coco-font-sans); color: var(--coco-text-muted); background: transparent; border-bottom: 1px solid var(--coco-border); transition: color 160ms ease; }
+.navbar-sidebar__back:hover { color: var(--coco-accent); background: transparent; }
+.navbar-sidebar__items { overscroll-behavior: contain; }
+.navbar-sidebar { padding-bottom: env(safe-area-inset-bottom, 0px); }
 
-/* Inner scrollers (code blocks, wide tables, sidebar) get a smaller pill so
-   they don't compete with the page scrollbar. */
-.markdown pre::-webkit-scrollbar,
-.theme-doc-sidebar-container::-webkit-scrollbar,
-.table-of-contents::-webkit-scrollbar,
-div[class*='codeBlockContent']::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
-}
-
-/* --- Footer: warm espresso tone, balanced columns --- */
-.footer--dark {
-  --ifm-footer-background-color: #241a15;
-  --ifm-footer-color: #cdbcae;
-  --ifm-footer-link-color: #cdbcae;
-  --ifm-footer-title-color: #f3e9df;
-  border-top: 1px solid rgba(224, 138, 30, 0.18);
-  padding-top: 3.5rem;
-  padding-bottom: 2.5rem;
-}
-
-.footer__links {
-  max-width: 1100px;
-  margin: 0 auto 2.2rem;
-}
-
-.footer__col {
-  padding: 0 0.5rem;
-}
-
-.footer__title {
-  font-family: var(--ifm-heading-font-family);
-  font-weight: 700;
-  font-size: 0.82rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--coco-amber);
-  margin-bottom: 1rem;
-}
-
-.footer__item {
-  font-size: 0.9rem;
-  line-height: 1.9;
-}
-
-.footer__link-item {
-  transition: color 0.18s ease, transform 0.18s ease;
-  display: inline-block;
-}
-
-.footer__link-item:hover {
-  color: var(--coco-amber);
-  transform: translateX(3px);
-  text-decoration: none;
-}
-
-.footer__bottom {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding-top: 1.6rem;
-  border-top: 1px solid rgba(243, 233, 223, 0.08);
-}
-
-.footer__copyright {
-  font-size: 0.82rem;
-  color: #9a8778;
-}
-
-/* Grain overlay for atmosphere and depth. */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-.navbar {
-  backdrop-filter: saturate(150%) blur(10px);
-  background-color: color-mix(in srgb, var(--ifm-background-color) 82%, transparent);
-  border-bottom: 1px solid var(--coco-border);
-  box-shadow: none;
-}
-
-.navbar__title {
-  font-family: var(--ifm-heading-font-family);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-/* Desktop navigation shares one flow; adding links never detaches them. */
+/* Shell alignment: on standalone pages the navbar and footer share the homepage container edges;
+ * on docs pages navbar and doc frame centre together once the viewport is wider than the frame. */
+html.plugin-pages .navbar, html.plugin-pages .footer { padding-inline: 0; }
+html.plugin-pages .navbar__inner { width: var(--coco-container); margin-inline: auto; }
+html.plugin-pages .footer > .container { width: var(--coco-container); max-width: none; padding-inline: 0; }
+.footer > .container { max-width: var(--coco-container-max); }
+html.docs-wrapper .navbar__inner { max-width: var(--coco-container-max); margin-inline: auto; }
+html.docs-wrapper [class^='docRoot_'] { max-width: var(--coco-container-max); margin-inline: auto; }
+/* Doc frame: breadcrumbs, title, prose, footer and pagination share one 72ch column (same font size as
+   .markdown, so the edges line up). The TOC column has a fixed width instead of 25% of the row, so the
+   reading column sits in the middle of the free space rather than drifting away from the sidebar. */
+[class*='docItemContainer_'] { font-size: clamp(1.0625rem, 1rem + 0.12vw, 1.125rem); max-width: 72ch; margin-inline: auto; }
 @media (min-width: 997px) {
-  .navbar__items:not(.navbar__items--right) {
-    flex: 1;
-    gap: clamp(0.25rem, 1.5vw, 1.5rem);
-  }
-  .navbar__brand {
-    margin-right: auto;
-  }
-  .navbar__items:not(.navbar__items--right) > .navbar__link {
-    display: flex;
-    align-items: center;
-    font-weight: 600;
-    white-space: nowrap;
-    transition: transform 0.18s ease, color 0.18s ease;
-  }
-  .navbar__items--right {
-    flex: 0 0 auto;
-    margin-left: clamp(1rem, 3vw, 3rem);
-  }
-  .navbar__items:not(.navbar__items--right) > .navbar__link:hover {
-    transform: translateY(-1px);
-  }
+  html.docs-wrapper .row > [class*='docItemCol_'] { flex: 1 1 0; min-width: 0; max-width: none !important; }
+  html.docs-wrapper .row > .col--3:has(> .theme-doc-toc-desktop) { flex: 0 0 clamp(13rem, 9rem + 5vw, 17rem); max-width: clamp(13rem, 9rem + 5vw, 17rem); }
+}
+/* Sticky sidebar and TOC fit the visible viewport below the navbar (dynamic units follow mobile browser chrome). */
+.theme-doc-sidebar-container [class^='sidebarViewport_'] { max-height: 100vh; max-height: 100dvh; }
+.theme-doc-toc-desktop { max-height: calc(100vh - var(--ifm-navbar-height) - 2rem); max-height: calc(100dvh - var(--ifm-navbar-height) - 2rem); }
+
+@media (min-width: 997px) {
+  .navbar__items:not(.navbar__items--right) { flex: 1; gap: var(--coco-space-2); }
+  .navbar__brand { margin-right: var(--coco-space-8); }
+  .navbar__items--right { flex: 0 0 auto; margin-left: var(--coco-space-4); }
 }
 
-/* --- GitHub link rendered as an icon, not text --- */
-.navbar-github-link {
-  display: flex;
-  align-items: center;
-  padding: 0.35rem;
-  width: 32px;
-  height: 32px;
+.navbar-locale-toggle, .navbar-github-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0; flex-shrink: 0;
+  border-radius: var(--coco-radius-sm); color: var(--coco-text);
+  transition: color 150ms ease, background-color 150ms ease;
 }
+.navbar-locale-toggle:hover, .navbar-github-link:hover { color: var(--coco-accent); background: var(--coco-surface-muted); text-decoration: none; }
+.navbar-locale-toggle--mobile { display: flex; align-items: center; gap: var(--coco-space-2); }
+/* Optical sizing: the globe and sun are outlines, the GitHub mark is solid and reads larger at equal width,
+   so it is drawn smaller. Measured ink boxes are about 17-18px for all three. */
 .navbar-github-link::before {
-  content: '';
-  display: block;
-  width: 22px;
-  height: 22px;
-  background-color: var(--ifm-navbar-link-color);
-  transition: background-color 0.2s ease, transform 0.2s ease;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.2 11.4.6.1.82-.26.82-.58v-2.2c-3.34.73-4.04-1.6-4.04-1.6-.55-1.4-1.34-1.77-1.34-1.77-1.1-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.84 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.3.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.008-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.88.12 3.18.77.84 1.23 1.92 1.23 3.22 0 4.61-2.8 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57C20.56 22.3 24 17.8 24 12.5 24 5.87 18.63.5 12 .5z'/%3E%3C/svg%3E") center/contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.2 11.4.6.1.82-.26.82-.58v-2.2c-3.34.73-4.04-1.6-4.04-1.6-.55-1.4-1.34-1.77-1.34-1.77-1.1-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.84 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.3.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.008-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.88.12 3.18.77.84 1.23 1.92 1.23 3.22 0 4.61-2.8 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57C20.56 22.3 24 17.8 24 12.5 24 5.87 18.63.5 12 .5z'/%3E%3C/svg%3E") center/contain no-repeat;
-}
-.navbar-github-link:hover::before {
-  background-color: var(--ifm-color-primary);
-  transform: scale(1.12);
+  content: ''; display: block; width: 18px; height: 18px; background: currentColor;
+  --github-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.2 11.4.6.1.82-.26.82-.58v-2.2c-3.34.73-4.04-1.6-4.04-1.6-.55-1.4-1.34-1.77-1.34-1.77-1.1-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.84 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.3.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.008-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.88.12 3.18.77.84 1.23 1.92 1.23 3.22 0 4.61-2.8 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57C20.56 22.3 24 17.8 24 12.5 24 5.87 18.63.5 12 .5z'/%3E%3C/svg%3E");
+  -webkit-mask: var(--github-icon) center / contain no-repeat;
+  mask: var(--github-icon) center / contain no-repeat;
 }
 
-/* --- Locale switch: lucide translate glyph, sized to match the theme button --- */
-.navbar-locale-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 10px;
-  color: var(--ifm-navbar-link-color);
-  transition: background var(--ifm-transition-fast),
-    color var(--ifm-transition-fast), transform var(--ifm-transition-fast);
+/* Reading column and typography. Serif throughout; UI chrome (buttons, labels, pagination) opts back into sans. */
+/* Body size grows slightly on wide screens so the 72ch column scales with the shell instead of shrinking into it. */
+.markdown { font-size: clamp(1.0625rem, 1rem + 0.12vw, 1.125rem); max-width: 72ch; min-width: 0; margin-inline: auto; overflow-wrap: anywhere; }
+.markdown h1, .markdown h2 { font-family: var(--coco-font-serif); font-weight: 500; font-synthesis: none; font-kerning: normal; color: var(--coco-heading); }
+.markdown h1 { font-size: max(2rem, min(1.4rem + 1.5vw, 8vh, 3rem)); line-height: 1.2; margin-bottom: var(--coco-space-4); }
+.markdown > h1, .markdown > header { padding-bottom: var(--coco-space-4); border-bottom: 3px double var(--coco-rule-strong); margin-bottom: var(--coco-space-5); }
+.markdown > header > h1 { margin-bottom: 0; }
+.markdown h2 { font-size: max(1.5rem, min(1.15rem + 0.8vw, 2.125rem)); line-height: 1.35; margin-top: 2rem; margin-bottom: 0.625rem; padding-top: 0; }
+/* Arriving at a heading from the TOC or a hash link draws a short clay mark under it (no layout change). */
+.markdown :is(h2, h3)[id] { position: relative; }
+.markdown :is(h2, h3)[id]:target::after { content: ''; position: absolute; left: 0; bottom: -0.3em; width: 2.5rem; height: 2px; background: var(--coco-clay); transform-origin: left; animation: coco-heading-mark 700ms var(--coco-ease-out) both; }
+@keyframes coco-heading-mark { from { transform: scaleX(0); } }
+.markdown h3 { font-size: 1.25rem; line-height: 1.4; margin-top: 1.5rem; margin-bottom: 0.5rem; font-weight: 600; color: var(--coco-heading); }
+.markdown h4 { font-size: 1rem; line-height: 1.5; font-weight: 600; color: var(--coco-heading); }
+.markdown > h1 + p, .markdown > header + p { font-size: 1.125rem; color: var(--coco-text-muted); }
+.markdown a:not(.button):not(.hash-link) { color: var(--coco-accent); text-decoration-line: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--coco-accent) 65%, transparent); }
+.markdown a:not(.button):not(.hash-link):hover { color: var(--coco-accent-strong); text-decoration-color: currentColor; }
+.markdown ul > li::marker { color: var(--coco-clay); }
+.markdown ol > li::marker { color: var(--coco-accent); font-weight: 600; }
+.markdown :not(pre) > code { font-size: 0.875em; color: var(--coco-accent-strong); background: var(--coco-code-bg); border: 1px solid var(--coco-code-border); border-radius: var(--coco-radius-sm); padding: 0.1em 0.35em; overflow-wrap: anywhere; }
+.markdown .theme-code-block { border: 1px solid var(--coco-code-border); border-radius: var(--coco-radius-md); background: var(--coco-code-bg); box-shadow: none; overflow: hidden; max-width: 100%; }
+.markdown .theme-code-block pre { background: var(--coco-code-bg) !important; border-radius: 0; overflow-x: auto; font-size: 0.875rem; line-height: 1.65; }
+/* Docusaurus title/TOC components expose no stable semantic class; keep these prefixes scoped. */
+.markdown div[class*='codeBlockTitle'] { color: var(--coco-text-muted); background: var(--coco-surface-muted); border-bottom: 1px solid var(--coco-code-border); font-family: var(--coco-font-mono); font-size: 0.75rem; letter-spacing: 0; }
+/* Code block chrome: a quiet language tag in the corner that steps aside for the copy/wrap buttons. */
+.markdown .theme-code-block { position: relative; }
+.markdown .theme-code-block::after {
+  position: absolute; top: 0.75rem; right: 0.9rem; pointer-events: none;
+  font: 500 0.75rem/1 var(--coco-font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--coco-text-muted);
+  transition: opacity 200ms ease;
 }
-.navbar-locale-toggle:hover {
-  text-decoration: none;
-  background: color-mix(in srgb, var(--ifm-color-primary) 12%, transparent);
-  color: var(--ifm-color-primary);
-  transform: translateY(-1px);
+.markdown .theme-code-block.language-xml::after { content: 'xml'; }
+.markdown .theme-code-block.language-java::after { content: 'java'; }
+.markdown .theme-code-block:is(.language-yaml, .language-yml)::after { content: 'yaml'; }
+.markdown .theme-code-block.language-json::after { content: 'json'; }
+.markdown .theme-code-block:is(.language-bash, .language-sh, .language-shell)::after { content: 'shell'; }
+.markdown .theme-code-block.language-sql::after { content: 'sql'; }
+.markdown .theme-code-block.language-properties::after { content: 'properties'; }
+.markdown .theme-code-block:is(.language-ts, .language-typescript)::after { content: 'ts'; }
+.markdown .theme-code-block:is(.language-js, .language-javascript)::after { content: 'js'; }
+.markdown .theme-code-block:is(:hover, :focus-within)::after { opacity: 0; }
+.markdown .theme-code-block:has(> [class*='codeBlockTitle'])::after { content: none; }
+.markdown .theme-code-block button {
+  padding: 0.375rem; color: var(--coco-text-muted); background: var(--coco-surface);
+  border: 1px solid var(--coco-code-border); border-radius: var(--coco-radius-sm);
+  transition: opacity 220ms ease, color 200ms ease, border-color 200ms ease;
 }
-.navbar-locale-toggle--mobile {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* GitHub link uses a masked pseudo-element rather than an inline SVG, so it
-   needs the same hover frame applied to the box instead of a colour swap. */
-.navbar-github-link {
-  border-radius: 10px;
-  transition: background var(--ifm-transition-fast),
-    transform var(--ifm-transition-fast);
-}
-.navbar-github-link:hover {
-  background: color-mix(in srgb, var(--ifm-color-primary) 12%, transparent);
-  transform: translateY(-1px);
-}
-
-/* --- Right-side controls: even gaps, dividers only *between* items ---
-   The trailing item in .navbar__items--right is an always-empty search
-   container, so a generic :not(:last-child) rule paints a divider after the
-   last visible control. Each divider is therefore declared explicitly on the
-   item it follows, and centred in the gap (gap/2) so every icon sits the same
-   distance from the rules on either side. */
-.navbar__items--right {
-  gap: var(--coco-navbar-gap, 0.85rem);
-  align-items: center;
-}
-
-.navbar-locale-toggle,
-.navbar-github-link {
-  position: relative;
-}
-
-.navbar-locale-toggle::after,
-.navbar-github-link::after {
-  content: '';
-  position: absolute;
-  right: calc(var(--coco-navbar-gap, 0.85rem) / -2);
-  top: 50%;
-  transform: translateY(-50%);
-  width: 1px;
-  height: 16px;
-  background: var(--coco-border);
+.markdown .theme-code-block:hover button { opacity: 0.75; }
+.markdown .theme-code-block button:hover { color: var(--coco-heading); border-color: var(--coco-rule-strong); opacity: 1; }
+.markdown .theme-code-block button:focus-visible { opacity: 1; outline-offset: -3px; }
+.markdown .theme-code-block [class*='copyButtonCopied'] { color: var(--coco-accent); border-color: var(--coco-accent); }
+.markdown .theme-code-block [class*='copyButtonSuccessIcon'] { color: var(--coco-accent); }
+@media (hover: none) {
+  .markdown .theme-code-block button { opacity: 0.75; }
+  .markdown .theme-code-block::after { content: none; }
 }
 
-/* The empty search slot still consumes a flex gap — drop it out of layout. */
-.navbar__items--right > div[class*='navbarSearchContainer']:empty {
-  display: none;
+/* Book-style three-rule table. */
+.markdown table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; border: 0; border-top: 2px solid var(--coco-heading); border-bottom: 2px solid var(--coco-heading); border-radius: 0; background: transparent; margin: var(--coco-space-4) 0; }
+.markdown table thead, .markdown table tbody tr, .markdown table tbody tr:nth-child(2n) { background: transparent; }
+.markdown table tbody tr:hover { background: transparent; }
+.markdown table th, .markdown table td { border: 0; border-bottom: 1px solid var(--coco-border); padding: 0.5rem 0.875rem; font-size: 0.9375rem; text-align: left; vertical-align: top; }
+.markdown table th { font-weight: 600; color: var(--coco-heading); border-bottom: 1px solid var(--coco-rule-strong); }
+.markdown table td { color: var(--coco-text); }
+.markdown table tbody tr:last-child td { border-bottom: 0; }
+
+/* Admonitions: one left rule, tinted paper. Titles are whole sentences (often Chinese): sans, no tracking. */
+.markdown .theme-admonition { --coco-callout: var(--coco-callout-note); border: 0; border-left: 3px solid var(--coco-callout); border-radius: 0 var(--coco-radius-sm) var(--coco-radius-sm) 0; background: var(--coco-surface-muted); background: color-mix(in srgb, var(--coco-callout) 8%, var(--coco-surface)); color: var(--coco-text); padding: 0.75rem 1rem; box-shadow: none; }
+.markdown .theme-admonition-info { --coco-callout: var(--coco-callout-info); }
+.markdown .theme-admonition-tip { --coco-callout: var(--coco-callout-tip); }
+.markdown .theme-admonition-warning, .markdown .theme-admonition-caution { --coco-callout: var(--coco-callout-warning); }
+.markdown .theme-admonition-danger { --coco-callout: var(--coco-callout-danger); }
+.markdown .theme-admonition [class*='admonitionHeading'] { font: 600 0.9375rem/1.4 var(--coco-font-sans); text-transform: none; letter-spacing: 0; color: var(--coco-heading); margin-bottom: var(--coco-space-2); }
+.markdown .theme-admonition [class*='admonitionIcon'] svg { fill: var(--coco-callout); }
+.markdown .theme-admonition [class*='admonitionContent'] > :last-child { margin-bottom: 0; }
+
+.markdown blockquote { border: 0; border-left: 3px solid var(--coco-clay); border-radius: 0 var(--coco-radius-sm) var(--coco-radius-sm) 0; padding: var(--coco-space-3) var(--coco-space-4); color: var(--coco-text-muted); background: var(--coco-surface-muted); background: color-mix(in srgb, var(--coco-clay) 6%, var(--coco-surface)); font-style: normal; }
+.markdown blockquote p:last-child { margin-bottom: 0; }
+
+.menu { font-size: 0.875rem; }
+.menu__link { position: relative; border-radius: var(--coco-radius-sm); padding-block: 0.3125rem; line-height: 1.4; overflow-wrap: anywhere; transition: color 200ms ease, background-color 200ms ease; }
+.menu__link--sublist { color: var(--coco-text); font-weight: 600; }
+/* Active page: a clay marker grows in place and the tint fades in, instead of both appearing in one frame. */
+.menu__link:not(.menu__link--sublist)::before { content: ''; position: absolute; left: 0; top: 0.45em; bottom: 0.45em; width: 2px; border-radius: 1px; background: var(--coco-clay); transform: scaleY(0); transition: transform 380ms var(--coco-ease-out); }
+.menu__link--active:not(.menu__link--sublist) { color: var(--coco-accent); background: var(--coco-surface-muted); font-weight: 600; }
+.menu__link--active:not(.menu__link--sublist)::before { transform: scaleY(1); }
+/* Category carets: a hairline chevron in the muted ink that turns smoothly. */
+.menu__link--sublist-caret::after, .menu__caret::before, button[class*='tocCollapsibleButton']::after {
+  --coco-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 14.5l5-5 5 5'/%3E%3C/svg%3E");
+  min-width: 1rem; width: 1rem; height: 1rem;
+  background: var(--coco-text-muted); filter: none;
+  -webkit-mask: var(--coco-chevron) center / 0.875rem no-repeat;
+  mask: var(--coco-chevron) center / 0.875rem no-repeat;
+  transition: transform 340ms var(--coco-ease-out), background-color 200ms ease;
+}
+.menu__link--sublist-caret:hover::after, .menu__caret:hover::before { background: var(--coco-heading); }
+.menu__caret { transition: background-color 200ms ease; }
+.menu__list .menu__list { margin-block: var(--coco-space-1) var(--coco-space-3); }
+.theme-doc-sidebar-container { border-right: 1px solid var(--coco-border); }
+.table-of-contents { font-size: 0.8125rem; }
+/* Constant indent; the active marker grows in place so the text never jumps when the active item changes. */
+.table-of-contents__link { position: relative; display: block; padding-block: var(--coco-space-1); padding-left: 0.75rem; color: var(--coco-text-muted); overflow-wrap: anywhere; transition: color 200ms ease; }
+.table-of-contents__link::before { content: ''; position: absolute; left: 0; top: 0.3em; bottom: 0.3em; width: 2px; background: var(--coco-clay); transform: scaleY(0); transition: transform 320ms var(--coco-ease-out); }
+.table-of-contents__link:hover { color: var(--coco-accent); }
+.table-of-contents__link--active { color: var(--coco-accent); font-weight: 600; }
+.table-of-contents__link--active::before { transform: scaleY(1); }
+div[class*='tocCollapsible'] { background: var(--coco-surface); border: 1px solid var(--coco-border); border-radius: var(--coco-radius-sm); margin-bottom: var(--coco-space-6); }
+button[class*='tocCollapsibleButton'] { font-size: 0.875rem; color: var(--coco-text); padding: var(--coco-space-3) var(--coco-space-4); }
+/* Breadcrumb row = page toolbar (src/theme/DocBreadcrumbs): trail left, page actions right. */
+.doc-headbar { display: flex; align-items: center; justify-content: space-between; gap: var(--coco-space-4); min-height: 34px; margin-bottom: var(--coco-space-4); }
+.doc-headbar:not(:has(> nav)) { justify-content: flex-end; }
+.doc-headbar > nav { min-width: 0; margin-bottom: 0; }
+.breadcrumbs { font-size: 0.8125rem; margin-bottom: 0; }
+.breadcrumbs__link { padding: 0.25rem 0.125rem; background: transparent; color: var(--coco-text-muted); border-radius: var(--coco-radius-sm); transition: color 200ms ease; }
+.breadcrumbs__link:hover, a.breadcrumbs__link:hover { background: transparent; color: var(--coco-accent); }
+.breadcrumbs__item--active .breadcrumbs__link { color: var(--coco-text); background: transparent; font-weight: 500; }
+.breadcrumbs__item:not(:last-child)::after { content: '/'; width: auto; height: auto; margin: 0 0.5rem; background: none; filter: none; opacity: 1; color: var(--coco-rule-strong); }
+
+/* TOC heading (generated: Docusaurus renders none). */
+.theme-doc-toc-desktop::before { content: '本页内容'; display: block; margin-bottom: var(--coco-space-3); font: 600 0.8125rem/1.4 var(--coco-font-sans); color: var(--coco-heading); }
+html:lang(en) .theme-doc-toc-desktop::before { content: 'On this page'; font-family: var(--coco-font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; }
+
+/* Heading anchors: a clay mark that fades in beside the heading. */
+.markdown .hash-link { color: var(--coco-clay); padding-left: 0.375rem; transition: opacity 200ms ease; }
+
+/* Footer of the doc (edit link, last updated). */
+.theme-doc-footer { margin-top: 2rem; padding-top: var(--coco-space-5); border-top: 1px solid var(--coco-border); font-size: 0.8125rem; }
+.theme-edit-this-page { color: var(--coco-text-muted); transition: color 200ms ease; }
+.theme-edit-this-page:hover { color: var(--coco-accent); text-decoration: none; }
+
+/* Pagination: the sublabel is translated ("上一页"), so sans by default; mono caps only in English.
+   The stock guillemets are replaced by a hairline arrow that travels toward the destination on hover. */
+.pagination-nav { gap: var(--coco-space-4); }
+.pagination-nav__link { padding: 1rem 1.25rem; background: transparent; border: 1px solid var(--coco-border); border-radius: var(--coco-radius-md); min-width: 0; transition: border-color 240ms ease, background-color 240ms ease; }
+.pagination-nav__link:hover { border-color: var(--coco-rule-strong); background: var(--coco-surface); }
+.pagination-nav__label { display: flex; align-items: center; gap: 0.75rem; }
+.pagination-nav__link--next .pagination-nav__label { justify-content: flex-end; }
+.pagination-nav__link--prev .pagination-nav__label::before, .pagination-nav__link--next .pagination-nav__label::after {
+  --coco-line-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h20M18.5 3.5L23 8l-4.5 4.5'/%3E%3C/svg%3E");
+  content: ''; flex-shrink: 0; width: 1.5rem; height: 0.875rem; background: var(--coco-clay);
+  -webkit-mask: var(--coco-line-arrow) center / contain no-repeat; mask: var(--coco-line-arrow) center / contain no-repeat;
+  transition: translate 420ms var(--coco-ease-out);
+}
+.pagination-nav__link--prev .pagination-nav__label::before { scale: -1 1; }
+.pagination-nav__link--prev:hover .pagination-nav__label::before { translate: -5px 0; }
+.pagination-nav__link--next:hover .pagination-nav__label::after { translate: 5px 0; }
+.pagination-nav__sublabel { font: 600 0.8125rem/1.4 var(--coco-font-sans); letter-spacing: 0.04em; text-transform: none; color: var(--coco-text-muted); }
+.pagination-nav__label { font-family: var(--coco-font-sans); font-weight: 600; color: var(--coco-accent); overflow-wrap: anywhere; }
+html:lang(en) .pagination-nav__sublabel { font-family: var(--coco-font-mono); font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* Footer: double rule on top, same paper as the page but one step darker. */
+.footer, .footer--dark { background: var(--coco-surface-muted); color: var(--coco-text); border-top: 3px double var(--coco-rule-strong); padding-block: 3rem; }
+.footer__title { font: 600 0.8125rem/1.4 var(--coco-font-sans); letter-spacing: 0.04em; text-transform: none; color: var(--coco-text-muted); margin-bottom: var(--coco-space-3); }
+html:lang(en) .footer__title { font-family: var(--coco-font-mono); font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; }
+.footer__link-item { font-size: 0.875rem; color: var(--coco-text-muted); transition: color 150ms ease; }
+.footer__link-item:hover { color: var(--coco-accent); text-decoration: none; }
+.footer__bottom { border-top: 1px solid var(--coco-border); padding-top: var(--coco-space-6); margin-top: var(--coco-space-6); }
+.footer__copyright { font-size: 0.8125rem; color: var(--coco-text-muted); }
+
+@media (max-width: 996px) {
+  .pagination-nav__link { min-height: 72px; }
+  .navbar__brand { min-width: 0; }
+}
+/* Doc figures settle in as they scroll into view. Armed by useDocMotion only after every figure already
+   on screen is marked data-in, so nothing visible is hidden; without JS the attribute never exists. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-coco-doc-motion] [data-reveal-block] { transition: opacity 700ms var(--coco-ease-out) var(--reveal-delay, 0ms), transform 700ms var(--coco-ease-out) var(--reveal-delay, 0ms); }
+  html[data-coco-doc-motion] [data-reveal-block]:not([data-in]) { opacity: 0; transform: translate3d(0, 14px, 0); }
 }
 
-/* Section headings get a small terracotta tick for editorial rhythm. */
-.markdown > h2 {
-  padding-left: 0.85rem;
-  border-left: 4px solid var(--ifm-color-primary);
-  line-height: 1.25;
-}
-
-article a {
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-
-.menu__link--active {
-  font-weight: 600;
+/* Theme switch: the toggle drives a circular reveal of the new palette (ColorModeToggle), so the
+   snapshot pair must not cross-fade on top of it. */
+html[data-theme-transition]::view-transition-old(root),
+html[data-theme-transition]::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+/* Full-page navigations (the locale switch loads the other build) cross-fade instead of flashing. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 260ms; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
-}
-
-/* ============================================================
-   Content-page beautification (applies to all doc pages)
-   ============================================================ */
-
-/* --- Tables: the feature pages are table-heavy --- */
-.markdown table {
-  display: table;
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  border: 1px solid var(--coco-border);
-  border-radius: 12px;
-  overflow: hidden;
-  margin: 1.6rem 0;
-  box-shadow: 0 14px 34px -28px rgba(43, 29, 22, 0.5);
-}
-
-.markdown table thead {
-  background: linear-gradient(135deg,
-    color-mix(in srgb, var(--ifm-color-primary) 14%, var(--ifm-background-surface-color)),
-    color-mix(in srgb, var(--coco-amber) 12%, var(--ifm-background-surface-color)));
-}
-
-.markdown table th {
-  font-family: var(--ifm-heading-font-family);
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--ifm-heading-color);
-  border: 0;
-  border-bottom: 1px solid var(--coco-border);
-  padding: 0.7rem 1rem;
-  text-align: left;
-}
-
-.markdown table td {
-  border: 0;
-  border-bottom: 1px solid var(--coco-border);
-  padding: 0.65rem 1rem;
-  vertical-align: top;
-}
-
-.markdown table tbody tr {
-  background: var(--ifm-background-surface-color);
-  transition: background-color 0.2s ease;
-}
-
-.markdown table tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--coco-cream-deep) 55%, var(--ifm-background-surface-color));
-}
-
-.markdown table tbody tr:hover {
-  background: color-mix(in srgb, var(--ifm-color-primary) 8%, var(--ifm-background-surface-color));
-}
-
-.markdown table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-/* --- Inline code: tint it into the palette --- */
-.markdown :not(pre) > code {
-  background: color-mix(in srgb, var(--ifm-font-color-base) 5%, var(--ifm-background-surface-color));
-  border: 1px solid var(--coco-border);
-  border-radius: 6px;
-  padding: 0.12em 0.4em;
-  font-size: 0.86em;
-  color: var(--ifm-font-color-base);
-}
-
-[data-theme='dark'] .markdown :not(pre) > code {
-  color: var(--ifm-font-color-base);
-}
-/* --- Code blocks: warmer frame + terracotta title bar --- */
-.markdown .theme-code-block,
-.markdown div[class*='codeBlockContainer'] {
-  border: 1px solid var(--coco-border);
-  border-radius: 12px;
-  box-shadow: 0 16px 38px -30px rgba(43, 29, 22, 0.55);
-  overflow: hidden;
-}
-
-.markdown div[class*='codeBlockTitle'] {
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--ifm-color-primary-darkest);
-  background: linear-gradient(135deg,
-    color-mix(in srgb, var(--ifm-color-primary) 12%, var(--ifm-background-surface-color)),
-    color-mix(in srgb, var(--coco-amber) 10%, var(--ifm-background-surface-color)));
-  border-bottom: 1px solid var(--coco-border);
-}
-
-[data-theme='dark'] .markdown div[class*='codeBlockTitle'] {
-  color: var(--ifm-color-primary-lighter);
-}
-
-/* --- Admonitions: rounded, soft-shadowed, palette-aware --- */
-.markdown .theme-admonition {
-  border: 1px solid var(--coco-border);
-  border-left-width: 4px;
-  border-radius: 10px;
-  box-shadow: 0 12px 30px -26px rgba(43, 29, 22, 0.5);
-}
-
-/* --- Blockquotes --- */
-.markdown blockquote {
-  border-left: 4px solid var(--ifm-color-primary);
-  background: color-mix(in srgb, var(--coco-amber) 8%, var(--ifm-background-surface-color));
-  border-radius: 0 10px 10px 0;
-  padding: 0.8rem 1.1rem;
-  color: var(--coco-espresso-soft);
-}
-
-/* --- Strong emphasis picks up the accent subtly --- */
-.markdown h3 {
-  font-size: 1.3rem;
-  margin-top: 2rem;
-}
-
-/* --- Anchor links on hover --- */
-.markdown a {
-  color: var(--ifm-color-primary-darker);
-  font-weight: 500;
-}
-[data-theme='dark'] .markdown a {
-  color: var(--ifm-color-primary-light);
-}
-
-/* --- Lead paragraph: the first paragraph after the page H1 --- */
-.markdown > h1 + p {
-  font-size: 1.12rem;
-  line-height: 1.7;
-  color: var(--coco-espresso-soft);
-  padding-bottom: 1.2rem;
-  border-bottom: 1px solid var(--coco-border);
-  margin-bottom: 1.6rem;
-}
-
-/* --- H1: gradient wash for a distinctive page title --- */
-.markdown > h1 {
-  background: linear-gradient(120deg, var(--ifm-color-primary), var(--coco-amber));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.02em;
-}
-
-/* --- Sidebar active item gets a terracotta rail --- */
-.menu__link--active:not(.menu__link--sublist) {
-  border-left: 3px solid var(--ifm-color-primary);
-  background: color-mix(in srgb, var(--ifm-color-primary) 8%, transparent);
-}
-
-/* --- Pagination cards (prev/next) lift on hover --- */
-.pagination-nav__link {
-  border: 1px solid var(--coco-border);
-  border-radius: 12px;
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 0.25s ease, box-shadow 0.25s ease;
-}
-.pagination-nav__link:hover {
-  transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--ifm-color-primary) 45%, var(--coco-border));
-  box-shadow: 0 16px 36px -26px rgba(43, 29, 22, 0.5);
-}
-
-/* --- Table of contents active marker --- */
-.table-of-contents__link--active {
-  color: var(--ifm-color-primary);
-  font-weight: 600;
-}
-
-.table-of-contents__link {
-  position: relative;
-  display: block;
-  padding: .22rem .5rem .22rem .7rem;
-  border-radius: 0 4px 4px 0;
-  transition: color .22s ease, background-color .22s ease;
-}
-.table-of-contents__link::before {
-  content: ''; position: absolute; left: 0; top: .22rem; bottom: .22rem; width: 2px;
-  background: var(--ifm-color-primary); transform: scaleY(0); transform-origin: top;
-  transition: transform .25s cubic-bezier(.22, 1, .36, 1);
-}
-.table-of-contents__link--active { background: color-mix(in srgb, var(--ifm-color-primary) 7%, transparent); }
-.table-of-contents__link--active::before { transform: scaleY(1); }
-.menu__link { transition: color .2s ease, background-color .2s ease; }
-.markdown .theme-code-block { transition: border-color .25s ease, box-shadow .25s ease; }
-.markdown .theme-code-block:focus-within { border-color: var(--ifm-color-primary); }
-.markdown .theme-code-block button { transition: opacity .2s ease, transform .2s ease, background-color .2s ease; }
-.pagination-nav__label { display: inline-block; transition: transform .25s ease; }
-@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
-  .table-of-contents__link:hover { background: color-mix(in srgb, var(--ifm-color-primary) 6%, transparent); }
-  .markdown .theme-code-block:hover {
-    border-color: color-mix(in srgb, var(--ifm-color-primary) 45%, var(--coco-border));
-    box-shadow: 0 12px 28px -23px var(--ifm-color-primary);
-  }
-  .markdown .theme-code-block button:active { transform: scale(.94); }
-  .pagination-nav__link--next:hover .pagination-nav__label { transform: translateX(3px); }
-  .pagination-nav__link--prev:hover .pagination-nav__label { transform: translateX(-3px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pagination-nav__link:hover { transform: none; }
-}
-
-.button:active { transform: scale(.98); }
-:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 4px; }
-.markdown > h1 { color: var(--ifm-heading-color); background: none; -webkit-text-fill-color: currentColor; }
-@media (max-width: 768px) {
-  .markdown table { display: block; overflow-x: auto; }
-  .pagination-nav__link { min-height: 72px; }
 }

@@ -1,99 +1,125 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useLayoutEffect, useRef} from 'react';
+import {useGSAP} from '@gsap/react';
+import {gsap} from 'gsap';
+import {ScrollTrigger} from 'gsap/ScrollTrigger';
 
-/** Readable SSR first; motion decorates blocks once, never gates their visibility. */
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+// Figures that settle in as they scroll into view. Running text and headings are never hidden.
+const BLOCKS = ':scope .markdown > :is(.theme-code-block, table, .theme-admonition, blockquote, figure, img, details, .tabs-container)';
+const STAGGER_MS = 70;
+
+/**
+ * Doc motion: reading progress, a short settle of the article on client-side navigation, and
+ * scroll reveals for figures (code, tables, callouts).
+ *
+ * Reveals are armed after hydration: html[data-coco-doc-motion] is set only once every figure already
+ * on screen is marked data-in, so nothing visible is ever hidden, and without JavaScript or with
+ * reduced motion the attribute never exists.
+ */
+// Module scope, not a ref: DocItem remounts on every doc route, so a ref would always start empty and
+// the doc-to-doc transition would never run. Null until the first doc has rendered (hydration).
+const previousRoute: {current: string | null} = {current: null};
+// Same idea for the reveal effect, which cannot share previousRoute: useGSAP updates that one first.
+const revealedRoute: {current: string | null} = {current: null};
+
 export function useDocMotion(route: string) {
   const contentRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useGSAP(() => {
     const root = contentRef.current;
     const progress = progressRef.current;
     if (!root) return;
-    let frame = 0;
-    const updateProgress = () => {
-      frame = 0;
-      if (!progress) return;
-      const rect = root.getBoundingClientRect();
-      const navbarHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ifm-navbar-height')) || 60;
-      // The navbar token may be rem; use the actual rendered navbar height.
-      const offset = document.querySelector('.navbar')?.getBoundingClientRect().height ?? navbarHeight;
-      const length = rect.height - window.innerHeight + offset;
-      const amount = length <= 0 ? 1 : Math.min(1, Math.max(0, (offset - rect.top) / length));
-      progress.style.transform = `scaleX(${amount})`;
-    };
-    const scheduleProgress = () => { if (!frame) frame = requestAnimationFrame(updateProgress); };
-    window.addEventListener('scroll', scheduleProgress, {passive: true});
-    window.addEventListener('resize', scheduleProgress);
-    const resize = window.ResizeObserver ? new ResizeObserver(scheduleProgress) : undefined;
-    resize?.observe(root);
-    updateProgress();
+    // The route transition is feedback for client-side navigation only; the first mount must not touch the LCP content.
+    const routeChanged = previousRoute.current !== null && previousRoute.current !== route;
+    previousRoute.current = route;
+    gsap.registerPlugin(ScrollTrigger);
+    const media = gsap.matchMedia();
+    media.add({
+      reduce: '(prefers-reduced-motion: reduce)',
+      regular: '(prefers-reduced-motion: no-preference)',
+    }, context => {
+      if (context.conditions?.reduce) {
+        if (progress) gsap.set(progress, {scaleX: 1});
+        return;
+      }
+      if (progress) {
+        gsap.fromTo(progress, {scaleX: 0}, {
+          scaleX: 1, ease: 'none',
+          scrollTrigger: {
+            trigger: root,
+            start: () => `top top+=${parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ifm-navbar-height')) * parseFloat(getComputedStyle(document.documentElement).fontSize)}`,
+            end: 'clamp(bottom bottom)',
+            scrub: 0.15,
+            invalidateOnRefresh: true,
+          },
+        });
+      }
+      if (routeChanged) gsap.fromTo(root, {opacity: 0, y: 10}, {opacity: 1, y: 0, duration: 0.45, ease: 'power3.out', clearProps: 'transform,opacity'});
+      const timer = setTimeout(() => ScrollTrigger.refresh(), 150);
+      return () => clearTimeout(timer);
+    });
+    return () => media.revert();
+  }, {scope: contentRef, dependencies: [route], revertOnUpdate: true});
 
-    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const animations = new Set<Animation>();
-    let skipUntil = location.hash ? performance.now() + 1000 : 0;
-    const cancel = () => {
-      animations.forEach(animation => animation.cancel());
-      animations.clear();
-    };
-    const onJump = () => { skipUntil = performance.now() + 1000; cancel(); };
-    const onPreference = () => { if (preference.matches) cancel(); };
-    const animate = (target: HTMLElement, order: number, initial: boolean) => {
-      if (preference.matches || performance.now() < skipUntil || target.contains(document.activeElement)) return;
-      const heading = /^H[123]$/.test(target.tagName);
-      const animation = target.animate([
-        {transform: `translateY(${heading ? 14 : 9}px)`, opacity: initial ? 1 : heading ? .45 : .72},
-        {transform: 'translateY(0)', opacity: 1},
-      ], {
-        duration: heading ? 540 : 440,
-        delay: Math.min(order * 55, 165),
-        easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards',
-      });
-      animations.add(animation);
-      animation.onfinish = () => animations.delete(animation);
-      animation.oncancel = () => animations.delete(animation);
-    };
-
-    let observer: IntersectionObserver | undefined;
-    if (typeof window.IntersectionObserver === 'function' && typeof Element.prototype.animate === 'function') {
-      observer = new IntersectionObserver(entries => {
-        let order = 0;
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          observer?.unobserve(entry.target);
-          animate(entry.target as HTMLElement, order++, false);
-        }
-      }, {threshold: 0, rootMargin: '0px 0px -32px 0px'});
-      const markdown = root.querySelector('.markdown');
-      const targets = markdown?.querySelectorAll<HTMLElement>(
-        ':scope > h1, :scope > header > h1, :scope > h2, :scope > h3, :scope > p, :scope > ul, :scope > ol, :scope > table, :scope > blockquote, :scope > .theme-code-block, :scope > .theme-admonition',
-      );
-      let initialOrder = 0;
-      targets?.forEach(target => {
-        const rect = target.getBoundingClientRect();
-        if (rect.top < innerHeight && rect.bottom > 0) {
-          // Only headings move on entry. Already-readable body copy stays still.
-          if (/^H[123]$/.test(target.tagName)) animate(target, initialOrder++, true);
-        } else observer?.observe(target);
-      });
+  // Figure reveals (runs before paint on every route).
+  useIsomorphicLayoutEffect(() => {
+    const root = contentRef.current;
+    const html = document.documentElement;
+    if (!root || !('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      html.removeAttribute('data-coco-doc-motion');
+      return undefined;
     }
-    root.addEventListener('focusin', onJump);
-    root.addEventListener('pointerdown', cancel);
-    root.addEventListener('beforematch', onJump);
-    window.addEventListener('hashchange', onJump);
-    preference.addEventListener('change', onPreference);
+    const blocks = Array.from(root.querySelectorAll<HTMLElement>(BLOCKS));
+    const show = (el: HTMLElement) => el.setAttribute('data-in', '');
+    const observer = new IntersectionObserver(entries => {
+      let order = 0;
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        const el = entry.target as HTMLElement;
+        el.style.setProperty('--reveal-delay', `${Math.min(order++ * STAGGER_MS, 280)}ms`);
+        show(el);
+      }
+    // No negative margin and a threshold of 0: a block counts as soon as one pixel is visible, so a figure
+    // that sits at the very end of the page (inside the last 8% of the viewport) is still revealed.
+    }, {rootMargin: '0px', threshold: 0});
+    // On a client-side navigation Docusaurus resets the scroll only after this layout effect, so the offset
+    // still belongs to the previous page. Measure from the top of the new article in that case; otherwise a
+    // block far below the fold would count as visible and be revealed without its settle animation.
+    const resetsScroll = revealedRoute.current !== null && revealedRoute.current !== route && !window.location.hash;
+    revealedRoute.current = route;
+    const scrolled = resetsScroll ? window.scrollY : 0;
+    for (const el of blocks) {
+      if (el.getBoundingClientRect().top + scrolled < window.innerHeight) show(el);
+      else observer.observe(el);
+    }
+    // Focus or find-in-page must never land in a transparent block; printing shows everything.
+    const revealAll = () => blocks.forEach(show);
+    // Safety net: once the page is scrolled to its end, nothing below may stay transparent. Everything is
+    // revealed at that point, so the listener removes itself instead of re-walking the blocks on every scroll.
+    const onScroll = () => {
+      if (window.innerHeight + window.scrollY < document.documentElement.scrollHeight - 2) return;
+      revealAll();
+      window.removeEventListener('scroll', onScroll);
+    };
+    const onFocus = (event: FocusEvent) => {
+      const block = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-reveal-block]');
+      if (block) show(block);
+    };
+    blocks.forEach(el => el.setAttribute('data-reveal-block', ''));
+    html.setAttribute('data-coco-doc-motion', '');
+    root.addEventListener('focusin', onFocus);
+    window.addEventListener('beforeprint', revealAll);
+    window.addEventListener('scroll', onScroll, {passive: true});
     return () => {
-      cancelAnimationFrame(frame);
-      cancel();
-      observer?.disconnect();
-      resize?.disconnect();
-      window.removeEventListener('scroll', scheduleProgress);
-      window.removeEventListener('resize', scheduleProgress);
-      window.removeEventListener('hashchange', onJump);
-      root.removeEventListener('focusin', onJump);
-      root.removeEventListener('pointerdown', cancel);
-      root.removeEventListener('beforematch', onJump);
-      preference.removeEventListener('change', onPreference);
+      observer.disconnect();
+      root.removeEventListener('focusin', onFocus);
+      window.removeEventListener('beforeprint', revealAll);
+      window.removeEventListener('scroll', onScroll);
+      html.removeAttribute('data-coco-doc-motion');
     };
   }, [route]);
+
   return {contentRef, progressRef};
 }

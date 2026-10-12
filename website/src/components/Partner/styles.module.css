@@ -1,0 +1,139 @@
+/* A recommendation card in the page margin, beside a chapter. The slot is a child of the chapter's container, so it
+ * is exactly as tall as the content next to it and the card stretches to match. It exists only where the margin is
+ * wide enough to hold it clear of the page thread and the story rail. */
+.slot { display: none; }
+
+@media (min-width: 1900px) {
+  .slot {
+    /* What the margin leaves after a 3.25rem gap to the content and 4rem of air at the page edge. */
+    --card-w: clamp(12rem, (100vw - 80rem) / 2 - 7.25rem, 17rem);
+    display: flex;
+    align-items: center;
+    position: absolute;
+    inset-block: 0;
+    width: var(--card-w);
+    pointer-events: none;
+  }
+  /* 3.25rem clear of the content, which keeps it off the story rail and the page thread. */
+  .slot[data-side='left'] { right: calc(100% + 3.25rem); }
+  .slot[data-side='right'] { left: calc(100% + 3.25rem); }
+}
+
+.card {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* Fill the content's height when there is room (align-items: center in the slot centres it when the content is
+     shorter than the text needs, so the card grows evenly above and below instead of past the bottom edge). */
+  height: 100%;
+  min-height: min-content;
+  overflow: hidden;
+  color: var(--coco-text);
+  background: var(--coco-surface);
+  border: 1px solid var(--coco-border);
+  border-radius: var(--coco-radius-md);
+  text-decoration: none;
+  transition: border-color 260ms ease, transform 420ms var(--coco-ease-out), box-shadow 420ms var(--coco-ease-out);
+}
+.card:hover, .card:focus-visible {
+  color: var(--coco-text);
+  text-decoration: none;
+  border-color: var(--coco-clay);
+  transform: translateY(-4px);
+  box-shadow: 0 18px 38px -22px color-mix(in srgb, var(--coco-clay) 60%, transparent);
+}
+.card:focus-visible { outline: 2px solid var(--coco-focus); outline-offset: 3px; }
+
+/* ---- Image: fills whatever height the chapter leaves, the figure stays centred and uncropped -------------- */
+.visual {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-height: 6.5rem;
+  padding: 2.5rem 1.25rem 1rem;
+  color: var(--coco-text-muted);
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--coco-clay) 14%, transparent), transparent 70%),
+    var(--coco-surface-muted);
+  border-bottom: 1px solid var(--coco-border);
+}
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 22rem;
+  object-fit: contain;
+  object-position: center;
+}
+/* Screenshots fill the frame edge to edge, under the badge. */
+.art[data-fit='cover'] { object-fit: cover; object-position: top center; border-radius: 0.375rem; }
+.card .art { transition: transform 700ms var(--coco-ease-out); }
+.card:hover .art, .card:focus-visible .art { transform: scale(1.04); }
+
+.badge {
+  position: absolute;
+  top: 0.875rem;
+  left: 0.875rem;
+  padding: 0.25rem 0.625rem;
+  font: 600 0.6875rem/1.3 var(--coco-font-sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--coco-accent-strong);
+  border-radius: 999px;
+}
+:global([data-theme='dark']) .badge { color: #1d1b17; background: var(--coco-accent); }
+
+/* ---- Text ------------------------------------------------------------------------------------------------ */
+.body { display: grid; flex: none; gap: 0.375rem; padding: 1rem 1.25rem 1.0625rem; }
+
+.kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font: 500 0.6875rem/1.4 var(--coco-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--coco-text-muted);
+}
+.kicker::before { content: ''; width: 1.25rem; height: 1px; background: var(--coco-clay); flex-shrink: 0; }
+:global(html:lang(zh-Hans)) .kicker { font-family: var(--coco-font-sans); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: none; }
+
+.name {
+  font: 500 1.375rem/1.15 var(--coco-font-serif);
+  font-synthesis: none;
+  letter-spacing: 0;
+  color: var(--coco-heading);
+  transition: color 200ms ease;
+}
+.card:hover .name, .card:focus-visible .name { color: var(--coco-accent); }
+.tagline { font: 600 0.875rem/1.45 var(--coco-font-sans); color: var(--coco-text); }
+.why { font: 400 0.8125rem/1.5 var(--coco-font-sans); color: var(--coco-text-muted); text-wrap: pretty; }
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.125rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--coco-border);
+  font: 500 0.75rem/1 var(--coco-font-mono);
+  color: var(--coco-text-muted);
+}
+.star { color: var(--coco-clay); flex-shrink: 0; }
+.count { font-size: 1.125rem; font-weight: 600; color: var(--coco-heading); }
+.license { margin-left: auto; }
+
+.go {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font: 600 0.875rem/1.4 var(--coco-font-sans);
+  color: var(--coco-accent);
+}
+
+@media print { .slot { display: none; } }
