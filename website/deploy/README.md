@@ -2,6 +2,8 @@
 
 域名：`https://cocoframework.dev`。
 
+旧域名 `cocoframwork.dev`（拼写错误）已废弃：隧道仍把它路由到同一个 Nginx，由 `nginx.conf` 的第一个 server 块返回 301 到新域名（保留路径和查询串）。
+
 链路：Cloudflare → `coco-website` Tunnel → `127.0.0.1:18081` → Nginx 静态站。
 源站地址由维护者的 SSH 配置管理，不写入公开部署文档。官网容器不绑定公网端口，既有服务保持独立。
 Cloudflare DNS 使用隧道 CNAME，不配置指向源站的 A/AAAA 记录。
