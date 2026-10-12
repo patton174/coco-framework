@@ -14,7 +14,7 @@ Spring Boot · One starter · Plain Java
 
 ![Build](https://github.com/patton174/coco-framework/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/patton174/coco-framework) ![License](https://img.shields.io/badge/License-Apache--2.0-b4441f) ![Java](https://img.shields.io/badge/Java-17%2B-b4441f) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F) ![Maven](https://img.shields.io/badge/Maven-3.8.9%2B-C71A36)
 
-[**Start building →**](https://cocoframwork.dev/en/getting-started) · [Documentation](https://cocoframwork.dev/en/) · [GitHub Discussions](https://github.com/patton174/coco-framework/discussions)
+[**Start building →**](https://cocoframework.dev/en/getting-started) · [Documentation](https://cocoframework.dev/en/) · [GitHub Discussions](https://github.com/patton174/coco-framework/discussions)
 
 </div>
 
@@ -100,8 +100,8 @@ coco:
       - tenant
 ```
 
-**→ [Getting started](https://cocoframwork.dev/en/getting-started)** walks through a first service end to end.
-**→ [Feature toggles](https://cocoframwork.dev/en/feature-toggles)** lists every switch and its default.
+**→ [Getting started](https://cocoframework.dev/en/getting-started)** walks through a first service end to end.
+**→ [Feature toggles](https://cocoframework.dev/en/feature-toggles)** lists every switch and its default.
 
 ## Production notes
 
@@ -113,7 +113,7 @@ A few defaults are deliberately conservative, because the safe choice for a firs
 | **Replay protection** | `InMemoryCocoReplayStore`, process-local | Switch to the JDBC store (or your own) so reservations are atomic across instances. Coco runs no migrations — you own the schema |
 | **Async logging** | Bounded queue; `ERROR` and exceptions always synchronous | Replace `CocoAsyncLogDropListener` to feed drop counts into your metrics. This is overload observability, not durable delivery |
 
-**→ [SQL guard](https://cocoframwork.dev/en/features/mybatis-plus)** · **[Replay protection](https://cocoframwork.dev/en/features/request-security)** · **[Logging and infrastructure](https://cocoframwork.dev/en/features/infra)**
+**→ [SQL guard](https://cocoframework.dev/en/features/mybatis-plus)** · **[Replay protection](https://cocoframework.dev/en/features/request-security)** · **[Logging and infrastructure](https://cocoframework.dev/en/features/infra)**
 
 ## Capabilities
 
@@ -136,7 +136,7 @@ Coco owns **infrastructure**. Your application owns the **domain model, API sema
 
 Use Spring beans and the documented extension interfaces to replace integrations. CRUD generation produces ordinary Java source that your application owns; it does not expose entities as APIs at runtime.
 
-**→ [Boundary and design philosophy](https://cocoframwork.dev/en/overview)** — responsibilities and scope.
+**→ [Boundary and design philosophy](https://cocoframework.dev/en/overview)** — responsibilities and scope.
 
 ## Framework Acceptance
 

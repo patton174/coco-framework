@@ -10,7 +10,7 @@ import {useLocation} from '@docusaurus/router';
 import clsx from 'clsx';
 import Icon from '@site/src/components/Icon';
 import Sheet from './Sheet';
-import {sectionOf, useMobile, type NavItem, type Section} from './useMobile';
+import {sectionOf, useMobile, useSiteBase, type NavItem, type Section} from './useMobile';
 import styles from './styles.module.css';
 
 declare global {
@@ -78,11 +78,12 @@ interface ShellProps {
 function Shell({children, toc = [], desktopPath, title, description, canonicalPath, document: isDoc = false, prev, next}: ShellProps): ReactNode {
   const {t, nav, docFor, locale} = useMobile();
   const {siteConfig} = useDocusaurusContext();
+  const siteBase = useSiteBase();
   const {colorMode, setColorMode, colorModeChoice} = useColorMode();
   const location = useLocation();
   const [sheet, setSheet] = useState<'toc' | 'menu' | null>(null);
   const [toast, setToast] = useState('');
-  const [progress, setProgress] = useState(0);
+  const ringRef = useRef<SVGCircleElement>(null);
   const [activeId, setActiveId] = useState('');
   const bar = useRef<HTMLDivElement>(null);
   const current = location.pathname.replace(/\/+$/, '');
@@ -108,20 +109,24 @@ function Shell({children, toc = [], desktopPath, title, description, canonicalPa
   // Keep the browser UI colour in step with the page, so the status bar blends with the top bar.
   const themeColor = THEME_COLORS[colorMode];
 
-  // Reading progress and the chapter in view.
+  // Reading progress and the chapter in view. The ring is written straight to the DOM: a React state here would
+  // re-render the whole shell (menu tree, contents sheet) on every scroll frame. Reads come before the write so a
+  // frame never forces a second layout.
   useEffect(() => {
     if (!isDoc) return undefined;
     let frame = 0;
+    const circumference = 2 * Math.PI * 9;
     const headings = toc.map(entry => window.document.getElementById(entry.id)).filter((node): node is HTMLElement => !!node);
     const update = () => {
       frame = 0;
       const root = window.document.documentElement;
       const max = root.scrollHeight - window.innerHeight;
-      setProgress(max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0);
+      const progress = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
       let active = '';
       for (const heading of headings) {
         if (heading.getBoundingClientRect().top <= 96) active = heading.id; else break;
       }
+      if (ringRef.current) ringRef.current.style.strokeDashoffset = String(circumference * (1 - progress));
       setActiveId(active);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
@@ -173,7 +178,6 @@ function Shell({children, toc = [], desktopPath, title, description, canonicalPa
   };
   const otherLocale = locale === 'en' ? '' : '/en';
   const switchLocale = () => {
-    const siteBase = siteConfig.baseUrl.replace(/\/+$/, '');
     const withoutBase = window.location.pathname.slice(siteBase.length);
     const stripped = locale === 'en' ? withoutBase.replace(/^\/en(?=\/|$)/, '') : withoutBase;
     window.location.assign(`${siteBase}${otherLocale}${stripped || '/'}${window.location.hash}`);
@@ -225,7 +229,7 @@ function Shell({children, toc = [], desktopPath, title, description, canonicalPa
               <Icon name="list" />
               <svg className={styles.ring} viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" />
-                <circle cx="12" cy="12" r="9" className={styles.ringValue} style={{strokeDasharray: ring, strokeDashoffset: ring * (1 - progress)}} />
+                <circle cx="12" cy="12" r="9" className={styles.ringValue} ref={ringRef} style={{strokeDasharray: ring, strokeDashoffset: ring}} />
               </svg>
             </button>
           ) : null}

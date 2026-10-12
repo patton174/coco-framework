@@ -33,11 +33,12 @@
   display: flex; align-items: center; gap: 0.75rem;
   height: calc(var(--bar-h) + var(--safe-t));
   padding: var(--safe-t) var(--pad) 0;
-  background: color-mix(in srgb, var(--coco-canvas) 94%, transparent);
-  -webkit-backdrop-filter: saturate(1.4) blur(10px);
-  backdrop-filter: saturate(1.4) blur(10px);
+  /* Near-opaque instead of backdrop-filter: at 94% the blur was barely visible, but a phone GPU re-blurs the
+     strip behind the bar on every scroll frame. */
+  background: color-mix(in srgb, var(--coco-canvas) 98%, transparent);
   border-bottom: 1px solid var(--coco-border);
   transition: transform 320ms var(--coco-ease-out);
+  will-change: transform;
 }
 .bar[data-hidden] { transform: translate3d(0, -100%, 0); }
 .brand { display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0; min-height: 44px; color: var(--coco-heading); font-size: 1.0625rem; font-weight: 500; }

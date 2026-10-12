@@ -1,5 +1,7 @@
 ---
 title: 对象存储
+description: "与实现无关的对象存储读写 SPI，附可直接使用的安全流式本地参考实现。Coco 只管内容与元数据，授权和对象键命名由业务决定。"
+seo_title: "Spring Boot 对象存储 SPI"
 ---
 
 # 对象存储

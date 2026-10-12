@@ -339,15 +339,16 @@ html.docs-wrapper [class^='docRoot_'] { max-width: var(--coco-container-max); ma
   font: 500 0.75rem/1 var(--coco-font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--coco-text-muted);
   transition: opacity 200ms ease;
 }
-.markdown .theme-code-block.language-xml::after { content: 'xml'; }
-.markdown .theme-code-block.language-java::after { content: 'java'; }
-.markdown .theme-code-block:is(.language-yaml, .language-yml)::after { content: 'yaml'; }
-.markdown .theme-code-block.language-json::after { content: 'json'; }
-.markdown .theme-code-block:is(.language-bash, .language-sh, .language-shell)::after { content: 'shell'; }
-.markdown .theme-code-block.language-sql::after { content: 'sql'; }
-.markdown .theme-code-block.language-properties::after { content: 'properties'; }
-.markdown .theme-code-block:is(.language-ts, .language-typescript)::after { content: 'ts'; }
-.markdown .theme-code-block:is(.language-js, .language-javascript)::after { content: 'js'; }
+/* :where() keeps the language selectors at the base specificity, so the touch rule below can switch the tag off. */
+.markdown .theme-code-block:where(.language-xml)::after { content: 'xml'; }
+.markdown .theme-code-block:where(.language-java)::after { content: 'java'; }
+.markdown .theme-code-block:where(.language-yaml, .language-yml)::after { content: 'yaml'; }
+.markdown .theme-code-block:where(.language-json)::after { content: 'json'; }
+.markdown .theme-code-block:where(.language-bash, .language-sh, .language-shell)::after { content: 'shell'; }
+.markdown .theme-code-block:where(.language-sql)::after { content: 'sql'; }
+.markdown .theme-code-block:where(.language-properties)::after { content: 'properties'; }
+.markdown .theme-code-block:where(.language-ts, .language-typescript)::after { content: 'ts'; }
+.markdown .theme-code-block:where(.language-js, .language-javascript)::after { content: 'js'; }
 .markdown .theme-code-block:is(:hover, :focus-within)::after { opacity: 0; }
 .markdown .theme-code-block:has(> [class*='codeBlockTitle'])::after { content: none; }
 .markdown .theme-code-block button {

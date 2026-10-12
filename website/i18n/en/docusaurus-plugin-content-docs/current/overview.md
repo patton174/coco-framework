@@ -2,6 +2,8 @@
 slug: /overview
 sidebar_position: 1
 title: Overview
+description: "Coco Framework is a convention-heavy Spring Boot framework for web services: technology stack, capability scope and explicit boundaries in one page."
+seo_title: "Overview: Spring Boot Web Service Framework"
 ---
 
 # Coco Framework

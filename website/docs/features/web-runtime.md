@@ -1,5 +1,7 @@
 ---
 title: Web 运行时
+description: "Coco Web 运行时：把响应结构、异常处理、链路追踪和请求体读取沉淀为可配置的基础设施，统一绑定 coco.web 命名空间。"
+seo_title: "Web 运行时：响应、异常与链路追踪"
 ---
 
 # Web 运行时

@@ -185,7 +185,7 @@ for name, w, h in [("social-card", 1200, 630), ("github-social-preview", 1280, 6
     d.text((66, 387), "Spring Boot  /  One starter  /  Plain Java", fill=muted, font=sans(24))
     d.text((66, h - 89), "17 feature IDs on main", fill=ink, font=sans(22))
     d.text((433, h - 89), "Apache-2.0", fill=ink, font=sans(22))
-    d.text((w - 332, h - 89), "cocoframwork.dev", fill=accent, font=sans(22))
+    d.text((w - 332, h - 89), "cocoframework.dev", fill=accent, font=sans(22))
     im.convert("RGB").save(out / f"{name}.png", optimize=True)
     inner = svg(tile(accent, cream, tint)).split("</title>")[1].rsplit("</svg>", 1)[0]
     write(
@@ -196,6 +196,6 @@ for name, w, h in [("social-card", 1200, 630), ("github-social-preview", 1280, 6
         f'<text x="64" y="250" font-size="84" font-family="Newsreader Variable, Georgia, serif" font-weight="500" fill="{ink}">Coco Framework</text>'
         f'<text x="66" y="355" font-size="43" fill="{accent}">{escape(args.headline)}</text>'
         f'<text x="66" y="422" font-size="24" fill="{muted}">Spring Boot / One starter / Plain Java</text>'
-        f'<text x="66" y="{h - 55}" font-size="22" fill="{ink}">17 feature IDs on main · Apache-2.0 · cocoframwork.dev</text></g></svg>\n',
+        f'<text x="66" y="{h - 55}" font-size="22" fill="{ink}">17 feature IDs on main · Apache-2.0 · cocoframework.dev</text></g></svg>\n',
     )
 print(f"Brand assets generated in {out}")

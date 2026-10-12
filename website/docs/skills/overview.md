@@ -2,6 +2,8 @@
 slug: /skills
 sidebar_position: 1
 title: 技能概览
+description: "Agent 技能让 AI 编程助手通过 MCP 中英双语检索 Coco 文档、读取页面并获取依赖片段。"
+seo_title: "Agent 技能：让 AI 助手读懂 Coco 文档"
 ---
 
 # Agent 技能

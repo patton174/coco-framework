@@ -30,5 +30,5 @@ coco:
       - tenant
 ```
 
-**→ [Getting started](https://cocoframwork.dev/en/getting-started)** walks through a first service end to end.
-**→ [Feature toggles](https://cocoframwork.dev/en/feature-toggles)** lists every switch and its default.
+**→ [Getting started](https://cocoframework.dev/en/getting-started)** walks through a first service end to end.
+**→ [Feature toggles](https://cocoframework.dev/en/feature-toggles)** lists every switch and its default.

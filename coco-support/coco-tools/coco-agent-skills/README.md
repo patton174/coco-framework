@@ -1,10 +1,10 @@
 # @patton174/coco-agent-skills
 
-Let AI coding agents use the [Coco Framework](https://cocoframwork.dev/) — semantic documentation search, latest-version detection from Maven Central, and one-command MCP install for popular agents.
+Let AI coding agents use the [Coco Framework](https://cocoframework.dev/) — semantic documentation search, latest-version detection from Maven Central, and one-command MCP install for popular agents.
 
 Coco is a high-convention framework for Spring Boot Web services (Java 17+, Spring Boot 4.1, group `io.github.patton174`). This package gives an agent three abilities: search the docs by meaning, know the newest released version, and get itself wired in as an MCP server.
 
-**📖 Full documentation: [Agent skills](https://cocoframwork.dev/skills)** — [install guide](https://cocoframwork.dev/skills/install) · [tool and CLI reference](https://cocoframwork.dev/skills/usage)
+**📖 Full documentation: [Agent skills](https://cocoframework.dev/skills)** — [install guide](https://cocoframework.dev/skills/install) · [tool and CLI reference](https://cocoframework.dev/skills/usage)
 
 ## Quick start
 
@@ -19,7 +19,7 @@ npx @patton174/coco-agent-skills search "how do I enable idempotency"
 npx @patton174/coco-agent-skills search "如何开启幂等"
 ```
 
-The MCP server exposes 7 tools over stdio: `coco_search_docs`, `coco_get_doc`, `coco_list_docs`, `coco_dependency_snippet`, `coco_get_latest_version`, `coco_check_version`, `coco_index_status`. See the [usage guide](https://cocoframwork.dev/skills/usage) for inputs and returns.
+The MCP server exposes 7 tools over stdio: `coco_search_docs`, `coco_get_doc`, `coco_list_docs`, `coco_dependency_snippet`, `coco_get_latest_version`, `coco_check_version`, `coco_index_status`. See the [usage guide](https://cocoframework.dev/skills/usage) for inputs and returns.
 
 ## Embedding model
 

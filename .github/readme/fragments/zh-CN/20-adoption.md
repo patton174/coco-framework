@@ -30,5 +30,5 @@ coco:
       - tenant
 ```
 
-**→ [快速开始](https://cocoframwork.dev/getting-started)** 完整走一遍第一个服务。
-**→ [特性开关](https://cocoframwork.dev/feature-toggles)** 列出全部开关及默认值。
+**→ [快速开始](https://cocoframework.dev/getting-started)** 完整走一遍第一个服务。
+**→ [特性开关](https://cocoframework.dev/feature-toggles)** 列出全部开关及默认值。

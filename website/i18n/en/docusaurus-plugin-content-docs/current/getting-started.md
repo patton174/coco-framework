@@ -2,6 +2,8 @@
 slug: /getting-started
 sidebar_position: 2
 title: Getting Started
+description: "Add Coco Framework to a Spring Boot application: add the dependency, write a controller, start it and enable features on demand, in about five minutes."
+seo_title: "Getting Started: Spring Boot Starter in 5 Min"
 ---
 
 # Getting Started

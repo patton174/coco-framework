@@ -8,7 +8,7 @@ import type {PropDocContent} from '@docusaurus/plugin-content-docs';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Icon from '@site/src/components/Icon';
 import MobileShell from './MobileShell';
-import {useMobile} from './useMobile';
+import {useMobile, useSiteBase} from './useMobile';
 import styles from './styles.module.css';
 
 /**
@@ -17,8 +17,8 @@ import styles from './styles.module.css';
  */
 function useMobileLink() {
   const {docs} = useMobile();
-  const {siteConfig, i18n} = useDocusaurusContext();
-  const siteBase = siteConfig.baseUrl.replace(/\/+$/, '');
+  const {i18n} = useDocusaurusContext();
+  const siteBase = useSiteBase();
   const localeBase = `${siteBase}${i18n.currentLocale === i18n.defaultLocale ? '' : `/${i18n.currentLocale}`}`;
   return useMemo(() => {
     const byDesktop = new Map(docs.map(doc => [doc.desktopPath, doc.mobilePath]));

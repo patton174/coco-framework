@@ -1,5 +1,7 @@
 ---
 title: 缓存
+description: "Coco 两级缓存：进程内 Caffeine 作 L1，共享 Redis 作 L2，经 Redis pub/sub 广播失效，各实例 L1 保持一致，兼容 @Cacheable 等 Spring 注解。"
+seo_title: "Spring Boot 两级缓存：Caffeine + Redis"
 ---
 
 # 缓存

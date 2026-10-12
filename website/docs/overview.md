@@ -2,6 +2,8 @@
 slug: /overview
 sidebar_position: 1
 title: 概览
+description: "Coco Framework 是面向 Spring Boot Web 服务的高约定快速开发框架：一页看清技术栈、能力范围与明确的边界。"
+seo_title: "概览：面向 Spring Boot Web 服务的框架"
 ---
 
 # Coco Framework
