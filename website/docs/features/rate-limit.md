@@ -1,5 +1,7 @@
 ---
 title: 限流
+description: "在 Servlet 入口对显式声明的路由限流，可选固定窗口、滑动窗口、令牌桶三种算法，共用“每个窗口限定请求数”的模型。"
+seo_title: "Spring Boot 限流：三种算法"
 ---
 
 # 限流

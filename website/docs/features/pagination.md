@@ -1,5 +1,7 @@
 ---
 title: 分页与排序
+description: "对业务层透明的分页与排序：Coco 在 Web 入口解析并校验查询参数，经 MyBatis-Plus 拦截器注入 IPage，排序字段经过白名单校验。"
+seo_title: "MyBatis-Plus 分页与排序"
 ---
 
 # 分页与排序

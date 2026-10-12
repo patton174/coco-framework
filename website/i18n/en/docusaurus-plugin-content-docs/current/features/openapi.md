@@ -1,5 +1,7 @@
 ---
 title: OpenAPI Metadata
+description: "Coco OpenAPI metadata contract: framework-level API doc basics written into SpringDoc's OpenAPI.info automatically when SpringDoc is on the classpath."
+seo_title: "OpenAPI Metadata for Spring Boot, SpringDoc"
 ---
 
 # OpenAPI Metadata

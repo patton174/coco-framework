@@ -1,5 +1,7 @@
 ---
 title: Object Storage
+description: "Implementation-agnostic object storage SPI with a secure local streaming reference. Coco handles content and metadata; authorization and naming stay with you."
+seo_title: "Object Storage SPI for Spring Boot"
 ---
 
 # Object Storage

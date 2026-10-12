@@ -2,6 +2,8 @@
 slug: /skills/install
 sidebar_position: 2
 title: 快捷安装
+description: "一条命令为 Claude Code、Codex、Cursor 等 AI Agent 写入 Coco 的 MCP 配置与技能文件。"
+seo_title: "一条命令安装 Coco Agent 技能"
 ---
 
 # 快捷安装

@@ -22,14 +22,35 @@ export default function DocItemMetadata(): ReactNode {
   const description = metadata.description || (i18n.currentLocale === 'en'
     ? `${metadata.title}: configuration and integration guide for Coco Framework on Spring Boot.`
     : `${metadata.title}：Coco Framework 的配置、接入与扩展指南，适用于 Spring Boot 应用。`);
+  const en = i18n.currentLocale === 'en';
+  // The visible heading stays `title`; the <title>/og:title may carry the words people search for (`seo_title`).
+  const custom = (frontMatter as {seo_title?: unknown}).seo_title;
+  const seoTitle = typeof custom === 'string' ? custom : metadata.title;
+  // One generated share card per page and locale (scripts/generate-social-cards.py); falls back to the site card.
+  const card = `img/social/${en ? 'en' : 'zh'}/${metadata.id}.png`;
+  // Absolute, locale-aware URL of this page; Docusaurus's own BreadcrumbList covers the trail.
+  const pageUrl = `${siteConfig.url}${metadata.permalink}`;
+  const article = {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: metadata.title,
+    description,
+    url: pageUrl,
+    mainEntityOfPage: pageUrl,
+    inLanguage: en ? 'en' : 'zh-Hans',
+    isPartOf: {'@type': 'WebSite', name: 'Coco Framework', url: `${siteConfig.url}${siteConfig.baseUrl}`},
+    about: {'@type': 'SoftwareApplication', name: 'Coco Framework', url: 'https://github.com/patton174/coco-framework'},
+    author: {'@type': 'Organization', name: 'Coco Framework', url: 'https://github.com/patton174/coco-framework'},
+  };
   return <>
-    <PageMetadata title={metadata.title} description={description}
+    <PageMetadata title={seoTitle} description={description}
       keywords={frontMatter.keywords ?? ['Spring Boot', 'Coco Framework', metadata.title]}
-      image={assets.image ?? frontMatter.image} />
+      image={assets.image ?? frontMatter.image ?? card} />
     <Head>
-      <meta name="twitter:title" content={`${metadata.title} · Coco Framework`} />
+      <meta name="twitter:title" content={`${seoTitle} · Coco Framework`} />
       <meta name="twitter:description" content={description} />
       <link rel="alternate" media="only screen and (max-width: 640px)" href={phoneUrl} />
+      <script type="application/ld+json">{JSON.stringify(article)}</script>
     </Head>
   </>;
 }

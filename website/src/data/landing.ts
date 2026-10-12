@@ -76,7 +76,7 @@ export const landing = {
   en: {
     slogan: 'Less infrastructure. More product.',
     positioning: 'Server infrastructure for Spring Boot',
-    description: 'Coco Framework brings consistent responses, exception handling, rate limiting, idempotency, multi-tenancy and data permissions to Spring Boot. One starter, optional features, plain Java business code.',
+    description: 'Coco Framework adds consistent responses, rate limiting, idempotency, multi-tenancy and data permissions to Spring Boot with one starter and plain Java business code.',
     intro: 'One Starter connects responses, exception handling and TraceId. Choose data, reliability and platform features as needed. Your business code stays ordinary Java and Spring.',
     start: 'Quick start', explore: 'Explore features', release: 'Stable v2.0.3',
     starterTitle: 'Connect with one Starter', setupLink: 'Full setup guide', factsLabel: 'Project information',

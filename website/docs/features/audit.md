@@ -1,5 +1,7 @@
 ---
 title: 审计管道
+description: "Coco 审计管道：把框架和业务产生的审计动作汇聚为结构化事件，经统一发布器分发到一个或多个落点，Web、Security、Tenant 无需耦合存储实现。"
+seo_title: "Spring Boot 审计管道"
 ---
 
 # 审计管道

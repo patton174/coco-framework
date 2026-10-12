@@ -49,6 +49,13 @@ export default function Home(): ReactNode {
     codeRepository: 'https://github.com/patton174/coco-framework',
     isAccessibleForFree: true,
   };
+  const site = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Coco Framework', url, description: t.description,
+    inLanguage: en ? 'en' : 'zh-Hans',
+    publisher: {'@type': 'Organization', name: 'Coco Framework', url: 'https://github.com/patton174/coco-framework'},
+  };
 
   return (
     <Layout title={title} description={t.description}>
@@ -58,6 +65,7 @@ export default function Home(): ReactNode {
         <meta name="twitter:title" content={title} />
         <meta name="twitter:description" content={t.description} />
         <script type="application/ld+json">{JSON.stringify(schema)}</script>
+        <script type="application/ld+json">{JSON.stringify(site)}</script>
       </Head>
       <main ref={rootRef} className={styles.home} data-coco-home="">
         <PageBackdrop />

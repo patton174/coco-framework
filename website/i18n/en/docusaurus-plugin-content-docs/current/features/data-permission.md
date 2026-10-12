@@ -1,5 +1,7 @@
 ---
 title: Data Permission
+description: "Row-level data permission for MyBatis-Plus: Coco injects SQL predicates from the caller's data scope so business queries need no hand-written filters."
+seo_title: "Row-Level Data Permission for MyBatis-Plus"
 ---
 
 # Data Permission

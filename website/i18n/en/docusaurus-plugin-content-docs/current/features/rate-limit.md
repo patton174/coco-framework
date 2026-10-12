@@ -1,5 +1,7 @@
 ---
 title: Rate Limiting
+description: "Request rate limiting at the Servlet entry for declared routes, with fixed-window, sliding-window or token-bucket algorithms sharing a limit-per-window model."
+seo_title: "Spring Boot Rate Limiting: Three Algorithms"
 ---
 
 # Rate Limiting
