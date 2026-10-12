@@ -30,8 +30,8 @@ A typical success response:
 ```json
 {
   "success": true,
-  "code": 0,
-  "message": "success",
+  "code": 200,
+  "message": "Operation succeeded.",
   "data": { "id": 1024, "name": "coco" }
 }
 ```

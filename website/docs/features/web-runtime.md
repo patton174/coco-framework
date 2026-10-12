@@ -30,8 +30,8 @@ Coco Web 运行时（`coco-web`，旧坐标 `coco-feature-web` 作为兼容门�
 ```json
 {
   "success": true,
-  "code": 0,
-  "message": "success",
+  "code": 200,
+  "message": "操作成功",
   "data": { "id": 1024, "name": "coco" }
 }
 ```
