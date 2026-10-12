@@ -14,7 +14,7 @@ Spring Boot · One starter · Plain Java
 
 ![Build](https://github.com/patton174/coco-framework/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/patton174/coco-framework) ![License](https://img.shields.io/badge/License-Apache--2.0-b4441f) ![Java](https://img.shields.io/badge/Java-17%2B-b4441f) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F) ![Maven](https://img.shields.io/badge/Maven-3.8.9%2B-C71A36)
 
-[**开始接入 →**](https://cocoframwork.dev/getting-started) · [文档](https://cocoframwork.dev/) · [GitHub Discussions](https://github.com/patton174/coco-framework/discussions)
+[**开始接入 →**](https://cocoframework.dev/getting-started) · [文档](https://cocoframework.dev/) · [GitHub Discussions](https://github.com/patton174/coco-framework/discussions)
 
 </div>
 
@@ -100,8 +100,8 @@ coco:
       - tenant
 ```
 
-**→ [快速开始](https://cocoframwork.dev/getting-started)** 完整走一遍第一个服务。
-**→ [特性开关](https://cocoframwork.dev/feature-toggles)** 列出全部开关及默认值。
+**→ [快速开始](https://cocoframework.dev/getting-started)** 完整走一遍第一个服务。
+**→ [特性开关](https://cocoframework.dev/feature-toggles)** 列出全部开关及默认值。
 
 ## 生产注意事项
 
@@ -113,7 +113,7 @@ coco:
 | **防重放** | `InMemoryCocoReplayStore`，仅进程内有效 | 换成 JDBC 存储（或自己的实现），让键预留在多实例间原子。框架不执行迁移，表结构由你负责 |
 | **异步日志** | 有界队列；`ERROR` 与携带异常的记录始终同步写 | 替换 `CocoAsyncLogDropListener`，把丢弃计数接入你的监控。这是过载可观测性，不是投递保证 |
 
-**→ [SQL 防护](https://cocoframwork.dev/features/mybatis-plus)** · **[防重放](https://cocoframwork.dev/features/request-security)** · **[日志与基础设施](https://cocoframwork.dev/features/infra)**
+**→ [SQL 防护](https://cocoframework.dev/features/mybatis-plus)** · **[防重放](https://cocoframework.dev/features/request-security)** · **[日志与基础设施](https://cocoframework.dev/features/infra)**
 
 ## 能力范围
 
@@ -138,7 +138,7 @@ coco:
 
 CRUD 属于代码生成，不是运行时实体暴露——生成的是业务项目可保留、可修改、可删除的普通 Java 源码。
 
-**→ [边界与设计哲学](https://cocoframwork.dev/overview)** —— 双方各自负责什么，以及什么明确不在范围内。
+**→ [边界与设计哲学](https://cocoframework.dev/overview)** —— 双方各自负责什么，以及什么明确不在范围内。
 
 ## Framework 验收
 

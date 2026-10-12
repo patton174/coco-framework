@@ -19,4 +19,4 @@ Coco owns **infrastructure**. Your application owns the **domain model, API sema
 
 Use Spring beans and the documented extension interfaces to replace integrations. CRUD generation produces ordinary Java source that your application owns; it does not expose entities as APIs at runtime.
 
-**→ [Boundary and design philosophy](https://cocoframwork.dev/en/overview)** — responsibilities and scope.
+**→ [Boundary and design philosophy](https://cocoframework.dev/en/overview)** — responsibilities and scope.
