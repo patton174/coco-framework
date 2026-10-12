@@ -54,7 +54,7 @@ for p in pages:
     check(len(canonical) == 1, "canonical missing/duplicate")
     if len(canonical) == 1:
         check(canonical[0] not in canonicals, "non-unique canonical")
-        check(canonical[0].startswith("https://cocoframwork.dev/"), "wrong canonical host")
+        check(canonical[0].startswith("https://cocoframework.dev/"), "wrong canonical host")
         canonicals.add(canonical[0])
     languages = {a.get("hreflang") for a in page.links if a.get("rel") == "alternate"}
     check({"en", "zh-Hans"}.issubset(languages), "missing language alternates")
@@ -71,7 +71,7 @@ for sitemap in [root / "sitemap.xml", root / "en/sitemap.xml"]:
         if node.text not in canonicals:
             errors.append(f"sitemap URL missing canonical: {node.text}")
 robots = (root / "robots.txt").read_text()
-for url in ["https://cocoframwork.dev/sitemap.xml", "https://cocoframwork.dev/en/sitemap.xml"]:
+for url in ["https://cocoframework.dev/sitemap.xml", "https://cocoframework.dev/en/sitemap.xml"]:
     if f"Sitemap: {url}" not in robots:
         errors.append(f"robots missing {url}")
 print(json.dumps({"pages": len(pages), "uniqueCanonicals": len(canonicals), "errors": errors}, ensure_ascii=False, indent=2))

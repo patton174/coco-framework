@@ -1,6 +1,6 @@
 # 官网部署
 
-域名：`https://cocoframwork.dev`。
+域名：`https://cocoframework.dev`。
 
 链路：Cloudflare → `coco-website` Tunnel → `127.0.0.1:18081` → Nginx 静态站。
 源站地址由维护者的 SSH 配置管理，不写入公开部署文档。官网容器不绑定公网端口，既有服务保持独立。
@@ -11,7 +11,7 @@ Cloudflare DNS 使用隧道 CNAME，不配置指向源站的 A/AAAA 记录。
 在 `website` 目录执行 PowerShell：
 
 ```powershell
-$env:COCO_SITE_URL='https://cocoframwork.dev'
+$env:COCO_SITE_URL='https://cocoframework.dev'
 $env:COCO_BASE_URL='/'
 npm ci
 npm run typecheck
@@ -56,7 +56,7 @@ docker exec coco-website nginx -t
 systemctl status coco-website-tunnel
 journalctl -u coco-website-tunnel -n 30 --no-pager
 curl -fI http://127.0.0.1:18081/getting-started
-curl -fI https://cocoframwork.dev/en/getting-started
+curl -fI https://cocoframework.dev/en/getting-started
 ```
 
 HTML 每次验证更新；带哈希的 assets 使用一年不可变缓存；Nginx 启用 gzip。

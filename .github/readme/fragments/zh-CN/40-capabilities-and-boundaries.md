@@ -21,4 +21,4 @@
 
 CRUD 属于代码生成，不是运行时实体暴露——生成的是业务项目可保留、可修改、可删除的普通 Java 源码。
 
-**→ [边界与设计哲学](https://cocoframwork.dev/overview)** —— 双方各自负责什么，以及什么明确不在范围内。
+**→ [边界与设计哲学](https://cocoframework.dev/overview)** —— 双方各自负责什么，以及什么明确不在范围内。
