@@ -41,7 +41,20 @@ from agent_review import (
     publish_status,
     read_json,
     require_repository,
+    require_resource_actor,
 )
+
+# The README maintenance workflow rebuilds this branch from protected `main` and
+# opens an App-authored pull request straight back to `main`. Only its generated
+# documents and the files it is documented to write may travel that path; the
+# executable parts of `.github/readme/` (scripts, tests, manifest) must go through
+# `dev` like any other code, because they later run with the App token.
+README_MAINTENANCE_BRANCH = "automation/readme-maintenance"
+README_ROOT_FILES = frozenset({"README.md", "README_CN.md"})
+README_STATE_FILES = frozenset({".github/readme/state/content-baseline.json"})
+README_FRAGMENT_PREFIX = ".github/readme/fragments/"
+# GitHub truncates the compare `files` list at 300 entries.
+COMPARE_FILES_LIMIT = 300
 
 
 def require_mapping(value: Any, label: str) -> dict[str, Any]:
@@ -106,6 +119,79 @@ def require_owner_author(pull_request: dict[str, Any], repository_owner: str) ->
     return login
 
 
+def is_readme_maintenance_path(filename: str) -> bool:
+    """True for the only paths a README maintenance change may touch."""
+
+    if not filename or ".." in filename.split("/"):
+        return False
+    return (
+        filename in README_ROOT_FILES
+        or filename in README_STATE_FILES
+        or filename.startswith(README_FRAGMENT_PREFIX)
+    )
+
+
+def require_readme_maintenance_files(files: Any, label: str) -> None:
+    """Every changed (and renamed-from) path must be README maintenance output."""
+
+    if not isinstance(files, list) or not files:
+        raise ReviewError(f"{label} contains no changed files.")
+    if len(files) >= COMPARE_FILES_LIMIT:
+        # A truncated listing cannot prove the scope; fail closed.
+        raise ReviewError(f"{label} changes too many files to verify its scope.")
+    for item in files:
+        if not isinstance(item, dict):
+            raise ReviewError(f"{label} file listing is invalid.")
+        filename = str(item.get("filename") or "")
+        previous = str(item.get("previous_filename") or "")
+        if not is_readme_maintenance_path(filename) or (
+            previous and not is_readme_maintenance_path(previous)
+        ):
+            raise ReviewError(
+                f"{label} may only change generated README files; found '{filename}'."
+            )
+
+
+def require_readme_maintenance_pull_request(
+    client: GitHubClient,
+    repository: str,
+    pull_request: dict[str, Any],
+    number: int,
+    bot_login: str,
+    bot_id: str,
+) -> str:
+    """Authorise the README maintenance branch: exact App identity and file scope."""
+
+    label = "README maintenance pull request"
+    if not bot_login or not str(bot_id).isdigit() or int(bot_id) < 1:
+        raise ReviewError(
+            f"{label} cannot be verified: the README bot identity is not configured."
+        )
+    require_resource_actor(pull_request, bot_login, int(bot_id), label)
+    files = client.paginate(f"repos/{repository}/pulls/{number}/files")
+    require_readme_maintenance_files(files, label)
+    return bot_login
+
+
+def release_ahead_is_readme_only(
+    client: GitHubClient, repository: str, head_sha: str
+) -> bool:
+    """True when everything the release branch has beyond `head_sha` is README output."""
+
+    comparison = client.get_json(
+        f"repos/{repository}/compare/{head_sha}...{DEFAULT_BRANCH}"
+    )
+    if not isinstance(comparison, dict):
+        raise ReviewError("GitHub branch comparison response is invalid.")
+    try:
+        require_readme_maintenance_files(
+            comparison.get("files"), f"'{DEFAULT_BRANCH}' commits missing from dev"
+        )
+    except ReviewError:
+        return False
+    return True
+
+
 def require_no_release_commits_dropped(
     client: GitHubClient, repository: str, head_sha: str
 ) -> None:
@@ -114,7 +200,8 @@ def require_no_release_commits_dropped(
     Merge-commit promotion keeps this satisfiable: the release branch never gains
     a commit the integration branch lacks. A non-zero behind_by therefore means
     someone committed directly to the release branch, and promoting would
-    silently drop that work.
+    silently drop that work. The one exception is a release branch that is ahead
+    only by generated README maintenance, which the merge-commit promotion keeps.
     """
 
     comparison = client.get_json(
@@ -125,6 +212,8 @@ def require_no_release_commits_dropped(
     behind_by = comparison.get("behind_by")
     if type(behind_by) is not int or behind_by < 0:
         raise ReviewError("GitHub branch comparison behind_by is invalid.")
+    if behind_by > 0 and release_ahead_is_readme_only(client, repository, head_sha):
+        return
     if behind_by > 0:
         raise ReviewError(
             f"'{INTEGRATION_BRANCH}' is missing {behind_by} commit(s) from "
@@ -167,6 +256,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repository-owner", required=True)
     parser.add_argument("--event-path", required=True)
     parser.add_argument("--run-url", required=True)
+    # Identity of the App that owns the README maintenance pull request.
+    parser.add_argument("--readme-bot-login", default="")
+    parser.add_argument("--readme-bot-id", default="")
     args = parser.parse_args(argv)
 
     repository = require_repository(args.repository)
@@ -188,6 +280,29 @@ def main(argv: list[str]) -> int:
     head_sha = str(binding["head_sha"])
     client = GitHubClient(os.environ.get("GH_TOKEN", ""))
     try:
+        if binding["head_ref"] == README_MAINTENANCE_BRANCH:
+            # Narrow lane: the App's generated-README PR needs no dev history or
+            # open-finding check because it adds no code; `CI gate` still runs.
+            author = require_readme_maintenance_pull_request(
+                client,
+                repository,
+                binding["pull_request"],
+                int(binding["number"]),
+                str(args.readme_bot_login),
+                str(args.readme_bot_id),
+            )
+            publish_status(
+                client,
+                repository,
+                head_sha,
+                "success",
+                f"README maintenance by {author} verified: App identity and "
+                "generated-file scope only.",
+                args.run_url,
+                context=PROMOTION_STATUS_CONTEXT,
+            )
+            print(f"Promotion gate passed for README maintenance by {author}.")
+            return 0
         require_promotion_source(str(binding["head_ref"]))
         author = require_owner_author(binding["pull_request"], repository_owner)
         require_no_release_commits_dropped(client, repository, head_sha)

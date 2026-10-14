@@ -47,6 +47,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           REPOSITORY_ID: ${{ github.repository_id }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
+          COCO_AGENT_APP_LOGIN: ${{ vars.COCO_AGENT_APP_LOGIN }}
+          COCO_AGENT_APP_BOT_ID: ${{ vars.COCO_AGENT_APP_BOT_ID }}
         run: |
           set -euo pipefail
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -55,4 +57,6 @@ jobs:
             --repository-id "${REPOSITORY_ID}" \
             --repository-owner "${REPOSITORY_OWNER}" \
             --event-path "${GITHUB_EVENT_PATH}" \
+            --readme-bot-login "${COCO_AGENT_APP_LOGIN}" \
+            --readme-bot-id "${COCO_AGENT_APP_BOT_ID}" \
             --run-url "${run_url}"
