@@ -30,14 +30,14 @@ body:
     id: version
     attributes:
       label: Coco version / Coco 版本
-      placeholder: 2.0.1
+      placeholder: 2.0.3
     validations:
       required: true
   - type: input
     id: environment
     attributes:
       label: Runtime environment / 运行环境
-      placeholder: JDK 21, Spring Boot 4.1.0, Windows 11
+      placeholder: JDK 21, Spring Boot 4.1.1, Windows 11
     validations:
       required: true
   - type: textarea
@@ -80,3 +80,4 @@ body:
           required: true
         - label: This is not an undisclosed security vulnerability. / 这不是未公开安全漏洞。
           required: true
+        - label: I checked CHANGELOG.md and the documentation index for a known fix or workaround. / 已查阅 CHANGELOG.md 与文档索引中的已知修复或绕过方式。
