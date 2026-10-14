@@ -39,19 +39,27 @@ class FakeClient:
         statuses: list[dict] | None = None,
         check_runs: list[dict] | None = None,
         issues: list[dict] | None = None,
+        pull_files: list[dict] | None = None,
+        release_ahead_files: list[dict] | None = None,
     ) -> None:
         self.behind_by = behind_by
         self.statuses_payload = green_statuses() if statuses is None else statuses
         self.check_runs = check_runs or []
         self.issues = issues or []
+        self.pull_files = pull_files or []
+        self.release_ahead_files = release_ahead_files or []
         self.published: list[tuple[str, dict]] = []
 
     def get_json(self, path: str) -> object:
         if "/compare/" in path:
+            if path.endswith("...main"):
+                return {"files": self.release_ahead_files}
             return {"status": "ahead", "ahead_by": 3, "behind_by": self.behind_by}
         raise AssertionError(f"unexpected get_json path: {path}")
 
     def paginate(self, path: str, **_kwargs: object) -> list[object]:
+        if path.endswith("/files"):
+            return list(self.pull_files)
         if path.endswith("/statuses"):
             return list(self.statuses_payload)
         if "/check-runs?filter=latest" in path:
@@ -253,6 +261,125 @@ class EndToEndTest(unittest.TestCase):
         )
         self.assertEqual(0, code)
         self.assertEqual([], client.published)
+
+
+BOT_LOGIN = "coco-framework-agent[bot]"
+BOT_ID = 302354622
+
+
+def readme_event(user: dict | None = None) -> dict:
+    event = promotion_event(head_ref=gate.README_MAINTENANCE_BRANCH, author=BOT_LOGIN)
+    event["pull_request"]["user"] = user or {
+        "login": BOT_LOGIN,
+        "id": BOT_ID,
+        "type": "Bot",
+    }
+    return event
+
+
+def changed(*names: str) -> list[dict]:
+    return [{"filename": name} for name in names]
+
+
+README_FILES = changed(
+    "README.md",
+    "README_CN.md",
+    ".github/readme/fragments/en/80-community.md",
+    ".github/readme/state/content-baseline.json",
+)
+
+
+class ReadmeMaintenanceLaneTest(unittest.TestCase):
+    def run_lane(
+        self, event: dict, client: FakeClient, bot_id: str = str(BOT_ID)
+    ) -> int:
+        original = gate.GitHubClient
+        gate.GitHubClient = lambda *_a, **_k: client  # type: ignore[assignment]
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "event.json"
+                path.write_text(json.dumps(event), encoding="utf-8")
+                return gate.main(
+                    [
+                        "--repository",
+                        REPOSITORY,
+                        "--repository-id",
+                        str(REPOSITORY_ID),
+                        "--repository-owner",
+                        OWNER,
+                        "--event-path",
+                        str(path),
+                        "--readme-bot-login",
+                        BOT_LOGIN,
+                        "--readme-bot-id",
+                        bot_id,
+                        "--run-url",
+                        "https://github.example/runs/1",
+                    ]
+                )
+        finally:
+            gate.GitHubClient = original  # type: ignore[assignment]
+
+    def test_generated_readme_files_from_the_app_pass(self) -> None:
+        client = FakeClient(pull_files=README_FILES)
+        self.assertEqual(0, self.run_lane(readme_event(), client))
+        _path, payload = client.published[0]
+        self.assertEqual("success", payload["state"])
+        self.assertEqual(gate.PROMOTION_STATUS_CONTEXT, payload["context"])
+
+    def test_smuggled_code_file_is_rejected(self) -> None:
+        for name in (
+            ".github/workflows/ci.yml",
+            ".github/readme/scripts/render.mjs",
+            ".github/readme/manifest.json",
+            ".github/readme/fragments/../scripts/x.mjs",
+            "pom.xml",
+        ):
+            with self.subTest(name=name):
+                client = FakeClient(pull_files=README_FILES + changed(name))
+                self.assertEqual(1, self.run_lane(readme_event(), client))
+                self.assertEqual("failure", client.published[0][1]["state"])
+
+    def test_rename_out_of_scope_is_rejected(self) -> None:
+        files = [{"filename": "README.md", "previous_filename": "pom.xml"}]
+        client = FakeClient(pull_files=files)
+        self.assertEqual(1, self.run_lane(readme_event(), client))
+
+    def test_empty_or_truncated_file_list_fails_closed(self) -> None:
+        self.assertEqual(1, self.run_lane(readme_event(), FakeClient(pull_files=[])))
+        many = changed(*[f"README-{i}.md" for i in range(300)])
+        self.assertEqual(1, self.run_lane(readme_event(), FakeClient(pull_files=many)))
+
+    def test_wrong_author_is_rejected_even_with_readme_files_only(self) -> None:
+        for user in (
+            {"login": OWNER, "id": 1, "type": "User"},
+            {"login": "other-app[bot]", "id": BOT_ID, "type": "Bot"},
+            {"login": BOT_LOGIN, "id": BOT_ID + 1, "type": "Bot"},
+        ):
+            with self.subTest(user=user):
+                client = FakeClient(pull_files=README_FILES)
+                self.assertEqual(1, self.run_lane(readme_event(user), client))
+
+    def test_unconfigured_bot_identity_fails_closed(self) -> None:
+        client = FakeClient(pull_files=README_FILES)
+        self.assertEqual(1, self.run_lane(readme_event(), client, bot_id=""))
+
+    def test_lane_does_not_open_other_branches(self) -> None:
+        client = FakeClient(pull_files=README_FILES)
+        event = promotion_event(head_ref="feature/x", author=BOT_LOGIN)
+        self.assertEqual(1, self.run_lane(event, client))
+
+
+class ReadmeOnlyReleaseAheadTest(unittest.TestCase):
+    def test_readme_only_main_commits_do_not_block_promotion(self) -> None:
+        client = FakeClient(behind_by=1, release_ahead_files=README_FILES)
+        gate.require_no_release_commits_dropped(client, REPOSITORY, HEAD_SHA)
+
+    def test_code_in_main_only_commits_still_blocks(self) -> None:
+        files = README_FILES + changed("coco-web/pom.xml")
+        client = FakeClient(behind_by=1, release_ahead_files=files)
+        with self.assertRaisesRegex(gate.ReviewError, "missing 1 commit"):
+            gate.require_no_release_commits_dropped(client, REPOSITORY, HEAD_SHA)
 
 
 if __name__ == "__main__":
