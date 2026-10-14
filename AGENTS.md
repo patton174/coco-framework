@@ -67,6 +67,17 @@ It is not limited to SaaS systems, and it is not a zero-code business runtime. T
 - Architecture and explanatory fragments may be updated by the protected, low-frequency README Agent workflow. Stars, forks, contributor data, and timestamps remain script-owned and must not be model-generated.
 - README automation must rebuild its branch from protected `main`, open a PR, and pass the normal protected merge path. It must never execute scripts from an existing automation branch with repository secrets.
 
+## Wiki & Changelog Maintenance
+
+- `docs/wiki/` is the source of truth for the public GitHub Wiki and is mirrored to it. Keep it flat, with ASCII `Title-Case-With-Hyphens.md` page names; `Home.md`, `_Sidebar.md`, and `_Footer.md` are required special pages. `docs/wiki/README.md` is repository-only and is never mirrored.
+- Link wiki pages as `[text](Page-Name)` and repository files with absolute `https://github.com/patton174/coco-framework/blob/main/<path>` URLs (`/tree/main/` for directories). Do not use YAML front matter; Mermaid fences are allowed. List every new page in `_Sidebar.md` and `Home.md`.
+- Keep wiki pages publishable: no local machine paths or machine-specific observations, no e-mail addresses, secrets referenced by key name only, and no unresolved-question markers. State a known document/implementation mismatch neutrally and name the authoritative source.
+- Run `python .github/scripts/wiki_sync.py check` and `python .github/scripts/test_wiki_sync.py` before committing any change under `docs/wiki/` or to `wiki_sync.py`.
+- Publishing to the GitHub Wiki is a manual maintainer step: `python .github/scripts/wiki_sync.py publish <local-wiki-clone>` mirrors the pages and creates a local commit, and pushing it is manual. Agents and CI never push to the Wiki. Never edit the Wiki in the GitHub web UI; the next sync overwrites the change.
+- `CHANGELOG.md` follows Keep a Changelog 1.1.0 and SemVer. Record user-visible and contributor-visible changes under `[Unreleased]` in the same pull request; the maintainer moves them under a version heading at release time. Release tags remain created only by the Release workflow.
+- `.agents/` is an untracked scratch area for task notes. Never `git add` it or link to it from tracked documents.
+- This section does not restate the branch flow. See `CONTRIBUTING.md` for the contributor flow (`dev-<login>` branches into `dev`) and `GOVERNANCE.md` for promotion to `main`.
+
 ## Verification
 
 Use JDK 21. The Maven compiler target is Java 17.

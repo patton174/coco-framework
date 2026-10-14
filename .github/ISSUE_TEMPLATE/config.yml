@@ -1,8 +1,19 @@
+# Blank issues stay disabled: every report goes through a form so it carries the
+# Coco version, affected module, and reproduction that triage needs. Open-ended
+# questions belong in Discussions and undisclosed vulnerabilities in a private
+# advisory, both linked below. / 空白 Issue 保持禁用：所有报告都通过表单提交，以便带齐版本、
+# 模块和复现信息；一般问题使用 Discussions，未公开漏洞使用私密报告。
 blank_issues_enabled: false
 contact_links:
   - name: Questions and integration guidance / 问题与接入指导
     url: https://github.com/patton174/coco-framework/discussions/new/choose
     about: Use Discussions for questions, ideas, and design exploration. / 普通问题、想法和方案讨论请使用 Discussions。
+  - name: Documentation index and developer Wiki / 文档索引与开发者 Wiki
+    url: https://github.com/patton174/coco-framework/blob/main/docs/README.md
+    about: Find the developer Wiki, changelog, and release notes before opening an Issue. / 提交 Issue 前，请先查看开发者 Wiki、更新日志和版本说明。
+  - name: Support options / 获取帮助的渠道
+    url: https://github.com/patton174/coco-framework/blob/main/SUPPORT.md
+    about: See which channel fits your question, defect report, or request. / 查看问题、缺陷和建议各自适用的渠道。
   - name: Private security report / 私密安全报告
     url: https://github.com/patton174/coco-framework/security/advisories/new
     about: Report undisclosed vulnerabilities privately. / 未公开漏洞必须私密报告。

@@ -2,6 +2,19 @@
 
 <!-- Explain the problem, intent, and resulting behavior. / 说明问题、意图和最终行为。 -->
 
+## Type of change / 变更类型
+
+- [ ] Bug fix / 缺陷修复
+- [ ] New feature or capability / 新功能或能力
+- [ ] Breaking change / 破坏性变更
+- [ ] Refactor, test, or build maintenance / 重构、测试或构建维护
+- [ ] Documentation, Wiki, or changelog / 文档、Wiki 或更新日志
+- [ ] CI, workflow, or repository governance / CI、工作流或仓库治理
+
+## Linked issue / 关联 Issue
+
+<!-- Link the governing Issue, for example "Relates to #123", or write "None". / 关联相关 Issue，例如 “Relates to #123”，没有则写 “None”。 -->
+
 ## Scope / 影响范围
 
 - [ ] Build or dependency management / 构建或依赖管理
@@ -19,7 +32,13 @@
 
 ## Verification / 验证
 
-<!-- List exact commands and outcomes. / 列出实际执行的命令和结果。 -->
+<!-- List exact commands and outcomes. / 列出实际执行的命令和结果。
+Examples / 示例:
+  mvn -B clean verify
+  python .github/scripts/wiki_sync.py check        (docs/wiki changes / Wiki 变更)
+  python .github/scripts/test_wiki_sync.py         (wiki_sync.py changes / 脚本变更)
+  node .github/readme/scripts/render.mjs --check   (README fragment changes / README 片段变更)
+-->
 
 ## Checklist / 检查项
 
@@ -29,4 +48,7 @@
 - [ ] No credentials, private keys, production data, or generated build output are included.
 - [ ] CodeGraph was synchronized after source changes when `.codegraph/` exists.
 - [ ] README fragments were updated and rendered when documentation changed.
+- [ ] `README.md` and `README_CN.md` were not edited directly.
+- [ ] `CHANGELOG.md` has an `[Unreleased]` entry for user-visible changes, or the Summary explains why none is needed.
+- [ ] Documentation changes update `docs/wiki` (new pages are listed in `_Sidebar.md` and `Home.md`) and `python .github/scripts/wiki_sync.py check` passes.
 - [ ] All linked Agent review Issues and review conversations are resolved before merge.
