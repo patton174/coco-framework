@@ -62,10 +62,12 @@ jobs:
             .github/scripts/auto_merge.py \
             .github/scripts/contributor_gate.py \
             .github/scripts/promotion_gate.py \
+            .github/scripts/wiki_sync.py \
             .github/scripts/test_agent_review.py \
             .github/scripts/test_auto_merge.py \
             .github/scripts/test_contributor_gate.py \
             .github/scripts/test_promotion_gate.py \
+            .github/scripts/test_wiki_sync.py \
             .github/scripts/verify_boot_archive_feature_coordinates.py \
             .github/scripts/test_verify_boot_archive_feature_coordinates.py \
             .github/scripts/release_file_count_preflight.py \
@@ -74,6 +76,8 @@ jobs:
           python .github/scripts/test_auto_merge.py
           python .github/scripts/test_contributor_gate.py
           python .github/scripts/test_promotion_gate.py
+          python .github/scripts/test_wiki_sync.py
+          python .github/scripts/wiki_sync.py check
           python .github/scripts/test_verify_boot_archive_feature_coordinates.py
           python .github/scripts/test_release_file_count_preflight.py
           python -m ruff check .github/scripts

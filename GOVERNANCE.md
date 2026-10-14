@@ -33,6 +33,8 @@ logic.
 | `coco-features` | Independently governed Web-server capabilities |
 | `coco-support` | Repository documents, development tools, and test support |
 | `coco-admin` / `coco-generate` | Separate downstream product and generator repositories |
+| `docs/wiki` | Source of the public GitHub Wiki; a maintainer mirrors it, and it changes through pull requests like code |
+| `CHANGELOG.md` | Release history in Keep a Changelog format; the maintainer finalizes version headings at release time |
 
 ### Decision process
 
@@ -41,6 +43,21 @@ Breaking APIs, Maven coordinates, security defaults, module ownership, feature
 contracts, or governance changes require an Issue or design discussion before
 implementation. The maintainer resolves disagreements using project boundaries,
 compatibility evidence, operational risk, and long-term maintenance cost.
+
+### Documentation and Wiki governance
+
+- `docs/wiki` is the source of truth for the public GitHub Wiki. It changes only
+  through pull requests on the same protected merge path as code, including
+  CODEOWNER review.
+- Publishing to the GitHub Wiki is a manual maintainer action using
+  `.github/scripts/wiki_sync.py`; automation does not push to the Wiki. Edits
+  made directly in the Wiki have no review trail and no authority, and the next
+  sync overwrites them.
+- Wiki pages and repository documents are public. They must not contain
+  credentials, personal data, or machine-specific paths.
+- `CHANGELOG.md` is updated in the pull request that makes a user-visible change.
+  The maintainer finalizes version headings at release time; release tags are
+  still created only by the Release workflow.
 
 ### Protected merge and release controls
 
@@ -102,3 +119,25 @@ Coco Agent App 负责受治理的 PR、评审评论、绑定 Issue 和符合条�
 安全默认值、模块归属、feature 契约和治理流程的变更，必须先讨论再实现。任何紧急
 保护设置调整都必须最小化、留痕、独立复核、立即恢复，并通过同仓库与无密钥
 canary 验证。
+
+### 分支与发布流程（摘要）
+
+- 贡献从 `dev` 进入：从最新 `dev` 创建 `dev-<你的 GitHub 用户名>` 分支并向 `dev` 提 PR。`dev` 要求
+  `CI gate`、`Agent jury gate`、`Agent issue gate`、`Contributor gate` 四个检查，加上一次当前
+  CODEOWNER 审批并解决全部评审会话。
+- 维护者与 Agent 的改动使用同仓库 agent 前缀分支（默认 `codex/*`，由仓库变量
+  `COCO_AGENT_BRANCH_PREFIXES` 决定），经受保护的 `Open Agent Pull Request` 工作流向 `dev` 开 PR。
+- `main` 是发布分支，只能由仓库所有者把 `dev` 晋升进去，要求 `CI gate` 与 `Promotion gate`。
+- 发版由维护者从最新的受保护 `main` 提交手动触发 `Release` 工作流；工作流等待 Maven Central 状态为
+  `PUBLISHED` 后由 Release App 创建不可变的 `v*` 标签，不要手工推送标签。
+- 仓库只启用 merge commit，禁用 squash 与 rebase。
+
+### 文档与 Wiki 治理
+
+- `docs/wiki` 是公开 GitHub Wiki 的事实源，只能通过 PR 修改，走与代码相同的受保护合并路径，
+  包括 CODEOWNER 审批。
+- 发布到 GitHub Wiki 由维护者使用 `.github/scripts/wiki_sync.py` 手动完成，自动化不会推送 Wiki。
+  直接在 Wiki 网页上做的修改没有评审记录也没有效力，下一次同步会覆盖。
+- Wiki 与仓库文档都是公开的，不得包含凭据、个人信息或本机路径。
+- 用户可见的变更应在同一个 PR 中写入 `CHANGELOG.md`；版本标题由维护者在发版时定稿，版本标签仍只由
+  Release 工作流创建。
