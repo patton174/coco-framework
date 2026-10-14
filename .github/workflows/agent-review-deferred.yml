@@ -263,7 +263,7 @@ jobs:
             --run-url "${run_url}"
 
       - name: Upload bound review input
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input/
@@ -312,7 +312,7 @@ jobs:
             .github/scripts
 
       - name: Download bound review input
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
@@ -355,7 +355,7 @@ jobs:
             --output "${output_dir}/${ROLE}.json"
 
       - name: Upload specialist report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-review-specialist-${{ matrix.id }}-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-specialist/${{ matrix.id }}.json
@@ -393,13 +393,13 @@ jobs:
             .github/scripts
 
       - name: Download bound review input
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
 
       - name: Download all specialist reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-specialist-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-specialists
@@ -444,7 +444,7 @@ jobs:
             --output "${output_dir}/${ROLE}.json"
 
       - name: Upload verifier report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-review-verifier-${{ matrix.id }}-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-verifier/${{ matrix.id }}.json
@@ -479,20 +479,20 @@ jobs:
             .github/scripts
 
       - name: Download bound review input
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
 
       - name: Download specialist reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-specialist-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-specialists
           merge-multiple: true
 
       - name: Download verifier reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-verifier-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-verifiers
@@ -537,7 +537,7 @@ jobs:
             --output-markdown "${output_dir}/review.md"
 
       - name: Upload final jury report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-review-final-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-final/
@@ -576,27 +576,27 @@ jobs:
             .github/scripts
 
       - name: Download bound review input
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
 
       - name: Download specialist reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-specialist-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-specialists
           merge-multiple: true
 
       - name: Download verifier reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-verifier-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-verifiers
           merge-multiple: true
 
       - name: Download final jury report
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-final-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-final
@@ -629,7 +629,7 @@ jobs:
             --output "${output_dir}/${ROLE}.json"
 
       - name: Upload continuity verifier report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-review-continuity-${{ matrix.id }}-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-continuity/${{ matrix.id }}.json
@@ -667,7 +667,7 @@ jobs:
             .github/scripts
 
       - name: Download bound publisher metadata
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
@@ -768,7 +768,7 @@ jobs:
             .github/scripts
 
       - name: Download bound review metadata
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
@@ -776,7 +776,7 @@ jobs:
       - name: Download final jury report
         if: needs.chair.result == 'success'
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-final-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-final
@@ -784,7 +784,7 @@ jobs:
       - name: Download specialist reports for deterministic revalidation
         if: needs.specialists.result == 'success'
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-specialist-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-specialists
@@ -793,14 +793,14 @@ jobs:
       - name: Download verifier reports for deterministic revalidation
         if: needs.verifiers.result == 'success'
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-verifier-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-verifiers
           merge-multiple: true
 
       - name: Download complete continuity reports for deterministic revalidation
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-review-continuity-*-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-continuity
@@ -937,7 +937,7 @@ jobs:
 
       - name: Download bound review metadata
         if: needs.prepare.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
@@ -1028,7 +1028,7 @@ jobs:
             .github/scripts
 
       - name: Download bound review metadata
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-review-input-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-review-input
