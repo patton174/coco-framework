@@ -1,0 +1,55 @@
+name: Documentation or Wiki issue / 文档或 Wiki 问题
+description: Report an incorrect, missing, or outdated document / 报告错误、缺失或过时的文档
+title: "[Docs]: "
+labels:
+  - documentation
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for the developer Wiki (`docs/wiki`), the README files, CONTRIBUTING, GOVERNANCE, the changelog, or website documentation. Do not include credentials, private keys, or production data.
+        本表单适用于开发者 Wiki（`docs/wiki`）、README、CONTRIBUTING、GOVERNANCE、更新日志和官网文档。请勿提交凭据、私钥或生产数据。
+  - type: input
+    id: location
+    attributes:
+      label: Page or file / 页面或文件
+      description: Wiki page name, repository path, or documentation URL.
+      placeholder: Getting-Started, docs/wiki/Architecture.md, or CONTRIBUTING.md
+    validations:
+      required: true
+  - type: dropdown
+    id: problem-type
+    attributes:
+      label: Problem type / 问题类型
+      options:
+        - Incorrect information / 信息错误
+        - Missing content / 内容缺失
+        - Outdated content / 内容过时
+        - Broken link or anchor / 链接或锚点失效
+        - Contains sensitive information / 含有敏感信息
+        - Other / 其他
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description / 问题描述
+      description: Explain what is wrong and how you noticed it. Cite the source of truth (code, pom.xml, workflow, or a governing document) when you can.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested revision / 建议修订
+      description: Propose the corrected wording, or describe what should be added.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist / 检查项
+      options:
+        - label: I checked the latest main branch and CHANGELOG.md, and the problem still exists. / 已对照最新 main 分支与 CHANGELOG.md，问题仍然存在。
+          required: true
+        - label: I removed secrets and private data. If the page exposes sensitive information, I will use private vulnerability reporting instead of this form. / 已移除敏感信息；若页面暴露了敏感信息，我将改用私密漏洞报告而不是本表单。
+          required: true
+        - label: I can help submit a pull request for this fix. / 我可以协助提交修复该问题的 PR。

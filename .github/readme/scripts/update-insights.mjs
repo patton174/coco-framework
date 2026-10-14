@@ -152,9 +152,11 @@ export function renderContributors(locale, repository, contributors) {
     const cells = displayed.slice(index, index + 6).map(({ login }) => {
       const encodedLogin = encodeURIComponent(login);
       const escapedLogin = escapeHtml(login);
+      // GitHub strips inline styles from README HTML, so the circular crop is rendered server-side.
+      const avatarUrl = `https://wsrv.nl/?url=${encodeURIComponent(`github.com/${login}.png`)}&w=96&h=96&fit=cover&mask=circle`;
       return `    <td align="center">
       <a href="https://github.com/${encodedLogin}">
-        <img src="https://avatars.githubusercontent.com/${encodedLogin}?s=96" width="48" height="48" alt="${escapedLogin}"/><br/>
+        <img src="${avatarUrl}" width="48" height="48" alt="${escapedLogin}"/><br/>
         <sub>${escapedLogin}</sub>
       </a>
     </td>`;

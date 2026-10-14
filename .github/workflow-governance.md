@@ -284,6 +284,16 @@ only protected scripts while holding secrets, and opens or updates a pull
 request through the dedicated App. It never pushes directly to `main` and never
 executes code from a previous automation branch.
 
+The README pull request targets `main` and is admitted by a restricted lane of
+`promotion_gate.py`: the head must be `automation/readme-maintenance`, the author
+must match `COCO_AGENT_APP_LOGIN` and `COCO_AGENT_APP_BOT_ID`, and every changed
+path (including rename sources) must be a root README, a README fragment, or the
+content baseline state file. Scripts, tests, and the manifest under `.github/readme/`
+are excluded because they later run with the App token, so they must enter through
+`dev`. A truncated or empty file list fails closed. `CI gate`, the Promotion gate,
+and a current human approval still gate the merge. When `main` is ahead of `dev`
+only by such README output, the `dev` promotion does not require a sync first.
+
 The auto-merge workflow executes the protected default-branch script and treats
 events only as candidate hints. Immediately before a merge commit it rechecks
 the exact head, repository merge settings, `CI gate`, `Agent jury gate`, `Agent

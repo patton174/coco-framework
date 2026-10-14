@@ -14,6 +14,7 @@ seo_title: "快速开始：5 分钟接入 Spring Boot Starter"
 
 - JDK 17 及以上
 - Maven 3.8.9 及以上
+- Spring Boot 4.1（`coco-parent` 已固定该版本）
 
 ## 1. 引入依赖
 
@@ -82,8 +83,8 @@ class OrderController {
 ```json
 {
   "success": true,
-  "code": 0,
-  "message": "",
+  "code": 200,
+  "message": "操作成功",
   "data": { "id": "1", "amount": 100 }
 }
 ```

@@ -1,11 +1,11 @@
-## 生产注意事项
+## 上生产前
 
-有几项默认值是刻意保守的——首次接入的安全选择，未必适合集群。它们在你显式启用前保持关闭或进程内：
+有些默认值是为了第一次跑起来方便，不是为集群准备的。请检查这三项：
 
-| 关注点 | 默认 | 上生产时 |
-|--------|------|---------|
-| **SQL 防护** | 关闭，保证既有运维 SQL 不被打断 | 先复核你的 SQL，再启用 `block-attack` / `illegal-sql`——防护可能拒绝它无法可靠校验的合法语句 |
-| **防重放** | `InMemoryCocoReplayStore`，仅进程内有效 | 换成 JDBC 存储（或自己的实现），让键预留在多实例间原子。框架不执行迁移，表结构由你负责 |
-| **异步日志** | 有界队列；`ERROR` 与携带异常的记录始终同步写 | 替换 `CocoAsyncLogDropListener`，把丢弃计数接入你的监控。这是过载可观测性，不是投递保证 |
+| 功能 | 默认 | 你需要做什么 |
+|---|---|---|
+| **SQL 防护** | 关闭 | 先检查你的 SQL，再开启 `block-attack` / `illegal-sql`。它可能拒绝一些它无法校验的合法语句。[文档](https://cocoframework.dev/features/mybatis-plus) |
+| **防重放** | 内存存储，仅单进程有效 | 多实例部署时，换成 JDBC 存储或你自己的实现。Coco 不会建表，表结构由你管理。[文档](https://cocoframework.dev/features/request-security) |
+| **异步日志** | 有界队列；错误日志始终同步写入 | 把 `CocoAsyncLogDropListener` 接到你的监控，就能看到被丢弃的日志。它反映过载情况，不保证日志一定送达。[文档](https://cocoframework.dev/features/infra) |
 
-**→ [SQL 防护](https://cocoframework.dev/features/mybatis-plus)** · **[防重放](https://cocoframework.dev/features/request-security)** · **[日志与基础设施](https://cocoframework.dev/features/infra)**
+另外要注意：只有统一响应、异常处理和 TraceId 是零配置可用的。其他功能大多需要手动开启，有些还需要 Redis 或数据库。每个功能页都写明了默认值。

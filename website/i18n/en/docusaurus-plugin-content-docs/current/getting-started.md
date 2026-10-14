@@ -14,6 +14,7 @@ This page walks you through integrating Coco Framework into a Spring Boot applic
 
 - JDK 17 or later
 - Maven 3.8.9 or later
+- Spring Boot 4.1 (pinned by `coco-parent`)
 
 ## 1. Add the dependency
 
@@ -82,8 +83,8 @@ The return value is automatically wrapped by the framework's unified response wr
 ```json
 {
   "success": true,
-  "code": 0,
-  "message": "",
+  "code": 200,
+  "message": "Operation succeeded.",
   "data": { "id": "1", "amount": 100 }
 }
 ```
