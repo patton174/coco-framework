@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /coco-framework/m/
+Disallow: /coco-framework/en/m/
+
+Sitemap: https://patton174.github.io/coco-framework/sitemap.xml
+Sitemap: https://patton174.github.io/coco-framework/en/sitemap.xml
