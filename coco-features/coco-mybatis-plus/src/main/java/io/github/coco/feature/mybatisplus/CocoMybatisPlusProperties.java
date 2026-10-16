@@ -1,5 +1,6 @@
 package io.github.coco.feature.mybatisplus;
 
+import io.github.coco.feature.mybatisplus.datasource.CocoMybatisPlusDataSourceProperties;
 import io.github.coco.feature.mybatisplus.pagination.CocoMybatisPlusPaginationProperties;
 import io.github.coco.feature.mybatisplus.sqlguard.CocoMybatisPlusSqlGuardProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -8,7 +9,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 /**
  * Coco MyBatis-Plus 功能配置属性。
  * <p>
- * 绑定 {@code coco.mybatis-plus} 命名空间，集中维护 MyBatis-Plus 集成、分页拦截器和后续 SQL 扩展能力的配置。
+ * 绑定 {@code coco.mybatis-plus} 命名空间，集中维护 MyBatis-Plus 集成、分页拦截器、SQL 防护和动态多数据源路由的配置。
  * </p>
  * <p>
  * 项目信息：
@@ -29,6 +30,9 @@ public class CocoMybatisPlusProperties {
 
     @NestedConfigurationProperty
     private CocoMybatisPlusSqlGuardProperties sqlGuard = new CocoMybatisPlusSqlGuardProperties();
+
+    @NestedConfigurationProperty
+    private CocoMybatisPlusDataSourceProperties datasource = new CocoMybatisPlusDataSourceProperties();
 
     /**
      * <p>
@@ -68,5 +72,25 @@ public class CocoMybatisPlusProperties {
      */
     public void setSqlGuard(CocoMybatisPlusSqlGuardProperties sqlGuard) {
         this.sqlGuard = sqlGuard == null ? new CocoMybatisPlusSqlGuardProperties() : sqlGuard;
+    }
+
+    /**
+     * <p>
+     * 返回动态多数据源路由配置属性。
+     * </p>
+     * @return 动态多数据源路由配置属性
+     */
+    public CocoMybatisPlusDataSourceProperties getDatasource() {
+        return this.datasource;
+    }
+
+    /**
+     * <p>
+     * 设置动态多数据源路由配置属性。
+     * </p>
+     * @param datasource 动态多数据源路由配置属性
+     */
+    public void setDatasource(CocoMybatisPlusDataSourceProperties datasource) {
+        this.datasource = datasource == null ? new CocoMybatisPlusDataSourceProperties() : datasource;
     }
 }

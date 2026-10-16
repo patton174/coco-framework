@@ -1,2 +1,3 @@
 io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration
+io.github.coco.feature.mybatisplus.datasource.CocoMybatisPlusDataSourceAutoConfiguration
 io.github.coco.feature.mybatisplus.pagination.CocoPageContextMybatisPlusAutoConfiguration

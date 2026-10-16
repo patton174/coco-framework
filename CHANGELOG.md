@@ -40,6 +40,12 @@ headings are English; entries are written in Chinese first.
   `.github/scripts/wiki_sync.py`（校验与镜像发布）及其单元测试；新增 `docs/README.md` 文档索引；
   补充 PR 模板检查项、文档类 Issue 表单和协作文档（CONTRIBUTING、GOVERNANCE、SECURITY、SUPPORT）
   中的 Wiki 与更新日志说明。
+- MyBatis-Plus：`coco-mybatis-plus` 新增单 `SqlSessionFactory` 动态多数据源路由能力
+  （`CocoMybatisPlusDataSourceAutoConfiguration`、`CocoRoutingDataSource`、`@CocoDataSource`、
+  `CocoDataSourceContextHolder`、`CocoDataSourceRegistry`），支持 `coco.mybatis-plus.datasource.*` 配置与
+  `CocoDataSourceProvider`、`CocoDataSourceCreator`、`CocoDataSourceLoadBalancer`、
+  `CocoDataSourceKeyResolver`、`CocoDataSourceRouter` 扩展点，
+  并在 `coco.logging.quiet-spring=true` 时默认关闭 `mybatis-plus.global-config.banner`。
 
 ### Changed
 
