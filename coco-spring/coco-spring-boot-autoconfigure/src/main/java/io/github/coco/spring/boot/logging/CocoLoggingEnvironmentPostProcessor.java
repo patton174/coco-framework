@@ -46,6 +46,7 @@ public final class CocoLoggingEnvironmentPostProcessor implements EnvironmentPos
         defaults.put("logging.level.io.github.coco.lifecycle", "INFO");
         if (environment.getProperty("coco.logging.quiet-spring", Boolean.class, true)) {
             defaults.put("spring.main.log-startup-info", "false");
+            defaults.put("mybatis-plus.global-config.banner", "false");
             defaults.put("logging.level.org.springframework", "WARN");
             defaults.put("logging.level.org.springframework.boot.web.embedded.tomcat", "WARN");
             defaults.put("logging.level.org.springframework.web.servlet.DispatcherServlet", "WARN");

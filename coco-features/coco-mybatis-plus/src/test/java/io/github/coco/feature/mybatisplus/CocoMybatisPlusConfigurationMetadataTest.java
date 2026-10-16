@@ -51,6 +51,31 @@ class CocoMybatisPlusConfigurationMetadataTest {
         assertProperty(metadata, "coco.mybatis-plus.sql-guard.illegal-sql-enabled", "java.lang.Boolean", "false");
     }
 
+    @Test
+    void exposesDataSourcePropertyMetadata() throws IOException {
+        JsonNode metadata = configurationMetadata();
+
+        assertProperty(metadata, "coco.mybatis-plus.datasource.enabled", "java.lang.Boolean", "false");
+        assertProperty(metadata, "coco.mybatis-plus.datasource.primary", "java.lang.String", "master");
+        assertProperty(metadata,
+                "coco.mybatis-plus.datasource.missing-policy",
+                "io.github.coco.feature.mybatisplus.datasource.CocoDataSourceMissingPolicy",
+                "fail");
+        assertProperty(metadata,
+                "coco.mybatis-plus.datasource.transaction-policy",
+                "io.github.coco.feature.mybatisplus.datasource.CocoDataSourceTransactionPolicy",
+                "reject");
+        assertProperty(metadata,
+                "coco.mybatis-plus.datasource.load-balance-strategy",
+                "io.github.coco.feature.mybatisplus.datasource.CocoDataSourceLoadBalanceStrategy",
+                "round-robin");
+        assertProperty(metadata, "coco.mybatis-plus.datasource.group-separator", "java.lang.String", "_");
+        assertProperty(metadata, "coco.mybatis-plus.datasource.max-key-length", "java.lang.Integer", "128");
+        assertHint(metadata, "coco.mybatis-plus.datasource.missing-policy", "fallback-primary");
+        assertHint(metadata, "coco.mybatis-plus.datasource.transaction-policy", "reject");
+        assertHint(metadata, "coco.mybatis-plus.datasource.load-balance-strategy", "round-robin");
+    }
+
     private JsonNode configurationMetadata() throws IOException {
         InputStream metadata = getClass().getResourceAsStream("/META-INF/spring-configuration-metadata.json");
         assertNotNull(metadata);

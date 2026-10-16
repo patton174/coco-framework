@@ -54,7 +54,7 @@
 | `coco.common.i18n` | `coco-foundation/coco-i18n/src/main/java/io/github/coco/CocoCommonProperties.java` | 绑定在 autoconfigure 的 `CocoCommonAutoConfiguration` |
 | `coco.logging` | `coco-foundation/coco-logging/src/main/java/io/github/coco/logging/core/CocoLoggingProperties.java` | 绑定在 `CocoCommonLoggingAutoConfiguration` |
 | `coco.web` | `coco-features/coco-web/src/main/java/io/github/coco/feature/web/CocoWebProperties.java` | 子树另有 `response`、`trace`、`signature`、`encryption`、`replay`、`cors`、`headers`、`page` 各自的 Properties |
-| `coco.mybatis-plus` | `coco-features/coco-mybatis-plus/src/main/java/io/github/coco/feature/mybatisplus/CocoMybatisPlusProperties.java` | 分页与 SQL Guard 属性在 `pagination/`、`sqlguard/` |
+| `coco.mybatis-plus` | `coco-features/coco-mybatis-plus/src/main/java/io/github/coco/feature/mybatisplus/CocoMybatisPlusProperties.java` | 分页、SQL Guard 与多数据源属性在 `pagination/`、`sqlguard/`、`datasource/` |
 | `coco.tenant` | `coco-features/coco-tenant/src/main/java/io/github/coco/feature/tenant/CocoTenantProperties.java` | SQL 属性在 `sql/` |
 | `coco.data-permission` | `coco-features/coco-data-permission/src/main/java/io/github/coco/feature/datapermission/CocoDataPermissionProperties.java` | SQL 属性在 `sql/` |
 | `coco.security` | `coco-features/coco-security/src/main/java/io/github/coco/feature/security/CocoSecurityProperties.java` | Web 与 Header 属性在 `web/` |
@@ -99,7 +99,7 @@
 | 日志契约、句柄、访问日志 | `coco-foundation/coco-logging/src/main/java/io/github/coco/logging/` | 装配在 `coco-spring/coco-spring-boot-autoconfigure/src/main/java/io/github/coco/common/logging/autoconfigure/CocoCommonLoggingAutoConfiguration.java` |
 | 启动期日志默认值 | `coco-spring/coco-spring-boot-autoconfigure/src/main/java/io/github/coco/spring/boot/logging/CocoLoggingEnvironmentPostProcessor.java` | |
 | 异步线程池与上下文传播 | `coco-spring/coco-spring-boot-autoconfigure/src/main/java/io/github/coco/spring/boot/async/` | `CocoContextTaskDecorator` |
-| MyBatis-Plus 拦截器、分页、SQL Guard | `coco-features/coco-mybatis-plus/src/main/java/io/github/coco/feature/mybatisplus/`（`interceptor/`、`pagination/`、`sqlguard/`） | 扩展点 `CocoMybatisPlusInterceptorCustomizer` |
+| MyBatis-Plus 拦截器、分页、SQL Guard、动态多数据源 | `coco-features/coco-mybatis-plus/src/main/java/io/github/coco/feature/mybatisplus/`（`interceptor/`、`pagination/`、`sqlguard/`、`datasource/`） | 扩展点 `CocoMybatisPlusInterceptorCustomizer`、`CocoDataSourceProvider`、`CocoDataSourceCreator`、`CocoDataSourceLoadBalancer`、`CocoDataSourceKeyResolver`、`CocoDataSourceRouter` |
 | 租户 SQL 隔离 | `coco-features/coco-tenant/src/main/java/io/github/coco/feature/tenant/sql/` | `CocoTenantLineHandler` |
 | 租户上下文 | `coco-features/coco-tenant/src/main/java/io/github/coco/feature/tenant/context/` | |
 | 数据权限 SQL | `coco-features/coco-data-permission/src/main/java/io/github/coco/feature/datapermission/sql/` | `CocoDataPermissionSqlPredicateProvider` |
