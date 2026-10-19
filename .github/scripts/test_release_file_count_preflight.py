@@ -223,12 +223,18 @@ class ReleaseFileCountPreflightTests(unittest.TestCase):
         )
         counts = Counter(kind for module in modules for kind in module.artifacts)
 
-        self.assertEqual({"pom": 34, "main": 30, "sources": 26, "javadoc": 26}, counts)
+        self.assertEqual({"pom": 40, "main": 36, "sources": 26, "javadoc": 26}, counts)
         self.assertEqual(
             {
-                "coco-feature-mybatis-plus",
                 "coco-config",
+                "coco-feature-audit",
+                "coco-feature-data-permission",
+                "coco-feature-mybatis-plus",
+                "coco-feature-openapi",
                 "coco-feature-runtime",
+                "coco-feature-security",
+                "coco-feature-tenant",
+                "coco-feature-web",
                 "coco-spring-boot-starter",
             },
             {
@@ -245,6 +251,18 @@ class ReleaseFileCountPreflightTests(unittest.TestCase):
                 if module.artifact_id == "coco-maven-plugin"
             ),
         )
+
+    def test_repository_expectations_match_the_reactor(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        projects = preflight.load_reactor(repository_root)
+        modules = preflight.load_expectations(
+            repository_root
+            / ".github"
+            / "release"
+            / "release-artifact-expectations.json"
+        )
+
+        preflight.validate_expected_reactor(projects, modules)
 
     def test_capacity_passes_exactly_at_zero_remaining(self) -> None:
         capacity = preflight.validate_capacity(

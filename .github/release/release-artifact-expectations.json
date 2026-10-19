@@ -17,8 +17,80 @@
       ]
     },
     {
+      "path": "coco-build/coco-compatibility/coco-config",
+      "artifact_id": "coco-config",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
+      "path": "coco-build/coco-compatibility/coco-feature-audit",
+      "artifact_id": "coco-feature-audit",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
+      "path": "coco-build/coco-compatibility/coco-feature-data-permission",
+      "artifact_id": "coco-feature-data-permission",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
       "path": "coco-build/coco-compatibility/coco-feature-mybatis-plus",
       "artifact_id": "coco-feature-mybatis-plus",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
+      "path": "coco-build/coco-compatibility/coco-feature-openapi",
+      "artifact_id": "coco-feature-openapi",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
+      "path": "coco-build/coco-compatibility/coco-feature-runtime",
+      "artifact_id": "coco-feature-runtime",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
+      "path": "coco-build/coco-compatibility/coco-feature-security",
+      "artifact_id": "coco-feature-security",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
+      "path": "coco-build/coco-compatibility/coco-feature-tenant",
+      "artifact_id": "coco-feature-tenant",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main"
+      ]
+    },
+    {
+      "path": "coco-build/coco-compatibility/coco-feature-web",
+      "artifact_id": "coco-feature-web",
       "packaging": "jar",
       "artifacts": [
         "pom",
@@ -61,6 +133,17 @@
       ]
     },
     {
+      "path": "coco-features/coco-audit",
+      "artifact_id": "coco-audit",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main",
+        "sources",
+        "javadoc"
+      ]
+    },
+    {
       "path": "coco-features/coco-cache",
       "artifact_id": "coco-cache",
       "packaging": "jar",
@@ -83,72 +166,8 @@
       ]
     },
     {
-      "path": "coco-features/coco-feature-audit",
-      "artifact_id": "coco-feature-audit",
-      "packaging": "jar",
-      "artifacts": [
-        "pom",
-        "main",
-        "sources",
-        "javadoc"
-      ]
-    },
-    {
-      "path": "coco-features/coco-feature-data-permission",
-      "artifact_id": "coco-feature-data-permission",
-      "packaging": "jar",
-      "artifacts": [
-        "pom",
-        "main",
-        "sources",
-        "javadoc"
-      ]
-    },
-    {
-      "path": "coco-features/coco-feature-openapi",
-      "artifact_id": "coco-feature-openapi",
-      "packaging": "jar",
-      "artifacts": [
-        "pom",
-        "main",
-        "sources",
-        "javadoc"
-      ]
-    },
-    {
-      "path": "coco-features/coco-feature-runtime",
-      "artifact_id": "coco-feature-runtime",
-      "packaging": "jar",
-      "artifacts": [
-        "pom",
-        "main"
-      ]
-    },
-    {
-      "path": "coco-features/coco-feature-security",
-      "artifact_id": "coco-feature-security",
-      "packaging": "jar",
-      "artifacts": [
-        "pom",
-        "main",
-        "sources",
-        "javadoc"
-      ]
-    },
-    {
-      "path": "coco-features/coco-feature-tenant",
-      "artifact_id": "coco-feature-tenant",
-      "packaging": "jar",
-      "artifacts": [
-        "pom",
-        "main",
-        "sources",
-        "javadoc"
-      ]
-    },
-    {
-      "path": "coco-features/coco-feature-web",
-      "artifact_id": "coco-feature-web",
+      "path": "coco-features/coco-data-permission",
+      "artifact_id": "coco-data-permission",
       "packaging": "jar",
       "artifacts": [
         "pom",
@@ -213,6 +232,17 @@
       ]
     },
     {
+      "path": "coco-features/coco-openapi",
+      "artifact_id": "coco-openapi",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main",
+        "sources",
+        "javadoc"
+      ]
+    },
+    {
       "path": "coco-features/coco-rate-limit",
       "artifact_id": "coco-rate-limit",
       "packaging": "jar",
@@ -235,8 +265,41 @@
       ]
     },
     {
+      "path": "coco-features/coco-security",
+      "artifact_id": "coco-security",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main",
+        "sources",
+        "javadoc"
+      ]
+    },
+    {
       "path": "coco-features/coco-storage",
       "artifact_id": "coco-storage",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main",
+        "sources",
+        "javadoc"
+      ]
+    },
+    {
+      "path": "coco-features/coco-tenant",
+      "artifact_id": "coco-tenant",
+      "packaging": "jar",
+      "artifacts": [
+        "pom",
+        "main",
+        "sources",
+        "javadoc"
+      ]
+    },
+    {
+      "path": "coco-features/coco-web",
+      "artifact_id": "coco-web",
       "packaging": "jar",
       "artifacts": [
         "pom",
@@ -309,15 +372,6 @@
         "main",
         "sources",
         "javadoc"
-      ]
-    },
-    {
-      "path": "coco-spring/coco-config",
-      "artifact_id": "coco-config",
-      "packaging": "jar",
-      "artifacts": [
-        "pom",
-        "main"
       ]
     },
     {
