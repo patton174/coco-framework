@@ -57,6 +57,13 @@ Central 与 GPG 密钥。Maven Central 发布成功后，工作流会为已验�
 发布的精确提交。不要手工创建或推送发布标签；仓库规则集禁止已有发布标签被更新或
 删除。
 
+### Maven 版本固定
+
+`publish` 作业在 Central 发布前下载并校验 Maven 3.9.16，再执行 `mvn deploy`。
+Maven 3.10 会在 Central staging 中留下 `maven-metadata-local.xml`，Portal 会以
+`Bundle has content that does NOT have a .pom file` 拒绝整个部署。待
+central-publishing 插件支持 Maven 3.10 后再移除该固定。
+
 ## 验收所有权
 
 框架仓库负责模块级回归、feature assembly 和 `prune-package` 的 Boot archive / index 裁剪验证；当前反应堆的

@@ -458,6 +458,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
             r"(?s)needs:\s+.*- test\s+.*- central-capacity\s+.*Publish",
         )
 
+    def test_publish_pins_maven_39_before_deploy(self) -> None:
+        publish = self.workflow[self.workflow.index("  publish:") :]
+
+        self.assertIn("Pin Maven 3.9.16 for Central publishing", publish)
+        self.assertIn("MAVEN_DISTRIBUTION_VERSION: '3.9.16'", publish)
+        self.assertIn("sha512sum", publish)
+        self.assertLess(
+            publish.index("Pin Maven 3.9.16 for Central publishing"),
+            publish.index("- name: Publish"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
