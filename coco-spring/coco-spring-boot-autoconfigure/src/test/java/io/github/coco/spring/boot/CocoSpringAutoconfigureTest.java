@@ -118,6 +118,7 @@ class CocoSpringAutoconfigureTest {
         processor.postProcessEnvironment(environment, new SpringApplication(TestApplication.class));
 
         assertEquals("false", environment.getProperty("spring.main.log-startup-info"));
+        assertEquals("false", environment.getProperty("mybatis-plus.global-config.banner"));
         assertEquals("ERROR", environment.getProperty("logging.level.org.springframework"));
         assertEquals("WARN", environment.getProperty("logging.level.org.apache.catalina"));
         assertTrue(environment.getProperty("logging.pattern.console").contains("%highlight(%-5level)"));

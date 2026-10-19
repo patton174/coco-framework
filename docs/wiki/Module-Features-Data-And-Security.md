@@ -7,7 +7,7 @@
 
 | Feature id | 模块 | Feature 依赖（`StandardCocoFeatures`） | Maven 依赖中的 Coco 模块 | 模块级开关（默认值） |
 | --- | --- | --- | --- | --- |
-| `mybatis-plus` | `coco-mybatis-plus` | 无 | `coco-i18n`、`coco-exception`、`coco-spring-boot-autoconfigure`；optional：`coco-api`、`coco-context` | `coco.mybatis-plus.pagination.enabled`=true |
+| `mybatis-plus` | `coco-mybatis-plus` | 无 | `coco-i18n`、`coco-exception`、`coco-spring-boot-autoconfigure`；optional：`coco-api`、`coco-context` | `coco.mybatis-plus.pagination.enabled`=true；`coco.mybatis-plus.datasource.enabled`=**false** |
 | `security` | `coco-security` | 无 | `coco-exception`、`coco-i18n`、`coco-context`、`coco-spring-boot-autoconfigure`；测试：`coco-test` | `coco.security.web.enabled`=true |
 | `tenant` | `coco-tenant` | `mybatis-plus`、`security` | `coco-exception`、`coco-i18n`、`coco-context`、`coco-spring-boot-autoconfigure`；optional：`coco-mybatis-plus` | `coco.tenant.sql.enabled`=true |
 | `data-permission` | `coco-data-permission` | `mybatis-plus`、`security` | 同 tenant | `coco.data-permission.sql.enabled`=**false** |
@@ -40,6 +40,14 @@
 | `pagination` | `CocoPageContextInnerInterceptor` | `beforeQuery` 里把分页上下文自动注入到查询 |
 | `pagination` | `CocoMybatisPlusPaginationProperties`、`CocoPageContextMybatisPlusAutoConfiguration` | 分页属性与上下文接入配置 |
 | `sqlguard` | `CocoMybatisPlusSqlGuardProperties` | SQL 守卫属性 |
+| `datasource` | `CocoMybatisPlusDataSourceAutoConfiguration`、`CocoMybatisPlusDataSourceProperties`、`CocoDataSourceDefinitionProperties` | 动态多数据源的自动配置与属性（前缀 `coco.mybatis-plus.datasource`） |
+| `datasource` | `CocoRoutingDataSource`（继承 `AbstractRoutingDataSource`，实现 `CocoDataSourceRegistry`） | 全局唯一的 `@Primary` 路由数据源；Bean 名称 `dataSource` 与 `cocoRoutingDataSource` |
+| `datasource` | `CocoDataSource`（注解，类/方法/接口/Mapper）、`CocoDataSourceAspect`、`CocoDataSourcePointcut` | 声明式切换；切面顺序默认高于 `@Transactional` |
+| `datasource` | `CocoDataSourceContextHolder`、`CocoDataSourceScope` | 栈式线程上下文：`push`、`current`、`snapshotStack`、`runWith`、`callWith`、`wrap`、`wrapSupplier`、`clear` |
+| `datasource` | `CocoDataSourceDefinition`（record，`toString` 对密码脱敏） | 单个数据源的不可变定义 |
+| `datasource` | `CocoDataSourceProvider`、`CocoDataSourceCreator`、`CocoDataSourceLoadBalancer`、`CocoDataSourceKeyResolver`、`CocoDataSourceRouter` | **多数据源的 5 个 SPI**，默认实现见下文“扩展点” |
+| `datasource` | `CocoDataSourceRegistry` | 运行期注册、替换、卸载数据源，查询数据源与分组拓扑 |
+| `datasource` | `CocoDataSourceMissingPolicy`、`CocoDataSourceTransactionPolicy`、`CocoDataSourceLoadBalanceStrategy` | 缺失策略、事务内切换策略、负载均衡策略枚举 |
 
 分页链路：`coco-web` 的 `CocoPageInterceptor` 解析 `page` / `size` / `sort` → `coco-context` 的 `CocoPageContextHolder` → 本模块的 `CocoPageContextInnerInterceptor` 与 `CocoPages` → 结果可转为 `CocoPage`。
 
@@ -59,15 +67,37 @@
 | 追加自己的拦截器 | 声明 `CocoMybatisPlusInterceptorCustomizer` Bean，或直接声明 `InnerInterceptor` Bean |
 | 整体替换拦截器 | 声明 `MybatisPlusInterceptor` Bean（`mybatisPlusInterceptor` 带 `@ConditionalOnMissingBean`） |
 | 关闭分页上下文自动注入 | `coco.mybatis-plus.pagination.context.enabled=false` |
+| 从数据库或配置中心加载数据源 | 声明 `CocoDataSourceProvider` Bean（可多个，按 `Ordered` 排序，同名时后者覆盖前者） |
+| 更换连接池或处理密文凭据 | 声明 `CocoDataSourceCreator` Bean，替换 `DefaultCocoDataSourceCreator` |
+| 自定义分组负载均衡 | 声明 `CocoDataSourceLoadBalancer` Bean，替换由 `load-balance-strategy` 选出的默认实现 |
+| 自定义路由键解析 | 声明 `CocoDataSourceKeyResolver` Bean，替换默认的字面量 + SpEL 解析 |
+| 不用注解、按上下文路由 | 声明 `CocoDataSourceRouter` Bean，例如读取租户上下文 |
+| 运行期增删数据源 | 注入 `CocoDataSourceRegistry`，调用 `registerDataSource` / `unregisterDataSource`；主数据源不可卸载，被替换或卸载的连接池会被关闭 |
+
+### 动态多数据源
+
+默认关闭（`coco.mybatis-plus.datasource.enabled=false`）。启用后只暴露**一个** `@Primary` 的 `CocoRoutingDataSource`，因此 MyBatis-Plus 只创建一个 `SqlSessionFactory`，分页、租户、数据权限、SQL 守卫都在同一条拦截器链上对所有物理数据源生效，不会为每个数据源重复输出 MyBatis-Plus 启动标识。
+
+- **路由键来源**：`CocoDataSourceRouter` 返回的键，默认取 `CocoDataSourceContextHolder` 栈顶；没有键时用 `primary`。键可以是数据源名，也可以是分组名。
+- **分组**：`sources.<name>.group` 显式指定，否则按 `group-separator` 取名称前缀（`slave_1`、`slave_2` 归入 `slave`）。命中分组时由 `CocoDataSourceLoadBalancer` 选出具体数据源。
+- **切面**：`CocoDataSourceAspect` 同时解析方法、类、接口与 Mapper 代理上的 `@CocoDataSource`（方法优先），解析结果按（方法，目标类）缓存；嵌套调用逐层压栈并在退出时恢复。
+- **事务保护**：`transaction-policy` 控制已激活本地事务内的跨源切换（`reject` 默认，`warn`，`allow`）。切面默认排在 `@Transactional` 之前，所以最外层调用不会误报。
+- **缺失策略**：`missing-policy=fail`（默认）在目标不存在时抛出 `DATASOURCE_NOT_FOUND`；`fallback-primary` 记录 WARN 并回退主数据源。
+- **失败回收**：启动时任一数据源创建失败、主数据源缺失或后一个 Provider 覆盖了同名数据源，已创建的连接池都会被关闭，不会泄漏。
+- **凭据**：`CocoDataSourceDefinition#toString` 对密码脱敏，附加属性只输出键名。
+- **错误码**：新增 `INVALID_DATASOURCE_KEY`、`INVALID_DATASOURCE_DEFINITION`、`PRIMARY_DATASOURCE_MISSING`、`PRIMARY_DATASOURCE_UNREMOVABLE`、`DATASOURCE_NOT_FOUND`、`DATASOURCE_TRANSACTION_CONFLICT`，消息在 `coco-feature-mybatis-plus-messages` 三个资源包中。
 
 ### 自动配置
 
 `AutoConfiguration.imports`：
 
 1. `io.github.coco.feature.mybatisplus.CocoMybatisPlusAutoConfiguration`：`after MybatisPlusAutoConfiguration`、`before MybatisPlusInnerInterceptorAutoConfiguration`；`@ConditionalOnCocoFeature(MYBATIS_PLUS)` + `@ConditionalOnClass(MybatisPlusInterceptor)`；Bean：`cocoMybatisPlusMessageBundleRegistrar`、`mybatisPlusInterceptor`。
-2. `io.github.coco.feature.mybatisplus.pagination.CocoPageContextMybatisPlusAutoConfiguration`：`after CocoMybatisPlusAutoConfiguration`；`coco.mybatis-plus.pagination.context.enabled` 缺省 true；Bean `cocoPageContextInterceptorCustomizer`。
+2. `io.github.coco.feature.mybatisplus.datasource.CocoMybatisPlusDataSourceAutoConfiguration`：`before DataSourceAutoConfiguration`、`before MybatisPlusAutoConfiguration`；`@ConditionalOnCocoFeature(MYBATIS_PLUS)` + `@ConditionalOnClass(DataSource, AbstractRoutingDataSource)` + `coco.mybatis-plus.datasource.enabled=true`（无缺省）；Bean：`cocoDataSourceCreator`、`propertiesCocoDataSourceProvider`、`cocoDataSourceLoadBalancer`、`cocoDataSourceRouter`、`cocoRoutingDataSource`（别名 `dataSource`，`@Primary`）、`cocoDataSourceKeyResolver`、`cocoDataSourceAspect`、`cocoDataSourceAdvisor`。除 `cocoRoutingDataSource` 以 `CocoRoutingDataSource` 类型、`propertiesCocoDataSourceProvider` 与 `cocoDataSourceAdvisor` 以名称判断外，其余 Bean 都按类型 `@ConditionalOnMissingBean`。
+3. `io.github.coco.feature.mybatisplus.pagination.CocoPageContextMybatisPlusAutoConfiguration`：`after CocoMybatisPlusAutoConfiguration`；`coco.mybatis-plus.pagination.context.enabled` 缺省 true；Bean `cocoPageContextInterceptorCustomizer`。
 
 当该 Feature 被禁用时，`CocoFeatureAutoConfigurationImportFilter` 还会过滤 MyBatis-Plus 官方的 5 个自动配置（见 [Spring 组合层](Module-Spring)）。构建期 `StandardCocoFeatures` 对该 Feature 的裁剪集合除 `coco-mybatis-plus` 外还包括 `mybatis`、`mybatis-spring` 与一组 `mybatis-plus-*` 第三方 artifact（见 [构建模块](Module-Build)）。
+
+`coco.logging.quiet-spring=true`（默认）时，`CocoLoggingEnvironmentPostProcessor` 还会把 `mybatis-plus.global-config.banner` 默认设为 `false`，业务显式配置优先；见 [基础模块](Module-Foundation)。
 
 ### 配置属性（前缀 `coco.mybatis-plus`）
 
@@ -81,10 +111,19 @@
 | `pagination.context.enabled` | 缺省 `true`（条件属性，无字段） |
 | `sql-guard.block-attack-enabled` | `false` |
 | `sql-guard.illegal-sql-enabled` | `false` |
+| `datasource.enabled` | `false` |
+| `datasource.primary` | `master` |
+| `datasource.missing-policy` | `fail`（`fail` / `fallback-primary`） |
+| `datasource.transaction-policy` | `reject`（`reject` / `warn` / `allow`） |
+| `datasource.load-balance-strategy` | `round-robin`（`round-robin` / `random`） |
+| `datasource.group-separator` | `_` |
+| `datasource.aspect-order` | `Ordered.HIGHEST_PRECEDENCE + 100` |
+| `datasource.max-key-length` | `128` |
+| `datasource.sources.<name>.url` / `username` / `password` / `driver-class-name` / `type` / `group` / `properties.*` | 空；`url` 必填 |
 
 有 `META-INF/additional-spring-configuration-metadata.json`。
 
-**测试**：2 个 `*Test`。**用户文档**：[mybatis-plus](https://github.com/patton174/coco-framework/blob/main/website/docs/features/mybatis-plus.md)、[pagination](https://github.com/patton174/coco-framework/blob/main/website/docs/features/pagination.md)。
+**测试**：4 个 `*Test`（含多数据源的自动配置与路由测试，以及不依赖容器的基础组件测试）。**用户文档**：[mybatis-plus](https://github.com/patton174/coco-framework/blob/main/website/docs/features/mybatis-plus.md)、[pagination](https://github.com/patton174/coco-framework/blob/main/website/docs/features/pagination.md)。
 
 ## 2. coco-security
 

@@ -39,6 +39,59 @@
       "type": "java.lang.Boolean",
       "description": "Whether Coco registers the MyBatis-Plus illegal SQL inner interceptor.",
       "defaultValue": false
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether Coco enables the dynamic multi-datasource routing auto-configuration.",
+      "defaultValue": false
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.primary",
+      "type": "java.lang.String",
+      "description": "Default primary datasource name used when no routing key is present in context.",
+      "defaultValue": "master"
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.missing-policy",
+      "type": "io.github.coco.feature.mybatisplus.datasource.CocoDataSourceMissingPolicy",
+      "description": "Policy applied when a requested datasource name or group is not registered.",
+      "defaultValue": "fail"
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.transaction-policy",
+      "type": "io.github.coco.feature.mybatisplus.datasource.CocoDataSourceTransactionPolicy",
+      "description": "Policy applied when switching to a different datasource inside an active local Spring transaction.",
+      "defaultValue": "reject"
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.load-balance-strategy",
+      "type": "io.github.coco.feature.mybatisplus.datasource.CocoDataSourceLoadBalanceStrategy",
+      "description": "Load balancing strategy used when routing to a datasource group.",
+      "defaultValue": "round-robin"
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.group-separator",
+      "type": "java.lang.String",
+      "description": "Delimiter used to automatically infer a datasource group from a datasource name prefix (for example 'slave_1' -> 'slave').",
+      "defaultValue": "_"
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.aspect-order",
+      "type": "java.lang.Integer",
+      "description": "Order of the @CocoDataSource routing aspect advisor. Defaults to running before @Transactional.",
+      "defaultValue": -2147483548
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.max-key-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum allowed length of a resolved datasource routing key.",
+      "defaultValue": 128
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.sources",
+      "type": "java.util.Map<java.lang.String,io.github.coco.feature.mybatisplus.datasource.CocoDataSourceDefinitionProperties>",
+      "description": "Declarative map of named datasource definitions managed by CocoRoutingDataSource."
     }
   ],
   "hints": [
@@ -65,6 +118,42 @@
         },
         {
           "value": "other"
+        }
+      ]
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.missing-policy",
+      "values": [
+        {
+          "value": "fail"
+        },
+        {
+          "value": "fallback-primary"
+        }
+      ]
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.transaction-policy",
+      "values": [
+        {
+          "value": "reject"
+        },
+        {
+          "value": "warn"
+        },
+        {
+          "value": "allow"
+        }
+      ]
+    },
+    {
+      "name": "coco.mybatis-plus.datasource.load-balance-strategy",
+      "values": [
+        {
+          "value": "round-robin"
+        },
+        {
+          "value": "random"
         }
       ]
     }

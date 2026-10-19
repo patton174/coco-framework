@@ -143,7 +143,7 @@ flowchart TD
 
 - `coco.async`：Bean 名 `cocoTaskExecutor`（`ThreadPoolTaskExecutor`，条件 `@ConditionalOnClass(ThreadPoolTaskExecutor)` 且 `coco.async.enabled` 缺省为 true），任务装饰器为 `CocoContextTaskDecorator`，用 `CocoContextSnapshot.compose(...)` 传播请求上下文、TraceId 与分页上下文。
 - `coco.jackson`：`CocoJacksonAutoConfiguration` 在 `JacksonAutoConfiguration` 之前运行；`long-to-string` 为 true 时把 `Long`/`long` 序列化为字符串，并设置 `FAIL_ON_UNKNOWN_PROPERTIES`。`write-dates-as-timestamps` 在 `CocoJacksonProperties` 里有 getter / setter，但 `CocoJacksonAutoConfiguration` 的 customizer 代码没有读取它，因此当前设置该键不会改变序列化行为；设计意图未见文档说明，行为以 `CocoJacksonAutoConfiguration` 源码为准。
-- `CocoLoggingEnvironmentPostProcessor`：`coco.logging.enabled=false` 时不处理；否则追加名为 `cocoLoggingDefaults` 的属性源（`addLast`，优先级最低，业务配置可覆盖），设置 `logging.pattern.console`、`logging.level.io.github.coco*`（INFO）；`coco.logging.quiet-spring=true`（默认）时再把 `spring.main.log-startup-info` 设为 `false`，并把 Spring、Tomcat、DispatcherServlet 相关日志压到 `WARN`。
+- `CocoLoggingEnvironmentPostProcessor`：`coco.logging.enabled=false` 时不处理；否则追加名为 `cocoLoggingDefaults` 的属性源（`addLast`，优先级最低，业务配置可覆盖），设置 `logging.pattern.console`、`logging.level.io.github.coco*`（INFO）；`coco.logging.quiet-spring=true`（默认）时再把 `spring.main.log-startup-info` 与 `mybatis-plus.global-config.banner` 设为 `false`，并把 Spring、Tomcat、DispatcherServlet 相关日志压到 `WARN`。
 - `CocoSpringApplicationRunListener`：`coco.banner.enabled` 缺省为 true 时输出 Coco banner；`coco.logging.enabled` 缺省为 true 时在 `ready` / `failed` 阶段通过 `CocoLifecycleLogger` 输出生命周期日志。
 
 ### 2.9 测试

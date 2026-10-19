@@ -51,7 +51,7 @@
 | 路径 | artifactId | Feature id | 一句话职责 | 详情 |
 | --- | --- | --- | --- | --- |
 | `coco-features/coco-web` | `coco-web` | `web` | 统一响应、异常处理、Trace、请求上下文、签名 / 加密 / 重放 | [web](Module-Web) |
-| `coco-features/coco-mybatis-plus` | `coco-mybatis-plus` | `mybatis-plus` | 分页、SQL 守卫、拦截器组装 | [数据与安全](Module-Features-Data-And-Security) |
+| `coco-features/coco-mybatis-plus` | `coco-mybatis-plus` | `mybatis-plus` | 分页、SQL 守卫、动态多数据源路由、拦截器组装 | [数据与安全](Module-Features-Data-And-Security) |
 | `coco-features/coco-audit` | `coco-audit` | `audit` | 审计事件管道与访问日志审计 | [数据与安全](Module-Features-Data-And-Security) |
 | `coco-features/coco-security` | `coco-security` | `security` | 安全上下文（非认证实现） | [数据与安全](Module-Features-Data-And-Security) |
 | `coco-features/coco-tenant` | `coco-tenant` | `tenant` | 租户上下文与 SQL 隔离 | [数据与安全](Module-Features-Data-And-Security) |
