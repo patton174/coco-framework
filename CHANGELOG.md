@@ -26,8 +26,14 @@ headings are English; entries are written in Chinese first.
 
 ## [Unreleased]
 
-自 [v2.0.3](https://github.com/patton174/coco-framework/releases/tag/v2.0.3) 以来已合并到 `main`
-但尚未发布的变更。
+尚无未发布变更。
+
+## [3.0.0] - 2026-10-19
+
+模块规范化收官版本：规范模块坐标成为实现主体，移除代码生成与 Node 日志渲染器，并新增
+MyBatis-Plus 动态多数据源。详细说明与升级检查见
+[3.0.0 版本说明](website/docs/releases/3.0.0.md)，发布记录见
+[GitHub Release](https://github.com/patton174/coco-framework/releases/tag/v3.0.0)。
 
 ### Added
 
@@ -207,7 +213,8 @@ Coco Framework 2.0 的首个版本。依据
 - Release 工作流：Maven Central 环境密钥、内存 GPG 签名、等待自动发布，以及未指定版本时基于最新
   `v*` 标签生成下一个补丁版本。
 
-[Unreleased]: https://github.com/patton174/coco-framework/compare/v2.0.3...main
+[Unreleased]: https://github.com/patton174/coco-framework/compare/v3.0.0...main
+[3.0.0]: https://github.com/patton174/coco-framework/compare/v2.0.3...v3.0.0
 [2.0.3]: https://github.com/patton174/coco-framework/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/patton174/coco-framework/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/patton174/coco-framework/compare/v1.0.2...v2.0.1
