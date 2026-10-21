@@ -45,24 +45,26 @@ mvn -B -Prelease -Drevision=1.0.0 -Dgpg.skip=true -DskipTests verify
 工作流，选择 `main`，填写版本号（例如 `2.0.1`）；版本号留空时，工作流会根据现有
 正式标签生成下一个 patch 版本。
 
-默认 `autoPublish=false`。工作流上传并等待 Central 校验后，维护者需要在本次工作流仍
-处于运行状态时进入 Portal 确认发布；工作流会继续等待到状态变为 `PUBLISHED`。选择
-`autoPublish=true` 时，Central 校验通过后自动发布。两种模式都只有在制品已公开发布
-后才会进入标签 job。
+默认 `autoPublish=false`。插件上传并在 Central 校验通过后返回（用户管理的部署无法由
+插件等待到 `PUBLISHED`，请求 `PUBLISHED` 时插件会记录降级警告），随后工作流提示维护者
+在本次运行仍处于运行状态时到 Portal 确认发布，并轮询 Maven Central 仓库直到该版本可以
+公开访问；确认发布后才进入标签 job。选择 `autoPublish=true` 时，Central 校验通过后自动
+发布，插件直接等待到 `PUBLISHED`。
 
 Release 工作流会在跨平台测试通过后再次确认提交仍是最新 `main`，然后才进入
 `coco-spring` 环境。该环境只接受 `main`，禁用管理员绕过，并要求维护者批准后才提供
-Central 与 GPG 密钥。Maven Central 发布成功后，工作流会为已验证的 dispatch SHA
-创建对应的 `v*` 标签；即使 Central 处理期间 `main` 又有新提交，标签也必须指向实际
-发布的精确提交。不要手工创建或推送发布标签；仓库规则集禁止已有发布标签被更新或
-删除。
+Central 与 GPG 密钥。制品在 Maven Central 公开发布后，工作流会为已验证的 dispatch SHA
+创建对应的 `v*` 标签；即使 Central 处理期间 `main` 又有新提交，标签也必须指向实际发布
+的精确提交。不要手工创建或推送发布标签；仓库规则集禁止已有发布标签被更新或删除。
 
 ### Maven 版本固定
 
 `publish` 作业在 Central 发布前下载并校验 Maven 3.9.16，再执行 `mvn deploy`。
-Maven 3.10 会在 Central staging 中留下 `maven-metadata-local.xml`，Portal 会以
-`Bundle has content that does NOT have a .pom file` 拒绝整个部署。待
-central-publishing 插件支持 Maven 3.10 后再移除该固定。
+Maven 3.10 会在本地仓库与 Central staging 中留下 `maven-metadata-local.xml`、
+`_remote.repositories` 和 `.locks`，Portal 会以
+`Bundle has content that does NOT have a .pom file` 拒绝整个部署。central-publishing
+插件 0.12.0 起会在打包前清理这些文件；该固定保留作为发布期的额外保险，待 0.12.0
+完成一次发布验证后再单独移除。
 
 ## 验收所有权
 

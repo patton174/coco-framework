@@ -240,6 +240,9 @@ jobs:
             central_auto_publish="false"
           fi
 
+          # USER_MANAGED deployments are published from the Central Portal, so the
+          # plugin returns at VALIDATED even though PUBLISHED is requested. The
+          # "Wait for the Central publication" step below enforces the real wait.
           central_wait_until="PUBLISHED"
 
           {
@@ -347,6 +350,36 @@ jobs:
           -Dcentral.wait-until="${CENTRAL_WAIT_UNTIL}"
           -DskipTests
           deploy
+
+      - name: Wait for the Central publication
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${CENTRAL_AUTO_PUBLISH}" == "true" ]]; then
+            echo "Automatic publication was requested; the plugin already waited for PUBLISHED."
+            exit 0
+          fi
+
+          # USER_MANAGED deployments are published from the Central Portal, so
+          # the plugin stops at VALIDATED. The tag job must not run before the
+          # artifacts are actually available to consumers.
+          artifact_url="https://repo1.maven.org/maven2/io/github/patton174/coco-framework/${RELEASE_VERSION}/coco-framework-${RELEASE_VERSION}.pom"
+          echo "Publish the validated deployment at https://central.sonatype.com/publishing/deployments."
+          echo "Waiting for ${artifact_url} ..."
+          deadline=$((SECONDS + 30 * 60))
+          while (( SECONDS < deadline )); do
+            status="$(curl -L -s -o /dev/null -w '%{http_code}' "${artifact_url}" || true)"
+            if [[ "${status}" == "200" ]]; then
+              echo "Maven Central publication confirmed."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Timed out waiting for ${artifact_url}. Publish the deployment in the Central Portal; no release tag was created."
+          exit 1
 
   tag:
     name: Create immutable release tag

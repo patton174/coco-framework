@@ -136,7 +136,7 @@ flowchart TD
     guard --> test["test: 三平台 reusable-tests"]
     test --> cap["central-capacity: Central 文件数容量预检"]
     cap --> pub["publish: coco-spring 环境内执行 mvn deploy"]
-    pub --> wait["等待 Central 状态 PUBLISHED"]
+    pub --> wait["等待 Maven Central 发布（默认轮询 Central 仓库）"]
     wait --> tagjob["tag: Release App 创建 v 标签"]
     tagjob --> after["发布后: 核对标签与 CHANGELOG 链接"]
 ```
@@ -152,8 +152,8 @@ flowchart TD
 2. **guard**：分支必须是 `refs/heads/main` 且提交是 `main` 的最新提交。
 3. **test**：复用 `reusable-tests.yml`（三平台 `mvn -B -ntp install`）。静态分析与 CodeQL 属于合并时的 CI 门禁，发布工作流不重复跑。
 4. **central-capacity**：用 [`.github/scripts/release_file_count_preflight.py`](https://github.com/patton174/coco-framework/blob/main/.github/scripts/release_file_count_preflight.py) 做 Maven Central 文件数容量预检（期望清单 `.github/release/release-artifact-expectations.json`），并用临时生成的签名密钥执行一次 `-Prelease ... clean verify`，不做部署。该作业同样声明了 `coco-spring` 环境（用来读取容量快照变量），但按工作流注释并不引用发布密钥。
-5. **publish**：进入 `coco-spring` 环境（只接受 `main`，禁用管理员绕过，需要维护者批准后才提供 Central 与 GPG 密钥），先复核提交仍是最新 `main`，检查标签与 Central 上是否已有同版本，然后下载并校验 **Maven 3.9.16**，再执行 `mvn -B -ntp -Prelease -Drevision=<版本> -Dcentral.auto-publish=<...> -Dcentral.wait-until=PUBLISHED -DskipTests deploy`。Maven 3.10 会把 `maven-metadata-local.xml` 带进 Central bundle，导致 Portal 以 `Bundle has content that does NOT have a .pom file` 拒绝部署。
-6. **等待 `PUBLISHED`**：默认 `autoPublish=false` 时，Central 校验后需要维护者在工作流仍在运行时到 Portal 确认发布；工作流会继续等到状态变为 `PUBLISHED`。
+5. **publish**：进入 `coco-spring` 环境（只接受 `main`，禁用管理员绕过，需要维护者批准后才提供 Central 与 GPG 密钥），先复核提交仍是最新 `main`，检查标签与 Central 上是否已有同版本，然后下载并校验 **Maven 3.9.16**，再执行 `mvn -B -ntp -Prelease -Drevision=<版本> -Dcentral.auto-publish=<...> -Dcentral.wait-until=PUBLISHED -DskipTests deploy`。用户管理的部署（默认 `autoPublish=false`）由维护者在 Portal 发布，插件会在 `VALIDATED` 后返回（请求 `PUBLISHED` 时插件会记录降级警告）；`autoPublish=true` 时插件等待到 `PUBLISHED`。Maven 3.10 会把 `maven-metadata-local.xml` 等本地元数据带进 Central bundle，导致 Portal 以 `Bundle has content that does NOT have a .pom file` 拒绝部署；插件 0.12.0 起会在打包前清理这些文件，工作流仍固定 Maven 3.9.16 作为双重保险。
+6. **等待 Central 发布**：`autoPublish=true` 时插件已等到 `PUBLISHED`。默认 `autoPublish=false` 时，publish 作业随后执行 `Wait for the Central publication` 步骤：提示维护者到 Central Portal 发布，并每 30 秒轮询 `repo1.maven.org` 上的本版本 POM，直到可以公开访问（最长 30 分钟）；超时则作业失败，不创建标签。
 7. **tag**：只有制品已公开发布后，专用 Release App 才为**已验证的 dispatch SHA**创建带注释的 `v*` 标签（即使期间 `main` 又有新提交，标签也指向实际发布的精确提交）。
 8. **发布后（手动）**：确认标签已出现，`CHANGELOG.md` 里该版本的比较链接可以打开。面向业务使用者的升级说明放在官网 [`website/docs/releases/`](https://github.com/patton174/coco-framework/tree/main/website/docs/releases)，`CHANGELOG.md` 面向开发者，两者互相链接、不复制全文。Wiki 镜像的发布是与版本发布相互独立的手动操作，见 [指南：维护与发布本 Wiki](Guide-Contribute-To-Wiki)。
 
