@@ -8083,6 +8083,10 @@ class AgentReviewTests(unittest.TestCase):
         self.assertIn("environment: coco-spring", publish)
         self.assertIn('central_wait_until="PUBLISHED"', publish)
         self.assertNotIn('central_wait_until="VALIDATED"', publish)
+        self.assertIn("name: Wait for the Central publication", publish)
+        self.assertIn(
+            "repo1.maven.org/maven2/io/github/patton174/coco-framework", publish
+        )
         self.assertIn("persist-credentials: false", publish)
         self.assertIn("needs:\n      - test\n      - publish\n", tag)
         self.assertIn("environment: coco-spring", tag)

@@ -26,7 +26,16 @@ headings are English; entries are written in Chinese first.
 
 ## [Unreleased]
 
-尚无未发布变更。
+### Fixed
+
+- 发布：Release 工作流在 Central 发布前固定并校验 Maven 3.9.16，规避 Maven 3.10 在 bundle 中
+  残留 `maven-metadata-local.xml` 导致的 `Bundle has content that does NOT have a .pom file` 拒绝。
+- 发布：升级 `central-publishing-maven-plugin` 到 0.12.0；插件在打包前清理 Maven 3.10 写入本地仓库的
+  `maven-metadata-local.xml`、`_remote.repositories` 与 `.locks`，避免 Central 以
+  `Bundle has content that does NOT have a .pom file` 拒绝部署。
+- 发布：默认 `autoPublish=false` 时，工作流在 Central 校验通过后提示维护者在 Portal 发布，
+  并轮询 Maven Central 仓库确认该版本已公开后才创建标签；插件会把 `waitUntil=PUBLISHED`
+  降级为 `VALIDATED`，此前标签会在校验后、手动发布前就被创建。
 
 ## [3.0.0] - 2026-10-19
 
