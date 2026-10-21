@@ -28,6 +28,8 @@ headings are English; entries are written in Chinese first.
 
 ### Fixed
 
+- 发布：Release 工作流在 Central 发布前固定并校验 Maven 3.9.16，规避 Maven 3.10 在 bundle 中
+  残留 `maven-metadata-local.xml` 导致的 `Bundle has content that does NOT have a .pom file` 拒绝。
 - 发布：升级 `central-publishing-maven-plugin` 到 0.12.0；插件在打包前清理 Maven 3.10 写入本地仓库的
   `maven-metadata-local.xml`、`_remote.repositories` 与 `.locks`，避免 Central 以
   `Bundle has content that does NOT have a .pom file` 拒绝部署。
@@ -94,8 +96,6 @@ MyBatis-Plus 动态多数据源。详细说明与升级检查见
 
 ### Fixed
 
-- 发布：Release 工作流在 Central 发布前固定并校验 Maven 3.9.16，规避 Maven 3.10 在 bundle 中
-  残留 `maven-metadata-local.xml` 导致的 `Bundle has content that does NOT have a .pom file` 拒绝。
 - 治理：延迟执行的 jury 运行在未发布状态就退出时，`Agent jury gate` 现在会发布明确的失败状态
   （fail closed），不再无限期停在 PENDING。
 - 治理：多行的 agent 分支前缀配置现在会被完整读取。
