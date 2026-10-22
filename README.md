@@ -28,7 +28,7 @@ Most Spring Boot services end up with the same glue code. Coco ships it once, as
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>2.0.3</version>
+    <version>3.0.0</version>
     <relativePath/>
 </parent>
 
