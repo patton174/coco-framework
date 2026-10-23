@@ -28,7 +28,7 @@
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>2.0.3</version>
+    <version>3.0.0</version>
     <relativePath/>
 </parent>
 
@@ -104,7 +104,7 @@ coco:
 | 平台 | 文件存储、本地与 Redis 缓存、消息、通知渠道、验证码（图形、滑块、短信） |
 | 可观测 | 审计事件、OpenAPI 元数据 |
 
-以上功能都已包含在最新版本 **v2.0.3** 中。
+以上功能都已包含在最新版本 **v3.0.0** 中。
 
 ## Coco 不做什么
 
@@ -149,7 +149,7 @@ Coco 只管基础设施。下面这些由你的应用负责：
     <td align="center"><strong>4</strong><br/>星标</td>
     <td align="center"><strong>1</strong><br/>派生</td>
     <td align="center"><strong>1</strong><br/>贡献者</td>
-    <td align="center"><a href="https://github.com/patton174/coco-framework">更新时间: 2026-10-19</a></td>
+    <td align="center"><a href="https://github.com/patton174/coco-framework">更新时间: 2026-10-23</a></td>
   </tr>
 </table>
 <!-- COCO_STATS_END -->
