@@ -121,7 +121,7 @@
 | CODEOWNER | `.github/CODEOWNERS` 里的代码所有者，目前默认是 `@patton174`；合并要求一次**当前 head** 的 CODEOWNER 审批 | `.github/CODEOWNERS` |
 | Coco App / Release App | 专用 GitHub App：前者开 agent PR、发布评审评论与绑定 Issue、执行符合条件的 merge commit，不提供人工审批；后者只负责创建 `v*` 发布标签 | `GOVERNANCE.md`、`AGENTS.md` |
 | `coco-spring` / `coco-agent` 环境 | GitHub Environments，只接受 `main`，禁用管理员绕过；`coco-spring` 还要求维护者批准后才提供发布密钥 | `GOVERNANCE.md`、`release.md` |
-| Central Portal / `PUBLISHED` | Maven Central 的发布入口及其最终状态；Release 工作流等到 `PUBLISHED` 才创建标签 | `release.md`、`.github/workflows/release.yml` |
+| Central Portal / `PUBLISHED` | Maven Central 的发布入口及其最终状态；默认 `autoPublish=false` 时维护者在这里发布已校验的部署，Release 工作流轮询到该版本可公开访问后才创建标签 | `release.md`、`.github/workflows/release.yml` |
 | README fragments | `README.md` / `README_CN.md` 由 `.github/readme/fragments/` 下的片段经 `render.mjs` 确定性生成，**不要直接改** README | `AGENTS.md`、`.github/readme/` |
 
 ## 七、生态与工具

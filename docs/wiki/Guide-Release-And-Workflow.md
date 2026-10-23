@@ -41,7 +41,7 @@ flowchart TD
     promo --> pgates["门禁: Promotion gate、CI gate、CODEOWNER 审批"]
     pgates --> mainb["main"]
     mainb --> relwf["手动触发 Release 工作流"]
-    relwf --> central["等待 Maven Central 状态 PUBLISHED"]
+    relwf --> central["等待 Maven Central 公开发布（默认由维护者在 Portal 发布）"]
     central --> tag["Release App 为已验证的提交创建 v 标签"]
 ```
 
