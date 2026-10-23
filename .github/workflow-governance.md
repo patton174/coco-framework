@@ -17,7 +17,7 @@
 - Actions artifacts and logs are retained for 30 days. No workflow exposes repository or environment secrets to fork or bot PR content. `pull_request_target` governance jobs execute protected base code and treat PR changes only as untrusted API data; this isolation is the security boundary.
 - `coco-agent` and `coco-spring` accept only the exact `main` branch, and administrator bypass is disabled on both. `coco-spring` additionally requires maintainer deployment approval before release secrets become available.
 - The active `Protect release tags` ruleset applies to `refs/tags/v*` and blocks tag updates and deletion after creation.
-- Releases are manual dispatches from the latest protected `main` commit. The workflow waits for Maven Central state `PUBLISHED` and then tags the exact validated dispatch SHA, even if `main` advances while Central processes the deployment.
+- Releases are manual dispatches from the latest protected `main` commit. With the default `autoPublish=false`, the workflow waits until the maintainer publishes the validated deployment in the Central Portal and the version is publicly available on Maven Central, then tags the exact validated dispatch SHA, even if `main` advances while Central processes the deployment.
 - Dependabot alerts, Dependabot security updates, secret scanning, push protection, and private vulnerability reporting are enabled. CodeQL remains workflow-managed rather than using default setup.
 
 ## Protected Merge Path
