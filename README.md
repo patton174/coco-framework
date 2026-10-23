@@ -28,7 +28,7 @@ Most Spring Boot services end up with the same glue code. Coco ships it once, as
 <parent>
     <groupId>io.github.patton174</groupId>
     <artifactId>coco-parent</artifactId>
-    <version>2.0.3</version>
+    <version>3.0.0</version>
     <relativePath/>
 </parent>
 
@@ -104,7 +104,7 @@ Also, only response wrapping, exception handling and TraceId work with zero setu
 | Platform | File storage, local and Redis cache, messaging, notification channels, captcha (image, slider, SMS) |
 | Observability | Audit events, OpenAPI metadata |
 
-All of this ships in the latest release, **v2.0.3**.
+All of this ships in the latest release, **v3.0.0**.
 
 ## What Coco does not do
 
@@ -149,7 +149,7 @@ Questions and ideas: [Discussions](https://github.com/patton174/coco-framework/d
     <td align="center"><strong>4</strong><br/>Stars</td>
     <td align="center"><strong>1</strong><br/>Forks</td>
     <td align="center"><strong>1</strong><br/>Contributors</td>
-    <td align="center"><a href="https://github.com/patton174/coco-framework">Updated: 2026-10-19</a></td>
+    <td align="center"><a href="https://github.com/patton174/coco-framework">Updated: 2026-10-23</a></td>
   </tr>
 </table>
 <!-- COCO_STATS_END -->
