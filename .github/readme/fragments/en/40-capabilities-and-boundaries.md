@@ -9,7 +9,7 @@
 | Platform | File storage, local and Redis cache, messaging, notification channels, captcha (image, slider, SMS) |
 | Observability | Audit events, OpenAPI metadata |
 
-All of this ships in the latest release, **v2.0.3**.
+All of this ships in the latest release, **v3.0.0**.
 
 ## What Coco does not do
 
