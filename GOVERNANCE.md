@@ -90,8 +90,10 @@ compatibility evidence, operational risk, and long-term maintenance cost.
   accept only the exact `main` branch. `coco-spring` also requires maintainer
   deployment approval before release secrets become available.
 - Releases are manually dispatched from the latest protected `main` commit;
-  the workflow waits for Maven Central state `PUBLISHED` and then tags the exact
-  validated dispatch SHA.
+  with the default `autoPublish=false`, the maintainer publishes the validated
+  deployment in the Central Portal while the workflow polls Maven Central, and
+  the workflow tags the exact validated dispatch SHA once the version is
+  publicly available.
 - Release tags matching `v*` cannot be updated or deleted after creation.
 
 Emergency protection changes are allowed only to repair a confirmed defect in
@@ -128,8 +130,9 @@ canary 验证。
 - 维护者与 Agent 的改动使用同仓库 agent 前缀分支（默认 `codex/*`，由仓库变量
   `COCO_AGENT_BRANCH_PREFIXES` 决定），经受保护的 `Open Agent Pull Request` 工作流向 `dev` 开 PR。
 - `main` 是发布分支，只能由仓库所有者把 `dev` 晋升进去，要求 `CI gate` 与 `Promotion gate`。
-- 发版由维护者从最新的受保护 `main` 提交手动触发 `Release` 工作流；工作流等待 Maven Central 状态为
-  `PUBLISHED` 后由 Release App 创建不可变的 `v*` 标签，不要手工推送标签。
+- 发版由维护者从最新的受保护 `main` 提交手动触发 `Release` 工作流；默认 `autoPublish=false` 时，
+  维护者在 Central Portal 发布已校验的部署，工作流轮询 Maven Central 直到该版本可公开访问，
+  再由 Release App 创建不可变的 `v*` 标签，不要手工推送标签。
 - 仓库只启用 merge commit，禁用 squash 与 rebase。
 
 ### 文档与 Wiki 治理

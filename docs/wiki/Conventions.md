@@ -154,7 +154,7 @@
 | 版本号 | 根 `pom.xml` 的 `revision` 默认 `1.0.0-SNAPSHOT`；正式版本由 `-Drevision=X.Y.Z` 注入；`flatten-maven-plugin` 的 `resolveCiFriendliesOnly` 保证发布出去的 pom 里 `${revision}` 已被解析 | 根 `pom.xml` |
 | 发布版本格式 | 必须是 SemVer（可带 `v` 前缀输入），不得含 `SNAPSHOT`；留空则按已有标签生成下一个 patch 版本 | `.github/workflows/release.yml` |
 | 发布触发 | 只能从受保护 `main` 的最新提交手动触发 `Release` 工作流；作业顺序为 guard → test → central-capacity → publish → tag | `release.yml`、[`release.md`](https://github.com/patton174/coco-framework/blob/main/coco-support/coco-document/release.md) |
-| 发布标签 | `v*` 标签只在 Maven Central 状态变为 `PUBLISHED` 后由专用 Release App 创建，创建后不可更新或删除；**不要手工创建或推送发布标签** | `AGENTS.md`、`GOVERNANCE.md` |
+| 发布标签 | `v*` 标签只在该版本于 Maven Central 公开发布后由专用 Release App 创建（默认 `autoPublish=false` 时由维护者在 Portal 发布，工作流轮询确认），创建后不可更新或删除；**不要手工创建或推送发布标签** | `AGENTS.md`、`GOVERNANCE.md` |
 | 本地验证 | `mvn -B clean verify`（`CONTRIBUTING.md`）；CI 实际跑 `mvn -B -ntp install`（ubuntu / windows / macos 三平台，Temurin 21，编译目标 17） | `CONTRIBUTING.md`、`reusable-tests.yml` |
 | release profile 冒烟（无 GPG） | `mvn -B -Prelease -Drevision=1.0.0 -Dgpg.skip=true -DskipTests verify` | `AGENTS.md`、`release.md` |
 | 外部贡献者分支 | 从最新 `dev` 创建 `dev-<你的 GitHub 用户名>`，PR 目标是 `dev`；`main` 仅仓库所有者从 `dev` 晋升，其他分支直接向 `main` 提 PR 会被 `Promotion gate` 拒绝；不接受 fork PR | `CONTRIBUTING.md`、`GOVERNANCE.md`、`.github/workflows/contributor-gate.yml`、`.github/workflows/promotion-gate.yml` |
