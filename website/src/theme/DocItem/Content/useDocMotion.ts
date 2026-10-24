@@ -5,7 +5,7 @@ import {ScrollTrigger} from 'gsap/ScrollTrigger';
 
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 // Figures that settle in as they scroll into view. Running text and headings are never hidden.
-const BLOCKS = ':scope .markdown > :is(.theme-code-block, table, .theme-admonition, blockquote, figure, img, details, .tabs-container)';
+const BLOCKS = ':scope .markdown > :is(.theme-code-block, table, .theme-admonition, blockquote, figure, img, details, .tabs-container, .doc-star-panel)';
 const STAGGER_MS = 70;
 
 /**

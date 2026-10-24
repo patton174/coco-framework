@@ -60,7 +60,7 @@ public class OrderController {
 
 The client generates a stable and unique key for each logical operation (such as a UUID) and places it in the request header:
 
-```
+```http
 POST /api/orders HTTP/1.1
 Idempotency-Key: 6f9619ff-8b86-d011-b42d-00cf4fc964ff
 Content-Type: application/json
