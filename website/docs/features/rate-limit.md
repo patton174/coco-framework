@@ -100,7 +100,7 @@ Redis 存储下三种算法各由一段 Lua 脚本原子执行,计数使用 Redi
 
 放行请求携带以下响应头（`X-` 前缀为兼容别名）：
 
-```
+```http
 RateLimit-Limit: 100
 RateLimit-Remaining: 87
 RateLimit-Reset: 42
@@ -111,7 +111,7 @@ X-RateLimit-Reset: 42
 
 `RateLimit-Reset` 是距离当前窗口重置的剩余秒数。被拒绝时额外携带 `Retry-After`（至少为 1 秒）：
 
-```
+```http
 HTTP/1.1 429 Too Many Requests
 RateLimit-Limit: 5
 RateLimit-Remaining: 0

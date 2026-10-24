@@ -8,6 +8,18 @@ seo_title: "概览：面向 Spring Boot Web 服务的框架"
 
 # Coco Framework
 
+<div className="doc-badges">
+
+[![Build](https://github.com/patton174/coco-framework/actions/workflows/ci.yml/badge.svg)](https://github.com/patton174/coco-framework/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/patton174/coco-framework)](https://github.com/patton174/coco-framework/releases)
+[![Stars](https://img.shields.io/github/stars/patton174/coco-framework?style=flat&color=b4441f)](https://github.com/patton174/coco-framework/stargazers)
+[![License](https://img.shields.io/badge/License-Apache--2.0-b4441f)](https://github.com/patton174/coco-framework/blob/main/LICENSE)
+[![Java](https://img.shields.io/badge/Java-17%2B-b4441f)](https://adoptium.net/)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F)](https://spring.io/projects/spring-boot)
+[![Maven](https://img.shields.io/badge/Maven-3.8.9%2B-C71A36)](https://maven.apache.org/)
+
+</div>
+
 **面向 Spring Boot Web 服务的高约定快速开发框架，用于构建可生产落地的 Java 服务。**
 
 Coco Framework 帮助团队快速搭建 Spring Boot Web 服务：框架提供高约定、可替换的黑盒基础设施，业务侧继续使用普通的 Java / Spring 编程模型。
@@ -45,6 +57,23 @@ Coco Framework 帮助团队快速搭建 Spring Boot Web 服务：框架提供高
 框架负责**基础设施**；业务应用负责**领域模型、API 语义、认证提供者、用户/角色/组织模型**。
 
 这条边界是刻意的：框架不猜测你的业务，只把重复的、跨项目一致的基础设施做成可替换的黑盒。每个 SPI 都可以用一个 `@Bean` 覆盖为你自己的实现。
+
+## 星标历史
+
+<div className="doc-star-panel">
+  <div className="doc-star-bar">
+    <span className="doc-star-repo">patton174 / coco-framework</span>
+    <a className="doc-star-cta" href="https://github.com/patton174/coco-framework/stargazers" target="_blank" rel="noopener noreferrer">★ 点亮 Star ↗</a>
+  </div>
+  <a className="doc-star-stage" href="https://www.star-history.com/?repos=patton174%2Fcoco-framework&type=date&legend=bottom-right" target="_blank" rel="noopener noreferrer">
+    <img className="doc-theme-light" alt="Coco Framework Star History Chart" src="https://api.star-history.com/chart?repos=patton174/coco-framework&type=date&legend=bottom-right&sealed_token=WZtqAVEpmYHgLl3AUpfxFV4e_emJFt7fNK_ep9JrVVZ-tZvSoWbTwOEfvg8WIg0WEiosjWjZYSnF9DgC86cCiKp4iJ1uqirVm49z4-xECDHKRBogVqDokZF1cp6b00IInXU9FOcrhqR1nhcwP0t2KQhtRQAFe07t-K4PpUO7ERUjlhS6iRI1085j31pQ" loading="lazy" decoding="async" />
+    <img className="doc-theme-dark" alt="Coco Framework Star History Chart" src="https://api.star-history.com/chart?repos=patton174/coco-framework&type=date&theme=dark&legend=bottom-right&sealed_token=WZtqAVEpmYHgLl3AUpfxFV4e_emJFt7fNK_ep9JrVVZ-tZvSoWbTwOEfvg8WIg0WEiosjWjZYSnF9DgC86cCiKp4iJ1uqirVm49z4-xECDHKRBogVqDokZF1cp6b00IInXU9FOcrhqR1nhcwP0t2KQhtRQAFe07t-K4PpUO7ERUjlhS6iRI1085j31pQ" loading="lazy" decoding="async" />
+  </a>
+  <div className="doc-star-note">
+    <span>如果觉得 Coco Framework 对你有帮助，欢迎在 GitHub 点亮 Star 支持项目演进。</span>
+    <a href="https://www.star-history.com/?repos=patton174%2Fcoco-framework&type=date&legend=bottom-right" target="_blank" rel="noopener noreferrer">star-history.com ↗</a>
+  </div>
+</div>
 
 ## 下一步
 
