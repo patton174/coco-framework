@@ -5,15 +5,20 @@ import type * as Preset from '@docusaurus/preset-classic';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 // CSS variables keep syntax colors in sync with both surface themes, including SSR.
+// `annotation` sits after `punctuation` because Prism's Java grammar aliases annotations as `punctuation`.
 const codeTheme: PrismTheme = {
   plain: {color: 'var(--coco-text)', backgroundColor: 'var(--coco-code-bg)'},
   styles: [
-    {types: ['comment', 'prolog', 'doctype', 'cdata', 'namespace'], style: {color: 'var(--coco-text-muted)'}},
-    {types: ['string', 'attr-value', 'inserted'], style: {color: 'var(--coco-code-string)'}},
-    {types: ['atrule', 'keyword', 'attr-name', 'selector'], style: {color: 'var(--coco-code-keyword)'}},
-    {types: ['function', 'function-variable', 'deleted', 'tag'], style: {color: 'var(--coco-code-function)'}},
-    {types: ['entity', 'url', 'symbol', 'number', 'boolean', 'variable', 'constant', 'property', 'regex'], style: {color: 'var(--coco-code-literal)'}},
+    {types: ['comment', 'prolog', 'doctype', 'cdata', 'namespace', 'punctuation'], style: {color: 'var(--coco-text-muted)'}},
+    {types: ['operator'], style: {color: 'var(--coco-code-operator)'}},
+    {types: ['string', 'char', 'attr-value', 'value', 'header-value', 'reason-phrase', 'inserted'], style: {color: 'var(--coco-code-string)'}},
+    {types: ['atrule', 'keyword', 'attr-name', 'key', 'header-name', 'selector'], style: {color: 'var(--coco-code-keyword)'}},
+    {types: ['function', 'function-variable', 'method', 'deleted', 'tag'], style: {color: 'var(--coco-code-function)'}},
+    {types: ['entity', 'url', 'symbol', 'number', 'status-code', 'boolean', 'variable', 'constant', 'property', 'http-version', 'regex'], style: {color: 'var(--coco-code-literal)'}},
     {types: ['class-name', 'builtin'], style: {color: 'var(--coco-code-type)'}},
+    {types: ['annotation', 'decorator'], style: {color: 'var(--coco-code-annotation)'}},
+    {types: ['important', 'bold'], style: {fontWeight: '600'}},
+    {types: ['italic'], style: {fontStyle: 'italic'}},
   ],
 };
 
@@ -175,7 +180,7 @@ const config: Config = {
     prism: {
       theme: codeTheme,
       darkTheme: codeTheme,
-      additionalLanguages: ['java', 'yaml', 'properties', 'bash', 'json', 'sql'],
+      additionalLanguages: ['java', 'yaml', 'properties', 'bash', 'json', 'sql', 'http'],
     },
   } satisfies Preset.ThemeConfig,
 };

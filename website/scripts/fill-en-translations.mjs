@@ -61,6 +61,18 @@ const FILES = [
  * as unused but never deletes them, so they linger and confuse future edits.
  */
 const STALE_KEYS = {
+  'i18n/en/code.json': [
+    'home.feature.convention.title',
+    'home.feature.convention.desc',
+    'home.feature.pluggable.title',
+    'home.feature.pluggable.desc',
+    'home.feature.secure.title',
+    'home.feature.secure.desc',
+    'home.features.heading',
+    'home.hero.tagline',
+    'home.hero.cta.start',
+    'home.hero.cta.learn',
+  ],
   'i18n/en/docusaurus-plugin-content-docs/current.json': ['sidebar.docsSidebar.category.更新日志'],
   'i18n/en/docusaurus-theme-classic/footer.json': ['link.title.更多'],
 };

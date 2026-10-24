@@ -60,7 +60,7 @@ public class OrderController {
 
 客户端为每次逻辑操作生成稳定且唯一的键（如 UUID），放入请求头：
 
-```
+```http
 POST /api/orders HTTP/1.1
 Idempotency-Key: 6f9619ff-8b86-d011-b42d-00cf4fc964ff
 Content-Type: application/json

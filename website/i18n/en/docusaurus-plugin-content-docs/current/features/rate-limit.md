@@ -100,7 +100,7 @@ Under Redis storage each algorithm runs as its own atomic Lua script, counting w
 
 Allowed requests carry the following response headers (the `X-` prefix is a compatibility alias):
 
-```
+```http
 RateLimit-Limit: 100
 RateLimit-Remaining: 87
 RateLimit-Reset: 42
@@ -111,7 +111,7 @@ X-RateLimit-Reset: 42
 
 `RateLimit-Reset` is the number of seconds remaining until the current window resets. When rejected, it additionally carries `Retry-After` (at least 1 second):
 
-```
+```http
 HTTP/1.1 429 Too Many Requests
 RateLimit-Limit: 5
 RateLimit-Remaining: 0
