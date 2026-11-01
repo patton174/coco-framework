@@ -69,7 +69,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
 
@@ -92,7 +92,7 @@ jobs:
           --validate-config-only
 
       - name: Set up JDK for release artifact inventory
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '21'
@@ -276,7 +276,7 @@ jobs:
           fi
 
       - name: Set up JDK and Maven credentials
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '21'
@@ -466,7 +466,7 @@ jobs:
         # GitHub exposes no tag-only App permission. The dedicated App is
         # installed on this repository alone and bypasses only the v* creation
         # ruleset; branch rules and tag update/deletion rules have no App bypass.
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.COCO_RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.COCO_RELEASE_APP_PRIVATE_KEY }}
